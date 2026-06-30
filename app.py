@@ -264,7 +264,7 @@ def theme_css(profile):
     font = fonts[0] if fonts else "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
     return f"""
 :root {{--blog-bg:{bg};--blog-accent:{accent};--blog-text:{text};--blog-font:{font};}}
-.blog-core-page {{font-family: var(--blog-font); color: var(--blog-text); background: #fff;}}
+.blog-core-page {{font-family: var(--blog-font); color: var(--text, var(--blog-text)); background: var(--bg-dark, transparent); min-height: 100vh;}}
 .blog-core-wrap {{max-width: 1120px; margin: 0 auto; padding: 132px 24px 64px;}}
 .blog-core-hero {{padding: 72px 0 44px; border-bottom: 1px solid rgba(17,24,39,.12);}}
 .blog-core-kicker {{color: var(--blog-accent); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; font-size: 12px;}}
@@ -285,10 +285,32 @@ def theme_css(profile):
 """.strip()
 
 
+def shell_behavior_script(source_css):
+    if not source_css:
+        return ""
+    scripts = []
+    if "nav.nav-scrolled" in source_css or ".nav-scrolled" in source_css:
+        scripts.append("""
+<script>
+(function(){
+  function updateNavScrollState(){
+    document.querySelectorAll('nav').forEach(function(nav){
+      nav.classList.toggle('nav-scrolled', window.scrollY > 20);
+    });
+  }
+  updateNavScrollState();
+  window.addEventListener('scroll', updateNavScrollState, {passive:true});
+})();
+</script>
+""".strip())
+    return "\n".join(scripts)
+
+
 def render_shell(title, header, footer, body, css_href="/blog/blog-core.css", source_css="", source_css_urls=None):
     source_css_urls = source_css_urls or []
     source_links = "\n".join(f'<link rel="stylesheet" href="{escape(url, quote=True)}">' for url in source_css_urls)
     source_style = f"<style>\n{source_css}\n</style>" if source_css else ""
+    behavior_script = shell_behavior_script(source_css)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -303,12 +325,74 @@ def render_shell(title, header, footer, body, css_href="/blog/blog-core.css", so
 {header}
 {body}
 {footer}
+{behavior_script}
 </body>
 </html>
 """
 
 
+def uses_native_blog_pattern(source_css):
+    return all(token in (source_css or "") for token in (".section", ".blog-card", ".blog-carousel", ".container"))
+
+
+def native_card(title, summary, image_url, pill="Wine Guide", href="/blog/visual-chaos-in-ai-product-cards/"):
+    return f"""
+<a class=\"blog-card\" href=\"{escape(href, quote=True)}\">
+  <div class=\"img\" style=\"background-image:url('{escape(image_url, quote=True)}')\"></div>
+  <div class=\"body\">
+    <span class=\"pill\">{escape(pill)}</span>
+    <h3>{escape(title)}</h3>
+    <p>{escape(summary)}</p>
+    <span class=\"read\">Read guide</span>
+  </div>
+</a>
+"""
+
+
+def render_native_blog_index(brand, header, footer, css_href, source_css, source_css_urls):
+    cards = "".join([
+        native_card(
+            "How to remove visual chaos from product pages",
+            "A practical guide to keeping catalog visuals consistent so shoppers trust what they see.",
+            "https://yas.wine/blog/wine-region-napa-valley-united-states-hero-opt.webp",
+            "Strategy",
+        ),
+        native_card(
+            "Wine pairing basics for confident buying",
+            "Simple pairing rules that help readers choose bottles by meal, occasion, and taste.",
+            "https://yas.wine/blog/wine-pairing-guide-hero-icon.webp",
+            "Pairing",
+            "#",
+        ),
+        native_card(
+            "How to choose wine without guessing",
+            "A beginner-friendly framework for regions, grapes, labels, budget, and bottle styles.",
+            "https://yas.wine/blog/how-to-choose-wine-hero-icon.webp",
+            "Buying Guide",
+            "#",
+        ),
+    ])
+    body = f"""
+<div class=\"fixed-bg\"></div>
+<main class=\"container\" style=\"padding-top:120px;padding-bottom:80px\">
+  <section class=\"section\">
+    <h2>{escape(brand)} Blog</h2>
+    <p class=\"lead\">Practical wine guides for pairing, regions, grapes, bottle choice, and winery travel.</p>
+    <a class=\"btn btn-primary\" href=\"#latest-guides\">Explore latest guides</a>
+  </section>
+  <section id=\"latest-guides\" class=\"section\">
+    <h2>Latest wine guides</h2>
+    <p class=\"lead\">Useful articles built in the same visual system as the main site, ready for the content factory to publish into.</p>
+    <div class=\"blog-carousel\">{cards}</div>
+  </section>
+</main>
+"""
+    return render_shell(f"Blog - {brand}", header, footer, body, css_href, source_css, source_css_urls)
+
+
 def render_blog_index(brand, header, footer, css_href="/blog/blog-core.css", source_css="", source_css_urls=None):
+    if uses_native_blog_pattern(source_css):
+        return render_native_blog_index(brand, header, footer, css_href, source_css, source_css_urls)
     body = f"""
 <main class=\"blog-core-wrap\">
 <section class=\"blog-core-hero\">
@@ -327,6 +411,23 @@ def render_blog_index(brand, header, footer, css_href="/blog/blog-core.css", sou
 
 
 def render_sample_article(brand, header, footer, css_href="/blog/blog-core.css", source_css="", source_css_urls=None):
+    if uses_native_blog_pattern(source_css):
+        body = f"""
+<div class=\"fixed-bg\"></div>
+<main class=\"container\" style=\"padding-top:120px;padding-bottom:80px\">
+  <article class=\"section\" style=\"max-width:880px;margin-left:auto;margin-right:auto\">
+    <span class=\"pill\">Ecommerce Visuals</span>
+    <h2 style=\"margin-top:18px\">Why AI product pages start looking chaotic and how to fix it</h2>
+    <p class=\"lead\">When every product is photographed or generated with a different light, angle, crop, and background, buyers read the page as inconsistent. In ecommerce, inconsistent visuals often feel like risk.</p>
+    <h3 style=\"font-size:24px;margin:28px 0 10px\">The actual conversion problem</h3>
+    <p class=\"lead\">Visual mismatch forces shoppers to compare photography quality instead of product value. A clean catalog needs repeatable rules for lighting, scale, camera distance, context, and product emphasis.</p>
+    <h3 style=\"font-size:24px;margin:28px 0 10px\">The system-level fix</h3>
+    <p class=\"lead\">The blog core can publish articles that connect the search problem to the product workflow: style-locked visuals, product-specific proof shots, and consistent creative direction across a catalog.</p>
+    <a class=\"btn btn-primary\" href=\"/blog/\">Back to blog</a>
+  </article>
+</main>
+"""
+        return render_shell(f"Visual chaos in AI product cards - {brand}", header, footer, body, css_href, source_css, source_css_urls)
     body = f"""
 <main class=\"blog-core-wrap\">
 <article class=\"blog-core-article\">
