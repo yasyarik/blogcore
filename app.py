@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import sqlite3
 import urllib.parse
 import urllib.request
@@ -86,6 +87,15 @@ def init_db():
             conn.execute("alter table site_theme_profiles add column head_css text")
         except sqlite3.OperationalError:
             pass
+        for statement in (
+            "alter table sites add column factory_enabled integer not null default 0",
+            "alter table sites add column publishing_cadence text not null default 'manual'",
+            "alter table sites add column topic_strategy text",
+        ):
+            try:
+                conn.execute(statement)
+            except sqlite3.OperationalError:
+                pass
 
 
 class HeadBodyParser(HTMLParser):
@@ -521,6 +531,106 @@ def get_profile(site_id):
         return conn.execute("select * from site_theme_profiles where site_id=?", (site_id,)).fetchone()
 
 
+def form_bool(value):
+    return 1 if str(value or "").lower() in ("1", "true", "on", "yes") else 0
+
+
+def languages_to_text(value):
+    try:
+        parsed = json.loads(value or "[]")
+        if isinstance(parsed, list):
+            return ", ".join(str(item) for item in parsed)
+    except Exception:
+        pass
+    return value or "en"
+
+
+def text_to_languages(value):
+    items = [item.strip() for item in re.split(r"[,\n]", value or "") if item.strip()]
+    return json.dumps(items or ["en"])
+
+
+def get_site_full(site_id):
+    with db() as conn:
+        return conn.execute(
+            """
+            select s.*, p.scanned_at, p.title as scanned_title, p.description as scanned_description,
+                   p.colors_json, p.fonts_json, p.css_urls_json, t.preview_path
+            from sites s
+            left join site_theme_profiles p on p.site_id=s.id
+            left join blog_templates t on t.site_id=s.id
+            where s.id=?
+            """,
+            (site_id,),
+        ).fetchone()
+
+
+def get_site_jobs(site_id):
+    with db() as conn:
+        return conn.execute(
+            "select * from publish_jobs where site_id=? order by created_at desc limit 12",
+            (site_id,),
+        ).fetchall()
+
+
+def render_jobs(rows):
+    if not rows:
+        return "<div class='empty'>No publish jobs yet.</div>"
+    out = []
+    for row in rows:
+        out.append(
+            f"""
+            <div class="job-row">
+              <div><strong>{escape(row['kind'])}</strong><span>{escape(row['created_at'])}</span></div>
+              <b class="status {escape(row['status'])}">{escape(row['status'])}</b>
+              <p>{escape(row['message'] or '')}</p>
+            </div>
+            """
+        )
+    return "".join(out)
+
+
+def render_manage_site_page(site):
+    jobs = render_jobs(get_site_jobs(site["id"]))
+    preview = f"<a class='btn ghost' target='_blank' href='{escape(site['preview_path'])}'>Open preview</a>" if site["preview_path"] else "<span class='muted'>Build preview first</span>"
+    colors = []
+    fonts = []
+    css_count = 0
+    try:
+        colors = json.loads(site["colors_json"] or "[]")
+        fonts = json.loads(site["fonts_json"] or "[]")
+        css_count = len(json.loads(site["css_urls_json"] or "[]"))
+    except Exception:
+        pass
+    color_swatches = "".join(f"<span class='swatch' style='background:{escape(c, quote=True)}'></span>" for c in colors[:10]) or "<span class='muted'>No colors scanned</span>"
+    factory_checked = "checked" if int(site["factory_enabled"] or 0) else ""
+    cadence = site["publishing_cadence"] or "manual"
+    cadence_options = "".join(
+        f"<option value='{v}' {'selected' if cadence == v else ''}>{label}</option>"
+        for v, label in (("manual", "Manual"), ("weekly", "Weekly"), ("twice-weekly", "Twice weekly"), ("daily", "Daily"))
+    )
+    return (
+        MANAGE_SITE_HTML.replace("__SITE_ID__", str(site["id"]))
+        .replace("__DOMAIN__", escape(site["domain"]))
+        .replace("__HOMEPAGE__", escape(site["homepage_url"], quote=True))
+        .replace("__BRAND__", escape(site["brand_name"] or "", quote=True))
+        .replace("__ROOT__", escape(site["root_path"] or "", quote=True))
+        .replace("__BLOG_PATH__", escape(site["blog_path"] or "/blog/", quote=True))
+        .replace("__LANGUAGES__", escape(languages_to_text(site["languages"]), quote=True))
+        .replace("__CONTENT_CONTEXT__", escape(site["content_context"] or ""))
+        .replace("__TOPIC_STRATEGY__", escape(site["topic_strategy"] or ""))
+        .replace("__FACTORY_CHECKED__", factory_checked)
+        .replace("__CADENCE_OPTIONS__", cadence_options)
+        .replace("__PREVIEW__", preview)
+        .replace("__SCANNED_AT__", escape(site["scanned_at"] or "Not scanned"))
+        .replace("__SCANNED_TITLE__", escape(site["scanned_title"] or "No title captured"))
+        .replace("__CSS_COUNT__", str(css_count))
+        .replace("__FONTS__", escape(", ".join(fonts[:4]) or "No fonts scanned"))
+        .replace("__SWATCHES__", color_swatches)
+        .replace("__JOBS__", jobs)
+    )
+
+
 @app.get("/health")
 def health():
     return jsonify({"ok": True, "service": "blog-core", "time": now_iso()})
@@ -546,20 +656,94 @@ def render_site_row(s):
     preview = f"<a class='btn ghost' target='_blank' href='{escape(s['preview_path'])}'>Open preview</a>" if s["preview_path"] else "<span class='muted'>No preview</span>"
     scanned = escape(s["scanned_at"] or "Not scanned")
     return f"""
-<div class=\"site-card\">
+<div class="site-card">
   <div>
-    <div class=\"site-domain\">{escape(s['domain'])}</div>
-    <div class=\"site-url\">{escape(s['homepage_url'])}</div>
-    <div class=\"site-meta\">root: {escape(s['root_path'] or 'not set')} · scanned: {scanned}</div>
+    <div class="site-domain">{escape(s['domain'])}</div>
+    <div class="site-url">{escape(s['homepage_url'])}</div>
+    <div class="site-meta">root: {escape(s['root_path'] or 'not set')} · scanned: {scanned}</div>
   </div>
-  <div class=\"actions\">
-    <button onclick=\"runAction({s['id']}, 'scan')\">Scan design</button>
-    <button onclick=\"runAction({s['id']}, 'bootstrap-preview')\">Build preview</button>
-    <button onclick=\"runAction({s['id']}, 'install-blog')\">Install /blog</button>
+  <div class="actions">
+    <a class="btn ghost" href="/sites/{s['id']}">Manage</a>
+    <button onclick="runAction({s['id']}, 'scan')">Scan design</button>
+    <button onclick="runAction({s['id']}, 'bootstrap-preview')">Build preview</button>
+    <button onclick="runAction({s['id']}, 'install-blog')">Install /blog</button>
     {preview}
+    <button class="danger" onclick="deleteSite({s['id']}, '{escape(s['domain'], quote=True)}')">Delete</button>
   </div>
 </div>
 """
+
+
+@app.get("/sites/<int:site_id>")
+def manage_site(site_id):
+    site = get_site_full(site_id)
+    if not site:
+        return redirect("/")
+    return render_manage_site_page(site)
+
+
+@app.post("/sites/<int:site_id>/settings")
+def update_site_settings(site_id):
+    site = get_site(site_id)
+    if not site:
+        return jsonify({"error": "site not found"}), 404
+    payload = request.form.to_dict()
+    homepage = normalize_url(payload.get("homepage_url") or site["homepage_url"])
+    if not homepage:
+        return jsonify({"error": "homepage_url is required"}), 400
+    domain = domain_from_url(homepage)
+    now = now_iso()
+    with db() as conn:
+        conn.execute(
+            """
+            update sites
+            set domain=?, homepage_url=?, root_path=?, blog_path=?, languages=?, brand_name=?,
+                content_context=?, factory_enabled=?, publishing_cadence=?, topic_strategy=?, updated_at=?
+            where id=?
+            """,
+            (
+                domain,
+                homepage,
+                payload.get("root_path") or "",
+                payload.get("blog_path") or "/blog/",
+                text_to_languages(payload.get("languages")),
+                payload.get("brand_name") or domain.split(".")[0].replace("-", " ").title(),
+                payload.get("content_context") or "",
+                form_bool(payload.get("factory_enabled")),
+                payload.get("publishing_cadence") or "manual",
+                payload.get("topic_strategy") or "",
+                now,
+                site_id,
+            ),
+        )
+    return redirect(f"/sites/{site_id}")
+
+
+@app.post("/api/sites/<int:site_id>/queue-topic-plan")
+def queue_topic_plan(site_id):
+    site = get_site(site_id)
+    if not site:
+        return jsonify({"error": "site not found"}), 404
+    with db() as conn:
+        conn.execute(
+            "insert into publish_jobs(site_id,kind,status,message,created_at) values(?,?,?,?,?)",
+            (site_id, "topic-plan", "queued", "Topic planning queued from site factory settings", now_iso()),
+        )
+    return jsonify({"ok": True})
+
+
+@app.post("/api/sites/<int:site_id>/delete")
+def delete_site(site_id):
+    site = get_site(site_id)
+    if not site:
+        return jsonify({"error": "site not found"}), 404
+    with db() as conn:
+        conn.execute("delete from site_theme_profiles where site_id=?", (site_id,))
+        conn.execute("delete from blog_templates where site_id=?", (site_id,))
+        conn.execute("delete from publish_jobs where site_id=?", (site_id,))
+        conn.execute("delete from sites where id=?", (site_id,))
+    shutil.rmtree(PREVIEW_DIR / str(site_id), ignore_errors=True)
+    return jsonify({"ok": True, "deleted": site_id, "note": "Installed /blog files were not removed from the target site root."})
 
 
 @app.post("/api/sites")
@@ -643,6 +827,74 @@ def site_theme(site_id):
     return jsonify(dict(profile))
 
 
+MANAGE_SITE_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage __DOMAIN__ · Blog Core</title>
+<style>
+:root{--bg:#0b1020;--panel:rgba(255,255,255,.08);--line:rgba(255,255,255,.15);--text:#f8fafc;--muted:#a6b0c3;--accent:#8b5cf6;--accent2:#22c55e;--danger:#ef4444}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;word-break:break-word}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid{display:block}.form-grid{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <section class="top">
+    <div>
+      <a class="back" href="/">← All sites</a>
+      <h1 class="title">__DOMAIN__</h1>
+      <div class="sub">Manage the blog shell, design scan, install target, and article factory settings for this connected site.</div>
+    </div>
+    <div class="actions">__PREVIEW__</div>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Site setup</h2>
+      <form method="post" action="/sites/__SITE_ID__/settings" class="form-grid">
+        <div class="field full"><label>Homepage URL</label><input name="homepage_url" value="__HOMEPAGE__" required></div>
+        <div class="field"><label>Brand name</label><input name="brand_name" value="__BRAND__"></div>
+        <div class="field"><label>Blog path</label><input name="blog_path" value="__BLOG_PATH__"></div>
+        <div class="field full"><label>Local webroot</label><input name="root_path" value="__ROOT__" placeholder="/var/www/site-root"></div>
+        <div class="field"><label>Languages</label><input name="languages" value="__LANGUAGES__" placeholder="en, ru, de"></div>
+        <div class="field"><label>Publishing cadence</label><select name="publishing_cadence">__CADENCE_OPTIONS__</select></div>
+        <div class="field full"><label>Site/product context</label><textarea name="content_context" placeholder="What this site sells, audience, positioning, internal links...">__CONTENT_CONTEXT__</textarea></div>
+        <div class="field full"><label>Topic strategy</label><textarea name="topic_strategy" placeholder="Topics, clusters, tone, forbidden claims, CTA rules...">__TOPIC_STRATEGY__</textarea></div>
+        <label class="check full"><input type="checkbox" name="factory_enabled" __FACTORY_CHECKED__> Enable article factory for this site</label>
+        <div class="actions full"><button type="submit">Save settings</button></div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Design and publishing</h2>
+      <div class="actions">
+        <button onclick="runAction(__SITE_ID__, 'scan')">Scan design</button>
+        <button onclick="runAction(__SITE_ID__, 'bootstrap-preview')">Build preview</button>
+        <button onclick="runAction(__SITE_ID__, 'install-blog')">Install /blog</button>
+        <button class="ghost" onclick="queueTopicPlan(__SITE_ID__)">Queue topic plan</button>
+      </div>
+      <div class="stat"><strong>Last scan</strong><div class="muted">__SCANNED_AT__</div><div class="muted">__SCANNED_TITLE__</div></div>
+      <div class="stat"><strong>Captured design</strong><div class="muted">__CSS_COUNT__ stylesheets · __FONTS__</div><div class="swatches">__SWATCHES__</div></div>
+      <div class="stat"><strong>Delete connected site</strong><div class="muted">Removes it from Blog Core and deletes generated previews only. It does not remove installed /blog files from the target webroot.</div><div style="margin-top:12px"><button class="danger" onclick="deleteSite(__SITE_ID__, '__DOMAIN__')">Delete from dashboard</button></div></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Factory jobs</h2>
+    __JOBS__
+  </section>
+</main>
+<div id="toast" class="toast"></div>
+<script>
+function showToast(text){const toast=document.getElementById('toast');toast.textContent=text;toast.className='toast show';}
+async function runAction(id, action){showToast('Running '+action+'...');try{const res=await fetch('/api/sites/'+id+'/'+action,{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(action+' completed');setTimeout(()=>location.reload(),700);}catch(e){showToast(action+' failed: '+e.message);}}
+async function queueTopicPlan(id){showToast('Queueing topic plan...');try{const res=await fetch('/api/sites/'+id+'/queue-topic-plan',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Topic plan queued');setTimeout(()=>location.reload(),700);}catch(e){showToast('Queue failed: '+e.message);}}
+async function deleteSite(id, domain){if(!confirm('Remove '+domain+' from Blog Core? Installed /blog files on the site will not be deleted.')) return;showToast('Deleting '+domain+'...');try{const res=await fetch('/api/sites/'+id+'/delete',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);location.href='/';}catch(e){showToast('Delete failed: '+e.message);}}
+</script>
+</body>
+</html>"""
+
 DASHBOARD_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -651,7 +903,7 @@ DASHBOARD_HTML = """<!doctype html>
 <title>Blog Core</title>
 <style>
 :root{--bg:#0b1020;--panel:rgba(255,255,255,.08);--line:rgba(255,255,255,.15);--text:#f8fafc;--muted:#a6b0c3;--accent:#8b5cf6;--accent2:#22c55e}
-*{box-sizing:border-box} body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh} a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:44px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:28px}.title{font-size:clamp(42px,7vw,78px);letter-spacing:-.055em;line-height:.92;margin:0}.sub{color:var(--muted);font-size:18px;line-height:1.55;max-width:720px;margin:18px 0 0}.badge{border:1px solid var(--line);background:rgba(255,255,255,.07);border-radius:999px;padding:10px 14px;color:#d8cdfd;font-weight:800;white-space:nowrap}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.form{display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:12px}.form input{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:14px 15px;font-size:14px;outline:none}.form input:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}button,.btn{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.site-card{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;border:1px solid var(--line);border-radius:20px;background:rgba(8,13,29,.58);padding:18px;margin-top:14px}.site-domain{font-size:22px;font-weight:900;letter-spacing:-.02em}.site-url,.site-meta,.muted{color:var(--muted);font-size:13px;margin-top:5px}.actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}.actions button{background:rgba(255,255,255,.1);border:1px solid var(--line)}.empty{color:var(--muted);padding:26px;text-align:center}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.site-card{display:block}.form{grid-template-columns:1fr}.actions{justify-content:flex-start;margin-top:16px}.badge{display:inline-block;margin-top:18px}}
+*{box-sizing:border-box} body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh} a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:44px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:28px}.title{font-size:clamp(42px,7vw,78px);letter-spacing:-.055em;line-height:.92;margin:0}.sub{color:var(--muted);font-size:18px;line-height:1.55;max-width:720px;margin:18px 0 0}.badge{border:1px solid var(--line);background:rgba(255,255,255,.07);border-radius:999px;padding:10px 14px;color:#d8cdfd;font-weight:800;white-space:nowrap}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.form{display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:12px}.form input{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:14px 15px;font-size:14px;outline:none}.form input:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}button,.btn{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.site-card{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;border:1px solid var(--line);border-radius:20px;background:rgba(8,13,29,.58);padding:18px;margin-top:14px}.site-domain{font-size:22px;font-weight:900;letter-spacing:-.02em}.site-url,.site-meta,.muted{color:var(--muted);font-size:13px;margin-top:5px}.actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}.actions button{background:rgba(255,255,255,.1);border:1px solid var(--line)}.actions .danger{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.45);color:#fecaca}.empty{color:var(--muted);padding:26px;text-align:center}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.site-card{display:block}.form{grid-template-columns:1fr}.actions{justify-content:flex-start;margin-top:16px}.badge{display:inline-block;margin-top:18px}}
 </style>
 </head>
 <body>
@@ -686,6 +938,18 @@ async function runAction(id, action){
     toast.textContent=action+' completed';
     setTimeout(()=>location.reload(),700);
   }catch(e){toast.textContent=action+' failed: '+e.message;}
+}
+async function deleteSite(id, domain){
+  if(!confirm('Remove '+domain+' from Blog Core? Installed /blog files on the site will not be deleted.')) return;
+  const toast=document.getElementById('toast');
+  toast.textContent='Deleting '+domain+'...'; toast.className='toast show';
+  try{
+    const res=await fetch('/api/sites/'+id+'/delete',{method:'POST'});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.statusText);
+    toast.textContent='Site removed';
+    setTimeout(()=>location.reload(),500);
+  }catch(e){toast.textContent='Delete failed: '+e.message;}
 }
 </script>
 </body>
