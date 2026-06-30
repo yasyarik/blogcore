@@ -2,6 +2,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import sqlite3
 import urllib.parse
 import urllib.request
@@ -10,13 +11,16 @@ from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, request, send_from_directory
+from flask import Flask, Response, abort, jsonify, redirect, request, send_from_directory
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 PREVIEW_DIR = BASE_DIR / "previews"
 DB_PATH = DATA_DIR / "blog_core.sqlite3"
 PORT = int(os.environ.get("PORT", "3299"))
+ADMIN_HOSTS = {h.strip().lower() for h in os.environ.get("ADMIN_HOSTS", "blog.yas.ooo,127.0.0.1,localhost").split(",") if h.strip()}
+CNAME_TARGET = os.environ.get("CNAME_TARGET", "blog.yas.ooo").strip().lower()
+EXPECTED_HOSTED_IPS = {ip.strip() for ip in os.environ.get("HOSTED_BLOG_IPS", "72.61.1.109").split(",") if ip.strip()}
 
 app = Flask(__name__)
 DATA_DIR.mkdir(exist_ok=True)
@@ -87,10 +91,15 @@ def init_db():
             conn.execute("alter table site_theme_profiles add column head_css text")
         except sqlite3.OperationalError:
             pass
+        conn.execute("create unique index if not exists idx_sites_custom_blog_domain on sites(custom_blog_domain) where custom_blog_domain is not null and custom_blog_domain <> ''")
         for statement in (
             "alter table sites add column factory_enabled integer not null default 0",
             "alter table sites add column publishing_cadence text not null default 'manual'",
             "alter table sites add column topic_strategy text",
+            "alter table sites add column custom_blog_domain text",
+            "alter table sites add column hosted_blog_enabled integer not null default 0",
+            "alter table sites add column cname_status text not null default 'not_configured'",
+            "alter table sites add column cname_checked_at text",
         ):
             try:
                 conn.execute(statement)
@@ -189,6 +198,46 @@ def normalize_url(url):
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     return url.rstrip("/") + "/"
+
+
+def clean_host(value):
+    host = (value or "").strip().lower()
+    host = re.sub(r"^https?://", "", host)
+    host = host.split("/")[0].split(":")[0].strip()
+    return host.rstrip(".")
+
+
+def request_host():
+    return clean_host(request.headers.get("Host") or "")
+
+
+def is_admin_host(host):
+    return host in ADMIN_HOSTS or host.endswith(".localhost")
+
+
+def resolve_host_ips(host):
+    if not host:
+        return []
+    try:
+        return sorted({item[4][0] for item in socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)})
+    except OSError:
+        return []
+
+
+def check_cname_status(custom_domain):
+    host = clean_host(custom_domain)
+    if not host:
+        return {"status": "not_configured", "ips": [], "expected_ips": sorted(EXPECTED_HOSTED_IPS), "target": CNAME_TARGET}
+    ips = resolve_host_ips(host)
+    target_ips = resolve_host_ips(CNAME_TARGET)
+    allowed = EXPECTED_HOSTED_IPS or set(target_ips)
+    if ips and allowed.intersection(ips):
+        status = "active"
+    elif ips:
+        status = "wrong_target"
+    else:
+        status = "dns_pending"
+    return {"status": status, "ips": ips, "target_ips": target_ips, "expected_ips": sorted(allowed), "target": CNAME_TARGET}
 
 
 def domain_from_url(url):
@@ -616,6 +665,10 @@ def render_manage_site_page(site):
         .replace("__BRAND__", escape(site["brand_name"] or "", quote=True))
         .replace("__ROOT__", escape(site["root_path"] or "", quote=True))
         .replace("__BLOG_PATH__", escape(site["blog_path"] or "/blog/", quote=True))
+        .replace("__CUSTOM_BLOG_DOMAIN__", escape(site["custom_blog_domain"] or "", quote=True))
+        .replace("__HOSTED_CHECKED__", "checked" if int(site["hosted_blog_enabled"] or 0) else "")
+        .replace("__CNAME_STATUS__", escape(site["cname_status"] or "not_configured"))
+        .replace("__CNAME_CHECKED_AT__", escape(site["cname_checked_at"] or "Never checked"))
         .replace("__LANGUAGES__", escape(languages_to_text(site["languages"]), quote=True))
         .replace("__CONTENT_CONTEXT__", escape(site["content_context"] or ""))
         .replace("__TOPIC_STRATEGY__", escape(site["topic_strategy"] or ""))
@@ -629,6 +682,56 @@ def render_manage_site_page(site):
         .replace("__SWATCHES__", color_swatches)
         .replace("__JOBS__", jobs)
     )
+
+
+def get_site_by_custom_host(host):
+    host = clean_host(host)
+    if not host:
+        return None
+    with db() as conn:
+        return conn.execute(
+            "select * from sites where hosted_blog_enabled=1 and lower(custom_blog_domain)=?",
+            (host,),
+        ).fetchone()
+
+
+def public_base_url():
+    proto = request.headers.get("X-Forwarded-Proto") or request.scheme or "https"
+    return f"{proto}://{request_host()}"
+
+
+def render_hosted_blog_response(site, public_path):
+    profile = get_profile(site["id"])
+    if not profile:
+        return Response("Blog design is not published yet. Scan design and build preview first.", status=503, mimetype="text/plain")
+    path = (public_path or "").strip("/")
+    source_css = profile["head_css"] if profile and "head_css" in profile.keys() and profile["head_css"] else ""
+    source_css_urls = json.loads(profile["css_urls_json"] or "[]") if profile else []
+    header = profile["header_html"] if profile and profile["header_html"] else ""
+    footer = profile["footer_html"] if profile and profile["footer_html"] else ""
+    brand = site["brand_name"] or site["domain"]
+    if path in ("blog-core.css", "blog/blog-core.css"):
+        return Response(theme_css(profile), mimetype="text/css")
+    if path in ("robots.txt",):
+        base = public_base_url()
+        return Response(f"User-agent: *\nAllow: /\n\nSitemap: {base}/sitemap.xml\n", mimetype="text/plain")
+    if path in ("sitemap.xml",):
+        base = public_base_url().rstrip("/")
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            f'  <url><loc>{base}/blog/</loc></url>\n'
+            f'  <url><loc>{base}/blog/visual-chaos-in-ai-product-cards/</loc></url>\n'
+            '</urlset>\n'
+        )
+        return Response(xml, mimetype="application/xml")
+    if path in ("", "blog"):
+        html = render_blog_index(brand, header, footer, "/blog-core.css", source_css, source_css_urls)
+        return Response(html, mimetype="text/html")
+    if path in ("blog/visual-chaos-in-ai-product-cards", "visual-chaos-in-ai-product-cards"):
+        html = render_sample_article(brand, header, footer, "/blog-core.css", source_css, source_css_urls)
+        return Response(html, mimetype="text/html")
+    abort(404)
 
 
 @app.get("/health")
@@ -646,6 +749,12 @@ def previews(path):
 
 @app.get("/")
 def index():
+    host = request_host()
+    if not is_admin_host(host):
+        site = get_site_by_custom_host(host)
+        if site:
+            return render_hosted_blog_response(site, "")
+        abort(404)
     with db() as conn:
         sites = conn.execute("select s.*, p.scanned_at, t.preview_path from sites s left join site_theme_profiles p on p.site_id=s.id left join blog_templates t on t.site_id=s.id order by s.updated_at desc").fetchall()
     rows = "".join(render_site_row(s) for s in sites) or "<div class='empty'>No sites connected yet.</div>"
@@ -697,8 +806,9 @@ def update_site_settings(site_id):
         conn.execute(
             """
             update sites
-            set domain=?, homepage_url=?, root_path=?, blog_path=?, languages=?, brand_name=?,
-                content_context=?, factory_enabled=?, publishing_cadence=?, topic_strategy=?, updated_at=?
+            set domain=?, homepage_url=?, root_path=?, blog_path=?, custom_blog_domain=?, hosted_blog_enabled=?,
+                languages=?, brand_name=?, content_context=?, factory_enabled=?, publishing_cadence=?,
+                topic_strategy=?, updated_at=?
             where id=?
             """,
             (
@@ -706,6 +816,8 @@ def update_site_settings(site_id):
                 homepage,
                 payload.get("root_path") or "",
                 payload.get("blog_path") or "/blog/",
+                clean_host(payload.get("custom_blog_domain")),
+                form_bool(payload.get("hosted_blog_enabled")),
                 text_to_languages(payload.get("languages")),
                 payload.get("brand_name") or domain.split(".")[0].replace("-", " ").title(),
                 payload.get("content_context") or "",
@@ -746,6 +858,20 @@ def delete_site(site_id):
     return jsonify({"ok": True, "deleted": site_id, "note": "Installed /blog files were not removed from the target site root."})
 
 
+@app.post("/api/sites/<int:site_id>/check-cname")
+def check_site_cname(site_id):
+    site = get_site(site_id)
+    if not site:
+        return jsonify({"error": "site not found"}), 404
+    result = check_cname_status(site["custom_blog_domain"])
+    with db() as conn:
+        conn.execute(
+            "update sites set cname_status=?, cname_checked_at=?, updated_at=? where id=?",
+            (result["status"], now_iso(), now_iso(), site_id),
+        )
+    return jsonify({"ok": True, **result})
+
+
 @app.post("/api/sites")
 def create_site():
     payload = request.get_json(silent=True) or request.form.to_dict()
@@ -758,8 +884,26 @@ def create_site():
     now = now_iso()
     with db() as conn:
         conn.execute(
-            "insert into sites(domain, homepage_url, access_type, root_path, brand_name, content_context, created_at, updated_at) values(?,?,?,?,?,?,?,?) on conflict(domain) do update set homepage_url=excluded.homepage_url, root_path=excluded.root_path, brand_name=excluded.brand_name, content_context=excluded.content_context, updated_at=excluded.updated_at",
-            (domain, homepage, payload.get("access_type") or "local_path", root_path, brand, payload.get("content_context") or "", now, now),
+            """
+            insert into sites(domain, homepage_url, access_type, root_path, brand_name, content_context, custom_blog_domain, hosted_blog_enabled, created_at, updated_at)
+            values(?,?,?,?,?,?,?,?,?,?)
+            on conflict(domain) do update set
+                homepage_url=excluded.homepage_url, root_path=excluded.root_path, brand_name=excluded.brand_name,
+                content_context=excluded.content_context, custom_blog_domain=excluded.custom_blog_domain,
+                hosted_blog_enabled=excluded.hosted_blog_enabled, updated_at=excluded.updated_at
+            """,
+            (
+                domain,
+                homepage,
+                payload.get("access_type") or "local_path",
+                root_path,
+                brand,
+                payload.get("content_context") or "",
+                clean_host(payload.get("custom_blog_domain")),
+                form_bool(payload.get("hosted_blog_enabled")),
+                now,
+                now,
+            ),
         )
     return redirect("/") if request.form else jsonify({"ok": True})
 
@@ -827,6 +971,17 @@ def site_theme(site_id):
     return jsonify(dict(profile))
 
 
+@app.get("/<path:public_path>")
+def public_host_route(public_path):
+    host = request_host()
+    if is_admin_host(host):
+        abort(404)
+    site = get_site_by_custom_host(host)
+    if not site:
+        abort(404)
+    return render_hosted_blog_response(site, public_path)
+
+
 MANAGE_SITE_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -835,7 +990,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 <title>Manage __DOMAIN__ · Blog Core</title>
 <style>
 :root{--bg:#0b1020;--panel:rgba(255,255,255,.08);--line:rgba(255,255,255,.15);--text:#f8fafc;--muted:#a6b0c3;--accent:#8b5cf6;--accent2:#22c55e;--danger:#ef4444}
-*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;word-break:break-word}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid{display:block}.form-grid{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:6px}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;word-break:break-word}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid{display:block}.form-grid{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
 </style>
 </head>
 <body>
@@ -856,6 +1011,8 @@ MANAGE_SITE_HTML = """<!doctype html>
         <div class="field full"><label>Homepage URL</label><input name="homepage_url" value="__HOMEPAGE__" required></div>
         <div class="field"><label>Brand name</label><input name="brand_name" value="__BRAND__"></div>
         <div class="field"><label>Blog path</label><input name="blog_path" value="__BLOG_PATH__"></div>
+        <div class="field full"><label>Custom blog domain</label><input name="custom_blog_domain" value="__CUSTOM_BLOG_DOMAIN__" placeholder="blog.client.com"><div class="hint">Client DNS: CNAME this host to blog.yas.ooo</div></div>
+        <label class="check full"><input type="checkbox" name="hosted_blog_enabled" __HOSTED_CHECKED__> Enable hosted CNAME blog for this site</label>
         <div class="field full"><label>Local webroot</label><input name="root_path" value="__ROOT__" placeholder="/var/www/site-root"></div>
         <div class="field"><label>Languages</label><input name="languages" value="__LANGUAGES__" placeholder="en, ru, de"></div>
         <div class="field"><label>Publishing cadence</label><select name="publishing_cadence">__CADENCE_OPTIONS__</select></div>
@@ -873,7 +1030,9 @@ MANAGE_SITE_HTML = """<!doctype html>
         <button onclick="runAction(__SITE_ID__, 'bootstrap-preview')">Build preview</button>
         <button onclick="runAction(__SITE_ID__, 'install-blog')">Install /blog</button>
         <button class="ghost" onclick="queueTopicPlan(__SITE_ID__)">Queue topic plan</button>
+        <button class="ghost" onclick="checkCname(__SITE_ID__)">Check CNAME</button>
       </div>
+      <div class="stat"><strong>CNAME status</strong><div class="muted">__CNAME_STATUS__ · checked: __CNAME_CHECKED_AT__</div><div class="muted">Expected DNS: CNAME custom domain → blog.yas.ooo</div></div>
       <div class="stat"><strong>Last scan</strong><div class="muted">__SCANNED_AT__</div><div class="muted">__SCANNED_TITLE__</div></div>
       <div class="stat"><strong>Captured design</strong><div class="muted">__CSS_COUNT__ stylesheets · __FONTS__</div><div class="swatches">__SWATCHES__</div></div>
       <div class="stat"><strong>Delete connected site</strong><div class="muted">Removes it from Blog Core and deletes generated previews only. It does not remove installed /blog files from the target webroot.</div><div style="margin-top:12px"><button class="danger" onclick="deleteSite(__SITE_ID__, '__DOMAIN__')">Delete from dashboard</button></div></div>
@@ -890,6 +1049,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 function showToast(text){const toast=document.getElementById('toast');toast.textContent=text;toast.className='toast show';}
 async function runAction(id, action){showToast('Running '+action+'...');try{const res=await fetch('/api/sites/'+id+'/'+action,{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(action+' completed');setTimeout(()=>location.reload(),700);}catch(e){showToast(action+' failed: '+e.message);}}
 async function queueTopicPlan(id){showToast('Queueing topic plan...');try{const res=await fetch('/api/sites/'+id+'/queue-topic-plan',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Topic plan queued');setTimeout(()=>location.reload(),700);}catch(e){showToast('Queue failed: '+e.message);}}
+async function checkCname(id){showToast('Checking CNAME...');try{const res=await fetch('/api/sites/'+id+'/check-cname',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('CNAME status: '+data.status);setTimeout(()=>location.reload(),900);}catch(e){showToast('CNAME check failed: '+e.message);}}
 async function deleteSite(id, domain){if(!confirm('Remove '+domain+' from Blog Core? Installed /blog files on the site will not be deleted.')) return;showToast('Deleting '+domain+'...');try{const res=await fetch('/api/sites/'+id+'/delete',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);location.href='/';}catch(e){showToast('Delete failed: '+e.message);}}
 </script>
 </body>
@@ -909,20 +1069,20 @@ DASHBOARD_HTML = """<!doctype html>
 <body>
 <main class="shell">
   <section class="top">
-    <div><h1 class="title">Universal Blog Core</h1><p class="sub">Connect any site, scan its public design, generate a matching /blog/ shell, then install it into the site root. This is the base for the future multi-site article factory dashboard.</p></div>
+    <div><h1 class="title">Universal Blog Core</h1><p class="sub">Connect any site, scan its public design, generate a matching blog shell, then either install into a local root or host it through a CNAME custom blog domain. This is the base for the future multi-site article factory dashboard.</p></div>
     <div class="badge">blog.yas.ooo · MVP</div>
   </section>
   <section class="panel">
     <form class="form" method="post" action="/api/sites">
       <input name="homepage_url" placeholder="Homepage URL, e.g. https://yas.wine/" required>
       <input name="brand_name" placeholder="Brand name">
-      <input name="root_path" placeholder="Local webroot, e.g. /var/www/yaswine">
+      <input name="root_path" placeholder="Local webroot or leave empty for CNAME hosted blog">
       <button type="submit">Connect site</button>
     </form>
   </section>
   <section class="panel">
     <h2 style="margin:0 0 8px;font-size:24px;letter-spacing:-.03em">Connected sites</h2>
-    <div class="muted">Flow: Scan design → Build preview → Install /blog. Install only writes into the configured local root path.</div>
+    <div class="muted">Flow: Scan design → Build preview → use Local install for sites on this server, or CNAME hosting for external sites.</div>
     __ROWS__
   </section>
 </main>
