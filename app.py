@@ -6,6 +6,7 @@ import socket
 import sqlite3
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from html import escape
 from html.parser import HTMLParser
@@ -91,7 +92,6 @@ def init_db():
             conn.execute("alter table site_theme_profiles add column head_css text")
         except sqlite3.OperationalError:
             pass
-        conn.execute("create unique index if not exists idx_sites_custom_blog_domain on sites(custom_blog_domain) where custom_blog_domain is not null and custom_blog_domain <> ''")
         for statement in (
             "alter table sites add column factory_enabled integer not null default 0",
             "alter table sites add column publishing_cadence text not null default 'manual'",
@@ -105,6 +105,7 @@ def init_db():
                 conn.execute(statement)
             except sqlite3.OperationalError:
                 pass
+        conn.execute("create unique index if not exists idx_sites_custom_blog_domain on sites(custom_blog_domain) where custom_blog_domain is not null and custom_blog_domain <> ''")
 
 
 class HeadBodyParser(HTMLParser):
@@ -684,6 +685,98 @@ def render_manage_site_page(site):
     )
 
 
+def site_topic_seed(site):
+    profile = get_profile(site["id"]) if site and "id" in site.keys() else None
+    profile_text = ""
+    if profile:
+        profile_text = " ".join([profile["title"] or "", profile["description"] or ""])
+    brand_tokens = set(re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}", ((site["brand_name"] or "") + " " + (site["domain"] or "")).lower()))
+    pieces = [site["content_context"] or "", site["topic_strategy"] or "", profile_text, site["brand_name"] or "", site["domain"] or ""]
+    full = " ".join(pieces).lower()
+    stop = {"www", "com", "https", "http", "blog", "site", "content", "topics", "brand", "with", "from", "that", "this", "and", "the", "for", "guide", "guides", "buying"}
+    words = []
+    for word in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}", full):
+        if word in stop:
+            continue
+        if word in brand_tokens and word not in {"wine", "wines", "food", "pairing", "travel", "fashion", "beauty", "pets", "home"}:
+            continue
+        if word not in words:
+            words.append(word)
+        if len(words) >= 5:
+            break
+    if not words and site["domain"]:
+        words = [site["domain"].split(".")[0].replace("-", " ")]
+    return " ".join(words[:5]) or "ecommerce"
+
+def timeframe_to_reddit(range_key):
+    return {"week": "week", "month": "month", "3m": "year", "6m": "year"}.get(range_key, "week")
+
+
+def timeframe_to_days(range_key):
+    return {"week": 7, "month": 30, "3m": 90, "6m": 180}.get(range_key, 7)
+
+
+def fetch_google_trend_signals(site, range_key):
+    query = site_topic_seed(site)
+    days = timeframe_to_days(range_key)
+    signals = []
+    url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({"q": f"{query} when:{days}d", "hl": "en-US", "gl": "US", "ceid": "US:en"})
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 BlogCore topic discovery"})
+        with urllib.request.urlopen(req, timeout=18) as resp:
+            xml = resp.read(900000).decode("utf-8", errors="replace")
+        root = ET.fromstring(xml)
+        for item in root.findall(".//item")[:8]:
+            title = re.sub(r"\s+-\s+[^-]+$", "", (item.findtext("title") or "").strip())
+            link = (item.findtext("link") or "").strip()
+            pub = (item.findtext("pubDate") or "").strip()
+            if title:
+                signals.append({"source": "google_trends", "title": title, "url": link, "meta": pub, "range": range_key})
+    except Exception as e:
+        signals.append({"source": "google_trends", "title": f"Google trend/news signals unavailable: {e}", "url": "", "meta": "error", "range": range_key, "disabled": True})
+    return signals
+
+
+def fetch_reddit_signals(site, range_key):
+    query = site_topic_seed(site)
+    reddit_t = timeframe_to_reddit(range_key)
+    url = "https://www.reddit.com/search.rss?" + urllib.parse.urlencode({"q": query, "sort": "top", "t": reddit_t})
+    signals = []
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 BlogCore topic discovery"})
+        with urllib.request.urlopen(req, timeout=18) as resp:
+            xml = resp.read(900000).decode("utf-8", errors="replace")
+        root = ET.fromstring(xml)
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        for entry in root.findall("atom:entry", ns)[:8]:
+            title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
+            link_node = entry.find("atom:link", ns)
+            link = link_node.attrib.get("href", "") if link_node is not None else ""
+            updated = (entry.findtext("atom:updated", default="", namespaces=ns) or "").strip()
+            if title:
+                signals.append({"source": "reddit", "title": title, "url": link, "meta": updated, "range": range_key})
+    except Exception as e:
+        signals.append({"source": "reddit", "title": f"Reddit unavailable: {e}", "url": "", "meta": "error", "range": range_key, "disabled": True})
+    return signals
+
+def generate_article_ideas(site, signals):
+    seed = site_topic_seed(site)
+    brand = site["brand_name"] or site["domain"]
+    ideas = []
+    for signal in signals[:12]:
+        title = re.sub(r"\s+", " ", signal.get("title", "")).strip()
+        if not title or signal.get("disabled"):
+            continue
+        ideas.append({
+            "title": f"What {title} means for people researching {seed}",
+            "angle": f"Use the trend/discussion as a hook, explain the audience problem or question, then connect the solution to {brand}'s offer, expertise, or editorial point of view.",
+            "source": signal.get("source"),
+            "source_title": title,
+            "source_url": signal.get("url", ""),
+        })
+    return ideas
+
+
 def get_site_by_custom_host(host):
     host = clean_host(host)
     if not host:
@@ -858,6 +951,40 @@ def delete_site(site_id):
     return jsonify({"ok": True, "deleted": site_id, "note": "Installed /blog files were not removed from the target site root."})
 
 
+@app.get("/api/sites/<int:site_id>/topic-signals")
+def topic_signals(site_id):
+    site = get_site(site_id)
+    if not site:
+        return jsonify({"error": "site not found"}), 404
+    range_key = request.args.get("range") or "week"
+    if range_key not in {"week", "month", "3m", "6m"}:
+        range_key = "week"
+    google = fetch_google_trend_signals(site, range_key)
+    reddit = fetch_reddit_signals(site, range_key)
+    return jsonify({"ok": True, "range": range_key, "query": site_topic_seed(site), "signals": google + reddit})
+
+
+@app.post("/api/sites/<int:site_id>/article-ideas")
+def create_article_ideas(site_id):
+    site = get_site(site_id)
+    if not site:
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    signals = payload.get("signals") or []
+    if not isinstance(signals, list) or not signals:
+        return jsonify({"error": "select at least one trend or discussion"}), 400
+    ideas = generate_article_ideas(site, signals)
+    if not ideas:
+        return jsonify({"error": "no usable selected signals"}), 400
+    message = json.dumps({"range": payload.get("range") or "week", "signals": signals, "ideas": ideas}, ensure_ascii=False)
+    with db() as conn:
+        conn.execute(
+            "insert into publish_jobs(site_id,kind,status,message,created_at) values(?,?,?,?,?)",
+            (site_id, "article-ideas", "queued", message, now_iso()),
+        )
+    return jsonify({"ok": True, "ideas": ideas})
+
+
 @app.post("/api/sites/<int:site_id>/check-cname")
 def check_site_cname(site_id):
     site = get_site(site_id)
@@ -990,7 +1117,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 <title>Manage __DOMAIN__ · Blog Core</title>
 <style>
 :root{--bg:#0b1020;--panel:rgba(255,255,255,.08);--line:rgba(255,255,255,.15);--text:#f8fafc;--muted:#a6b0c3;--accent:#8b5cf6;--accent2:#22c55e;--danger:#ef4444}
-*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:6px}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;word-break:break-word}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid{display:block}.form-grid{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1fr;gap:18px}.settings-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.settings-toggle{width:48px;height:48px;border-radius:999px;font-size:22px;padding:0}.settings-panel[hidden]{display:none}.compact-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.signal-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.signal-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.signal-card{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px}.signal-card input{width:18px;height:18px;margin-top:2px}.signal-card strong{display:block;font-size:15px;line-height:1.25}.signal-card span{display:block;color:var(--muted);font-size:12px;margin-top:5px}.source-pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:4px 8px;margin-bottom:7px;color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase}.loading{color:var(--muted);padding:18px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38)}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:6px}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;word-break:break-word}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid,.compact-grid{display:block}.form-grid,.signal-list{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
 </style>
 </head>
 <body>
@@ -1004,40 +1131,64 @@ MANAGE_SITE_HTML = """<!doctype html>
     <div class="actions">__PREVIEW__</div>
   </section>
 
-  <div class="grid">
-    <section class="panel">
-      <h2>Site setup</h2>
-      <form method="post" action="/sites/__SITE_ID__/settings" class="form-grid">
-        <div class="field full"><label>Homepage URL</label><input name="homepage_url" value="__HOMEPAGE__" required></div>
-        <div class="field"><label>Brand name</label><input name="brand_name" value="__BRAND__"></div>
-        <div class="field"><label>Blog path</label><input name="blog_path" value="__BLOG_PATH__"></div>
-        <div class="field full"><label>Custom blog domain</label><input name="custom_blog_domain" value="__CUSTOM_BLOG_DOMAIN__" placeholder="blog.client.com"><div class="hint">Client DNS: CNAME this host to blog.yas.ooo</div></div>
-        <label class="check full"><input type="checkbox" name="hosted_blog_enabled" __HOSTED_CHECKED__> Enable hosted CNAME blog for this site</label>
-        <div class="field full"><label>Local webroot</label><input name="root_path" value="__ROOT__" placeholder="/var/www/site-root"></div>
-        <div class="field"><label>Languages</label><input name="languages" value="__LANGUAGES__" placeholder="en, ru, de"></div>
-        <div class="field"><label>Publishing cadence</label><select name="publishing_cadence">__CADENCE_OPTIONS__</select></div>
-        <div class="field full"><label>Site/product context</label><textarea name="content_context" placeholder="What this site sells, audience, positioning, internal links...">__CONTENT_CONTEXT__</textarea></div>
-        <div class="field full"><label>Topic strategy</label><textarea name="topic_strategy" placeholder="Topics, clusters, tone, forbidden claims, CTA rules...">__TOPIC_STRATEGY__</textarea></div>
-        <label class="check full"><input type="checkbox" name="factory_enabled" __FACTORY_CHECKED__> Enable article factory for this site</label>
-        <div class="actions full"><button type="submit">Save settings</button></div>
-      </form>
-    </section>
-
-    <section class="panel">
-      <h2>Design and publishing</h2>
-      <div class="actions">
-        <button onclick="runAction(__SITE_ID__, 'scan')">Scan design</button>
-        <button onclick="runAction(__SITE_ID__, 'bootstrap-preview')">Build preview</button>
-        <button onclick="runAction(__SITE_ID__, 'install-blog')">Install /blog</button>
-        <button class="ghost" onclick="queueTopicPlan(__SITE_ID__)">Queue topic plan</button>
-        <button class="ghost" onclick="checkCname(__SITE_ID__)">Check CNAME</button>
+  <section class="panel">
+    <div class="settings-head">
+      <div>
+        <h2 style="margin:0">Site factory</h2>
+        <div class="muted">Topic discovery, article ideas, publishing jobs, and blog settings for this site.</div>
       </div>
-      <div class="stat"><strong>CNAME status</strong><div class="muted">__CNAME_STATUS__ · checked: __CNAME_CHECKED_AT__</div><div class="muted">Expected DNS: CNAME custom domain → blog.yas.ooo</div></div>
-      <div class="stat"><strong>Last scan</strong><div class="muted">__SCANNED_AT__</div><div class="muted">__SCANNED_TITLE__</div></div>
-      <div class="stat"><strong>Captured design</strong><div class="muted">__CSS_COUNT__ stylesheets · __FONTS__</div><div class="swatches">__SWATCHES__</div></div>
-      <div class="stat"><strong>Delete connected site</strong><div class="muted">Removes it from Blog Core and deletes generated previews only. It does not remove installed /blog files from the target webroot.</div><div style="margin-top:12px"><button class="danger" onclick="deleteSite(__SITE_ID__, '__DOMAIN__')">Delete from dashboard</button></div></div>
-    </section>
-  </div>
+      <button class="settings-toggle ghost" type="button" onclick="toggleSettings()" aria-label="Open settings">⚙</button>
+    </div>
+    <div id="settingsPanel" class="settings-panel" hidden>
+      <div class="compact-grid">
+        <section class="stat">
+          <h2>Site setup</h2>
+          <form method="post" action="/sites/__SITE_ID__/settings" class="form-grid">
+            <div class="field full"><label>Homepage URL</label><input name="homepage_url" value="__HOMEPAGE__" required></div>
+            <div class="field"><label>Brand name</label><input name="brand_name" value="__BRAND__"></div>
+            <div class="field"><label>Blog path</label><input name="blog_path" value="__BLOG_PATH__"></div>
+            <div class="field full"><label>Custom blog domain</label><input name="custom_blog_domain" value="__CUSTOM_BLOG_DOMAIN__" placeholder="blog.client.com"><div class="hint">Client DNS: CNAME this host to blog.yas.ooo</div></div>
+            <label class="check full"><input type="checkbox" name="hosted_blog_enabled" __HOSTED_CHECKED__> Enable hosted CNAME blog for this site</label>
+            <div class="field full"><label>Local webroot</label><input name="root_path" value="__ROOT__" placeholder="/var/www/site-root"></div>
+            <div class="field"><label>Languages</label><input name="languages" value="__LANGUAGES__" placeholder="en, ru, de"></div>
+            <div class="field"><label>Publishing cadence</label><select name="publishing_cadence">__CADENCE_OPTIONS__</select></div>
+            <div class="field full"><label>Site/product context</label><textarea name="content_context" placeholder="What this site sells, audience, positioning, internal links...">__CONTENT_CONTEXT__</textarea></div>
+            <div class="field full"><label>Topic strategy</label><textarea name="topic_strategy" placeholder="Topics, clusters, tone, forbidden claims, CTA rules...">__TOPIC_STRATEGY__</textarea></div>
+            <label class="check full"><input type="checkbox" name="factory_enabled" __FACTORY_CHECKED__> Enable article factory for this site</label>
+            <div class="actions full"><button type="submit">Save settings</button></div>
+          </form>
+        </section>
+        <section class="stat">
+          <h2>Design and publishing</h2>
+          <div class="actions">
+            <button onclick="runAction(__SITE_ID__, 'scan')">Scan design</button>
+            <button onclick="runAction(__SITE_ID__, 'bootstrap-preview')">Build preview</button>
+            <button onclick="runAction(__SITE_ID__, 'install-blog')">Install /blog</button>
+            <button class="ghost" onclick="queueTopicPlan(__SITE_ID__)">Queue topic plan</button>
+            <button class="ghost" onclick="checkCname(__SITE_ID__)">Check CNAME</button>
+          </div>
+          <div class="stat"><strong>CNAME status</strong><div class="muted">__CNAME_STATUS__ · checked: __CNAME_CHECKED_AT__</div><div class="muted">Expected DNS: CNAME custom domain → blog.yas.ooo</div></div>
+          <div class="stat"><strong>Last scan</strong><div class="muted">__SCANNED_AT__</div><div class="muted">__SCANNED_TITLE__</div></div>
+          <div class="stat"><strong>Captured design</strong><div class="muted">__CSS_COUNT__ stylesheets · __FONTS__</div><div class="swatches">__SWATCHES__</div></div>
+          <div class="stat"><strong>Delete connected site</strong><div class="muted">Removes it from Blog Core and generated previews only. It does not remove installed /blog files.</div><div style="margin-top:12px"><button class="danger" onclick="deleteSite(__SITE_ID__, '__DOMAIN__')">Delete from dashboard</button></div></div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2 style="margin:0">Google Trends and Reddit discussions</h2>
+    <div class="muted">Choose live signals related to this site's topic, then generate article ideas from them.</div>
+    <div class="signal-toolbar">
+      <button class="ghost" data-range="week" onclick="loadSignals('week')">Last week</button>
+      <button class="ghost" data-range="month" onclick="loadSignals('month')">Month</button>
+      <button class="ghost" data-range="3m" onclick="loadSignals('3m')">3 months</button>
+      <button class="ghost" data-range="6m" onclick="loadSignals('6m')">6 months</button>
+      <button onclick="createIdeasFromSignals()">Create article ideas</button>
+    </div>
+    <div id="signalQuery" class="muted"></div>
+    <div id="signals" class="loading">Loading topic signals...</div>
+  </section>
 
   <section class="panel">
     <h2>Factory jobs</h2>
@@ -1046,11 +1197,18 @@ MANAGE_SITE_HTML = """<!doctype html>
 </main>
 <div id="toast" class="toast"></div>
 <script>
+const SITE_ID=__SITE_ID__;let currentSignals=[];let currentRange='week';
 function showToast(text){const toast=document.getElementById('toast');toast.textContent=text;toast.className='toast show';}
+function toggleSettings(){const panel=document.getElementById('settingsPanel');panel.hidden=!panel.hidden;}
 async function runAction(id, action){showToast('Running '+action+'...');try{const res=await fetch('/api/sites/'+id+'/'+action,{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(action+' completed');setTimeout(()=>location.reload(),700);}catch(e){showToast(action+' failed: '+e.message);}}
 async function queueTopicPlan(id){showToast('Queueing topic plan...');try{const res=await fetch('/api/sites/'+id+'/queue-topic-plan',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Topic plan queued');setTimeout(()=>location.reload(),700);}catch(e){showToast('Queue failed: '+e.message);}}
 async function checkCname(id){showToast('Checking CNAME...');try{const res=await fetch('/api/sites/'+id+'/check-cname',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('CNAME status: '+data.status);setTimeout(()=>location.reload(),900);}catch(e){showToast('CNAME check failed: '+e.message);}}
 async function deleteSite(id, domain){if(!confirm('Remove '+domain+' from Blog Core? Installed /blog files on the site will not be deleted.')) return;showToast('Deleting '+domain+'...');try{const res=await fetch('/api/sites/'+id+'/delete',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);location.href='/';}catch(e){showToast('Delete failed: '+e.message);}}
+function sourceLabel(source){return source==='google_trends'?'Google Trends':'Reddit';}
+function renderSignals(items){const box=document.getElementById('signals');currentSignals=items||[];if(!currentSignals.length){box.className='loading';box.textContent='No signals found for this site topic.';return;}box.className='signal-list';box.innerHTML=currentSignals.map((item,index)=>`<label class="signal-card ${item.disabled?'disabled':''}"><input type="checkbox" data-index="${index}" ${item.disabled?'disabled':''}><div><em class="source-pill">${sourceLabel(item.source)}</em><strong>${item.title}</strong><span>${item.meta||''}</span></div></label>`).join('');}
+async function loadSignals(range){currentRange=range||'week';const box=document.getElementById('signals');box.className='loading';box.textContent='Loading Google Trends and Reddit discussions...';try{const res=await fetch('/api/sites/'+SITE_ID+'/topic-signals?range='+encodeURIComponent(currentRange));const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);document.getElementById('signalQuery').textContent='Topic query: '+data.query+' · range: '+data.range;renderSignals(data.signals);}catch(e){box.className='loading';box.textContent='Topic discovery failed: '+e.message;}}
+async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}showToast('Creating article ideas...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Article ideas queued: '+data.ideas.length);setTimeout(()=>location.reload(),900);}catch(e){showToast('Article ideas failed: '+e.message);}}
+loadSignals('week');
 </script>
 </body>
 </html>"""
