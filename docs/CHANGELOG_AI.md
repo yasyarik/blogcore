@@ -34,3 +34,35 @@ This file is updated by Codex after every task.
 
 * Keep memory concise and durable; avoid turning it into a duplicate of the full codebase.
 * Future agents must update this file after every completed task.
+
+## 2026-07-01 — Clean up topic discovery signal quality
+
+### Summary
+
+* Removed Reddit/Google source failures from selectable signal cards.
+* Increased topic discovery capacity to 20 usable signals per source.
+* Added relevance scoring, deduplication, and Reddit discussion filtering so article ideas are based on top/relevant signals instead of random or error items.
+* Updated the manage-page UI to show source warnings as notes and display signal counts.
+
+### Files changed
+
+* `app.py` — changed Google and Reddit signal fetchers to return `(signals, warnings)`, added scoring/filtering, updated `/topic-signals` API payload, and updated signal UI rendering.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that source errors must be warnings, not cards.
+* `docs/INTEGRATIONS.md` — documented the topic discovery contract and limitations.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Do not pad the signal grid with low-relevance or failed-source items just to increase card count.
+* Reddit RSS 429 is an expected degraded state and should not block Google signals.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/api/sites/5/topic-signals` for `week`, `month`, `3m`, and `6m`; confirmed no disabled/error cards and no zero-score returned signals.
+
+### Risks / TODO
+
+* Reddit RSS can still rate-limit; a more reliable Reddit integration may require API credentials or caching/backoff.
+* Current Google source is Google News RSS, not official Google Trends.

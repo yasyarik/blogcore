@@ -707,7 +707,7 @@ def site_topic_seed(site):
     brand_tokens = set(re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}", ((site["brand_name"] or "") + " " + (site["domain"] or "")).lower()))
     pieces = [site["content_context"] or "", site["topic_strategy"] or "", profile_text, site["brand_name"] or "", site["domain"] or ""]
     full = " ".join(pieces).lower()
-    stop = {"www", "com", "https", "http", "blog", "site", "content", "topics", "brand", "with", "from", "that", "this", "and", "the", "for", "guide", "guides", "buying"}
+    stop = {"www", "com", "https", "http", "blog", "site", "content", "topics", "brand", "with", "from", "that", "this", "and", "the", "for", "guide", "guides", "buying", "choose", "clear", "help", "helps", "understand", "plan"}
     words = []
     for word in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}", full):
         if word in stop:
@@ -722,6 +722,13 @@ def site_topic_seed(site):
         words = [site["domain"].split(".")[0].replace("-", " ")]
     return " ".join(words[:5]) or "ecommerce"
 
+SIGNALS_PER_SOURCE = int(os.environ.get("SIGNALS_PER_SOURCE", "20"))
+SIGNAL_STOP_WORDS = {
+    "about", "after", "and", "are", "blog", "brand", "buying", "content", "for", "from", "guide", "guides",
+    "how", "into", "site", "that", "the", "this", "tips", "topics", "what", "when", "with", "your",
+}
+
+
 def timeframe_to_reddit(range_key):
     return {"week": "week", "month": "month", "3m": "year", "6m": "year"}.get(range_key, "week")
 
@@ -730,48 +737,100 @@ def timeframe_to_days(range_key):
     return {"week": 7, "month": 30, "3m": 90, "6m": 180}.get(range_key, 7)
 
 
+def signal_keywords(query):
+    words = []
+    for word in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}", (query or "").lower()):
+        if word in SIGNAL_STOP_WORDS:
+            continue
+        if word not in words:
+            words.append(word)
+    return words
+
+
+def signal_relevance_score(title, query):
+    haystack = (title or "").lower()
+    score = 0
+    for word in signal_keywords(query):
+        if re.search(rf"\b{re.escape(word)}\b", haystack):
+            score += 2
+        elif word in haystack:
+            score += 1
+    return score
+
+
 def fetch_google_trend_signals(site, range_key):
     query = site_topic_seed(site)
     days = timeframe_to_days(range_key)
-    signals = []
+    warnings = []
     url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({"q": f"{query} when:{days}d", "hl": "en-US", "gl": "US", "ceid": "US:en"})
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 BlogCore topic discovery"})
         with urllib.request.urlopen(req, timeout=18) as resp:
-            xml = resp.read(900000).decode("utf-8", errors="replace")
+            xml = resp.read(1200000).decode("utf-8", errors="replace")
         root = ET.fromstring(xml)
-        for item in root.findall(".//item")[:8]:
-            title = re.sub(r"\s+-\s+[^-]+$", "", (item.findtext("title") or "").strip())
-            link = (item.findtext("link") or "").strip()
-            pub = (item.findtext("pubDate") or "").strip()
-            if title:
-                signals.append({"source": "google_trends", "title": title, "url": link, "meta": pub, "range": range_key})
     except Exception as e:
-        signals.append({"source": "google_trends", "title": f"Google trend/news signals unavailable: {e}", "url": "", "meta": "error", "range": range_key, "disabled": True})
-    return signals
+        return [], [f"Google topic signals unavailable: {e}"]
+
+    ranked = []
+    seen = set()
+    for index, item in enumerate(root.findall(".//item")[:60]):
+        title = re.sub(r"\s+-\s+[^-]+$", "", (item.findtext("title") or "").strip())
+        link = (item.findtext("link") or "").strip()
+        pub = (item.findtext("pubDate") or "").strip()
+        if not title:
+            continue
+        key = title.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        score = signal_relevance_score(title, query)
+        ranked.append((score, -index, {"source": "google_trends", "title": title, "url": link, "meta": pub, "range": range_key, "score": score}))
+    ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    positive = [item for score, _, item in ranked if score > 0]
+    signals = positive[:SIGNALS_PER_SOURCE]
+    if not signals and ranked:
+        warnings.append("No strongly relevant Google topic signals found for this site topic and period.")
+    return signals, warnings
 
 
 def fetch_reddit_signals(site, range_key):
     query = site_topic_seed(site)
     reddit_t = timeframe_to_reddit(range_key)
+    warnings = []
+    if range_key in {"3m", "6m"}:
+        warnings.append("Reddit RSS supports week/month/year buckets; using year bucket for this range.")
     url = "https://www.reddit.com/search.rss?" + urllib.parse.urlencode({"q": query, "sort": "top", "t": reddit_t})
-    signals = []
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 BlogCore topic discovery"})
+        req = urllib.request.Request(url, headers={"User-Agent": "BlogCoreTopicDiscovery/1.0 (+https://blog.yas.ooo)"})
         with urllib.request.urlopen(req, timeout=18) as resp:
-            xml = resp.read(900000).decode("utf-8", errors="replace")
+            xml = resp.read(1200000).decode("utf-8", errors="replace")
         root = ET.fromstring(xml)
-        ns = {"atom": "http://www.w3.org/2005/Atom"}
-        for entry in root.findall("atom:entry", ns)[:8]:
-            title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
-            link_node = entry.find("atom:link", ns)
-            link = link_node.attrib.get("href", "") if link_node is not None else ""
-            updated = (entry.findtext("atom:updated", default="", namespaces=ns) or "").strip()
-            if title:
-                signals.append({"source": "reddit", "title": title, "url": link, "meta": updated, "range": range_key})
     except Exception as e:
-        signals.append({"source": "reddit", "title": f"Reddit unavailable: {e}", "url": "", "meta": "error", "range": range_key, "disabled": True})
-    return signals
+        return [], [f"Reddit temporarily unavailable: {e}"]
+
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    signals = []
+    seen = set()
+    for entry in root.findall("atom:entry", ns)[:80]:
+        title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
+        link_node = entry.find("atom:link", ns)
+        link = link_node.attrib.get("href", "") if link_node is not None else ""
+        updated = (entry.findtext("atom:updated", default="", namespaces=ns) or "").strip()
+        if not title or "/comments/" not in link:
+            continue
+        key = (title.lower(), link)
+        if key in seen:
+            continue
+        seen.add(key)
+        score = signal_relevance_score(title, query)
+        if score <= 0:
+            continue
+        signals.append({"source": "reddit", "title": title, "url": link, "meta": updated, "range": range_key, "score": score})
+        if len(signals) >= SIGNALS_PER_SOURCE:
+            break
+    if not signals:
+        warnings.append("No relevant Reddit top discussions found for this site topic and period.")
+    return signals, warnings
 
 def generate_article_ideas(site, signals):
     seed = site_topic_seed(site)
@@ -973,9 +1032,17 @@ def topic_signals(site_id):
     range_key = request.args.get("range") or "week"
     if range_key not in {"week", "month", "3m", "6m"}:
         range_key = "week"
-    google = fetch_google_trend_signals(site, range_key)
-    reddit = fetch_reddit_signals(site, range_key)
-    return jsonify({"ok": True, "range": range_key, "query": site_topic_seed(site), "signals": google + reddit})
+    google, google_warnings = fetch_google_trend_signals(site, range_key)
+    reddit, reddit_warnings = fetch_reddit_signals(site, range_key)
+    signals = google + reddit
+    return jsonify({
+        "ok": True,
+        "range": range_key,
+        "query": site_topic_seed(site),
+        "signals": signals,
+        "warnings": google_warnings + reddit_warnings,
+        "counts": {"google": len(google), "reddit": len(reddit), "total": len(signals)},
+    })
 
 
 @app.post("/api/sites/<int:site_id>/article-ideas")
@@ -1218,9 +1285,9 @@ async function runAction(id, action){showToast('Running '+action+'...');try{cons
 async function queueTopicPlan(id){showToast('Queueing topic plan...');try{const res=await fetch('/api/sites/'+id+'/queue-topic-plan',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Topic plan queued');setTimeout(()=>location.reload(),700);}catch(e){showToast('Queue failed: '+e.message);}}
 async function checkCname(id){showToast('Checking CNAME...');try{const res=await fetch('/api/sites/'+id+'/check-cname',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('CNAME status: '+data.status);setTimeout(()=>location.reload(),900);}catch(e){showToast('CNAME check failed: '+e.message);}}
 async function deleteSite(id, domain){if(!confirm('Remove '+domain+' from Blog Core? Installed /blog files on the site will not be deleted.')) return;showToast('Deleting '+domain+'...');try{const res=await fetch('/api/sites/'+id+'/delete',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);location.href='/';}catch(e){showToast('Delete failed: '+e.message);}}
-function sourceLabel(source){return source==='google_trends'?'Google Trends':'Reddit';}
-function renderSignals(items){const box=document.getElementById('signals');currentSignals=items||[];if(!currentSignals.length){box.className='loading';box.textContent='No signals found for this site topic.';return;}box.className='signal-list';box.innerHTML=currentSignals.map((item,index)=>`<label class="signal-card ${item.disabled?'disabled':''}"><input type="checkbox" data-index="${index}" ${item.disabled?'disabled':''}><div><em class="source-pill">${sourceLabel(item.source)}</em><strong>${item.title}</strong><span>${item.meta||''}</span></div></label>`).join('');}
-async function loadSignals(range){currentRange=range||'week';const box=document.getElementById('signals');box.className='loading';box.textContent='Loading Google Trends and Reddit discussions...';try{const res=await fetch('/api/sites/'+SITE_ID+'/topic-signals?range='+encodeURIComponent(currentRange));const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);document.getElementById('signalQuery').textContent='Topic query: '+data.query+' · range: '+data.range;renderSignals(data.signals);}catch(e){box.className='loading';box.textContent='Topic discovery failed: '+e.message;}}
+function sourceLabel(source){return source==='google_trends'?'Google topic signals':'Reddit top discussions';}
+function renderSignals(items){const box=document.getElementById('signals');currentSignals=(items||[]).filter(item=>!item.disabled);if(!currentSignals.length){box.className='loading';box.textContent='No usable signals found for this site topic.';return;}box.className='signal-list';box.innerHTML=currentSignals.map((item,index)=>`<label class="signal-card"><input type="checkbox" data-index="${index}"><div><em class="source-pill">${sourceLabel(item.source)}</em><strong>${item.title}</strong><span>${item.meta||''}</span></div></label>`).join('');}
+async function loadSignals(range){currentRange=range||'week';const box=document.getElementById('signals');box.className='loading';box.textContent='Loading Google topic signals and Reddit top discussions...';try{const res=await fetch('/api/sites/'+SITE_ID+'/topic-signals?range='+encodeURIComponent(currentRange));const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const counts=data.counts||{};const warnings=(data.warnings||[]).length?' · Notes: '+data.warnings.join(' · '):'';document.getElementById('signalQuery').textContent='Topic query: '+data.query+' · range: '+data.range+' · signals: '+(counts.total??(data.signals||[]).length)+warnings;renderSignals(data.signals);}catch(e){box.className='loading';box.textContent='Topic discovery failed: '+e.message;}}
 async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}showToast('Creating article ideas...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Article ideas queued: '+data.ideas.length);setTimeout(()=>location.reload(),900);}catch(e){showToast('Article ideas failed: '+e.message);}}
 loadSignals('week');
 </script>

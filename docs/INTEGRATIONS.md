@@ -25,9 +25,11 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 
 ## Topic discovery
 
-* Google signals use Google News RSS search with query derived from site context/profile and `when:{days}d`.
-* Reddit signals use Reddit search RSS with top sorting and time range mapping.
-* Reddit may rate-limit; errors are returned as disabled signal items.
+* Google signals use Google News RSS search with query derived from site context/profile and `when:{days}d`; this is a topic/news signal source, not the official Google Trends API.
+* Google signal results are deduplicated, relevance-scored against the site topic seed, and only positive-score items are returned.
+* Reddit signals use Reddit search RSS with `sort=top` and time range mapping. Only `/comments/` discussion URLs with positive title relevance are returned.
+* Reddit may rate-limit with `429 Too Many Requests`; source failures are returned as API `warnings` and must not render as selectable cards.
+* The topic signal API returns `counts` and `warnings` separately from `signals`; UI should show warnings as notes only.
 
 ## Jobs
 
