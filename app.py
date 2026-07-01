@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import sqlite3
@@ -106,6 +107,165 @@ def init_db():
             except sqlite3.OperationalError:
                 pass
         conn.execute("create unique index if not exists idx_sites_custom_blog_domain on sites(custom_blog_domain) where custom_blog_domain is not null and custom_blog_domain <> ''")
+        conn.executescript(
+            """
+            create table if not exists content_jobs (
+                id text primary key,
+                site_id integer not null,
+                topic text not null,
+                slug text,
+                status text not null,
+                title text,
+                description text,
+                category text,
+                hero_image text,
+                draft_html text,
+                faq_json text,
+                error text,
+                sources_json text,
+                visibility text not null default 'public',
+                published_url text,
+                product_mode integer not null default 0,
+                engagement_mode integer not null default 0,
+                lead_magnet_mode integer not null default 0,
+                linkedin_status text,
+                linkedin_post_url text,
+                linkedin_posted_at text,
+                linkedin_error text,
+                telegram_status text,
+                telegram_post_url text,
+                telegram_posted_at text,
+                telegram_error text,
+                twitter_status text,
+                twitter_post_url text,
+                twitter_posted_at text,
+                twitter_error text,
+                tumblr_status text,
+                tumblr_post_url text,
+                tumblr_posted_at text,
+                tumblr_error text,
+                created_at text not null,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists content_jobs_site_status_created_idx on content_jobs(site_id,status,created_at);
+            create table if not exists content_job_logs (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                job_id text not null,
+                ts text not null,
+                level text not null,
+                step text not null,
+                message text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists content_job_logs_site_job_ts_idx on content_job_logs(site_id,job_id,ts);
+            create table if not exists social_connections (
+                site_id integer not null,
+                provider text not null,
+                status text not null default 'disconnected',
+                display_name text,
+                credentials_json text,
+                settings_json text,
+                connected_at text,
+                updated_at text not null,
+                primary key(site_id, provider),
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create table if not exists social_posts (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                job_id text not null,
+                channel text not null,
+                content_text text,
+                content_json text,
+                remote_url text,
+                status text not null,
+                created_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists social_posts_site_job_channel_idx on social_posts(site_id,job_id,channel,created_at);
+            create table if not exists autopublish_settings (
+                site_id integer primary key,
+                enabled integer not null default 0,
+                times_per_day integer not null default 3,
+                channels_json text not null default '["linkedin","telegram","twitter","tumblr"]',
+                timezone text not null default 'UTC',
+                start_hour integer not null default 9,
+                end_hour integer not null default 21,
+                linkedin_include_link integer not null default 0,
+                telegram_include_link integer not null default 0,
+                twitter_include_link integer not null default 0,
+                tumblr_include_link integer not null default 0,
+                last_slot_key text,
+                last_run_at text,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create table if not exists autopublish_runs (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                started_at text not null,
+                finished_at text,
+                trigger text not null,
+                job_id text,
+                status text not null,
+                result_json text,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists autopublish_runs_site_started_idx on autopublish_runs(site_id,started_at);
+            create table if not exists topic_discovery_settings (
+                site_id integer primary key,
+                enabled integer not null default 0,
+                timezone text not null default 'UTC',
+                run_hour integer not null default 6,
+                direction text,
+                category_hint text,
+                per_run_limit integer not null default 15,
+                min_score real not null default 55.0,
+                top_n integer not null default 3,
+                product_mode integer not null default 0,
+                engagement_mode integer not null default 0,
+                lead_magnet_mode integer not null default 0,
+                last_run_key text,
+                last_run_at text,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create table if not exists topic_discovery_runs (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                started_at text not null,
+                finished_at text,
+                trigger text not null,
+                direction text,
+                status text not null,
+                found_count integer not null default 0,
+                queued_count integer not null default 0,
+                result_json text,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists topic_discovery_runs_site_started_idx on topic_discovery_runs(site_id,started_at);
+            """
+        )
+        for site_row in conn.execute("select id from sites").fetchall():
+            sid = site_row[0]
+            conn.execute(
+                """
+                insert into autopublish_settings(site_id, updated_at)
+                values(?, ?)
+                on conflict(site_id) do nothing
+                """,
+                (sid, now_iso()),
+            )
+            conn.execute(
+                """
+                insert into topic_discovery_settings(site_id, direction, updated_at)
+                values(?, (select coalesce(topic_strategy, content_context, domain) from sites where id=?), ?)
+                on conflict(site_id) do nothing
+                """,
+                (sid, sid, now_iso()),
+            )
 
 
 class HeadBodyParser(HTMLParser):
@@ -623,6 +783,45 @@ def get_site_jobs(site_id):
         ).fetchall()
 
 
+def get_content_jobs(site_id):
+    with db() as conn:
+        return conn.execute(
+            "select * from content_jobs where site_id=? order by created_at desc limit 24",
+            (site_id,),
+        ).fetchall()
+
+
+def get_autopublish_settings(site_id):
+    with db() as conn:
+        row = conn.execute("select * from autopublish_settings where site_id=?", (site_id,)).fetchone()
+        if row:
+            return row
+        conn.execute("insert into autopublish_settings(site_id, updated_at) values(?, ?)", (site_id, now_iso()))
+        return conn.execute("select * from autopublish_settings where site_id=?", (site_id,)).fetchone()
+
+
+def get_topic_discovery_settings(site_id):
+    with db() as conn:
+        row = conn.execute("select * from topic_discovery_settings where site_id=?", (site_id,)).fetchone()
+        if row:
+            return row
+        conn.execute("insert into topic_discovery_settings(site_id, updated_at) values(?, ?)", (site_id, now_iso()))
+        return conn.execute("select * from topic_discovery_settings where site_id=?", (site_id,)).fetchone()
+
+
+def get_social_connections(site_id):
+    providers = ["linkedin", "telegram", "twitter", "tumblr"]
+    with db() as conn:
+        rows = {r["provider"]: r for r in conn.execute("select * from social_connections where site_id=?", (site_id,)).fetchall()}
+    return {provider: rows.get(provider) for provider in providers}
+
+
+def simple_slug(text):
+    slug = re.sub(r"[^a-z0-9\s-]", "", (text or "").lower())
+    slug = re.sub(r"\s+", "-", slug).strip("-")
+    return slug[:90] or "article"
+
+
 def render_jobs(rows):
     if not rows:
         return "<div class='empty'>No publish jobs yet.</div>"
@@ -640,6 +839,71 @@ def render_jobs(rows):
     return "".join(out)
 
 
+def render_content_jobs(rows):
+    if not rows:
+        return "<div class='empty'>No article production jobs yet. Select trend signals and create article ideas to queue jobs.</div>"
+    out = []
+    for row in rows:
+        title = row["title"] or row["topic"]
+        social = []
+        for channel in ("linkedin", "telegram", "twitter", "tumblr"):
+            status = row[f"{channel}_status"] or "not queued"
+            social.append(f"<span>{channel}: {escape(status)}</span>")
+        out.append(
+            f"""
+            <div class="job-row production-job">
+              <div><strong>{escape(title)}</strong><span>{escape(row['created_at'])} · {escape(row['category'] or 'Uncategorized')}</span></div>
+              <div class="actions"><b class="status {escape((row['status'] or '').lower())}">{escape(row['status'])}</b><button class="ghost" type="button" onclick="generateArticleJob('{escape(row['id'], quote=True)}')">Generate draft</button></div>
+              <p>{escape(row['description'] or row['topic'] or '')}</p>
+              <div class="social-statuses">{''.join(social)}</div>
+            </div>
+            """
+        )
+    return "".join(out)
+
+
+def render_distribution_settings(site_id):
+    auto = get_autopublish_settings(site_id)
+    disc = get_topic_discovery_settings(site_id)
+    connections = get_social_connections(site_id)
+    channels = []
+    try:
+        selected = set(json.loads(auto["channels_json"] or "[]"))
+    except Exception:
+        selected = {"linkedin", "telegram", "twitter", "tumblr"}
+    connection_cards = []
+    for provider, label in (("linkedin", "LinkedIn"), ("telegram", "Telegram"), ("twitter", "X / Twitter"), ("tumblr", "Tumblr")):
+        row = connections.get(provider)
+        status = row["status"] if row else "disconnected"
+        checked = "checked" if provider in selected else ""
+        channels.append(f"<label class='check compact'><input type='checkbox' name='channels' value='{provider}' {checked}> {label}</label>")
+        connection_cards.append(f"<div class='channel-card'><strong>{label}</strong><span>{escape(status)}</span></div>")
+    return f"""
+    <section class="panel production-panel">
+      <div class="panel-title-row"><div><h2>Distribution and autopublish</h2><div class="muted">Same publishing controls as the YAS Wine factory, scoped to this connected site.</div></div></div>
+      <form class="form-grid" onsubmit="saveFactorySettings(event)">
+        <div class="field"><label>Discovery direction</label><input name="direction" value="{escape(disc['direction'] or '', quote=True)}" placeholder="Core topic or product category"></div>
+        <div class="field"><label>Category hint</label><input name="category_hint" value="{escape(disc['category_hint'] or '', quote=True)}" placeholder="Buying Guides, Use Cases, etc."></div>
+        <div class="field"><label>Topics per run</label><input name="per_run_limit" type="number" min="1" max="50" value="{int(disc['per_run_limit'] or 15)}"></div>
+        <div class="field"><label>Top N to queue</label><input name="top_n" type="number" min="1" max="20" value="{int(disc['top_n'] or 3)}"></div>
+        <label class="check"><input type="checkbox" name="discovery_enabled" {'checked' if int(disc['enabled'] or 0) else ''}> Auto-discover topics</label>
+        <label class="check"><input type="checkbox" name="autopublish_enabled" {'checked' if int(auto['enabled'] or 0) else ''}> Autopublish approved articles</label>
+        <div class="field"><label>Times per day</label><input name="times_per_day" type="number" min="1" max="12" value="{int(auto['times_per_day'] or 3)}"></div>
+        <div class="field"><label>Timezone</label><input name="timezone" value="{escape(auto['timezone'] or 'UTC', quote=True)}"></div>
+        <div class="field"><label>Start hour</label><input name="start_hour" type="number" min="0" max="23" value="{int(auto['start_hour'] or 9)}"></div>
+        <div class="field"><label>End hour</label><input name="end_hour" type="number" min="0" max="23" value="{int(auto['end_hour'] or 21)}"></div>
+        <div class="field full"><label>Publish channels</label><div class="channel-checks">{''.join(channels)}</div></div>
+        <label class="check"><input type="checkbox" name="linkedin_include_link" {'checked' if int(auto['linkedin_include_link'] or 0) else ''}> LinkedIn includes article link</label>
+        <label class="check"><input type="checkbox" name="telegram_include_link" {'checked' if int(auto['telegram_include_link'] or 0) else ''}> Telegram includes article link</label>
+        <label class="check"><input type="checkbox" name="twitter_include_link" {'checked' if int(auto['twitter_include_link'] or 0) else ''}> X includes article link</label>
+        <label class="check"><input type="checkbox" name="tumblr_include_link" {'checked' if int(auto['tumblr_include_link'] or 0) else ''}> Tumblr includes article link</label>
+        <div class="field full"><label>Channel connection status</label><div class="channel-grid">{''.join(connection_cards)}</div><div class="hint">OAuth/connect routes will be wired to the same providers as YAS Wine: LinkedIn, Telegram, X, and Tumblr.</div></div>
+        <div class="actions full"><button type="submit">Save factory distribution settings</button></div>
+      </form>
+    </section>
+    """
+
+
 def render_site_switcher(current_site_id):
     with db() as conn:
         rows = conn.execute("select id, domain, brand_name from sites order by updated_at desc").fetchall()
@@ -655,6 +919,8 @@ def render_site_switcher(current_site_id):
 
 def render_manage_site_page(site):
     jobs = render_jobs(get_site_jobs(site["id"]))
+    content_jobs = render_content_jobs(get_content_jobs(site["id"]))
+    distribution_settings = render_distribution_settings(site["id"])
     preview = f"<a class='btn ghost' target='_blank' href='{escape(site['preview_path'])}'>Open preview</a>" if site["preview_path"] else "<span class='muted'>Build preview first</span>"
     colors = []
     fonts = []
@@ -695,6 +961,8 @@ def render_manage_site_page(site):
         .replace("__FONTS__", escape(", ".join(fonts[:4]) or "No fonts scanned"))
         .replace("__SWATCHES__", color_swatches)
         .replace("__JOBS__", jobs)
+        .replace("__CONTENT_JOBS__", content_jobs)
+        .replace("__DISTRIBUTION_SETTINGS__", distribution_settings)
         .replace("__SITE_SWITCHER__", render_site_switcher(site["id"]))
     )
 
@@ -841,13 +1109,140 @@ def generate_article_ideas(site, signals):
         if not title or signal.get("disabled"):
             continue
         ideas.append({
-            "title": f"What {title} means for people researching {seed}",
-            "angle": f"Use the trend/discussion as a hook, explain the audience problem or question, then connect the solution to {brand}'s offer, expertise, or editorial point of view.",
+            "title": title,
+            "angle": f"Use this signal as the hook, answer the underlying buyer or reader question, then connect the solution to {brand}'s offer, expertise, or editorial point of view around {seed}.",
             "source": signal.get("source"),
             "source_title": title,
             "source_url": signal.get("url", ""),
         })
     return ideas
+
+
+def _parse_json_text(text):
+    raw = (text or "").strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        raw = raw[start:end + 1]
+    return json.loads(raw)
+
+
+def _gemini_text_json(prompt):
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+    model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {"responseMimeType": "application/json", "temperature": 0.55},
+    }
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    try:
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception:
+        raise RuntimeError(f"Unexpected Gemini response: {data}")
+    return _parse_json_text(text)
+
+
+def build_universal_article_prompt(site, job):
+    brand = site["brand_name"] or site["domain"]
+    context = site["content_context"] or ""
+    strategy = site["topic_strategy"] or ""
+    languages = languages_to_text(site["languages"])
+    source_context = ""
+    try:
+        source_context = json.dumps(json.loads(job["sources_json"] or "{}"), ensure_ascii=False)
+    except Exception:
+        source_context = job["sources_json"] or ""
+    return f"""
+You are an expert SEO and editorial writer for a real business website.
+Write a useful, human, expert article for the connected site.
+
+SITE:
+- brand: {brand}
+- domain: {site['domain']}
+- homepage: {site['homepage_url']}
+- blog path: {site['blog_path'] or '/blog/'}
+- enabled languages: {languages}
+- site context: {context}
+- topic strategy: {strategy}
+
+ARTICLE JOB:
+- topic: {job['topic']}
+- category hint: {job['category'] or ''}
+- source context: {source_context[:4000]}
+
+QUALITY RULES:
+- Output STRICT JSON only.
+- Write like a specialist editor for this exact site, not a generic AI assistant.
+- Start contentHtml with a practical lead paragraph before the first H2.
+- Use 6-10 H2 sections; at least half should answer concrete buyer/reader questions.
+- Include at least one table, one ordered list, and one blockquote.
+- Include 5-7 FAQ items.
+- Include exactly 3 image placeholders as <figure><img src="filename.jpg" alt="..." /><figcaption>...</figcaption></figure>.
+- Image src must be filename only, not absolute URL.
+- Include natural internal links only to URLs that are safe for this site: homepage, blog path, and existing canonical paths if provided in source context. Do not invent product claims.
+- No markdown. HTML fragment only in contentHtml.
+- No em dash, no en dash, no asterisks, no smart quotes.
+- Avoid fluff and vague marketing language.
+- Make the article clearly connect the problem/question to why {brand} is useful, but do not turn every section into an ad.
+
+RETURN JSON SHAPE:
+{{
+  "slug": "lowercase-url-slug",
+  "title": "specific article title",
+  "description": "155-160 character meta description as a complete thought",
+  "category": "category",
+  "heroImage": "filename.jpg",
+  "contentHtml": "HTML fragment",
+  "faq": [{{"question":"...","answer":"..."}}]
+}}
+""".strip()
+
+
+def generate_content_job(site_id, job_id):
+    with db() as conn:
+        site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
+        job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+        if not site or not job:
+            raise KeyError("job not found")
+        conn.execute("update content_jobs set status='GENERATING', error=NULL, updated_at=? where site_id=? and id=?", (now_iso(), site_id, job_id))
+        conn.execute("insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "INFO", "generate", "Starting article draft generation"))
+    try:
+        draft = _gemini_text_json(build_universal_article_prompt(site, job))
+        slug = simple_slug(draft.get("slug") or draft.get("title") or job["topic"])
+        faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
+        with db() as conn:
+            conn.execute(
+                """
+                update content_jobs set status='DRAFT', slug=?, title=?, description=?, category=?, hero_image=?,
+                    draft_html=?, faq_json=?, error=NULL, updated_at=? where site_id=? and id=?
+                """,
+                (
+                    slug,
+                    draft.get("title") or job["topic"],
+                    draft.get("description") or "",
+                    draft.get("category") or job["category"] or "Article",
+                    draft.get("heroImage") or f"{slug}-hero.jpg",
+                    draft.get("contentHtml") or "",
+                    json.dumps(faq, ensure_ascii=False),
+                    now_iso(),
+                    site_id,
+                    job_id,
+                ),
+            )
+            conn.execute("insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "INFO", "generate", "Draft generated"))
+        return {"ok": True, "jobId": job_id, "status": "DRAFT", "slug": slug}
+    except Exception as e:
+        with db() as conn:
+            conn.execute("update content_jobs set status='ERROR', error=?, updated_at=? where site_id=? and id=?", (str(e), now_iso(), site_id, job_id))
+            conn.execute("insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "ERROR", "generate", str(e)))
+        raise
 
 
 def get_site_by_custom_host(host):
@@ -1058,12 +1453,160 @@ def create_article_ideas(site_id):
     if not ideas:
         return jsonify({"error": "no usable selected signals"}), 400
     message = json.dumps({"range": payload.get("range") or "week", "signals": signals, "ideas": ideas}, ensure_ascii=False)
+    created_jobs = []
     with db() as conn:
         conn.execute(
             "insert into publish_jobs(site_id,kind,status,message,created_at) values(?,?,?,?,?)",
             (site_id, "article-ideas", "queued", message, now_iso()),
         )
-    return jsonify({"ok": True, "ideas": ideas})
+        for idea in ideas:
+            title = idea.get("title") or "Article idea"
+            job_id = secrets.token_hex(12)
+            slug = simple_slug(title)
+            now = now_iso()
+            conn.execute(
+                """
+                insert into content_jobs(
+                    id, site_id, topic, slug, status, title, description, category,
+                    sources_json, visibility, created_at, updated_at
+                ) values(?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    job_id,
+                    site_id,
+                    title,
+                    slug,
+                    "QUEUED",
+                    title,
+                    idea.get("angle") or "",
+                    "Article Ideas",
+                    json.dumps(idea, ensure_ascii=False),
+                    "public",
+                    now,
+                    now,
+                ),
+            )
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (site_id, job_id, now, "INFO", "queue", "Created from selected topic signal"),
+            )
+            created_jobs.append({"id": job_id, "title": title, "slug": slug})
+    return jsonify({"ok": True, "ideas": ideas, "jobs": created_jobs})
+
+
+@app.get("/api/sites/<int:site_id>/factory-settings")
+def get_factory_settings(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    auto = get_autopublish_settings(site_id)
+    disc = get_topic_discovery_settings(site_id)
+    social = get_social_connections(site_id)
+    return jsonify({
+        "ok": True,
+        "autopublish": dict(auto),
+        "topicDiscovery": dict(disc),
+        "social": {k: (dict(v) if v else {"provider": k, "status": "disconnected"}) for k, v in social.items()},
+    })
+
+
+@app.put("/api/sites/<int:site_id>/factory-settings")
+def update_factory_settings(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    channels = payload.get("channels") or []
+    if not isinstance(channels, list):
+        channels = []
+    allowed_channels = [c for c in channels if c in {"linkedin", "telegram", "twitter", "tumblr"}]
+    topic = payload.get("topicDiscovery") or {}
+    auto = payload.get("autopublish") or {}
+    now = now_iso()
+    with db() as conn:
+        conn.execute(
+            """
+            insert into topic_discovery_settings(
+                site_id, enabled, timezone, run_hour, direction, category_hint,
+                per_run_limit, min_score, top_n, product_mode, engagement_mode, lead_magnet_mode, updated_at
+            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?)
+            on conflict(site_id) do update set
+                enabled=excluded.enabled, timezone=excluded.timezone, run_hour=excluded.run_hour,
+                direction=excluded.direction, category_hint=excluded.category_hint,
+                per_run_limit=excluded.per_run_limit, min_score=excluded.min_score, top_n=excluded.top_n,
+                product_mode=excluded.product_mode, engagement_mode=excluded.engagement_mode,
+                lead_magnet_mode=excluded.lead_magnet_mode, updated_at=excluded.updated_at
+            """,
+            (
+                site_id,
+                1 if topic.get("enabled") else 0,
+                topic.get("timezone") or "UTC",
+                int(topic.get("runHour") or 6),
+                topic.get("direction") or "",
+                topic.get("categoryHint") or "",
+                int(topic.get("perRunLimit") or 15),
+                float(topic.get("minScore") or 55.0),
+                int(topic.get("topN") or 3),
+                1 if topic.get("productMode") else 0,
+                1 if topic.get("engagementMode") else 0,
+                1 if topic.get("leadMagnetMode") else 0,
+                now,
+            ),
+        )
+        conn.execute(
+            """
+            insert into autopublish_settings(
+                site_id, enabled, times_per_day, channels_json, timezone, start_hour, end_hour,
+                linkedin_include_link, telegram_include_link, twitter_include_link, tumblr_include_link, updated_at
+            ) values(?,?,?,?,?,?,?,?,?,?,?,?)
+            on conflict(site_id) do update set
+                enabled=excluded.enabled, times_per_day=excluded.times_per_day, channels_json=excluded.channels_json,
+                timezone=excluded.timezone, start_hour=excluded.start_hour, end_hour=excluded.end_hour,
+                linkedin_include_link=excluded.linkedin_include_link, telegram_include_link=excluded.telegram_include_link,
+                twitter_include_link=excluded.twitter_include_link, tumblr_include_link=excluded.tumblr_include_link,
+                updated_at=excluded.updated_at
+            """,
+            (
+                site_id,
+                1 if auto.get("enabled") else 0,
+                int(auto.get("timesPerDay") or 3),
+                json.dumps(allowed_channels or ["linkedin", "telegram", "twitter", "tumblr"]),
+                auto.get("timezone") or "UTC",
+                int(auto.get("startHour") or 9),
+                int(auto.get("endHour") or 21),
+                1 if auto.get("linkedinIncludeLink") else 0,
+                1 if auto.get("telegramIncludeLink") else 0,
+                1 if auto.get("twitterIncludeLink") else 0,
+                1 if auto.get("tumblrIncludeLink") else 0,
+                now,
+            ),
+        )
+    return jsonify({"ok": True})
+
+
+@app.get("/api/sites/<int:site_id>/content-jobs")
+def list_content_jobs(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    return jsonify({"ok": True, "jobs": [dict(r) for r in get_content_jobs(site_id)]})
+
+
+@app.get("/api/sites/<int:site_id>/content-jobs/<job_id>")
+def get_content_job(site_id, job_id):
+    with db() as conn:
+        row = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+        logs = conn.execute("select * from content_job_logs where site_id=? and job_id=? order by ts asc", (site_id, job_id)).fetchall()
+    if not row:
+        return jsonify({"error": "job not found"}), 404
+    return jsonify({"ok": True, "job": dict(row), "logs": [dict(r) for r in logs]})
+
+
+@app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/generate")
+def generate_content_job_route(site_id, job_id):
+    try:
+        return jsonify(generate_content_job(site_id, job_id))
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.post("/api/sites/<int:site_id>/check-cname")
@@ -1198,7 +1741,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 <title>Manage __DOMAIN__ · Blog Core</title>
 <style>
 :root{--bg:#0b1020;--panel:rgba(255,255,255,.08);--line:rgba(255,255,255,.15);--text:#f8fafc;--muted:#a6b0c3;--accent:#8b5cf6;--accent2:#22c55e;--danger:#ef4444}
-*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.top-actions{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}.site-switcher{display:flex;flex-direction:column;gap:6px;min-width:260px}.site-switcher span{font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900}.site-switcher select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.75);color:#fff;padding:13px 14px;font-size:14px;outline:none}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1fr;gap:18px}.settings-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.settings-toggle{width:48px;height:48px;border-radius:999px;font-size:22px;padding:0}.settings-panel[hidden]{display:none}.compact-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.signal-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.signal-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.signal-card{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px}.signal-card input{width:18px;height:18px;margin-top:2px}.signal-card strong{display:block;font-size:15px;line-height:1.25}.signal-card span{display:block;color:var(--muted);font-size:12px;margin-top:5px}.source-pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:4px 8px;margin-bottom:7px;color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase}.loading{color:var(--muted);padding:18px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38)}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:6px}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;word-break:break-word}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid,.compact-grid{display:block}.top-actions{justify-content:flex-start;margin-top:18px}.site-switcher{min-width:0;width:100%}.form-grid,.signal-list{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.top-actions{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}.site-switcher{display:flex;flex-direction:column;gap:6px;min-width:260px}.site-switcher span{font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900}.site-switcher select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.75);color:#fff;padding:13px 14px;font-size:14px;outline:none}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1fr;gap:18px}.settings-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.settings-toggle{width:48px;height:48px;border-radius:999px;font-size:22px;padding:0}.settings-panel[hidden]{display:none}.compact-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.signal-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.signal-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.signal-card{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px}.signal-card input{width:18px;height:18px;margin-top:2px}.signal-card strong{display:block;font-size:15px;line-height:1.25}.signal-card span{display:block;color:var(--muted);font-size:12px;margin-top:5px}.source-pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:4px 8px;margin-bottom:7px;color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase}.loading{color:var(--muted);padding:18px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38)}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:6px}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.production-panel{border-color:rgba(139,92,246,.35)}.panel-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.channel-checks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.check.compact{padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38)}.channel-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.channel-card{border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.45);padding:12px}.channel-card strong{display:block}.channel-card span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.social-statuses{grid-column:1 / -1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.social-statuses span{border:1px solid var(--line);border-radius:999px;padding:6px 8px;background:rgba(255,255,255,.06)}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;word-break:break-word}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid,.compact-grid{display:block}.channel-checks,.channel-grid,.social-statuses{grid-template-columns:1fr}.top-actions{justify-content:flex-start;margin-top:18px}.site-switcher{min-width:0;width:100%}.form-grid,.signal-list{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
 </style>
 </head>
 <body>
@@ -1257,6 +1800,14 @@ MANAGE_SITE_HTML = """<!doctype html>
     </div>
   </section>
 
+  <section class="panel production-panel">
+    <h2>Article production queue</h2>
+    <div class="muted">Generated article jobs, publish state, and social channel status for this site.</div>
+    __CONTENT_JOBS__
+  </section>
+
+  __DISTRIBUTION_SETTINGS__
+
   <section class="panel">
     <h2 style="margin:0">Google Trends and Reddit discussions</h2>
     <div class="muted">Choose live signals related to this site's topic, then generate article ideas from them.</div>
@@ -1288,7 +1839,9 @@ async function deleteSite(id, domain){if(!confirm('Remove '+domain+' from Blog C
 function sourceLabel(source){return source==='google_trends'?'Google topic signals':'Reddit top discussions';}
 function renderSignals(items){const box=document.getElementById('signals');currentSignals=(items||[]).filter(item=>!item.disabled);if(!currentSignals.length){box.className='loading';box.textContent='No usable signals found for this site topic.';return;}box.className='signal-list';box.innerHTML=currentSignals.map((item,index)=>`<label class="signal-card"><input type="checkbox" data-index="${index}"><div><em class="source-pill">${sourceLabel(item.source)}</em><strong>${item.title}</strong><span>${item.meta||''}</span></div></label>`).join('');}
 async function loadSignals(range){currentRange=range||'week';const box=document.getElementById('signals');box.className='loading';box.textContent='Loading Google topic signals and Reddit top discussions...';try{const res=await fetch('/api/sites/'+SITE_ID+'/topic-signals?range='+encodeURIComponent(currentRange));const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const counts=data.counts||{};const warnings=(data.warnings||[]).length?' · Notes: '+data.warnings.join(' · '):'';document.getElementById('signalQuery').textContent='Topic query: '+data.query+' · range: '+data.range+' · signals: '+(counts.total??(data.signals||[]).length)+warnings;renderSignals(data.signals);}catch(e){box.className='loading';box.textContent='Topic discovery failed: '+e.message;}}
-async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}showToast('Creating article ideas...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Article ideas queued: '+data.ideas.length);setTimeout(()=>location.reload(),900);}catch(e){showToast('Article ideas failed: '+e.message);}}
+async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}showToast('Creating article jobs...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Article jobs queued: '+(data.jobs||[]).length);setTimeout(()=>location.reload(),900);}catch(e){showToast('Article ideas failed: '+e.message);}}
+async function generateArticleJob(jobId){showToast('Generating draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Draft generated: '+(data.slug||jobId));setTimeout(()=>location.reload(),900);}catch(e){showToast('Generation failed: '+e.message);}}
+async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 loadSignals('week');
 </script>
 </body>

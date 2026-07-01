@@ -36,3 +36,20 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * `publish_jobs` stores queued/completed/failed jobs.
 * Current job kinds include `install-blog`, `topic-plan`, and `article-ideas`.
 * `article-ideas` stores selected signals and generated idea drafts as JSON in `message`.
+
+## YAS Wine factory parity target
+
+Blog Core is being adapted toward feature parity with `/var/www/content-factory-yaswine`:
+
+* Article production queue is stored in `content_jobs` with per-site status, draft, FAQ, sources, and social publish fields.
+* Job logs are stored in `content_job_logs`.
+* Distribution settings are per site in `autopublish_settings` and `topic_discovery_settings`.
+* Social channel connections must be stored per site in `social_connections`; do not use one global OAuth state for all sites.
+* The old YAS Wine prompt is not copied literally because it contains wine-only rules. Blog Core uses a universal prompt contract populated from connected site context and topic strategy.
+
+Pending parity work after the initial backbone:
+
+* Port real LinkedIn, Telegram, X/Twitter, and Tumblr publishing routes.
+* Port OAuth flows for providers that need OAuth, scoped to `site_id`.
+* Port autopublish runner and scheduled topic discovery runner.
+* Port final publish renderer/localization/sitemap/GSC behavior into the hosted/local Blog Core publishing model.

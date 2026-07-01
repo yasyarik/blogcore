@@ -66,3 +66,41 @@ This file is updated by Codex after every task.
 
 * Reddit RSS can still rate-limit; a more reliable Reddit integration may require API credentials or caching/backoff.
 * Current Google source is Google News RSS, not official Google Trends.
+
+## 2026-07-01 — Add YAS Wine factory parity backbone
+
+### Summary
+
+* Audited `/var/www/content-factory-yaswine` for article jobs, social publishing, autopublish, topic discovery, and generation flow.
+* Added a parity map documenting which YAS Wine factory capabilities must exist in universal Blog Core.
+* Added per-site Blog Core schema for article production jobs, job logs, social connections, social posts, autopublish settings/runs, and topic discovery settings/runs.
+* Added manage-page Production Queue and Distribution/autopublish settings UI.
+* Changed selected topic signals to create real `content_jobs`, not only legacy `publish_jobs`.
+* Added a universal Gemini draft-generation contract for `content_jobs` that uses connected site context instead of wine-only rules.
+
+### Files changed
+
+* `app.py` — added factory parity tables, per-site settings helpers/endpoints, content job creation/list/detail/generate routes, manage-page production/distribution panels, and universal article draft generation.
+* `docs/FACTORY_PARITY.md` — added the source-to-target parity map from YAS Wine factory to Blog Core.
+* `docs/PROJECT_MEMORY.md` — recorded durable parity decision.
+* `docs/INTEGRATIONS.md` — documented current backbone and pending provider/publish parity work.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Provider credentials and publishing settings must be scoped by `site_id`.
+* Do not copy the YAS Wine prompt literally into Blog Core; use the same quality contract with site-specific context.
+* Keep old `publish_jobs` as legacy/service jobs while new article production uses `content_jobs`.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Ran `init_db()` against the live SQLite database to create new tables.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `/health`.
+* Smoke-tested `/api/sites/5/factory-settings`, `/api/sites/5/article-ideas`, and `/api/sites/5/content-jobs/<job_id>`; removed smoke job afterward.
+
+### Risks / TODO
+
+* Full parity is not finished yet: real social publishing routes, OAuth callbacks, autopublish runner, and final publish/localization/sitemap/GSC behavior still need to be ported.
+* Real Gemini generation route exists but was not smoke-run to avoid spending model calls on a test topic.

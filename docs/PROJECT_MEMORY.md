@@ -48,6 +48,7 @@ It must be updated after every meaningful task.
 * Deleting a connected site from the dashboard must remove only Blog Core records and preview cache. It must not delete installed `/blog` files from the target site root.
 * Factory settings are per site: content context, topic strategy, languages, cadence, CNAME settings, and jobs belong to the site.
 * The manage page should allow switching between connected sites without returning to the dashboard.
+* Factory parity with the old YAS Wine factory must include article jobs, logs, generation modes, social channels, autopublish settings, topic discovery settings, and publish status per site.
 * Technical settings should stay compact on the site factory page; main workflow should focus on topic discovery and jobs.
 
 ## 4. Integrations
@@ -123,6 +124,13 @@ It must be updated after every meaningful task.
 * Reason: The dashboard should generate useful article ideas from strong signals, not from rate-limit errors or unrelated posts.
 * Files/areas affected: `app.py` topic signal fetchers and manage-page signal UI.
 * Replaced/deprecated: Displaying disabled error cards such as `Reddit unavailable: HTTP Error 429`.
+
+### 2026-07-01 — Blog Core must reach YAS Wine factory parity per site
+
+* Decision: Blog Core should preserve the operational capabilities of `/var/www/content-factory-yaswine`, but with every setting/job/social connection scoped by `site_id`.
+* Reason: Blog Core is meant to become a universal multi-site article factory, not a single-site wine factory clone.
+* Files/areas affected: `app.py`, `docs/FACTORY_PARITY.md`, future factory/social/publish modules.
+* Replaced/deprecated: One-site global factory settings and wine-only prompt assumptions.
 
 ## 9. Do not repeat
 
