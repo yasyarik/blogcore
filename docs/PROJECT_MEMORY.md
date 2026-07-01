@@ -58,7 +58,7 @@ It must be updated after every meaningful task.
 * Hosted CNAME blog routing uses `Host` header lookup against `sites.custom_blog_domain` when `hosted_blog_enabled=1`.
 * CNAME status check compares resolved custom domain IPs against `HOSTED_BLOG_IPS` or the resolved `CNAME_TARGET`.
 * Topic discovery currently uses Google News RSS query with `when:{days}d`, not an official Google Trends API.
-* Reddit signal fetching uses `https://www.reddit.com/search.rss` with top sorting; rate limits are expected and must be handled gracefully without rendering error cards.
+* Reddit signal fetching uses `https://www.reddit.com/search.rss` with top sorting; rate limits are expected and must be handled gracefully without rendering error cards. Reddit matches must include a strong site-topic anchor and contextual match; do not surface broad matches based only on generic words like `food`, `product`, or `shop`.
 
 ## 5. SEO / content rules
 
@@ -120,7 +120,7 @@ It must be updated after every meaningful task.
 
 ### 2026-07-01 — Topic discovery must prioritize usable signals over filled grids
 
-* Decision: Google/Reddit source errors are returned as warnings, not selectable cards. Reddit results must be top discussions and title-relevant to the site topic. Low-relevance Google/Reddit results should be filtered instead of padding the grid.
+* Decision: Google/Reddit source errors are returned as warnings, not selectable cards. Reddit results must be top discussions and strongly title-relevant to the site topic, with a real site-topic anchor plus context. Low-relevance Google/Reddit results should be filtered instead of padding the grid.
 * Reason: The dashboard should generate useful article ideas from strong signals, not from rate-limit errors or unrelated posts.
 * Files/areas affected: `app.py` topic signal fetchers and manage-page signal UI.
 * Replaced/deprecated: Displaying disabled error cards such as `Reddit unavailable: HTTP Error 429`.

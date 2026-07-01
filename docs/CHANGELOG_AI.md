@@ -104,3 +104,33 @@ This file is updated by Codex after every task.
 
 * Full parity is not finished yet: real social publishing routes, OAuth callbacks, autopublish runner, and final publish/localization/sitemap/GSC behavior still need to be ported.
 * Real Gemini generation route exists but was not smoke-run to avoid spending model calls on a test topic.
+
+## 2026-07-01 — Tighten Reddit topic relevance
+
+### Summary
+
+* Fixed Reddit topic discovery passing unrelated discussions when they matched only generic words from the site topic seed.
+* Added a stricter Reddit relevance gate requiring a strong site-topic anchor plus contextual title match.
+* Verified that broad YAS Wine false positives such as generic food/SNAP/mountain supply posts are rejected.
+
+### Files changed
+
+* `app.py` — added Reddit weak-term filtering, shared term matching, and `reddit_signal_is_relevant()` for stronger discussion filtering.
+* `docs/PROJECT_MEMORY.md` — recorded the durable Reddit relevance rule.
+* `docs/INTEGRATIONS.md` — documented the stricter Reddit signal contract.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Prefer returning zero Reddit cards with a warning over showing random or weakly related discussions.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Checked `/api/sites/5/topic-signals?range=month`; Reddit false positives were removed and the API returned a no-relevant-Reddit warning.
+
+### Risks / TODO
+
+* Reddit RSS can still rate-limit or return sparse results. A better long-term solution is a credentialed Reddit API integration with subreddit/topic expansion and caching.

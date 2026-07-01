@@ -996,6 +996,13 @@ SIGNAL_STOP_WORDS = {
     "how", "into", "site", "that", "the", "this", "tips", "topics", "what", "when", "with", "your",
 }
 
+REDDIT_WEAK_MATCH_TERMS = {
+    "article", "articles", "best", "business", "buy", "buyer", "buyers", "commerce", "content", "customer",
+    "customers", "ecommerce", "example", "examples", "food", "general", "help", "helps", "idea", "ideas",
+    "online", "practical", "product", "products", "region", "regions", "review", "reviews", "shop", "shopping",
+    "store", "stores", "topic", "topics", "travel", "use", "uses", "visual", "visuals",
+}
+
 
 def timeframe_to_reddit(range_key):
     return {"week": "week", "month": "month", "3m": "year", "6m": "year"}.get(range_key, "week")
@@ -1015,15 +1022,47 @@ def signal_keywords(query):
     return words
 
 
-def signal_relevance_score(title, query):
+def signal_term_matches(title, query):
     haystack = (title or "").lower()
-    score = 0
+    matches = []
     for word in signal_keywords(query):
         if re.search(rf"\b{re.escape(word)}\b", haystack):
-            score += 2
+            matches.append((word, 2))
         elif word in haystack:
-            score += 1
-    return score
+            matches.append((word, 1))
+    return matches
+
+
+def signal_relevance_score(title, query):
+    return sum(weight for _, weight in signal_term_matches(title, query))
+
+
+def reddit_signal_is_relevant(title, query):
+    keywords = signal_keywords(query)
+    matches = signal_term_matches(title, query)
+    matched_words = {word for word, _ in matches}
+    strong_keywords = [word for word in keywords if word not in REDDIT_WEAK_MATCH_TERMS]
+    anchor_terms = strong_keywords[:3] or keywords[:2]
+
+    if not matches or not anchor_terms:
+        return False, 0, []
+
+    has_anchor = any(word in matched_words for word in anchor_terms)
+    strong_match_count = sum(1 for word in strong_keywords if word in matched_words)
+    total_match_count = len(matched_words)
+
+    # Reddit search often returns broad posts for generic words like "food" or "product".
+    # Keep only discussions that match the site's core topic, then require another contextual match
+    # when the site profile provides enough terms.
+    if not has_anchor:
+        return False, 0, sorted(matched_words)
+    if len(keywords) >= 3 and total_match_count < 2:
+        return False, 0, sorted(matched_words)
+    if len(strong_keywords) >= 2 and strong_match_count < 1:
+        return False, 0, sorted(matched_words)
+
+    score = sum(weight for _, weight in matches) + (3 if has_anchor else 0) + strong_match_count
+    return True, score, sorted(matched_words)
 
 
 def fetch_google_trend_signals(site, range_key):
@@ -1090,10 +1129,10 @@ def fetch_reddit_signals(site, range_key):
         if key in seen:
             continue
         seen.add(key)
-        score = signal_relevance_score(title, query)
-        if score <= 0:
+        is_relevant, score, matched_terms = reddit_signal_is_relevant(title, query)
+        if not is_relevant:
             continue
-        signals.append({"source": "reddit", "title": title, "url": link, "meta": updated, "range": range_key, "score": score})
+        signals.append({"source": "reddit", "title": title, "url": link, "meta": updated, "range": range_key, "score": score, "matchedTerms": matched_terms})
         if len(signals) >= SIGNALS_PER_SOURCE:
             break
     if not signals:
