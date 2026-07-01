@@ -53,3 +53,10 @@ Pending parity work after the initial backbone:
 * Port OAuth flows for providers that need OAuth, scoped to `site_id`.
 * Port autopublish runner and scheduled topic discovery runner.
 * Port final publish renderer/localization/sitemap/GSC behavior into the hosted/local Blog Core publishing model.
+
+## Existing blog import
+
+* Per-site import endpoints scan existing public `/blog/` URLs from `sitemap.xml`, `sitemap-blog.xml`, `/blog/sitemap.xml`, and `/blog/` links.
+* Import creates `content_jobs` with `status=IMPORTED`, `published_url` set to the original canonical/source URL, saved metadata in `sources_json`, and captured article HTML in `draft_html`.
+* Import is non-destructive: it does not delete, overwrite, or publish files into the target site root.
+* Hosted Blog Core rendering can list imported/generated jobs in `/blog/`, include them in `/sitemap.xml`, and serve `/blog/{slug}/` from saved job HTML.

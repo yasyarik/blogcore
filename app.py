@@ -268,6 +268,85 @@ def init_db():
             )
 
 
+
+class ExistingArticleParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.title = ""
+        self.description = ""
+        self.canonical = ""
+        self.og_image = ""
+        self.links = []
+        self._in_title = False
+        self._capture_tag = None
+        self._capture_depth = 0
+        self._capture_chunks = []
+        self.article_html = ""
+
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = {k.lower(): (v or "") for k, v in attrs}
+        if tag == "title":
+            self._in_title = True
+        if tag == "meta":
+            name = attrs_dict.get("name", "").lower()
+            prop = attrs_dict.get("property", "").lower()
+            if name == "description":
+                self.description = attrs_dict.get("content", "")[:320]
+            if prop in {"og:image", "twitter:image"} and not self.og_image:
+                self.og_image = attrs_dict.get("content", "")[:900]
+        if tag == "link":
+            rel = attrs_dict.get("rel", "").lower()
+            href = attrs_dict.get("href", "")
+            if "canonical" in rel and href:
+                self.canonical = href[:900]
+        if tag == "a":
+            href = attrs_dict.get("href", "")
+            if href:
+                self.links.append(href[:900])
+        if self._capture_tag is None and tag in {"article", "main"}:
+            self._capture_tag = tag
+            self._capture_depth = 0
+            self._capture_chunks = []
+        if self._capture_tag:
+            self._capture_depth += 1
+            self._capture_chunks.append(self._format_start(tag, attrs))
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._in_title = False
+        if self._capture_tag:
+            self._capture_chunks.append(f"</{tag}>")
+            self._capture_depth -= 1
+            if self._capture_depth == 0:
+                html = "".join(self._capture_chunks)
+                if not self.article_html:
+                    self.article_html = html
+                self._capture_tag = None
+                self._capture_chunks = []
+
+    def handle_data(self, data):
+        if self._in_title:
+            self.title += data
+        if self._capture_tag:
+            self._capture_chunks.append(escape(data))
+
+    def handle_entityref(self, name):
+        if self._capture_tag:
+            self._capture_chunks.append(f"&{name};")
+
+    def handle_charref(self, name):
+        if self._capture_tag:
+            self._capture_chunks.append(f"&#{name};")
+
+    def _format_start(self, tag, attrs):
+        rendered = []
+        for key, value in attrs:
+            if value is None:
+                rendered.append(escape(key))
+            else:
+                rendered.append(f'{escape(key)}="{escape(value, quote=True)}"')
+        return "<" + tag + (" " + " ".join(rendered) if rendered else "") + ">"
+
 class HeadBodyParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=False)
@@ -665,6 +744,103 @@ def render_sample_article(brand, header, footer, css_href="/blog/blog-core.css",
     return render_shell(f"Visual chaos in AI product cards - {brand}", header, footer, body, css_href, source_css, source_css_urls)
 
 
+
+
+def get_public_content_jobs(site_id, limit=200):
+    with db() as conn:
+        return conn.execute(
+            """
+            select * from content_jobs
+            where site_id=? and status in ('IMPORTED','DRAFT','PUBLISHED') and slug is not null and slug <> ''
+            order by created_at desc limit ?
+            """,
+            (site_id, limit),
+        ).fetchall()
+
+
+def render_blog_index_from_jobs(brand, header, footer, jobs, css_href="/blog/blog-core.css", source_css="", source_css_urls=None):
+    if not jobs:
+        return render_blog_index(brand, header, footer, css_href, source_css, source_css_urls)
+    if uses_native_blog_pattern(source_css):
+        cards = []
+        for row in jobs[:24]:
+            href = f"/blog/{row['slug'].strip('/')}/"
+            cards.append(native_card(row['title'] or row['topic'], row['description'] or "Imported article", row['hero_image'] or "", row['category'] or "Article", href))
+        body = f"""
+<div class=\"fixed-bg\"></div>
+<main class=\"container\" style=\"padding-top:120px;padding-bottom:80px\">
+  <section class=\"section\">
+    <h2>{escape(brand)} Blog</h2>
+    <p class=\"lead\">Imported and generated articles managed by Blog Core.</p>
+  </section>
+  <section id=\"latest-guides\" class=\"section\">
+    <h2>Latest articles</h2>
+    <div class=\"blog-carousel\">{''.join(cards)}</div>
+  </section>
+</main>
+"""
+        return render_shell(f"Blog - {brand}", header, footer, body, css_href, source_css, source_css_urls)
+    cards = []
+    for row in jobs[:48]:
+        href = f"/blog/{row['slug'].strip('/')}/"
+        media = f"<img src=\"{escape(row['hero_image'], quote=True)}\" alt=\"\" loading=\"lazy\">" if row['hero_image'] else ""
+        cards.append(f"""
+<article class=\"blog-core-card\"><div class=\"blog-core-card-media\">{media}</div><div class=\"blog-core-card-body\"><h2>{escape(row['title'] or row['topic'])}</h2><p>{escape(row['description'] or 'Imported article')}</p><a href=\"{escape(href, quote=True)}\">Read article</a></div></article>
+""")
+    body = f"""
+<main class=\"blog-core-wrap\">
+<section class=\"blog-core-hero\">
+<div class=\"blog-core-kicker\">{escape(brand)} Blog</div>
+<h1 class=\"blog-core-title\">Latest articles and guides.</h1>
+<p class=\"blog-core-subtitle\">Imported and generated articles managed by Blog Core while preserving original URLs and slugs.</p>
+</section>
+<section class=\"blog-core-grid\">{''.join(cards)}</section>
+</main>
+"""
+    return render_shell(f"Blog - {brand}", header, footer, body, css_href, source_css, source_css_urls)
+
+
+def render_content_job_article(brand, header, footer, job, css_href="/blog/blog-core.css", source_css="", source_css_urls=None):
+    title = job['title'] or job['topic'] or brand
+    content = job['draft_html'] or ""
+    if uses_native_blog_pattern(source_css):
+        body = f"""
+<div class=\"fixed-bg\"></div>
+<main class=\"container\" style=\"padding-top:120px;padding-bottom:80px\">
+  <article class=\"section\" style=\"max-width:880px;margin-left:auto;margin-right:auto\">
+    <span class=\"pill\">{escape(job['category'] or 'Article')}</span>
+    <h2 style=\"margin-top:18px\">{escape(title)}</h2>
+    {content}
+    <a class=\"btn btn-primary\" href=\"/blog/\">Back to blog</a>
+  </article>
+</main>
+"""
+    else:
+        body = f"""
+<main class=\"blog-core-wrap\">
+<article class=\"blog-core-article\">
+<p class=\"blog-core-kicker\">{escape(job['category'] or 'Article')}</p>
+<h1>{escape(title)}</h1>
+{content}
+<p><a href=\"/blog/\">Back to blog</a></p>
+</article>
+</main>
+"""
+    return render_shell(title, header, footer, body, css_href, source_css, source_css_urls)
+
+
+def get_content_job_by_slug(site_id, slug):
+    slug = simple_slug(slug)
+    with db() as conn:
+        return conn.execute(
+            """
+            select * from content_jobs
+            where site_id=? and slug=? and status in ('IMPORTED','DRAFT','PUBLISHED')
+            order by updated_at desc limit 1
+            """,
+            (site_id, slug),
+        ).fetchone()
+
 def build_preview(site, profile):
     site_id = site["id"]
     preview_root = PREVIEW_DIR / str(site_id) / "blog"
@@ -820,6 +996,181 @@ def simple_slug(text):
     slug = re.sub(r"[^a-z0-9\s-]", "", (text or "").lower())
     slug = re.sub(r"\s+", "-", slug).strip("-")
     return slug[:90] or "article"
+
+
+def normalize_public_article_url(url):
+    clean = (url or "").strip()
+    if not clean:
+        return ""
+    parsed = urllib.parse.urlsplit(clean)
+    path = parsed.path or "/"
+    if path != "/" and not path.endswith("/") and "." not in path.rsplit("/", 1)[-1]:
+        path += "/"
+    return urllib.parse.urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, "", ""))
+
+
+def is_probable_article_url(url, site):
+    if not url:
+        return False
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if domain_from_url(url) != site["domain"]:
+        return False
+    blog_path = (site["blog_path"] or "/blog/").strip() or "/blog/"
+    if not blog_path.startswith("/"):
+        blog_path = "/" + blog_path
+    if not blog_path.endswith("/"):
+        blog_path += "/"
+    path = parsed.path or "/"
+    if not path.startswith(blog_path):
+        return False
+    if path.rstrip("/") == blog_path.rstrip("/"):
+        return False
+    last = path.rsplit("/", 1)[-1].lower()
+    if re.search(r"\.(xml|css|js|json|png|jpe?g|webp|gif|svg|pdf|zip|mp4|mov)$", last):
+        return False
+    return True
+
+
+def parse_sitemap_locs(xml_text):
+    locs = []
+    try:
+        root = ET.fromstring(xml_text)
+        for node in root.findall(".//{*}loc"):
+            loc = (node.text or "").strip()
+            if loc:
+                locs.append(loc)
+    except Exception:
+        for loc in re.findall(r"<loc>\s*(.*?)\s*</loc>", xml_text or "", flags=re.I | re.S):
+            locs.append(re.sub(r"\s+", "", loc))
+    return locs
+
+
+def discover_existing_blog_articles(site, limit=80):
+    base = normalize_url(site["homepage_url"]).rstrip("/")
+    candidates = []
+    warnings = []
+    sitemap_urls = [f"{base}/sitemap.xml", f"{base}/sitemap-blog.xml", f"{base}/blog/sitemap.xml"]
+    for sitemap_url in sitemap_urls:
+        try:
+            xml, _ = fetch_url(sitemap_url)
+            for loc in parse_sitemap_locs(xml):
+                absolute = normalize_public_article_url(absolutize(base + "/", loc))
+                if is_probable_article_url(absolute, site) and absolute not in candidates:
+                    candidates.append(absolute)
+        except Exception as e:
+            warnings.append(f"{sitemap_url}: {e}")
+        if len(candidates) >= limit:
+            break
+    if len(candidates) < limit:
+        try:
+            blog_url = urllib.parse.urljoin(base + "/", (site["blog_path"] or "/blog/").lstrip("/"))
+            html, _ = fetch_url(blog_url)
+            parser = ExistingArticleParser()
+            parser.feed(html)
+            for href in parser.links:
+                absolute = normalize_public_article_url(absolutize(blog_url, href))
+                if is_probable_article_url(absolute, site) and absolute not in candidates:
+                    candidates.append(absolute)
+                if len(candidates) >= limit:
+                    break
+        except Exception as e:
+            warnings.append(f"blog index: {e}")
+    articles = []
+    for url in candidates[:limit]:
+        articles.append({"url": url, "slug": simple_slug(urllib.parse.urlsplit(url).path.strip("/").split("/")[-1])})
+    return {"articles": articles, "warnings": warnings[:5]}
+
+
+def extract_existing_article(url):
+    html, headers = fetch_url(url)
+    parser = ExistingArticleParser()
+    parser.feed(html)
+    canonical = normalize_public_article_url(absolutize(url, parser.canonical or url))
+    title = re.sub(r"\s+", " ", (parser.title or "").strip())[:220]
+    description = re.sub(r"\s+", " ", (parser.description or "").strip())[:320]
+    article_html = absolutize_html_attrs(url, parser.article_html or "")[:500000]
+    if not article_html:
+        body_match = re.search(r"(?is)<body[^>]*>(.*?)</body>", html)
+        article_html = absolutize_html_attrs(url, body_match.group(1) if body_match else html)[:500000]
+    return {
+        "url": normalize_public_article_url(url),
+        "canonical": canonical,
+        "title": title or urllib.parse.urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").title(),
+        "description": description,
+        "heroImage": absolutize(url, parser.og_image) if parser.og_image else "",
+        "contentHtml": article_html,
+        "contentType": headers.get("content-type", ""),
+    }
+
+
+def import_existing_articles(site_id, urls):
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
+    imported = []
+    skipped = []
+    errors = []
+    unique_urls = []
+    for url in urls:
+        clean = normalize_public_article_url(absolutize(site["homepage_url"], str(url or "")))
+        if is_probable_article_url(clean, site) and clean not in unique_urls:
+            unique_urls.append(clean)
+    with db() as conn:
+        existing = {
+            normalize_public_article_url(r["published_url"] or "")
+            for r in conn.execute("select published_url from content_jobs where site_id=? and published_url is not null and published_url <> ''", (site_id,)).fetchall()
+        }
+    for url in unique_urls[:100]:
+        if url in existing:
+            skipped.append({"url": url, "reason": "already imported"})
+            continue
+        try:
+            article = extract_existing_article(url)
+            slug = simple_slug(urllib.parse.urlsplit(article["canonical"] or article["url"]).path.strip("/").split("/")[-1] or article["title"])
+            job_id = secrets.token_hex(12)
+            now = now_iso()
+            source = {
+                "imported": True,
+                "sourceUrl": article["url"],
+                "canonical": article["canonical"],
+                "contentType": article["contentType"],
+            }
+            with db() as conn:
+                conn.execute(
+                    """
+                    insert into content_jobs(
+                        id, site_id, topic, slug, status, title, description, category,
+                        hero_image, draft_html, sources_json, visibility, published_url, created_at, updated_at
+                    ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        job_id,
+                        site_id,
+                        article["title"],
+                        slug,
+                        "IMPORTED",
+                        article["title"],
+                        article["description"],
+                        "Imported",
+                        article["heroImage"],
+                        article["contentHtml"],
+                        json.dumps(source, ensure_ascii=False),
+                        "public",
+                        article["canonical"] or article["url"],
+                        now,
+                        now,
+                    ),
+                )
+                conn.execute(
+                    "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                    (site_id, job_id, now, "INFO", "import", f"Imported existing article from {url}"),
+                )
+            imported.append({"id": job_id, "url": url, "title": article["title"], "slug": slug})
+        except Exception as e:
+            errors.append({"url": url, "error": str(e)})
+    return {"imported": imported, "skipped": skipped, "errors": errors}
 
 
 def render_jobs(rows):
@@ -1317,20 +1668,27 @@ def render_hosted_blog_response(site, public_path):
         return Response(f"User-agent: *\nAllow: /\n\nSitemap: {base}/sitemap.xml\n", mimetype="text/plain")
     if path in ("sitemap.xml",):
         base = public_base_url().rstrip("/")
-        xml = (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-            f'  <url><loc>{base}/blog/</loc></url>\n'
-            f'  <url><loc>{base}/blog/visual-chaos-in-ai-product-cards/</loc></url>\n'
-            '</urlset>\n'
-        )
+        jobs = get_public_content_jobs(site["id"], limit=1000)
+        urls = [f"  <url><loc>{base}/blog/</loc></url>"]
+        if jobs:
+            urls.extend(f"  <url><loc>{base}/blog/{escape(row['slug'].strip('/'))}/</loc></url>" for row in jobs)
+        else:
+            urls.append(f"  <url><loc>{base}/blog/visual-chaos-in-ai-product-cards/</loc></url>")
+        xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + "\n".join(urls) + "\n</urlset>\n"
         return Response(xml, mimetype="application/xml")
     if path in ("", "blog"):
-        html = render_blog_index(brand, header, footer, "/blog-core.css", source_css, source_css_urls)
+        jobs = get_public_content_jobs(site["id"])
+        html = render_blog_index_from_jobs(brand, header, footer, jobs, "/blog-core.css", source_css, source_css_urls)
         return Response(html, mimetype="text/html")
     if path in ("blog/visual-chaos-in-ai-product-cards", "visual-chaos-in-ai-product-cards"):
         html = render_sample_article(brand, header, footer, "/blog-core.css", source_css, source_css_urls)
         return Response(html, mimetype="text/html")
+    if path.startswith("blog/"):
+        slug = path.split("/", 1)[1].strip("/")
+        job = get_content_job_by_slug(site["id"], slug)
+        if job:
+            html = render_content_job_article(brand, header, footer, job, "/blog-core.css", source_css, source_css_urls)
+            return Response(html, mimetype="text/html")
     abort(404)
 
 
@@ -1648,6 +2006,46 @@ def generate_content_job_route(site_id, job_id):
         return jsonify({"error": str(e)}), 500
 
 
+
+@app.post("/api/sites/<int:site_id>/import-blog/scan")
+def scan_existing_blog_route(site_id):
+    site = get_site(site_id)
+    if not site:
+        return jsonify({"error": "site not found"}), 404
+    try:
+        result = discover_existing_blog_articles(site)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/sites/<int:site_id>/import-blog/import")
+def import_existing_blog_route(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    urls = payload.get("urls") or []
+    if not isinstance(urls, list) or not urls:
+        return jsonify({"error": "urls list is required"}), 400
+    try:
+        result = import_existing_articles(site_id, urls)
+        with db() as conn:
+            conn.execute(
+                "insert into publish_jobs(site_id,kind,status,message,created_at) values(?,?,?,?,?)",
+                (site_id, "import-existing-blog", "completed", json.dumps(result, ensure_ascii=False), now_iso()),
+            )
+        return jsonify({"ok": True, **result})
+    except KeyError:
+        return jsonify({"error": "site not found"}), 404
+    except Exception as e:
+        with db() as conn:
+            conn.execute(
+                "insert into publish_jobs(site_id,kind,status,message,created_at) values(?,?,?,?,?)",
+                (site_id, "import-existing-blog", "failed", str(e), now_iso()),
+            )
+        return jsonify({"error": str(e)}), 500
+
+
 @app.post("/api/sites/<int:site_id>/check-cname")
 def check_site_cname(site_id):
     site = get_site(site_id)
@@ -1780,7 +2178,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 <title>Manage __DOMAIN__ · Blog Core</title>
 <style>
 :root{--bg:#0b1020;--panel:rgba(255,255,255,.08);--line:rgba(255,255,255,.15);--text:#f8fafc;--muted:#a6b0c3;--accent:#8b5cf6;--accent2:#22c55e;--danger:#ef4444}
-*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.top-actions{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}.site-switcher{display:flex;flex-direction:column;gap:6px;min-width:260px}.site-switcher span{font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900}.site-switcher select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.75);color:#fff;padding:13px 14px;font-size:14px;outline:none}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1fr;gap:18px}.settings-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.settings-toggle{width:48px;height:48px;border-radius:999px;font-size:22px;padding:0}.settings-panel[hidden]{display:none}.compact-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.signal-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.signal-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.signal-card{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px}.signal-card input{width:18px;height:18px;margin-top:2px}.signal-card strong{display:block;font-size:15px;line-height:1.25}.signal-card span{display:block;color:var(--muted);font-size:12px;margin-top:5px}.source-pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:4px 8px;margin-bottom:7px;color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase}.loading{color:var(--muted);padding:18px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38)}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:6px}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.production-panel{border-color:rgba(139,92,246,.35)}.panel-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.channel-checks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.check.compact{padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38)}.channel-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.channel-card{border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.45);padding:12px}.channel-card strong{display:block}.channel-card span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.social-statuses{grid-column:1 / -1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.social-statuses span{border:1px solid var(--line);border-radius:999px;padding:6px 8px;background:rgba(255,255,255,.06)}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;word-break:break-word}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid,.compact-grid{display:block}.channel-checks,.channel-grid,.social-statuses{grid-template-columns:1fr}.top-actions{justify-content:flex-start;margin-top:18px}.site-switcher{min-width:0;width:100%}.form-grid,.signal-list{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.top-actions{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}.site-switcher{display:flex;flex-direction:column;gap:6px;min-width:260px}.site-switcher span{font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900}.site-switcher select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.75);color:#fff;padding:13px 14px;font-size:14px;outline:none}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1fr;gap:18px}.settings-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.settings-toggle{width:48px;height:48px;border-radius:999px;font-size:22px;padding:0}.settings-panel[hidden]{display:none}.compact-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.signal-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.signal-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.signal-card{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px}.signal-card input{width:18px;height:18px;margin-top:2px}.import-list{display:grid;gap:10px;margin-top:14px}.import-row{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px}.import-row input{width:18px;height:18px;margin-top:2px}.import-row strong{display:block;font-size:14px}.import-row span{display:block;color:var(--muted);font-size:12px;margin-top:4px;word-break:break-all}.signal-card strong{display:block;font-size:15px;line-height:1.25}.signal-card span{display:block;color:var(--muted);font-size:12px;margin-top:5px}.source-pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:4px 8px;margin-bottom:7px;color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase}.loading{color:var(--muted);padding:18px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38)}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:6px}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.production-panel{border-color:rgba(139,92,246,.35)}.panel-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.channel-checks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.check.compact{padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38)}.channel-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.channel-card{border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.45);padding:12px}.channel-card strong{display:block}.channel-card span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.social-statuses{grid-column:1 / -1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.social-statuses span{border:1px solid var(--line);border-radius:999px;padding:6px 8px;background:rgba(255,255,255,.06)}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;word-break:break-word}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid,.compact-grid{display:block}.channel-checks,.channel-grid,.social-statuses{grid-template-columns:1fr}.top-actions{justify-content:flex-start;margin-top:18px}.site-switcher{min-width:0;width:100%}.form-grid,.signal-list{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
 </style>
 </head>
 <body>
@@ -1840,6 +2238,11 @@ MANAGE_SITE_HTML = """<!doctype html>
   </section>
 
   <section class="panel production-panel">
+    <div class="panel-title-row"><div><h2>Import existing blog</h2><div class="muted">Scan the current public /blog/ and import existing articles into Blog Core without changing live URLs or deleting files.</div></div><div class="actions"><button class="ghost" type="button" onclick="scanExistingBlog()">Scan existing blog</button><button type="button" onclick="importSelectedBlogArticles()">Import selected</button></div></div>
+    <div id="importBlogResult" class="loading">Scan first to review existing article URLs before importing.</div>
+  </section>
+
+  <section class="panel production-panel">
     <h2>Article production queue</h2>
     <div class="muted">Generated article jobs, publish state, and social channel status for this site.</div>
     __CONTENT_JOBS__
@@ -1881,6 +2284,10 @@ async function loadSignals(range){currentRange=range||'week';const box=document.
 async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}showToast('Creating article jobs...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Article jobs queued: '+(data.jobs||[]).length);setTimeout(()=>location.reload(),900);}catch(e){showToast('Article ideas failed: '+e.message);}}
 async function generateArticleJob(jobId){showToast('Generating draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Draft generated: '+(data.slug||jobId));setTimeout(()=>location.reload(),900);}catch(e){showToast('Generation failed: '+e.message);}}
 async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
+let currentImportArticles=[];
+function renderImportArticles(items,warnings){const box=document.getElementById('importBlogResult');currentImportArticles=items||[];const note=(warnings&&warnings.length)?'<div class="hint">Notes: '+warnings.map(w=>String(w)).join(' · ')+'</div>':'';if(!currentImportArticles.length){box.className='loading';box.innerHTML='No importable article URLs found.'+note;return;}box.className='import-list';box.innerHTML='<div class="muted">Found '+currentImportArticles.length+' article URLs. Review and import only the ones that should remain live.</div>'+note+currentImportArticles.map((item,index)=>`<label class="import-row"><input type="checkbox" data-index="${index}" checked><div><strong>${item.slug||item.url}</strong><span>${item.url}</span></div></label>`).join('');}
+async function scanExistingBlog(){const box=document.getElementById('importBlogResult');box.className='loading';box.textContent='Scanning sitemap and /blog/ links...';try{const res=await fetch('/api/sites/'+SITE_ID+'/import-blog/scan',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);renderImportArticles(data.articles||[],data.warnings||[]);showToast('Found '+(data.articles||[]).length+' importable URLs');}catch(e){box.className='loading';box.textContent='Import scan failed: '+e.message;showToast('Import scan failed: '+e.message);}}
+async function importSelectedBlogArticles(){const selected=[...document.querySelectorAll('#importBlogResult input[type="checkbox"]:checked')].map(input=>currentImportArticles[Number(input.dataset.index)]?.url).filter(Boolean);if(!selected.length){showToast('Select at least one article URL');return;}if(!confirm('Import '+selected.length+' existing articles into Blog Core? Live files and URLs will not be changed.')) return;showToast('Importing existing articles...');try{const res=await fetch('/api/sites/'+SITE_ID+'/import-blog/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({urls:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Imported '+(data.imported||[]).length+' articles, skipped '+(data.skipped||[]).length+', errors '+(data.errors||[]).length);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Import failed: '+e.message);}}
 loadSignals('week');
 </script>
 </body>

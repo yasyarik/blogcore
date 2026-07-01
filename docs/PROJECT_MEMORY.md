@@ -15,7 +15,7 @@ It must be updated after every meaningful task.
   - Build a preview blog under `/previews/{site_id}/blog/`.
   - For local VPS sites, install static `/blog/` files into a configured webroot.
   - For external sites, configure `custom_blog_domain`, ask the client to CNAME it to `blog.yas.ooo`, enable hosted CNAME blog, and serve the blog by Host routing.
-  - Manage a site's factory settings, discover topic signals, select trends/discussions, and queue article idea jobs.
+  - Manage a site's factory settings, discover topic signals, select trends/discussions, queue article idea jobs, and import existing /blog articles as preserved Blog Core content jobs.
 
 ## 2. Current architecture
 
@@ -63,9 +63,9 @@ It must be updated after every meaningful task.
 ## 5. SEO / content rules
 
 * Hosted blogs serve `robots.txt` and `sitemap.xml` for the custom host.
-* Current hosted sitemap includes `/blog/` and `/blog/visual-chaos-in-ai-product-cards/` only; dynamic article publishing is not fully implemented yet.
+* Hosted sitemap includes `/blog/` plus imported/generated public `content_jobs` when available; otherwise it falls back to the sample article.
 * Local install writes `sitemap-blog.xml` and appends its URL to target site's `robots.txt` when possible.
-* Generated sample blog/article content is placeholder-level and should not be treated as final editorial content.
+* Generated sample blog/article content is placeholder-level and should not be treated as final editorial content. Existing blogs can be imported as `content_jobs.status=IMPORTED` while preserving original slugs, canonical/source URLs, metadata, and saved HTML.
 * Article ideas generated from trend/discussion signals are queued as jobs and should connect audience problems/questions to the site's offer, expertise, or editorial point of view.
 
 ## 6. Deployment
@@ -131,6 +131,14 @@ It must be updated after every meaningful task.
 * Reason: Blog Core is meant to become a universal multi-site article factory, not a single-site wine factory clone.
 * Files/areas affected: `app.py`, `docs/FACTORY_PARITY.md`, future factory/social/publish modules.
 * Replaced/deprecated: One-site global factory settings and wine-only prompt assumptions.
+
+
+### 2026-07-01 — Import existing blogs without changing live URLs
+
+* Decision: Existing `/blog/` articles should be scanned from sitemap/index URLs and imported into Blog Core as `content_jobs` with `status=IMPORTED`.
+* Reason: This lets sites such as `yas.wine` or `airep24.com` move onto Blog Core without losing indexed URLs, metadata, or existing article HTML.
+* Files/areas affected: `app.py` import scanner/import endpoints and hosted blog renderer.
+* Replaced/deprecated: Rebuilding or overwriting existing blog content as the first migration step.
 
 ## 9. Do not repeat
 
