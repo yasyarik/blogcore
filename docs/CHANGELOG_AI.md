@@ -2,6 +2,41 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-03 — Reimport myugc.studio from local VPS webroot
+
+### Summary
+
+* Corrected the `myugc.studio` import source from public sitemap to the actual local webroot on the VPS.
+* Found that active nginx serves `myugc.studio` from `/var/www/landing`; `/var/www/my-ugc-studio` is not the public static blog root.
+* Updated Blog Core site `id=6` to `root_path=/var/www/landing` and `access_type=local_path`.
+* Cleared the prior site `id=6` imported inventory and reimported from local files.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — marked the earlier public-sitemap import note as replaced and recorded the actual local webroot import state.
+* `docs/CHANGELOG_AI.md` — logged this correction.
+
+### Decisions
+
+* For `myugc.studio`, `/var/www/landing` is the authoritative local source for current public blog HTML and sitemap files.
+* The earlier public-sitemap import was replaced because the VPS already has the static public blog files locally.
+
+### Checks run
+
+* Read active `/etc/nginx/conf.d/myugc.studio.conf`; confirmed `root /var/www/landing`.
+* Verified `/var/www/landing` contains local blog HTML files and sitemap files.
+* Local Blog Core discovery returned `source=local_webroot`, 442 unique candidates, 0 warnings.
+* Reimported site `id=6` from local webroot: imported 442, skipped 0, errors 0.
+* Verified site `id=6` now has `root_path=/var/www/landing` and `access_type=local_path`.
+* Verified every imported `content_jobs` row for site `id=6` has `sources_json.webrootPath` under `/var/www/landing`.
+* Verified language counts: EN 88 stored records, DE 89, ES 89, FR 89, RU 87.
+* Verified `/api/sites/6/content-jobs?language=en` returns 87 visible EN records after hiding the `/blog/` hub.
+* Verified live dashboard HTML contains `/var/www/landing`, `LIVE / IMPORTED`, `My UGC Studio`, and language switching.
+
+### Risks / TODO
+
+* Publishing new generated articles back into `/var/www/landing` is still future publish-back work; this task corrected the import/control-plane inventory source.
+
 ## 2026-07-03 — Import myugc.studio blog into Blog Core
 
 ### Summary
