@@ -2,6 +2,45 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-03 — Add channel-specific social draft adaptation
+
+### Summary
+
+* Added per-channel social draft generation for content jobs.
+* Added strict character-limit validation before saving social drafts.
+* Preserved article language for social drafts using `sources_json.language` with site-language fallback.
+* Added a `Social drafts` action to content cards and updated social status icons to show drafted channel state.
+
+### Files changed
+
+* `app.py` — expanded `social_posts` schema, added social channel limits, language-aware post generation, validation/shortening, API route, content-card action, and JS handler.
+* `docs/PROJECT_MEMORY.md` — recorded durable social draft rules and channel limits.
+* `docs/INTEGRATIONS.md` — documented the social draft endpoint, storage contract, language behavior, and limits.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Store adapted social texts in `social_posts` before real publishing, one row per `job_id + channel` draft attempt.
+* Use conservative strict limits: LinkedIn 3000, Telegram 4096, X/Twitter 280, Tumblr 4096.
+* Do not rely on social platforms truncating overlong text; saved drafts must validate with `char_count <= max_chars`.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Generated EN social drafts for LaycanMatch site `id=8`, job `38eae646b39daefef960f375`: LinkedIn 1626/3000, Telegram 1224/4096, X/Twitter 254/280, Tumblr 1064/4096.
+* Verified saved `social_posts` rows have `status=DRAFT`, `language=en`, `char_count <= max_chars`, and matching `content_jobs` channel statuses set to `drafted`.
+* Verified live dashboard HTML for `https://blog.yas.ooo/sites/8#content` contains `Social drafts` actions and drafted channel icons.
+* Generated a RU X/Twitter social draft for SoloCruz site `id=7`, job `6dc8145c44dcf8247dbf62e8`; result was `language=ru`, 261/280 characters, and Russian text.
+
+### Risks / TODO
+
+* Real provider publish calls are still pending; this task prepares validated social drafts but does not post them to LinkedIn, Telegram, X/Twitter, or Tumblr yet.
+* Social draft generation currently calls Gemini once per channel; this can be optimized later into a single multi-channel generation call.
+
 ## 2026-07-03 — Import laycanmatch.com from local VPS webroot
 
 ### Summary

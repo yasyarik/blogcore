@@ -186,7 +186,13 @@ def init_db():
                 content_json text,
                 remote_url text,
                 status text not null,
+                language text,
+                max_chars integer,
+                char_count integer,
+                include_link integer not null default 0,
+                validation_json text,
                 created_at text not null,
+                updated_at text,
                 foreign key(site_id) references sites(id) on delete cascade
             );
             create index if not exists social_posts_site_job_channel_idx on social_posts(site_id,job_id,channel,created_at);
@@ -253,6 +259,18 @@ def init_db():
             create index if not exists topic_discovery_runs_site_started_idx on topic_discovery_runs(site_id,started_at);
             """
         )
+        for statement in (
+            "alter table social_posts add column language text",
+            "alter table social_posts add column max_chars integer",
+            "alter table social_posts add column char_count integer",
+            "alter table social_posts add column include_link integer not null default 0",
+            "alter table social_posts add column validation_json text",
+            "alter table social_posts add column updated_at text",
+        ):
+            try:
+                conn.execute(statement)
+            except sqlite3.OperationalError:
+                pass
         for site_row in conn.execute("select id from sites").fetchall():
             sid = site_row[0]
             conn.execute(
@@ -1079,6 +1097,18 @@ def languages_to_text(value):
     return value or "en"
 
 
+def parse_languages(value):
+    try:
+        parsed = json.loads(value or "[]")
+        if isinstance(parsed, list):
+            items = [str(item).strip().lower() for item in parsed if str(item).strip()]
+            return items or ["en"]
+    except Exception:
+        pass
+    items = [item.strip().lower() for item in re.split(r"[,\n]", value or "") if item.strip()]
+    return items or ["en"]
+
+
 def text_to_languages(value):
     items = [item.strip() for item in re.split(r"[,\n]", value or "") if item.strip()]
     return json.dumps(items or ["en"])
@@ -1258,6 +1288,28 @@ SOCIAL_PROVIDER_CONFIG = {
     },
 }
 
+SOCIAL_CHANNEL_LIMITS = {
+    "linkedin": 3000,
+    "telegram": 4096,
+    "twitter": 280,
+    "tumblr": 4096,
+}
+
+SOCIAL_CHANNEL_STYLE = {
+    "linkedin": "professional insight post with a clear hook, practical takeaways, and no clickbait",
+    "telegram": "direct channel post with short paragraphs and a practical reason to open the article",
+    "twitter": "single concise X post, no thread, no hashtags unless essential",
+    "tumblr": "short editorial micro-post with a natural blog-style intro",
+}
+
+LANGUAGE_NAMES = {
+    "en": "English",
+    "ru": "Russian",
+    "es": "Spanish",
+    "de": "German",
+    "fr": "French",
+}
+
 
 def social_provider_label(provider):
     return SOCIAL_PROVIDER_CONFIG.get(provider, {}).get("label", provider)
@@ -1289,6 +1341,256 @@ def social_credentials_complete(provider, credentials):
     if provider == "tumblr":
         required = ["consumer_key", "consumer_secret", "oauth_token", "oauth_token_secret"]
     return all(str(credentials.get(key) or "").strip() for key in required)
+
+
+def content_job_sources(row):
+    return parse_json_object(row["sources_json"] if row and "sources_json" in row.keys() else "{}")
+
+
+def content_job_language(row, site=None):
+    sources = content_job_sources(row)
+    language = str(sources.get("language") or "").strip().lower()
+    if language:
+        return language
+    site_languages = []
+    if site and "languages" in site.keys():
+        site_languages = parse_languages(site["languages"])
+    return site_languages[0] if site_languages else "en"
+
+
+def social_post_url(row):
+    return row["published_url"] if row["published_url"] else ""
+
+
+def social_source_text(row, limit=7000):
+    parts = [
+        row["title"] if "title" in row.keys() else "",
+        row["description"] if "description" in row.keys() else "",
+        strip_html_text(row["draft_html"] or "", limit=limit),
+    ]
+    text = " ".join(part for part in parts if part)
+    return re.sub(r"\s+", " ", text).strip()[:limit]
+
+
+def social_normalize_text(text):
+    text = str(text or "")
+    text = re.sub(r"\r\n?", "\n", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def social_shorten_to_limit(text, max_chars):
+    text = social_normalize_text(text)
+    if len(text) <= max_chars:
+        return text
+    if max_chars <= 1:
+        return text[:max_chars]
+    candidate = text[:max_chars].rstrip()
+    sentence_cut = max(candidate.rfind("."), candidate.rfind("!"), candidate.rfind("?"), candidate.rfind("\n"))
+    if sentence_cut >= max(40, int(max_chars * 0.55)):
+        candidate = candidate[: sentence_cut + 1].rstrip()
+    else:
+        space_cut = candidate.rfind(" ")
+        if space_cut >= max(20, int(max_chars * 0.65)):
+            candidate = candidate[:space_cut].rstrip()
+    return candidate[:max_chars].rstrip()
+
+
+def social_text_with_optional_link(text, article_url, include_link, max_chars):
+    text = social_normalize_text(text)
+    article_url = (article_url or "").strip()
+    if not include_link or not article_url:
+        return social_shorten_to_limit(text, max_chars)
+    separator = "\n\n"
+    link_budget = len(separator) + len(article_url)
+    if link_budget >= max_chars:
+        return social_shorten_to_limit(article_url, max_chars)
+    body = social_shorten_to_limit(text, max_chars - link_budget)
+    return social_normalize_text(body + separator + article_url)
+
+
+def fallback_social_post_text(site, job, channel, language, max_chars, include_link, article_url):
+    brand = site["brand_name"] or site["domain"]
+    title = job["title"] or job["topic"] or "New article"
+    description = job["description"] or ""
+    if language == "ru":
+        templates = {
+            "linkedin": f"{title}\n\nКоротко о главном: {description}\n\nМатериал от {brand} для тех, кто хочет разобраться в теме без лишней воды.",
+            "telegram": f"{title}\n\n{description}\n\nОткрывайте материал, если тема сейчас актуальна.",
+            "twitter": f"{title}. {description}",
+            "tumblr": f"{title}\n\n{description}\n\nЗаметка от {brand}.",
+        }
+    elif language == "es":
+        templates = {
+            "linkedin": f"{title}\n\nIdea clave: {description}\n\nUna guia de {brand} para entender el tema con mas contexto.",
+            "telegram": f"{title}\n\n{description}\n\nLee el articulo si este tema es relevante para ti.",
+            "twitter": f"{title}. {description}",
+            "tumblr": f"{title}\n\n{description}\n\nUna nota de {brand}.",
+        }
+    elif language == "de":
+        templates = {
+            "linkedin": f"{title}\n\nKurz gesagt: {description}\n\nEin Beitrag von {brand} mit praktischem Kontext.",
+            "telegram": f"{title}\n\n{description}\n\nZum Artikel, wenn das Thema gerade relevant ist.",
+            "twitter": f"{title}. {description}",
+            "tumblr": f"{title}\n\n{description}\n\nEin kurzer Beitrag von {brand}.",
+        }
+    elif language == "fr":
+        templates = {
+            "linkedin": f"{title}\n\nPoint cle: {description}\n\nUn guide de {brand} pour replacer le sujet dans son contexte.",
+            "telegram": f"{title}\n\n{description}\n\nA lire si le sujet vous concerne.",
+            "twitter": f"{title}. {description}",
+            "tumblr": f"{title}\n\n{description}\n\nUne note de {brand}.",
+        }
+    else:
+        templates = {
+            "linkedin": f"{title}\n\nKey idea: {description}\n\nA practical guide from {brand} for readers who want the useful context before making a decision.",
+            "telegram": f"{title}\n\n{description}\n\nOpen the article if this is on your radar.",
+            "twitter": f"{title}. {description}",
+            "tumblr": f"{title}\n\n{description}\n\nA short note from {brand}.",
+        }
+    return social_text_with_optional_link(templates.get(channel, templates["linkedin"]), article_url, include_link, max_chars)
+
+
+def build_social_post_prompt(site, job, channel, language, max_chars, include_link, article_url):
+    brand = site["brand_name"] or site["domain"]
+    source_text = social_source_text(job)
+    language_name = LANGUAGE_NAMES.get(language, language.upper())
+    link_rule = "Include the article URL exactly once at the end." if include_link and article_url else "Do not include any URL."
+    return f"""
+You are adapting an article into a social media post for {brand}.
+
+CHANNEL:
+- channel: {social_provider_label(channel)}
+- style: {SOCIAL_CHANNEL_STYLE.get(channel, 'concise social post')}
+- hard maximum length: {max_chars} characters, including spaces, punctuation, line breaks, and URL if present
+- article URL: {article_url or 'none'}
+- link rule: {link_rule}
+
+LANGUAGE:
+- Write in {language_name}.
+- The social post must use the same language as the article.
+
+ARTICLE:
+- title: {job['title'] or job['topic']}
+- description: {job['description'] or ''}
+- source excerpt: {source_text[:6000]}
+
+RULES:
+- Output STRICT JSON only.
+- Return one finished post, not variants.
+- Stay under the hard maximum. Do not rely on platform truncation.
+- Do not say "read more" if no URL is included.
+- No markdown headings.
+- No invented claims, prices, guarantees, statistics, or hashtags unless the article explicitly supports them.
+- No em dash or en dash.
+
+RETURN JSON SHAPE:
+{{"text":"final social post text"}}
+""".strip()
+
+
+def validate_social_post_text(text, max_chars):
+    char_count = len(text)
+    return {
+        "ok": char_count <= max_chars,
+        "charCount": char_count,
+        "maxChars": max_chars,
+        "remaining": max_chars - char_count,
+    }
+
+
+def generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url):
+    try:
+        data = _gemini_text_json(build_social_post_prompt(site, job, channel, language, max_chars, include_link, article_url))
+        text = social_normalize_text(data.get("text") or "")
+    except Exception:
+        text = ""
+    if not text:
+        text = fallback_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
+    text = social_text_with_optional_link(text, article_url, include_link, max_chars)
+    validation = validate_social_post_text(text, max_chars)
+    if not validation["ok"]:
+        text = social_shorten_to_limit(text, max_chars)
+        validation = validate_social_post_text(text, max_chars)
+    if not validation["ok"]:
+        raise ValueError(f"{channel} social post exceeds {max_chars} characters")
+    return text, validation
+
+
+def generate_social_drafts(site_id, job_id, channels=None):
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
+    with db() as conn:
+        job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+    if not job:
+        raise KeyError("job not found")
+    auto = get_autopublish_settings(site_id)
+    if channels is None:
+        try:
+            channels = json.loads(auto["channels_json"] or "[]")
+        except Exception:
+            channels = []
+    allowed_channels = [channel for channel in channels if channel in SOCIAL_CHANNEL_LIMITS]
+    if not allowed_channels:
+        allowed_channels = list(SOCIAL_CHANNEL_LIMITS.keys())
+    language = content_job_language(job, site)
+    article_url = social_post_url(job)
+    now = now_iso()
+    results = []
+    status_updates = {}
+    with db() as conn:
+        for channel in allowed_channels:
+            include_link = bool(auto[f"{channel}_include_link"] if f"{channel}_include_link" in auto.keys() else 0)
+            max_chars = SOCIAL_CHANNEL_LIMITS[channel]
+            text, validation = generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
+            payload = {
+                "source": "gemini_or_fallback",
+                "channel": channel,
+                "language": language,
+                "maxChars": max_chars,
+                "includeLink": include_link,
+                "articleUrl": article_url,
+                "validation": validation,
+            }
+            conn.execute(
+                """
+                insert into social_posts(
+                    site_id, job_id, channel, content_text, content_json, remote_url, status,
+                    language, max_chars, char_count, include_link, validation_json, created_at, updated_at
+                ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    site_id,
+                    job_id,
+                    channel,
+                    text,
+                    json.dumps(payload, ensure_ascii=False),
+                    "",
+                    "DRAFT",
+                    language,
+                    max_chars,
+                    validation["charCount"],
+                    1 if include_link else 0,
+                    json.dumps(validation, ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+            status_updates[f"{channel}_status"] = "drafted"
+            results.append({"channel": channel, "language": language, "charCount": validation["charCount"], "maxChars": max_chars, "text": text})
+        if status_updates:
+            assignments = ", ".join(f"{key}=?" for key in status_updates)
+            conn.execute(
+                f"update content_jobs set {assignments}, updated_at=? where site_id=? and id=?",
+                [*status_updates.values(), now, site_id, job_id],
+            )
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (site_id, job_id, now, "INFO", "social-drafts", f"Prepared social drafts for {', '.join(allowed_channels)}"),
+            )
+    return {"ok": True, "jobId": job_id, "language": language, "drafts": results}
 
 
 def upsert_social_connection(site_id, provider, credentials=None, status=None, display_name=None, settings=None):
@@ -1869,7 +2171,7 @@ def social_status_class(status):
     normalized = (status or "not queued").strip().lower().replace("_", " ").replace("-", " ")
     if normalized in {"published", "posted", "sent", "done", "completed", "success"}:
         return "published"
-    if normalized in {"queued", "scheduled", "pending", "processing"}:
+    if normalized in {"queued", "scheduled", "pending", "processing", "drafted", "draft"}:
         return "queued"
     if normalized in {"failed", "error"}:
         return "failed"
@@ -1907,6 +2209,10 @@ def live_page_icon(url):
     if not url:
         return ""
     return f"<a class='icon-btn external-link' target='_blank' href='{escape(url, quote=True)}' title='Open live page' aria-label='Open live page'>↗</a>"
+
+
+def social_draft_button(job_id):
+    return f"<button class='ghost mini-action social-draft-action' type='button' onclick=\"generateSocialDrafts('{escape(job_id, quote=True)}')\" title='Prepare social posts'>Social drafts</button>"
 
 
 def render_social_credentials_setup(site_id):
@@ -1991,7 +2297,7 @@ def render_content_jobs(content_page):
         status_class = escape(status.lower())
         if status == "IMPORTED":
             status_label = "LIVE / IMPORTED"
-            action = live_page_icon(row["published_url"])
+            action = social_draft_button(row["id"]) + live_page_icon(row["published_url"])
             descriptor = "Already published on the source site"
         elif status in {"QUEUED", "ERROR"}:
             status_label = status
@@ -1999,11 +2305,11 @@ def render_content_jobs(content_page):
             descriptor = "New Blog Core task"
         elif status == "DRAFT":
             status_label = "DRAFT"
-            action = ""
+            action = social_draft_button(row["id"])
             descriptor = "Draft ready for review"
         elif status == "PUBLISHED":
             status_label = "PUBLISHED"
-            action = live_page_icon(row["published_url"])
+            action = social_draft_button(row["id"]) + live_page_icon(row["published_url"])
             descriptor = "Published by Blog Core"
         else:
             status_label = status or "UNKNOWN"
@@ -3067,6 +3373,20 @@ def generate_content_job_route(site_id, job_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/social-drafts")
+def generate_social_drafts_route(site_id, job_id):
+    payload = request.get_json(silent=True) or {}
+    channels = payload.get("channels")
+    if channels is not None and not isinstance(channels, list):
+        return jsonify({"error": "channels must be a list"}), 400
+    try:
+        return jsonify(generate_social_drafts(site_id, job_id, channels=channels))
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 
 @app.post("/api/sites/<int:site_id>/import-blog/scan")
 def scan_existing_blog_route(site_id):
@@ -3421,6 +3741,7 @@ function renderSignals(items){const box=document.getElementById('signals');curre
 async function loadSignals(range){currentRange=range||'week';const box=document.getElementById('signals');box.className='loading';box.textContent='Loading Google topic signals and Reddit top discussions...';try{const res=await fetch('/api/sites/'+SITE_ID+'/topic-signals?range='+encodeURIComponent(currentRange));const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const counts=data.counts||{};const warnings=(data.warnings||[]).length?' · Notes: '+data.warnings.join(' · '):'';document.getElementById('signalQuery').textContent='Topic query: '+data.query+' · range: '+data.range+' · signals: '+(counts.total??(data.signals||[]).length)+warnings;renderSignals(data.signals);}catch(e){box.className='loading';box.textContent='Topic discovery failed: '+e.message;}}
 async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}showToast('Creating article jobs...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Article jobs queued: '+(data.jobs||[]).length);setTimeout(()=>location.reload(),900);}catch(e){showToast('Article ideas failed: '+e.message);}}
 async function generateArticleJob(jobId){showToast('Generating draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Draft generated: '+(data.slug||jobId));setTimeout(()=>location.reload(),900);}catch(e){showToast('Generation failed: '+e.message);}}
+async function generateSocialDrafts(jobId){showToast('Preparing social drafts...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const summary=(data.drafts||[]).map(d=>d.channel+': '+d.charCount+'/'+d.maxChars).join(' · ');showToast('Social drafts ready: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Social drafts failed: '+e.message);}}
 async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}
 async function saveSocialCredentials(event,provider){event.preventDefault();const form=event.currentTarget;const credentials=socialCredentialsFromForm(form);showToast('Saving '+provider+' credentials...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(provider+' credentials saved: '+data.status);setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
