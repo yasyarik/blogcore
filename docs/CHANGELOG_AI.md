@@ -2,6 +2,45 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-03 — Import laycanmatch.com from local VPS webroot
+
+### Summary
+
+* Connected `laycanmatch.com` to Blog Core as site `id=8`.
+* Confirmed the active nginx config serves `laycanmatch.com` from `/var/www/laycanmatch.com`.
+* Scanned the live homepage design; Gemini inferred the LaycanMatch topic profile for Discovery settings.
+* Imported existing LaycanMatch blog pages directly from the local VPS webroot.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — recorded the durable production import state for `laycanmatch.com`.
+* `docs/CHANGELOG_AI.md` — logged this import task.
+
+### Decisions
+
+* `laycanmatch.com` is managed as a local-path site because the authoritative static site files are present on the same VPS at `/var/www/laycanmatch.com`.
+* The `/blog/` hub was imported as metadata but remains hidden from the Content inventory; the visible inventory contains the five article pages.
+
+### Checks run
+
+* Verified `laycanmatch.com` was not already present in the Blog Core database.
+* Checked nginx configs and confirmed the active domain root is `/var/www/laycanmatch.com`.
+* Verified `/var/www/laycanmatch.com` contains 44 HTML files, including 6 under `/blog/`.
+* Verified `https://laycanmatch.com/sitemap.xml` exposes 6 `/blog/` URLs.
+* Created site `id=8` with `access_type=local_path`, `root_path=/var/www/laycanmatch.com`, and language EN.
+* Ran `POST /api/sites/8/scan`; Gemini returned `source=gemini` topic profile data.
+* Local Blog Core discovery returned `source=local_webroot`, 6 candidates, 0 warnings, 0 duplicates.
+* Imported site `id=8` from local webroot: imported 6, skipped 0, errors 0.
+* Verified imported counts: EN 6, all `pageType=blog`.
+* Verified all 6 imported records have `sources_json.webrootPath` under `/var/www/laycanmatch.com` and `importMethod=direct_webroot`.
+* Ran `POST /api/sites/8/bootstrap-preview`.
+* Verified live dashboard HTML for `https://blog.yas.ooo/sites/8#content` contains `LaycanMatch`, `/var/www/laycanmatch.com`, `Content inventory`, language switching, and `LIVE / IMPORTED`.
+* Checked `http://127.0.0.1:3299/health`.
+
+### Risks / TODO
+
+* Publishing new generated LaycanMatch articles back into `/var/www/laycanmatch.com` is still future publish-back work; this task imported and connected the existing blog inventory/control-plane records.
+
 ## 2026-07-03 — Import solocruz.com from local VPS webroot
 
 ### Summary
