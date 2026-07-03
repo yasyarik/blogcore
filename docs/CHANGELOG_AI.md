@@ -2,6 +2,44 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-03 — Import solocruz.com from local VPS webroot
+
+### Summary
+
+* Connected `solocruz.com` to Blog Core as site `id=7`.
+* Confirmed the active nginx config serves `solocruz.com` from `/var/www/solocruz.com`.
+* Scanned the live homepage design; Gemini inferred the SoloCruz topic profile for Discovery settings.
+* Imported existing multilingual SoloCruz blog pages directly from the local VPS webroot.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — recorded the durable production import state for `solocruz.com`.
+* `docs/CHANGELOG_AI.md` — logged this import task.
+
+### Decisions
+
+* `solocruz.com` is managed as a local-path site because the authoritative static site files are present on the same VPS at `/var/www/solocruz.com`.
+* The import kept existing live URLs as source-site authoritative records; Blog Core acts as inventory/control plane for the existing blog rather than changing public pages.
+
+### Checks run
+
+* Verified `solocruz.com` was not already present in the Blog Core database.
+* Checked nginx configs and confirmed the active `000-solocruz.com.conf` root is `/var/www/solocruz.com`; the Hestia `/home/mysites/.../public_html` path has no blog HTML.
+* Verified `https://solocruz.com/sitemap-blog.xml` exposes 75 blog URLs, 15 per EN/RU/ES/DE/FR.
+* Created site `id=7` with `access_type=local_path`, `root_path=/var/www/solocruz.com`, and languages EN/RU/ES/DE/FR.
+* Ran `POST /api/sites/7/scan`; Gemini returned `source=gemini` topic profile data.
+* Local Blog Core discovery returned `source=local_webroot`, 75 candidates, 0 warnings, 0 duplicates.
+* Imported site `id=7` from local webroot: imported 75, skipped 0, errors 0.
+* Verified imported counts: EN 15, RU 15, ES 15, DE 15, FR 15; all are `pageType=blog`.
+* Verified all 75 imported records have `sources_json.webrootPath` under `/var/www/solocruz.com` and `importMethod=direct_webroot`.
+* Ran `POST /api/sites/7/bootstrap-preview`.
+* Verified live dashboard HTML for `https://blog.yas.ooo/sites/7#content` contains `SoloCruz`, `/var/www/solocruz.com`, `Content inventory`, language switching, and `LIVE / IMPORTED`.
+* Checked `http://127.0.0.1:3299/health`.
+
+### Risks / TODO
+
+* Publishing new generated SoloCruz articles back into `/var/www/solocruz.com` is still future publish-back work; this task imported and connected the existing blog inventory/control-plane records.
+
 ## 2026-07-03 — Reimport myugc.studio from local VPS webroot
 
 ### Summary
