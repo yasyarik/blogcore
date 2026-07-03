@@ -53,6 +53,7 @@ It must be updated after every meaningful task.
 * The manage page should allow switching between connected sites without returning to the dashboard.
 * Factory parity with the old YAS Wine factory must include article jobs, logs, generation modes, social channels, autopublish settings, topic discovery settings, and publish status per site.
 * Social publishing/OAuth must be scoped per site, not globally.
+* Setup must include per-site social channel credential configuration for LinkedIn, Telegram, X/Twitter, and Tumblr, with Save credentials and Test connect actions. Distribution should only select which configured/connected channels are used for autopublish.
 * Technical settings should stay compact on the site factory page; main workflow should focus on topic discovery and jobs.
 * Existing imported blogs and Blog Core-created blogs have different ownership models. For imported existing blogs, Blog Core should act as the control plane/dashboard and publish new/updated tasks back into the same original site locations and URL structure. It should not default to becoming a second public copy of that blog. For blogs created by Blog Core from scratch, Blog Core can be the full source of truth and public hosting/publishing layer.
 * The site manage page is organized by tabs: `Content` for import and article production queue, `Discovery` for topic signals, `Distribution` for autopublish/social settings, `Activity` for system/factory job logs, and `Setup` for webroot/CNAME/design settings.
@@ -64,7 +65,7 @@ It must be updated after every meaningful task.
 * Content inventory pagination should appear only once at the bottom of the list, centered, using compact numeric links and arrow icons without `Page X of Y` wording.
 * Planned/future Blog Core publications should be visible separately from imported live pages. Show `Planned publications` at the bottom of Distribution, below the social channel settings, for `QUEUED`, `GENERATING`, `DRAFT`, and `ERROR` content jobs; imported live pages stay in Content inventory. If there are no planned jobs, keep the empty state compact.
 * Distribution channel settings should not duplicate the same providers across separate blocks. Each channel card should combine connection status, Connect action, autopublish enablement, and include-link setting in one place.
-* Social `Connect` controls must not look actionable until per-site OAuth/connect routes exist. Render them as disabled/setup-needed state, not a clickable placeholder toast.
+* Social channel status in Distribution should point users to Setup when credentials are missing, show `configured` after credentials are saved, and `connected` only after a successful test.
 * Imported section listing/hub pages such as `/blog/`, language blog indexes, `/wine-countries/`, and `/wine-regions/` may be stored as import metadata, but they must be hidden from the Content inventory work list so they are not confused with articles or publish tasks.
 
 ## 4. Integrations
@@ -77,6 +78,7 @@ It must be updated after every meaningful task.
 * Reddit signal fetching uses `https://www.reddit.com/search.rss` with top sorting; rate limits are expected and must be handled gracefully without rendering error cards. Reddit matches must include a strong site-topic anchor and contextual match; do not surface broad matches based only on generic words like `food`, `product`, or `shop`.
 * Discovery signals should be broad/global topic signals suitable for scalable articles. Filter out city-specific, festival/event, ticket, local-opening, trade-promo/campaign/grant/retailer, and one-off local news signals before showing them as selectable Google/Reddit items.
 * Existing blog import scans sitemap and `/blog/` index sources for external sites. If a connected site has a local `root_path`, import must prefer direct webroot discovery and include multilingual `/blog/` pages plus SEO money pages under `wine-countries` and `wine-regions`.
+* Social credentials are stored per site in SQLite `social_connections.credentials_json`; secrets must not be rendered back into the page, committed, or written to memory files.
 * Replaced/deprecated 2026-07-03: The earlier production state note saying `yas.wine` import found only 61 English `/blog/` URLs was an incomplete external-scan result, not a complete import.
 * Current production state: On 2026-07-03, `yas.wine` site `id=5` was fully imported from local webroot `/var/www/yaswine`. Blog Core now has 821 distinct `content_jobs.status=IMPORTED`: 426 blog pages and 395 SEO money pages. All records have `published_url` on `https://yas.wine/...` and `sources_json.webrootPath` pointing to the source file.
 
@@ -137,7 +139,7 @@ It must be updated after every meaningful task.
 * Do not place planned/future publication tasks in the Content inventory area; keep them at the bottom of Distribution below social channel settings.
 * Do not render content pagination both above and below the cards, and do not use verbose `Page`/`Showing` text there.
 * Do not show Publish Channels, include-link checkboxes, and connection status as three separate repeated channel sections. Use one unified card per social provider.
-* Do not show active-looking `Connect` buttons for social providers while OAuth/connect routes are not implemented.
+* Do not show active-looking `Connect` buttons for social providers without a credential setup/test path. Setup is the place to enter keys/tokens and test connections.
 * Large imports need pagination in the Content inventory. Do not return to a hard-coded latest-24 list without navigation.
 * Do not confuse Blog Core Content inventory pagination with public source-site blog pagination. `yas.wine/blog/` is a static public page in `/var/www/yaswine/blog/index.html`; its visible pagination must be fixed in that webroot.
 

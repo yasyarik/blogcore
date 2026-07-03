@@ -2,6 +2,42 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-03 — Add social credential setup and connection tests
+
+### Summary
+
+* Added a `Social channel credentials` block to the Setup tab.
+* Added per-site credential forms for LinkedIn, Telegram, X/Twitter, and Tumblr.
+* Added `Save credentials` and `Test connect` actions for each provider.
+* Updated Distribution channel cards to point to Setup and show `Configure in Setup`, `Ready to test`, or `Connected` based on saved/tested status.
+
+### Files changed
+
+* `app.py` — added social provider credential config, per-site save/test API routes, provider API probes, Setup UI, JS handlers, and status styling.
+* `docs/PROJECT_MEMORY.md` — recorded the durable Setup-vs-Distribution social channel rule and secret-handling rule.
+* `docs/INTEGRATIONS.md` — documented social credential storage and connection test behavior.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Setup is where keys/tokens are entered and tested. Distribution only controls autopublish selection for configured/connected channels.
+* Saved secrets are kept in SQLite `social_connections.credentials_json` and are not rendered back into the dashboard.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified live `https://blog.yas.ooo/sites/5#setup` contains social credential forms and JS handlers.
+* Verified live HTML does not contain raw env secret names such as `GEMINI_API_KEY`.
+* Smoke-tested Telegram save endpoint with empty payload and Telegram test endpoint; missing credentials return a controlled `400` with `Missing required credentials`.
+
+### Risks / TODO
+
+* Real social publishing routes still need to use these stored per-site credentials.
+* OAuth authorization flows for providers that need browser-based authorization are still not implemented; current Setup supports entering issued tokens/keys and testing them.
+
 ## 2026-07-03 — Auto-infer Discovery settings from scanned site
 
 ### Summary

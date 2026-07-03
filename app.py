@@ -6,10 +6,14 @@ import secrets
 import shutil
 import socket
 import sqlite3
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from base64 import b64encode
+from hashlib import sha1
+from hmac import new as hmac_new
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -491,6 +495,102 @@ def fetch_url(url):
         charset = resp.headers.get_content_charset() or "utf-8"
         raw = resp.read(900000)
         return raw.decode(charset, errors="replace"), dict(resp.headers)
+
+
+def fetch_json_request(url, headers=None, data=None, method="GET", timeout=25):
+    body = json.dumps(data).encode("utf-8") if data is not None else None
+    request_headers = {"User-Agent": "YASBlogCore/0.1 (+https://blog.yas.ooo)", **(headers or {})}
+    if data is not None:
+        request_headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=body, headers=request_headers, method=method)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read(300000).decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            parsed = {"raw": raw[:500]}
+        return parsed, resp.status
+
+
+def oauth1_header(method, url, consumer_key, consumer_secret, token, token_secret, params=None):
+    oauth_params = {
+        "oauth_consumer_key": consumer_key,
+        "oauth_nonce": secrets.token_hex(12),
+        "oauth_signature_method": "HMAC-SHA1",
+        "oauth_timestamp": str(int(datetime.now(timezone.utc).timestamp())),
+        "oauth_token": token,
+        "oauth_version": "1.0",
+    }
+    all_params = {**(params or {}), **oauth_params}
+    encoded_pairs = []
+    for key, value in sorted(all_params.items()):
+        encoded_pairs.append(f"{urllib.parse.quote(str(key), safe='')}={urllib.parse.quote(str(value), safe='')}")
+    param_string = "&".join(encoded_pairs)
+    base = "&".join([
+        method.upper(),
+        urllib.parse.quote(url, safe=""),
+        urllib.parse.quote(param_string, safe=""),
+    ])
+    signing_key = f"{urllib.parse.quote(consumer_secret, safe='')}&{urllib.parse.quote(token_secret, safe='')}"
+    signature = b64encode(hmac_new(signing_key.encode("utf-8"), base.encode("utf-8"), sha1).digest()).decode("ascii")
+    oauth_params["oauth_signature"] = signature
+    header_value = ", ".join(f'{urllib.parse.quote(k, safe="")}="{urllib.parse.quote(str(v), safe="")}"' for k, v in sorted(oauth_params.items()))
+    return "OAuth " + header_value
+
+
+def test_social_connection(provider, credentials):
+    if not social_credentials_complete(provider, credentials):
+        return {"ok": False, "status": "disconnected", "message": "Missing required credentials."}
+    try:
+        if provider == "telegram":
+            token = credentials["bot_token"]
+            chat_id = credentials["chat_id"]
+            bot, _ = fetch_json_request(f"https://api.telegram.org/bot{urllib.parse.quote(token, safe=':')}/getMe")
+            if not bot.get("ok"):
+                return {"ok": False, "status": "failed", "message": bot.get("description") or "Telegram bot token rejected."}
+            chat, _ = fetch_json_request(f"https://api.telegram.org/bot{urllib.parse.quote(token, safe=':')}/getChat?chat_id={urllib.parse.quote(str(chat_id))}")
+            if not chat.get("ok"):
+                return {"ok": False, "status": "failed", "message": chat.get("description") or "Telegram chat is not reachable."}
+            username = bot.get("result", {}).get("username") or bot.get("result", {}).get("first_name") or "Telegram bot"
+            return {"ok": True, "status": "connected", "displayName": username, "message": f"Connected to Telegram as {username}."}
+
+        if provider == "linkedin":
+            data, _ = fetch_json_request("https://api.linkedin.com/v2/userinfo", headers={"Authorization": f"Bearer {credentials['access_token']}"})
+            name = data.get("name") or data.get("localizedFirstName") or data.get("sub") or "LinkedIn account"
+            if data.get("serviceErrorCode") or data.get("status") in {401, 403}:
+                return {"ok": False, "status": "failed", "message": data.get("message") or "LinkedIn token rejected."}
+            return {"ok": True, "status": "connected", "displayName": name, "message": f"Connected to LinkedIn as {name}."}
+
+        if provider == "twitter":
+            data, _ = fetch_json_request("https://api.twitter.com/2/users/me", headers={"Authorization": f"Bearer {credentials['bearer_token']}"})
+            user = data.get("data") or {}
+            if not user:
+                return {"ok": False, "status": "failed", "message": data.get("detail") or data.get("title") or "X / Twitter token rejected."}
+            name = user.get("username") or user.get("name") or "X account"
+            return {"ok": True, "status": "connected", "displayName": name, "message": f"Connected to X / Twitter as {name}."}
+
+        if provider == "tumblr":
+            url = "https://api.tumblr.com/v2/user/info"
+            auth = oauth1_header(
+                "GET",
+                url,
+                credentials["consumer_key"],
+                credentials["consumer_secret"],
+                credentials["oauth_token"],
+                credentials["oauth_token_secret"],
+            )
+            data, _ = fetch_json_request(url, headers={"Authorization": auth})
+            user = (data.get("response") or {}).get("user") or {}
+            name = user.get("name") or credentials.get("blog_hostname") or "Tumblr account"
+            if not user:
+                return {"ok": False, "status": "failed", "message": (data.get("meta") or {}).get("msg") or "Tumblr credentials rejected."}
+            return {"ok": True, "status": "connected", "displayName": name, "message": f"Connected to Tumblr as {name}."}
+    except urllib.error.HTTPError as e:
+        detail = e.read(500).decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
+        return {"ok": False, "status": "failed", "message": f"HTTP {e.code}: {detail[:220]}"}
+    except Exception as e:
+        return {"ok": False, "status": "failed", "message": str(e)[:260]}
+    return {"ok": False, "status": "failed", "message": "Unsupported provider."}
 
 
 def absolutize(base, maybe_url):
@@ -1124,6 +1224,116 @@ def get_social_connections(site_id):
     return {provider: rows.get(provider) for provider in providers}
 
 
+SOCIAL_PROVIDER_CONFIG = {
+    "linkedin": {
+        "label": "LinkedIn",
+        "fields": [
+            ("access_token", "Access token", "password", "LinkedIn OAuth access token"),
+            ("author_urn", "Author / organization URN", "text", "urn:li:organization:123 or urn:li:person:abc"),
+        ],
+    },
+    "telegram": {
+        "label": "Telegram",
+        "fields": [
+            ("bot_token", "Bot token", "password", "123456:ABC..."),
+            ("chat_id", "Chat ID / channel", "text", "@channelname or numeric chat id"),
+        ],
+    },
+    "twitter": {
+        "label": "X / Twitter",
+        "fields": [
+            ("bearer_token", "Bearer token", "password", "OAuth 2.0 bearer token"),
+            ("user_id", "User ID / handle", "text", "Optional posting identity"),
+        ],
+    },
+    "tumblr": {
+        "label": "Tumblr",
+        "fields": [
+            ("consumer_key", "Consumer key", "password", "Tumblr OAuth consumer key"),
+            ("consumer_secret", "Consumer secret", "password", "Tumblr OAuth consumer secret"),
+            ("oauth_token", "OAuth token", "password", "Tumblr OAuth token"),
+            ("oauth_token_secret", "OAuth token secret", "password", "Tumblr OAuth token secret"),
+            ("blog_hostname", "Blog hostname", "text", "example.tumblr.com"),
+        ],
+    },
+}
+
+
+def social_provider_label(provider):
+    return SOCIAL_PROVIDER_CONFIG.get(provider, {}).get("label", provider)
+
+
+def parse_json_object(value):
+    try:
+        data = json.loads(value or "{}")
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def get_social_credentials(row):
+    return parse_json_object(row["credentials_json"] if row else "{}")
+
+
+def social_credentials_complete(provider, credentials):
+    config = SOCIAL_PROVIDER_CONFIG.get(provider)
+    if not config:
+        return False
+    required = [field[0] for field in config["fields"] if field[2] == "password"]
+    if provider == "telegram":
+        required = ["bot_token", "chat_id"]
+    if provider == "linkedin":
+        required = ["access_token"]
+    if provider == "twitter":
+        required = ["bearer_token"]
+    if provider == "tumblr":
+        required = ["consumer_key", "consumer_secret", "oauth_token", "oauth_token_secret"]
+    return all(str(credentials.get(key) or "").strip() for key in required)
+
+
+def upsert_social_connection(site_id, provider, credentials=None, status=None, display_name=None, settings=None):
+    if provider not in SOCIAL_PROVIDER_CONFIG:
+        raise ValueError("unsupported provider")
+    now = now_iso()
+    with db() as conn:
+        current = conn.execute("select * from social_connections where site_id=? and provider=?", (site_id, provider)).fetchone()
+        current_credentials = get_social_credentials(current)
+        merged_credentials = dict(current_credentials)
+        if credentials:
+            for key, value in credentials.items():
+                if value is not None and str(value).strip() != "":
+                    merged_credentials[key] = str(value).strip()
+        current_settings = parse_json_object(current["settings_json"] if current else "{}")
+        merged_settings = {**current_settings, **(settings or {})}
+        final_status = status or (current["status"] if current else None)
+        if not final_status:
+            final_status = "configured" if social_credentials_complete(provider, merged_credentials) else "disconnected"
+        conn.execute(
+            """
+            insert into social_connections(site_id, provider, status, display_name, credentials_json, settings_json, connected_at, updated_at)
+            values(?,?,?,?,?,?,?,?)
+            on conflict(site_id, provider) do update set
+                status=excluded.status,
+                display_name=coalesce(excluded.display_name, social_connections.display_name),
+                credentials_json=excluded.credentials_json,
+                settings_json=excluded.settings_json,
+                connected_at=case when excluded.status='connected' then coalesce(social_connections.connected_at, excluded.connected_at) else social_connections.connected_at end,
+                updated_at=excluded.updated_at
+            """,
+            (
+                site_id,
+                provider,
+                final_status,
+                display_name,
+                json.dumps(merged_credentials, ensure_ascii=False),
+                json.dumps(merged_settings, ensure_ascii=False),
+                now if final_status == "connected" else None,
+                now,
+            ),
+        )
+    return {"provider": provider, "status": final_status, "configured": social_credentials_complete(provider, merged_credentials)}
+
+
 def simple_slug(text):
     slug = re.sub(r"[^a-z0-9\s-]", "", (text or "").lower())
     slug = re.sub(r"\s+", "-", slug).strip("-")
@@ -1699,6 +1909,52 @@ def live_page_icon(url):
     return f"<a class='icon-btn external-link' target='_blank' href='{escape(url, quote=True)}' title='Open live page' aria-label='Open live page'>↗</a>"
 
 
+def render_social_credentials_setup(site_id):
+    connections = get_social_connections(site_id)
+    cards = []
+    for provider, config in SOCIAL_PROVIDER_CONFIG.items():
+        row = connections.get(provider)
+        credentials = get_social_credentials(row)
+        status = row["status"] if row else "disconnected"
+        display_name = row["display_name"] if row and row["display_name"] else ""
+        status_class = "connected" if status == "connected" else ("configured" if status == "configured" else "disconnected")
+        fields = []
+        for key, label, input_type, placeholder in config["fields"]:
+            saved = bool(credentials.get(key))
+            effective_placeholder = "Saved. Leave blank to keep." if saved and input_type == "password" else placeholder
+            value = "" if input_type == "password" else escape(credentials.get(key, ""), quote=True)
+            fields.append(
+                f"""
+                <div class="field">
+                  <label>{escape(label)}</label>
+                  <input type="{escape(input_type)}" name="{escape(key)}" value="{value}" placeholder="{escape(effective_placeholder, quote=True)}" autocomplete="off">
+                </div>
+                """
+            )
+        meta = f" · {escape(display_name)}" if display_name else ""
+        cards.append(
+            f"""
+            <form class="social-credentials-card" data-provider="{escape(provider)}" onsubmit="saveSocialCredentials(event, '{escape(provider)}')">
+              <div class="channel-head">
+                <div><strong>{escape(config['label'])}</strong><span class="channel-state {status_class}">{escape(status)}{meta}</span></div>
+                <button class="ghost mini-action" type="button" onclick="testSocialConnection('{escape(provider)}')">Test connect</button>
+              </div>
+              <div class="social-credential-fields">{''.join(fields)}</div>
+              <div class="actions">
+                <button type="submit">Save credentials</button>
+              </div>
+            </form>
+            """
+        )
+    return f"""
+    <section class="stat social-credentials-panel">
+      <h2>Social channel credentials</h2>
+      <div class="muted">Per-site publishing credentials. Secrets are stored in the local Blog Core SQLite database and are never rendered back into the page.</div>
+      <div class="social-credentials-grid">{''.join(cards)}</div>
+    </section>
+    """
+
+
 def render_planned_publications(rows):
     if not rows:
         return "<div class='planned-empty'>No planned Blog Core publications yet.</div>"
@@ -1782,13 +2038,14 @@ def render_distribution_settings(site_id):
         checked = "checked" if provider in selected else ""
         include_field = f"{provider}_include_link"
         include_checked = "checked" if int(auto[include_field] or 0) else ""
-        status_class = "connected" if status == "connected" else "disconnected"
+        status_class = "connected" if status == "connected" else ("configured" if status == "configured" else "disconnected")
+        setup_label = "Connected" if status == "connected" else ("Ready to test" if status == "configured" else "Configure in Setup")
         channel_cards.append(
             f"""
             <div class="channel-card unified-channel">
               <div class="channel-head">
                 <div><strong>{label}</strong><span class="channel-state {status_class}">{escape(status)}</span></div>
-                <span class="connect-placeholder" title="Per-site OAuth/connect routes are not wired yet">OAuth setup needed</span>
+                <span class="connect-placeholder" title="Open Setup to enter credentials and test this channel">{escape(setup_label)}</span>
               </div>
               <label class="check compact"><input type="checkbox" name="channels" value="{provider}" {checked}> Use for autopublish</label>
               <label class="check compact"><input type="checkbox" name="{include_field}" {include_checked}> Include article link</label>
@@ -1809,7 +2066,7 @@ def render_distribution_settings(site_id):
         <div class="field"><label>Timezone</label><input name="timezone" value="{escape(auto['timezone'] or 'UTC', quote=True)}"></div>
         <div class="field"><label>Start hour</label><input name="start_hour" type="number" min="0" max="23" value="{int(auto['start_hour'] or 9)}"></div>
         <div class="field"><label>End hour</label><input name="end_hour" type="number" min="0" max="23" value="{int(auto['end_hour'] or 21)}"></div>
-        <div class="field full"><label>Channels</label><div class="channel-grid unified-channels">{''.join(channel_cards)}</div><div class="hint">Channel connection requires per-site OAuth/connect routes. Until those routes are implemented, channels can be selected for future autopublish settings but cannot connect accounts.</div></div>
+        <div class="field full"><label>Channels</label><div class="channel-grid unified-channels">{''.join(channel_cards)}</div><div class="hint">Enter and test per-site credentials in Setup. Distribution controls decide which connected channels autopublish uses.</div></div>
         <div class="actions full"><button type="submit">Save factory distribution settings</button></div>
       </form>
       <div class="planned-publications-block">
@@ -1839,6 +2096,7 @@ def render_manage_site_page(site):
     content_page = get_content_jobs(site["id"], page=request.args.get("content_page", 1), language=request.args.get("content_lang", "en"))
     content_jobs = render_content_jobs(content_page)
     distribution_settings = render_distribution_settings(site["id"])
+    social_credentials_setup = render_social_credentials_setup(site["id"])
     preview = f"<a class='btn ghost' target='_blank' href='{escape(site['preview_path'])}'>Open preview</a>" if site["preview_path"] else "<span class='muted'>Build preview first</span>"
     colors = []
     fonts = []
@@ -1881,6 +2139,7 @@ def render_manage_site_page(site):
         .replace("__JOBS__", jobs)
         .replace("__CONTENT_JOBS__", content_jobs)
         .replace("__DISTRIBUTION_SETTINGS__", distribution_settings)
+        .replace("__SOCIAL_CREDENTIALS_SETUP__", social_credentials_setup)
         .replace("__SITE_SWITCHER__", render_site_switcher(site["id"]))
     )
 
@@ -2558,6 +2817,56 @@ def delete_site(site_id):
     return jsonify({"ok": True, "deleted": site_id, "note": "Installed /blog files were not removed from the target site root."})
 
 
+@app.put("/api/sites/<int:site_id>/social-connections/<provider>")
+def update_social_connection(site_id, provider):
+    if provider not in SOCIAL_PROVIDER_CONFIG:
+        return jsonify({"error": "unsupported provider"}), 404
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    credentials = payload.get("credentials") or {}
+    if not isinstance(credentials, dict):
+        credentials = {}
+    allowed = {field[0] for field in SOCIAL_PROVIDER_CONFIG[provider]["fields"]}
+    clean_credentials = {key: str(value).strip() for key, value in credentials.items() if key in allowed and str(value or "").strip()}
+    with db() as conn:
+        current = conn.execute("select * from social_connections where site_id=? and provider=?", (site_id, provider)).fetchone()
+    merged = {**get_social_credentials(current), **clean_credentials}
+    status = "configured" if social_credentials_complete(provider, merged) else "disconnected"
+    result = upsert_social_connection(site_id, provider, clean_credentials, status=status)
+    return jsonify({"ok": True, "provider": provider, "status": result["status"], "configured": result["configured"]})
+
+
+@app.post("/api/sites/<int:site_id>/social-connections/<provider>/test")
+def test_social_connection_route(site_id, provider):
+    if provider not in SOCIAL_PROVIDER_CONFIG:
+        return jsonify({"error": "unsupported provider"}), 404
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    inline_credentials = payload.get("credentials") or {}
+    if not isinstance(inline_credentials, dict):
+        inline_credentials = {}
+    allowed = {field[0] for field in SOCIAL_PROVIDER_CONFIG[provider]["fields"]}
+    inline_credentials = {key: str(value).strip() for key, value in inline_credentials.items() if key in allowed and str(value or "").strip()}
+    with db() as conn:
+        current = conn.execute("select * from social_connections where site_id=? and provider=?", (site_id, provider)).fetchone()
+    credentials = {**get_social_credentials(current), **inline_credentials}
+    if inline_credentials:
+        upsert_social_connection(site_id, provider, inline_credentials, status="configured")
+    result = test_social_connection(provider, credentials)
+    upsert_social_connection(
+        site_id,
+        provider,
+        {},
+        status=result["status"],
+        display_name=result.get("displayName") if result.get("ok") else None,
+        settings={"lastTestMessage": result.get("message", "")},
+    )
+    code = 200 if result.get("ok") else 400
+    return jsonify({"ok": bool(result.get("ok")), "provider": provider, "status": result["status"], "message": result.get("message", "")}), code
+
+
 @app.get("/api/sites/<int:site_id>/topic-signals")
 def topic_signals(site_id):
     site = get_site(site_id)
@@ -2965,8 +3274,13 @@ MANAGE_SITE_HTML = """<!doctype html>
 .channel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .channel-state{display:inline-flex;margin-top:5px;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:900;text-transform:uppercase;border:1px solid var(--line);color:var(--muted)}
 .channel-state.connected{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.14);color:#bbf7d0}
+.channel-state.configured{border-color:rgba(245,158,11,.48);background:rgba(245,158,11,.13);color:#fde68a}
 .channel-state.disconnected{opacity:.72}
 .connect-placeholder{display:inline-flex;align-items:center;min-height:30px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);font-size:11px;font-weight:900;text-transform:uppercase;padding:6px 9px;white-space:nowrap}
+.social-credentials-panel{margin-top:18px}
+.social-credentials-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+.social-credentials-card{display:grid;gap:12px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38);padding:14px}
+.social-credential-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .planned-publications-block{margin-top:18px;border-top:1px solid var(--line);padding-top:18px}
 .planned-publications-block h3{margin:0 0 4px;color:#efe9ff;font-size:15px;text-transform:uppercase;letter-spacing:.08em}
 .planned-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px;margin-top:10px}
@@ -2980,7 +3294,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 .tab-panel[hidden]{display:none}
 .tab-panel{display:grid;gap:18px}
 .tab-panel>.panel:first-child{margin-top:0}
-@media(max-width:900px){.content-toolbar{justify-content:flex-start}.content-pagination{flex-wrap:wrap}}
+@media(max-width:900px){.content-toolbar{justify-content:flex-start}.content-pagination{flex-wrap:wrap}.social-credentials-grid,.social-credential-fields{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -3045,6 +3359,7 @@ MANAGE_SITE_HTML = """<!doctype html>
           <div class="stat"><strong>Delete connected site</strong><div class="muted">Removes it from Blog Core and generated previews only. It does not remove installed /blog files.</div><div style="margin-top:12px"><button class="danger" onclick="deleteSite(__SITE_ID__, '__DOMAIN__')">Delete from dashboard</button></div></div>
         </section>
       </div>
+      __SOCIAL_CREDENTIALS_SETUP__
     </div>
   </section>
   </div>
@@ -3107,6 +3422,9 @@ async function loadSignals(range){currentRange=range||'week';const box=document.
 async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}showToast('Creating article jobs...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Article jobs queued: '+(data.jobs||[]).length);setTimeout(()=>location.reload(),900);}catch(e){showToast('Article ideas failed: '+e.message);}}
 async function generateArticleJob(jobId){showToast('Generating draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Draft generated: '+(data.slug||jobId));setTimeout(()=>location.reload(),900);}catch(e){showToast('Generation failed: '+e.message);}}
 async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
+function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}
+async function saveSocialCredentials(event,provider){event.preventDefault();const form=event.currentTarget;const credentials=socialCredentialsFromForm(form);showToast('Saving '+provider+' credentials...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(provider+' credentials saved: '+data.status);setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
+async function testSocialConnection(provider){const form=document.querySelector('.social-credentials-card[data-provider="'+provider+'"]');const credentials=form?socialCredentialsFromForm(form):{};showToast('Testing '+provider+' connection...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider)+'/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.message||data.error||res.statusText);showToast(data.message||provider+' connected');setTimeout(()=>location.reload(),900);}catch(e){showToast('Connection test failed: '+e.message);}}
 let currentImportArticles=[];
 function renderImportArticles(items,warnings){const box=document.getElementById('importBlogResult');currentImportArticles=items||[];const note=(warnings&&warnings.length)?'<div class="hint">Notes: '+warnings.map(w=>String(w)).join(' · ')+'</div>':'';if(!currentImportArticles.length){box.className='loading';box.innerHTML='No importable article URLs found.'+note;return;}box.className='import-list';box.innerHTML='<div class="muted">Found '+currentImportArticles.length+' article URLs. Review and import only the ones that should remain live.</div>'+note+currentImportArticles.map((item,index)=>`<label class="import-row"><input type="checkbox" data-index="${index}" checked><div><strong>${item.slug||item.url}</strong><span>${item.url}</span></div></label>`).join('');}
 async function scanExistingBlog(){const box=document.getElementById('importBlogResult');box.className='loading';box.textContent='Scanning sitemap and /blog/ links...';try{const res=await fetch('/api/sites/'+SITE_ID+'/import-blog/scan',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);renderImportArticles(data.articles||[],data.warnings||[]);showToast('Found '+(data.articles||[]).length+' importable URLs');}catch(e){box.className='loading';box.textContent='Import scan failed: '+e.message;showToast('Import scan failed: '+e.message);}}

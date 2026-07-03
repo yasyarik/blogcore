@@ -46,7 +46,8 @@ Blog Core is being adapted toward feature parity with `/var/www/content-factory-
 * Article production queue is stored in `content_jobs` with per-site status, draft, FAQ, sources, and social publish fields.
 * Job logs are stored in `content_job_logs`.
 * Distribution settings are per site in `autopublish_settings` and `topic_discovery_settings`.
-* Social channel connections must be stored per site in `social_connections`; do not use one global OAuth state for all sites.
+* Social channel connections and credentials are stored per site in `social_connections`; do not use one global OAuth state for all sites. The Setup tab provides per-provider credential forms and `Test connect` actions. Secrets are never rendered back into the dashboard.
+* Social connection tests currently use provider API probes: Telegram `getMe/getChat`, LinkedIn `userinfo`, X `/2/users/me`, and Tumblr OAuth 1.0 `user/info`.
 * The old YAS Wine prompt is not copied literally because it contains wine-only rules. Blog Core uses a universal prompt contract populated from connected site context and topic strategy.
 
 Pending parity work after the initial backbone:
