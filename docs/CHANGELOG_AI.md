@@ -2,6 +2,46 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-03 — Auto-infer Discovery settings from scanned site
+
+### Summary
+
+* Added Gemini-based site topic-profile inference during `Scan design`.
+* `Discovery direction` and `Category hint` are now auto-filled from scanned homepage metadata/nav/footer when empty.
+* Added a deterministic fallback so scans still succeed if Gemini is unavailable.
+* Updated `run.sh` to source `/var/www/blog.yas.ooo/.env` before Gunicorn, and configured the live VPS `.env` with existing Gemini/Google key/model env vars without committing secrets.
+* Ran a live scan for `yas.wine` and updated site `id=5` with Gemini-inferred Discovery settings.
+
+### Files changed
+
+* `app.py` — added site topic-profile prompt/inference/fallback logic and connected it to the scan route; updated Distribution field hints.
+* `run.sh` — loads `.env` before starting Gunicorn.
+* `docs/PROJECT_MEMORY.md` — recorded Gemini topic-profile inference and `.env` runtime behavior.
+* `docs/DEPLOYMENT.md` — documented `.env` loading and Gemini env vars without secrets.
+* `docs/INTEGRATIONS.md` — documented the topic-profile inference contract.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Gemini should infer a site's initial editorial direction and category hints from the site scan; the UI fields remain editable overrides.
+* Normal scans preserve manual overrides by writing inferred values only when the fields are empty.
+* Missing Gemini configuration is degraded behavior; fallback values are allowed so site scanning is not blocked.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` and `run.sh` to `/var/www/blog.yas.ooo/`.
+* Created `/var/www/blog.yas.ooo/.env` on the VPS from existing Gemini/Google env names without exposing values; `.env` remains untracked.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Ran `POST http://127.0.0.1:3299/api/sites/5/scan`; verified Gemini returned `source=gemini`.
+* Verified `/api/sites/5/factory-settings` now returns Gemini-inferred `direction` and `category_hint` for YAS Wine.
+
+### Risks / TODO
+
+* Topic inference depends on Gemini env vars being present in the runtime `.env`.
+* Existing manually edited Discovery fields are intentionally not overwritten by future scans.
+
 ## 2026-07-03 — Clarify social connect state and planned publications placement
 
 ### Summary

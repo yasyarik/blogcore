@@ -4,6 +4,7 @@
 
 * App: Flask in `app.py`.
 * Launcher: `run.sh`.
+* `run.sh` sources `/var/www/blog.yas.ooo/.env` when present before starting Gunicorn.
 * Gunicorn: `127.0.0.1:3299`, 2 workers, 120s timeout.
 * PM2 process: `blog-yas-core`.
 * VPS path: `/var/www/blog.yas.ooo`.
@@ -32,6 +33,8 @@ curl -fsS http://127.0.0.1:3299/health
 * `ADMIN_HOSTS`: default `blog.yas.ooo,127.0.0.1,localhost`.
 * `CNAME_TARGET`: default `blog.yas.ooo`.
 * `HOSTED_BLOG_IPS`: default `72.61.1.109`.
+* `GEMINI_API_KEY` or `GOOGLE_API_KEY`: enables Gemini article generation and automatic site topic-profile inference.
+* `GEMINI_TEXT_MODEL`, `GEMINI_MODEL_TEXT`, or `GEMINI_MODEL`: optional text-model override.
 
 Do not store secrets or raw `.env` contents in this file.
 

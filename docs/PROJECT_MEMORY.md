@@ -30,6 +30,7 @@ It must be updated after every meaningful task.
   - Google News RSS search is used as the current Google trend/news signal source.
   - Reddit search RSS is used for discussion signals; it may rate-limit.
   - DNS resolution uses Python `socket.getaddrinfo` for CNAME/custom-domain status checks.
+  - Gemini text generation is used for draft generation and for automatic site topic-profile inference when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is configured.
   - Draft generation is represented by the content job generation contract in `app.py`; provider credentials/secrets must not be committed or documented in raw form.
 * Important folders/files:
   - `app.py` — Flask app, routes, SQLite schema/migrations, scanner, blog rendering, dashboard UI.
@@ -48,6 +49,7 @@ It must be updated after every meaningful task.
 * Local install is only for sites whose filesystem root is available on the same VPS and configured in `root_path`.
 * Deleting a connected site from the dashboard must remove only Blog Core records and preview cache. It must not delete installed `/blog` files from the target site root.
 * Factory settings are per site: content context, topic strategy, languages, cadence, CNAME settings, and jobs belong to the site.
+* `Discovery direction` and `Category hint` should be auto-inferred from the scanned site with Gemini during `Scan design`. They remain editable overrides, but should not be empty/manual-first for newly scanned sites. If Gemini is unavailable, use a deterministic metadata fallback and do not block scanning.
 * The manage page should allow switching between connected sites without returning to the dashboard.
 * Factory parity with the old YAS Wine factory must include article jobs, logs, generation modes, social channels, autopublish settings, topic discovery settings, and publish status per site.
 * Social publishing/OAuth must be scoped per site, not globally.
@@ -92,6 +94,7 @@ It must be updated after every meaningful task.
 ## 6. Deployment
 
 * Runtime command: `./run.sh`.
+* `run.sh` loads `/var/www/blog.yas.ooo/.env` before starting Gunicorn; this is where live Gemini/Google API keys and model env vars should be configured. Do not commit `.env`.
 * Gunicorn binds `127.0.0.1:3299` with 2 workers and 120 second timeout.
 * PM2 process name: `blog-yas-core`.
 * Public dashboard domain: `https://blog.yas.ooo`.
@@ -105,6 +108,8 @@ It must be updated after every meaningful task.
   - `ADMIN_HOSTS` default `blog.yas.ooo,127.0.0.1,localhost`.
   - `CNAME_TARGET` default `blog.yas.ooo`.
   - `HOSTED_BLOG_IPS` default `72.61.1.109`.
+  - `GEMINI_API_KEY` or `GOOGLE_API_KEY` enables Gemini site analysis and article generation.
+  - `GEMINI_TEXT_MODEL`, `GEMINI_MODEL_TEXT`, or `GEMINI_MODEL` can override the text model.
 * Never store secrets or raw `.env` values in memory files.
 
 ## 7. Known pitfalls
@@ -118,6 +123,7 @@ It must be updated after every meaningful task.
 * Do not turn Discovery into a local event or trade-promo feed. Results like a city wine festival, local guide, `Indies to receive £250 for Bordeaux Wine Month`, or retailer campaign should be filtered out even if they contain topical words.
 * `install-blog` writes static files into `root_path/blog`; avoid using it for external sites with no local webroot.
 * Theme scan depends on public HTML/CSS structure and may fail or capture weak design context for SPA-heavy or protected sites.
+* If Gemini env vars are missing, `Scan design` still succeeds but topic-profile inference falls back to homepage title/description heuristics. This should be treated as degraded behavior, not the desired production path.
 * `SEO_MEMORY.md` had an older note that dynamic sitemap expansion was not implemented. As of the imported/generated content job renderer, that note is replaced for hosted CNAME blogs; local static install still lacks final article publishing/export parity.
 * Replaced/deprecated 2026-07-03: Existing blog import no longer has to rely on `sitemap_index.xml` for local VPS sites with `root_path`. For local sites such as `yas.wine`, direct webroot discovery is the authoritative inventory path.
 * Production API may reject default Python `urllib` requests with `403`; use a normal User-Agent for scripted verification/import calls.

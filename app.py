@@ -555,6 +555,53 @@ def extract_theme(homepage_url):
     }
 
 
+def strip_html_text(html, limit=1400):
+    text = re.sub(r"(?is)<(script|style).*?</\1>", " ", html or "")
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = re.sub(r"&nbsp;", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:limit]
+
+
+def clean_inferred_text(value, limit=180):
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    text = text.strip(" .;:-")
+    return text[:limit]
+
+
+def fallback_site_topic_profile(site, theme):
+    brand = site["brand_name"] or site["domain"]
+    title = clean_inferred_text(theme.get("title") or brand, 120)
+    description = clean_inferred_text(theme.get("description") or "", 220)
+    combined = f"{brand} {title} {description}".lower()
+    if any(word in combined for word in ("wine", "winery", "wineries", "sommelier", "grape", "champagne", "bordeaux")):
+        return {
+            "direction": "Wine pairing, regions, grape guides, and buying advice",
+            "categoryHint": "Pairing Guides, Wine Regions, Grape Guides, Buying Advice",
+            "contentContext": description or f"{brand} publishes wine guides and buying advice.",
+            "topicStrategy": "Create evergreen wine guides that answer pairing, region, grape, serving, and buying questions.",
+            "source": "fallback",
+        }
+    if any(word in combined for word in ("ai", "automation", "software", "saas", "platform", "app", "tool")):
+        return {
+            "direction": f"{brand} product use cases, automation, and buyer education",
+            "categoryHint": "Use Cases, How-to Guides, Comparisons, Buyer Guides",
+            "contentContext": description or f"{brand} is a software/product website.",
+            "topicStrategy": "Create practical articles around user problems, workflows, comparisons, and implementation questions.",
+            "source": "fallback",
+        }
+    seed = description or title or site["domain"]
+    words = [w for w in re.findall(r"[A-Za-z][A-Za-z0-9-]{2,}", seed) if w.lower() not in {"the", "and", "for", "with", "from", "that", "this", "your", "our"}]
+    direction = " ".join(words[:8]) or site["domain"]
+    return {
+        "direction": direction,
+        "categoryHint": "Guides, How-to Articles, Comparisons, Buying Advice",
+        "contentContext": description or title or f"{brand} website.",
+        "topicStrategy": "Create evergreen articles from the site's core product, audience, and search intent.",
+        "source": "fallback",
+    }
+
+
 def theme_css(profile):
     colors = json.loads(profile["colors_json"] or "[]") if profile else []
     fonts = json.loads(profile["fonts_json"] or "[]") if profile else []
@@ -1752,8 +1799,8 @@ def render_distribution_settings(site_id):
     <section class="panel production-panel">
       <div class="panel-title-row"><div><h2>Distribution and autopublish</h2><div class="muted">Same publishing controls as the YAS Wine factory, scoped to this connected site.</div></div></div>
       <form class="form-grid" onsubmit="saveFactorySettings(event)">
-        <div class="field"><label>Discovery direction</label><input name="direction" value="{escape(disc['direction'] or '', quote=True)}" placeholder="Core topic or product category"></div>
-        <div class="field"><label>Category hint</label><input name="category_hint" value="{escape(disc['category_hint'] or '', quote=True)}" placeholder="Buying Guides, Use Cases, etc."></div>
+        <div class="field"><label>Discovery direction</label><input name="direction" value="{escape(disc['direction'] or '', quote=True)}" placeholder="Auto-detected from site scan"><div class="hint">Gemini fills this from the scanned site; edit only to override.</div></div>
+        <div class="field"><label>Category hint</label><input name="category_hint" value="{escape(disc['category_hint'] or '', quote=True)}" placeholder="Auto-detected editorial categories"><div class="hint">Used to steer topic discovery and article categories.</div></div>
         <div class="field"><label>Topics per run</label><input name="per_run_limit" type="number" min="1" max="50" value="{int(disc['per_run_limit'] or 15)}"></div>
         <div class="field"><label>Top N to queue</label><input name="top_n" type="number" min="1" max="20" value="{int(disc['top_n'] or 3)}"></div>
         <label class="check"><input type="checkbox" name="discovery_enabled" {'checked' if int(disc['enabled'] or 0) else ''}> Auto-discover topics</label>
@@ -2122,6 +2169,116 @@ def _gemini_text_json(prompt):
     except Exception:
         raise RuntimeError(f"Unexpected Gemini response: {data}")
     return _parse_json_text(text)
+
+
+def build_site_topic_profile_prompt(site, theme):
+    brand = site["brand_name"] or site["domain"]
+    nav_text = strip_html_text(theme.get("header_html") or "", 900)
+    footer_text = strip_html_text(theme.get("footer_html") or "", 600)
+    return f"""
+You are configuring an automated content factory for a connected website.
+Infer the site's durable editorial direction from its homepage metadata and navigation.
+
+SITE:
+- brand: {brand}
+- domain: {site['domain']}
+- homepage: {site['homepage_url']}
+- existing site context: {site['content_context'] or ''}
+- existing topic strategy: {site['topic_strategy'] or ''}
+
+SCANNED HOMEPAGE:
+- title: {theme.get('title') or ''}
+- meta description: {theme.get('description') or ''}
+- navigation/header text: {nav_text}
+- footer text: {footer_text}
+
+RULES:
+- Return STRICT JSON only.
+- Use English.
+- Infer what this site should publish about globally, not a one-off local event.
+- Do not copy placeholder text.
+- Keep "direction" concise: the core topic/product category and audience intent.
+- Keep "categoryHint" as comma-separated editorial categories.
+- Keep "contentContext" as a short factual description of the site.
+- Keep "topicStrategy" as a short evergreen strategy for topic discovery.
+
+RETURN JSON SHAPE:
+{{
+  "direction": "core topic or product category",
+  "categoryHint": "Category One, Category Two, Category Three",
+  "contentContext": "one sentence factual site context",
+  "topicStrategy": "one sentence topic strategy"
+}}
+""".strip()
+
+
+def infer_site_topic_profile(site, theme):
+    fallback = fallback_site_topic_profile(site, theme)
+    try:
+        inferred = _gemini_text_json(build_site_topic_profile_prompt(site, theme))
+        profile = {
+            "direction": clean_inferred_text(inferred.get("direction"), 180),
+            "categoryHint": clean_inferred_text(inferred.get("categoryHint"), 180),
+            "contentContext": clean_inferred_text(inferred.get("contentContext"), 260),
+            "topicStrategy": clean_inferred_text(inferred.get("topicStrategy"), 260),
+            "source": "gemini",
+        }
+        if not profile["direction"] or not profile["categoryHint"]:
+            raise ValueError("Gemini returned incomplete topic profile")
+        return profile
+    except Exception as e:
+        fallback["warning"] = str(e)
+        return fallback
+
+
+def apply_site_topic_profile(site_id, profile, overwrite=False):
+    now = now_iso()
+    with db() as conn:
+        conn.execute(
+            """
+            insert into topic_discovery_settings(site_id, direction, category_hint, updated_at)
+            values(?, ?, ?, ?)
+            on conflict(site_id) do nothing
+            """,
+            (site_id, profile.get("direction") or "", profile.get("categoryHint") or "", now),
+        )
+        conn.execute(
+            """
+            update topic_discovery_settings
+            set
+              direction=case when ? or coalesce(direction,'')='' then ? else direction end,
+              category_hint=case when ? or coalesce(category_hint,'')='' then ? else category_hint end,
+              updated_at=?
+            where site_id=?
+            """,
+            (
+                1 if overwrite else 0,
+                profile.get("direction") or "",
+                1 if overwrite else 0,
+                profile.get("categoryHint") or "",
+                now,
+                site_id,
+            ),
+        )
+        conn.execute(
+            """
+            update sites
+            set
+              content_context=case when ? or coalesce(content_context,'')='' then ? else content_context end,
+              topic_strategy=case when ? or coalesce(topic_strategy,'')='' then ? else topic_strategy end,
+              updated_at=?
+            where id=?
+            """,
+            (
+                1 if overwrite else 0,
+                profile.get("contentContext") or "",
+                1 if overwrite else 0,
+                profile.get("topicStrategy") or "",
+                now,
+                site_id,
+            ),
+        )
+    return profile
 
 
 def build_universal_article_prompt(site, job):
@@ -2710,7 +2867,8 @@ def scan_site(site_id):
                 "insert into site_theme_profiles(site_id,title,description,colors_json,fonts_json,css_urls_json,head_css,header_html,footer_html,body_class,scanned_at) values(?,?,?,?,?,?,?,?,?,?,?) on conflict(site_id) do update set title=excluded.title, description=excluded.description, colors_json=excluded.colors_json, fonts_json=excluded.fonts_json, css_urls_json=excluded.css_urls_json, head_css=excluded.head_css, header_html=excluded.header_html, footer_html=excluded.footer_html, body_class=excluded.body_class, scanned_at=excluded.scanned_at",
                 (site_id, theme["title"], theme["description"], json.dumps(theme["colors"]), json.dumps(theme["fonts"]), json.dumps(theme["css_urls"]), theme["head_css"], theme["header_html"], theme["footer_html"], theme["body_class"], now_iso()),
             )
-        return jsonify({"ok": True, "theme": theme})
+        topic_profile = apply_site_topic_profile(site_id, infer_site_topic_profile(site, theme), overwrite=False)
+        return jsonify({"ok": True, "theme": theme, "topicProfile": topic_profile})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
