@@ -2,6 +2,44 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-03 — Import myugc.studio blog into Blog Core
+
+### Summary
+
+* Connected `myugc.studio` to Blog Core as site `id=6`.
+* Scanned the live homepage design and let Gemini infer the site's discovery direction/category profile.
+* Imported existing `myugc.studio` blog URLs non-destructively from public sitemaps.
+* Left the live `myugc.studio` site untouched; imported records point back to the original published URLs.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — recorded the durable production import state for `myugc.studio`.
+* `docs/CHANGELOG_AI.md` — logged this import task.
+
+### Decisions
+
+* `myugc.studio` was imported as `public_sitemap` without `root_path` because `/var/www/my-ugc-studio` has no static `/blog/*.html` files. Using a local root would make Blog Core's current import scanner stop at an empty webroot result instead of reading public sitemaps.
+
+### Checks run
+
+* Verified `myugc.studio` was not already present in Blog Core.
+* Checked VPS roots and nginx config for `myugc.studio`.
+* Verified public sitemap sources include multilingual blog URLs.
+* Created/updated site `id=6` in the live Blog Core SQLite database.
+* Ran `POST /api/sites/6/scan`; Gemini returned a topic profile for My UGC Studio.
+* Ran `POST /api/sites/6/import-blog/scan`; found 343 public-fetch blog URLs.
+* Ran `POST /api/sites/6/import-blog/import`; imported 343, skipped 0, errors 0.
+* Verified imported counts by language: EN 43 stored records, DE 75, ES 75, FR 75, RU 75.
+* Verified `/api/sites/6/content-jobs?language=en` returns 42 visible EN article records after hiding the `/blog/` hub.
+* Verified live dashboard HTML for `https://blog.yas.ooo/sites/6#content` contains `My UGC Studio`, `Content inventory`, language switching, and `LIVE / IMPORTED`.
+* Ran `POST /api/sites/6/bootstrap-preview`.
+* Checked `http://127.0.0.1:3299/health`.
+
+### Risks / TODO
+
+* The import is stored in the live SQLite database, which is intentionally not committed to Git.
+* Publishing new generated My UGC Studio articles back into the original site locations is still future publish-back work; imported records are currently dashboard inventory/control-plane records.
+
 ## 2026-07-03 — Add social credential setup and connection tests
 
 ### Summary

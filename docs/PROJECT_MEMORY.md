@@ -81,6 +81,7 @@ It must be updated after every meaningful task.
 * Social credentials are stored per site in SQLite `social_connections.credentials_json`; secrets must not be rendered back into the page, committed, or written to memory files.
 * Replaced/deprecated 2026-07-03: The earlier production state note saying `yas.wine` import found only 61 English `/blog/` URLs was an incomplete external-scan result, not a complete import.
 * Current production state: On 2026-07-03, `yas.wine` site `id=5` was fully imported from local webroot `/var/www/yaswine`. Blog Core now has 821 distinct `content_jobs.status=IMPORTED`: 426 blog pages and 395 SEO money pages. All records have `published_url` on `https://yas.wine/...` and `sources_json.webrootPath` pointing to the source file.
+* Current production state: On 2026-07-03, `myugc.studio` site `id=6` was connected to Blog Core as a public-sitemap import, without `root_path`, because `/var/www/my-ugc-studio` does not contain static `/blog/*.html` files. Blog Core imported 343 distinct existing blog URLs from public sitemaps: EN 43 stored records, DE 75, ES 75, FR 75, RU 75. The Content inventory hides hub pages such as `/blog/`, so EN shows 42 visible article records.
 
 ## 5. SEO / content rules
 
