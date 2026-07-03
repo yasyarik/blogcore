@@ -2,6 +2,638 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-03 — Clarify social connect state and planned publications placement
+
+### Summary
+
+* Replaced active-looking social `Connect` buttons with non-clickable `OAuth setup needed` indicators until per-site OAuth/connect routes are implemented.
+* Moved `Planned publications` to the bottom of Distribution below the social channel settings.
+* Changed the no-planned-publications state from a large empty panel to a compact row.
+
+### Files changed
+
+* `app.py` — updated Distribution rendering, removed the placeholder connect toast function, and added compact planned-publication/connection-state CSS.
+* `docs/PROJECT_MEMORY.md` — recorded durable UI rules for disabled social connect state and bottom placement of planned publications.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Non-implemented OAuth/connect actions should be shown as setup state, not as buttons that appear to do something.
+* Planned publication tasks belong at the bottom of Distribution under social channels, not above the channel controls.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified live HTML for `https://blog.yas.ooo/sites/5#distribution`: no `connectSocialChannel`, no connect `onclick`, `OAuth setup needed` indicators present, `Planned publications` appears after `Channels`, compact `planned-empty` is present.
+
+### Risks / TODO
+
+* Per-site OAuth/connect routes for LinkedIn, Telegram, X/Twitter, and Tumblr still need real implementation before accounts can be connected.
+* Planned publications still show only current working content job statuses, not a calendar/time-based publishing schedule.
+
+## 2026-07-03 — Move planned publications into Distribution
+
+### Summary
+
+* Moved `Planned publications` out of the Content tab.
+* Placed planned publication tasks under Distribution, directly below autopublish scheduler settings.
+* Kept Content focused on imported/live inventory and import actions.
+
+### Files changed
+
+* `app.py` — moved planned publication rendering into `render_distribution_settings()` and removed the Content-tab planned section.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that planned/future publication tasks belong under Distribution scheduling.
+* `docs/CHANGELOG_AI.md` — logged this placement correction.
+
+### Decisions
+
+* Planned tasks are part of publishing/scheduling workflow, so they belong with Distribution rather than Content inventory.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `https://blog.yas.ooo/sites/5#distribution`: `Planned publications` appears in Distribution, not in Content, and no `__PLANNED_PUBLICATIONS__` placeholder remains.
+
+### Risks / TODO
+
+* Planned publications are still status-based jobs, not a true scheduled calendar with publish timestamps.
+
+## 2026-07-03 — Align multilingual content sorting and show planned publications
+
+### Summary
+
+* Fixed Content inventory sorting so language tabs keep the same article/topic order across EN/RU/ES/DE/FR.
+* Added a separate `Planned publications` section for non-imported Blog Core work items.
+* Planned publications now show `QUEUED`, `GENERATING`, `DRAFT`, and `ERROR` content jobs separately from imported live pages.
+
+### Files changed
+
+* `app.py` — added normalized base-path sort keys, planned content query/rendering, and a Content tab section for planned publications.
+* `docs/PROJECT_MEMORY.md` — recorded stable cross-language sorting and planned-publication visibility rules.
+* `docs/CHANGELOG_AI.md` — logged this inventory/scheduling UI fix.
+
+### Decisions
+
+* Imported multilingual content should sort by normalized source path, not by import timestamp or database id.
+* Planned publications are currently content jobs in working statuses; a full scheduled calendar remains a future layer.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified first five normalized paths match across EN/RU/ES/DE/FR on `/api/sites/5/content-jobs`.
+* Verified `https://blog.yas.ooo/sites/5#content` contains `Planned publications` and no leftover `__PLANNED_PUBLICATIONS__` placeholder.
+
+### Risks / TODO
+
+* `Planned publications` is not yet a time-based schedule/calendar because `content_jobs` does not have a scheduled publish timestamp.
+
+## 2026-07-03 — Unify distribution channel controls
+
+### Summary
+
+* Removed duplicated social channel sections in Distribution.
+* Replaced separate `Publish channels`, include-link checkboxes, and connection-status cards with one unified card per provider.
+* Each channel card now shows connection status, a visible `Connect` placeholder, `Use for autopublish`, and `Include article link`.
+
+### Files changed
+
+* `app.py` — rewrote `render_distribution_settings()` channel UI, added unified channel CSS, and added a `connectSocialChannel()` placeholder toast.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule to keep social provider controls unified.
+* `docs/CHANGELOG_AI.md` — logged this Distribution UI fix.
+
+### Decisions
+
+* Until per-site OAuth/connect routes are implemented, `Connect` should be visible but honest that the route is not wired yet.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `https://blog.yas.ooo/sites/5#distribution` no longer contains `Publish channels` or `Channel connection status`, and contains unified channel cards with `Use for autopublish`, `Include article link`, and Connect controls.
+
+### Risks / TODO
+
+* Per-site OAuth/connect routes are still not implemented; Connect currently shows a placeholder toast.
+
+## 2026-07-03 — Filter trade-promo Discovery signals
+
+### Summary
+
+* Added filtering for promotional/trade campaign signals such as grants, retailer campaigns, `Wine Month`, and money-based promo headlines.
+* Confirmed `Indies to receive £250 for Bordeaux Wine Month` is classified as promotion/trade-specific and filtered out.
+
+### Files changed
+
+* `app.py` — added promo/trade signal terms to `is_global_topic_signal()`.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that trade-promo/campaign items are not global discovery trends.
+* `docs/CHANGELOG_AI.md` — logged this filtering refinement.
+
+### Decisions
+
+* Discovery should not show retailer/trade promotions as global content trends.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Local classifier check returned `(False, 'promotion/trade-specific')` for `Indies to receive £250 for Bordeaux Wine Month`.
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `/api/sites/5/topic-signals?range=month` no longer contains `Indies to receive`.
+
+### Risks / TODO
+
+* Filtering remains heuristic; add source/domain quality scoring if weak celebrity or brand-news items still appear.
+
+## 2026-07-03 — Filter Discovery to broad global signals
+
+### Summary
+
+* Changed topic discovery to use a broader global/consumer/industry signal query.
+* Added filtering for city-specific, festival/event, ticket, local-opening, and local guide signals before showing Google/Reddit items.
+* Updated Discovery copy to clarify that local events and one-off news are filtered out.
+* Article idea jobs now instruct generation to turn signals into generalizable articles, not city/event/festival pieces.
+
+### Files changed
+
+* `app.py` — added global signal query construction, local/event signal filters, warnings for filtered signals, Discovery UI copy, and article idea angle guidance.
+* `docs/PROJECT_MEMORY.md` — recorded the durable global-signal rule for Discovery.
+* `docs/CHANGELOG_AI.md` — logged this filtering change.
+
+### Decisions
+
+* Discovery should surface broad topic/consumer/industry trends, not local event feeds.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `/api/sites/5/topic-signals?range=month` uses query `wine food pairing global trends consumer industry`, filters local/event Google and Reddit items, and no longer returns the earlier `Castro Wine Fest` items.
+
+### Risks / TODO
+
+* Filtering is heuristic. Some weak celebrity or brand-news items can still pass if they are not local/event-specific; future scoring can add a stronger editorial-quality layer.
+
+## 2026-07-03 — Add language switching and simplify content pagination
+
+### Summary
+
+* Changed Content inventory to default to a concrete language instead of mixing all imported languages.
+* Added language chips for available content languages (`EN`, `RU`, `ES`, `DE`, `FR`).
+* Simplified Content inventory pagination to one centered bottom nav with numeric links and arrow icons only.
+
+### Files changed
+
+* `app.py` — added content job language detection/filtering, language switcher rendering, API language metadata, and simplified bottom-only pagination.
+* `docs/PROJECT_MEMORY.md` — recorded durable rules for language-separated inventory and compact bottom-only pagination.
+* `docs/CHANGELOG_AI.md` — logged this UI/data filtering task.
+
+### Decisions
+
+* Multilingual imported content must be browsed per language by default; `All` is not shown in the Content inventory UI.
+* Pagination should be unobtrusive and only at the bottom of the content list.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `/api/sites/5/content-jobs?page=1&per_page=24` returns `language=en`, `total=166`, and sample rows all have `sources_json.language=en`.
+* Verified `/api/sites/5/content-jobs?page=1&per_page=24&language=ru` returns `language=ru`, `total=160`, and sample rows all have `sources_json.language=ru`.
+* Verified `https://blog.yas.ooo/sites/5#content` has language chips, no `Page 1 of`/`Showing` text, and exactly one bottom pagination nav: `1 2 3 ›`.
+
+### Risks / TODO
+
+* The API still supports `language=all` if explicitly requested, but the dashboard UI intentionally does not expose an all-languages mixed view.
+
+## 2026-07-03 — Compact imported content actions and type badges
+
+### Summary
+
+* Replaced the visible `Open live page` text button with a compact external-link icon in Content inventory cards.
+* Styled `LIVE / IMPORTED` as a green status badge.
+* Added compact content type badges for imported records, including `Blog` and `SEO money page`.
+
+### Files changed
+
+* `app.py` — added live-page icon rendering, content type badge rendering, and CSS for imported status/type/action indicators.
+* `docs/PROJECT_MEMORY.md` — recorded durable UI rules for compact content card actions and type badges.
+* `docs/CHANGELOG_AI.md` — logged this UI refinement.
+
+### Decisions
+
+* Imported content cards should show ownership/status/type at a glance without large action buttons.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Fetched `https://blog.yas.ooo/sites/5#content` and verified a production card action row renders `SEO money page`, `LIVE / IMPORTED`, and an external-link `↗` icon.
+
+### Risks / TODO
+
+* Browser runtime checks timed out during this task, so verification used live HTML fetch and server health checks.
+
+## 2026-07-03 — Compact social status indicators in content cards
+
+### Summary
+
+* Replaced large per-channel social status pills in Content inventory cards with compact icon indicators.
+* Muted unpublished/not queued channels visually and kept tooltips/ARIA labels with the exact channel status.
+* Deployed the dashboard UI fix to live Blog Core.
+
+### Files changed
+
+* `app.py` — added social status icon rendering and CSS for muted/queued/published/failed states.
+* `docs/PROJECT_MEMORY.md` — recorded the durable UI rule for compact social status indicators.
+* `docs/CHANGELOG_AI.md` — logged this UI fix.
+
+### Decisions
+
+* Social publishing status in content cards should be a compact visual indicator, not a row of large text buttons.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Browser check of `https://blog.yas.ooo/sites/5#content`: first content card has four `.social-icon` elements at 30x30, old `linkedin: not queued` text is absent, and muted icons have opacity `0.32`.
+
+### Risks / TODO
+
+* The current icons are lightweight text glyphs (`in`, `tg`, `X`, `t`) because Blog Core has no frontend icon package. They can later be replaced with SVG brand icons if the dashboard adds an icon asset strategy.
+
+## 2026-07-03 — Fix public YAS Wine blog pagination
+
+### Summary
+
+* Corrected the target from Blog Core dashboard pagination to the public source-site page `https://yas.wine/blog/`.
+* Replaced the public blog's `More guides` load-more behavior with visible pagination controls: `Previous`, numbered pages, and `Next`.
+* Updated the public page counter to show `Page X of Y · Showing A-B of N guides`.
+
+### Files changed
+
+* `/var/www/yaswine/blog/index.html` — live source-site file edited directly on the VPS; backup created at `/var/www/yaswine/blog/index.html.bak-pagination-20260703-1248`.
+* `docs/PROJECT_MEMORY.md` — recorded the durable distinction between Blog Core dashboard pagination and source-site public blog pagination.
+* `docs/CHANGELOG_AI.md` — logged this public-site pagination fix.
+
+### Decisions
+
+* Public `yas.wine/blog/` pagination belongs to the source site's webroot, not to Blog Core dashboard rendering.
+* Keep 12 cards per page and use `?page=N` URLs for direct navigation.
+
+### Checks run
+
+* Browser check of `https://yas.wine/blog/`: 61 total cards, 12 visible cards, `More guides` hidden, pager visible with `Previous 1 2 3 4 5 6 Next`, and text `Page 1 of 6 · Showing 1-12 of 61 guides`.
+* Browser check of `https://yas.wine/blog/?page=2`: active page `2`, 12 visible cards, and text `Page 2 of 6 · Showing 13-24 of 61 guides`.
+
+### Risks / TODO
+
+* The public blog pagination is client-side over the existing static 61-card page. SEO/server-rendered paginated archive pages are still a separate future improvement if needed.
+
+## 2026-07-03 — Make content pagination explicit
+
+### Summary
+
+* Changed Content inventory pagination from bare page numbers to an explicit `Page X of Y` block.
+* Renamed numeric links to `Page 1`, `Page 2`, etc. so the controls read as pagination instead of stray numbers.
+* Deployed the UI clarification to live Blog Core.
+
+### Files changed
+
+* `app.py` — updated `render_content_pagination()` labels and CSS for clearer visible pagination.
+* `docs/CHANGELOG_AI.md` — logged this pagination clarity fix.
+
+### Decisions
+
+* Pagination controls must be visually explicit on large imported inventories; bare numbers are too easy to miss.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Browser reload of `https://blog.yas.ooo/sites/5#content` confirmed visible text: `Page 1 of 34`, `Page 1`, `Page 2`, `Page 3`, `Next`.
+
+### Risks / TODO
+
+* Filters by content type/status/language are still needed for large imports, but pagination is now visibly present.
+
+## 2026-07-03 — Hide imported hub pages and add content pagination
+
+### Summary
+
+* Hid imported section listing/hub pages such as `/blog/`, language blog indexes, `/wine-countries/`, and `/wine-regions/` from the Content inventory work list.
+* Added server-side pagination metadata and UI controls for the Content inventory.
+* Updated the Content inventory copy to explain that listing pages are kept as import metadata, not shown as article/task cards.
+
+### Files changed
+
+* `app.py` — added imported hub detection, paginated `get_content_jobs()`, pagination rendering, API pagination fields, and Content inventory explanatory copy.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that imported hub/listing pages are metadata and Content inventory must stay paginated.
+* `docs/CHANGELOG_AI.md` — logged this UI/data-list fix.
+
+### Decisions
+
+* Do not delete imported hub/listing pages from the database. Hide them from the work list so Blog Core preserves source-site structure without confusing those pages with articles.
+* Keep `/api/sites/<id>/content-jobs` backward compatible by still returning `jobs`, while adding `page`, `per_page`, `total`, and `total_pages`.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `https://blog.yas.ooo/api/sites/5/content-jobs?page=1&per_page=24` returns `total=806`, `total_pages=34`, `jobs=24`, and no first-page job with `published_url=https://yas.wine/blog/`.
+* Verified `https://blog.yas.ooo/sites/5#content` contains `Content inventory`, pagination UI, and the hub-page explanatory note, and no card title `Wine Blog: Pairing Guides, Wine Tips and Buying Advice | YAS Wine`.
+
+### Risks / TODO
+
+* Content inventory still needs filters by status/type/language for very large imports.
+* Imported hub pages are hidden from this UI list only; they remain in the database for source-site metadata.
+
+## 2026-07-03 — Clarify imported content versus publication tasks
+
+### Summary
+
+* Renamed the `Article production queue` section to `Content inventory`.
+* Changed `IMPORTED` cards to show `LIVE / IMPORTED` and `Open live page`.
+* Removed `Generate draft` actions from imported records so already-published source pages are not presented as unpublished tasks.
+* Updated explanatory copy: imported pages are already live on the source site; queued items are future work.
+
+### Files changed
+
+* `app.py` — updated `render_content_jobs()` labels/actions and the Content tab heading/copy.
+* `docs/PROJECT_MEMORY.md` — recorded the durable UI distinction between imported live pages and queued generation tasks.
+* `docs/CHANGELOG_AI.md` — logged this UI clarification task.
+
+### Decisions
+
+* `IMPORTED` means an existing live source-site page imported into Blog Core's control-plane inventory. It is not a publication task.
+* Generation buttons belong only on new/queued Blog Core tasks, not on imported live pages.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Fetched `https://blog.yas.ooo/sites/5#content` and verified `Content inventory`, `LIVE / IMPORTED`, and `Open live page` are present while `Article production queue` and `Generate draft` are absent for imported rows.
+* Browser DOM check confirmed the same state and no console errors/warnings.
+
+### Risks / TODO
+
+* The `Content` tab still needs filters/pagination to separate imported live pages, queued tasks, drafts, and published-by-Blog-Core records at scale.
+
+## 2026-07-03 — Split site manage page into tabs
+
+### Summary
+
+* Reorganized the site manage page into clear tabs: `Content`, `Discovery`, `Distribution`, `Activity`, and `Setup`.
+* Moved import controls and article production queue into `Content`.
+* Moved Google/Reddit topic signals into `Discovery`.
+* Kept autopublish/social channel settings in `Distribution`.
+* Moved `Factory jobs` into `Activity` and site/webroot/CNAME/design controls into `Setup`.
+* Deployed the tabbed UI to live Blog Core and validated desktop/mobile rendering in the in-app browser.
+
+### Files changed
+
+* `app.py` — added tab navigation, tab panels, tab switching JS, and tab styles in `MANAGE_SITE_HTML`.
+* `docs/PROJECT_MEMORY.md` — documented the durable tab organization rule.
+* `docs/CHANGELOG_AI.md` — logged this UI organization task.
+
+### Decisions
+
+* The manage page should keep operational concerns separate: content work, discovery, distribution, activity logs, and technical setup should not share one long mixed page.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Browser QA on `https://blog.yas.ooo/sites/5`: page identity, tab visibility, tab clicks, console errors/warnings, desktop screenshot, and mobile viewport screenshot.
+
+### Risks / TODO
+
+* The content queue still returns only the latest 24 records; full filtering/pagination remains needed for large imports such as 821 `yas.wine` records.
+
+## 2026-07-03 — Summarize factory job messages in UI
+
+### Summary
+
+* Fixed the `Factory jobs` panel rendering huge raw JSON payloads from import jobs.
+* Added compact job-message summaries for import and article-idea jobs.
+* Added CSS clamping/overflow protection for job messages so a long payload cannot break the page layout.
+* Deployed the fix to live Blog Core and verified `/sites/5` no longer contains the repeated `already imported` JSON dump.
+
+### Files changed
+
+* `app.py` — added `summarize_job_message()` and changed `render_jobs()` to display summaries instead of raw `publish_jobs.message`.
+* `docs/PROJECT_MEMORY.md` — recorded the durable UI rule to summarize job messages.
+* `docs/CHANGELOG_AI.md` — logged this UI fix.
+
+### Decisions
+
+* `publish_jobs.message` can keep structured JSON for internal/debug use, but the dashboard must present compact human-readable summaries.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Fetched `https://blog.yas.ooo/sites/5` and confirmed the page shows `imported 0; skipped 821; errors 0` instead of raw JSON.
+
+### Risks / TODO
+
+* The factory jobs panel still needs richer pagination/filtering, but it no longer breaks the page.
+
+## 2026-07-03 — Replace partial YAS Wine import with full webroot import
+
+### Summary
+
+* Corrected the earlier partial `yas.wine` import approach. The 61 URL count was only the public English `/blog/` index, not the real site inventory.
+* Inspected `/var/www/yaswine` directly over SSH and found 828 candidate HTML files, 821 distinct canonical URLs, 433 blog files, and 395 `wine-countries`/`wine-regions` SEO money page files.
+* Backed up the live Blog Core SQLite database and imported the missing 760 records directly from `/var/www/yaswine`.
+* Updated the existing 61 records with direct `webrootPath`, page type, language, and source-site-authoritative metadata.
+* Updated and deployed `app.py` so future local-site imports use `root_path` filesystem discovery, include multilingual blog pages and SEO money pages, and use public fetch only as fallback.
+
+### Files changed
+
+* `app.py` — added local webroot import discovery/extraction, multilingual blog and SEO money page import prefixes, recursive sitemap-index fallback, path-safe import slugs, and higher import batch limit.
+* `docs/PROJECT_MEMORY.md` — replaced the incomplete 61-URL state note with the full 821-record production state.
+* `docs/INTEGRATIONS.md` — documented direct webroot import behavior.
+* `docs/SEO_MEMORY.md` — recorded that imported SEO money pages are part of local-site inventory.
+* `docs/CHANGELOG_AI.md` — logged this correction.
+
+### Decisions
+
+* For VPS-local imported sites, direct webroot inventory is authoritative. Public crawling is only a fallback for external sites.
+* SEO money pages under `wine-countries` and `wine-regions` are imported content for Blog Core control-plane purposes, not ignored non-blog pages.
+
+### Checks run
+
+* Backed up `/var/www/blog.yas.ooo/data/blog_core.sqlite3`.
+* Imported `yas.wine` from `/var/www/yaswine`: 821 distinct imported records total.
+* Verified DB counts: `IMPORTED=821`, `Imported Blog=426`, `Imported SEO Money Page=395`.
+* Verified language metadata: `en=169`, `ru=163`, `es=163`, `de=163`, `fr=163`.
+* `python3 -m py_compile app.py` locally and on VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified live scan endpoint returns `source=local_webroot`, `articles=821`, `duplicates=7`.
+* Verified repeat API import returns `0 imported`, `821 skipped`, `0 errors`.
+
+### Risks / TODO
+
+* UI currently lists only the latest 24 content jobs via `/api/sites/<id>/content-jobs`; filtering/pagination is needed to manage all 821 imported records comfortably.
+* Publishing generated updates back into exact source files/URLs still needs the publish-back-in-place pipeline.
+
+## 2026-07-03 — Import YAS Wine into live Blog Core
+
+### Summary
+
+* Imported the existing `yas.wine` blog into live Blog Core site `id=5`.
+* The production scan found 61 English article URLs from `https://yas.wine/blog/`.
+* The import created 61 `content_jobs` with `status=IMPORTED`, preserved original `published_url` values, and reported 0 errors.
+* A repeat import check returned 0 imported, 61 skipped as `already imported`, confirming duplicate protection.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — recorded the live `yas.wine` import state and scripted API User-Agent pitfall.
+* `docs/CHANGELOG_AI.md` — logged this production import verification task.
+
+### Decisions
+
+* Keep `yas.wine` original `/blog/...` URLs authoritative after import; imported jobs are control-plane records for now.
+
+### Checks run
+
+* `GET https://blog.yas.ooo/health`
+* `GET https://blog.yas.ooo/api/sites`
+* `POST https://blog.yas.ooo/api/sites/5/import-blog/scan`
+* `POST https://blog.yas.ooo/api/sites/5/import-blog/import`
+* `GET https://blog.yas.ooo/api/sites/5/content-jobs`
+* `GET https://blog.yas.ooo/api/sites/5/content-jobs/f0c496a5a5fc26cc67077613`
+* `curl -I -L https://yas.wine/blog/wine-region-napa-valley-united-states/`
+
+### Risks / TODO
+
+* Current import covered English URLs discoverable from `/blog/`; multilingual URLs in `sitemap_index.xml` still need recursive sitemap-index discovery.
+* Publishing generated tasks back into the original `yas.wine` locations is not implemented yet.
+
+## 2026-07-03 — Clarify imported-blog ownership model
+
+### Summary
+
+* Clarified that the "Blog Core as control plane, not public mirror" rule applies to imported existing blogs only.
+* Documented that imported blogs should keep publishing into the same original site locations and URL structure.
+* Preserved the separate rule that blogs created by Blog Core from scratch can be fully owned, hosted, and published by Blog Core.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — added imported-vs-created ownership distinction and decision log entry.
+* `docs/SEO_MEMORY.md` — clarified canonical behavior for imported blogs versus Blog Core-created blogs.
+* `docs/INTEGRATIONS.md` — clarified import publishing target and current hosted mirror/preview caveat.
+* `docs/CHANGELOG_AI.md` — logged this clarification task.
+
+### Decisions
+
+* Imported existing blogs are managed in place by default: original URLs stay authoritative, and future generated tasks should publish back into those same locations.
+* Blog Core-created blogs can be native Blog Core publications with Blog Core as the source of truth.
+
+### Checks run
+
+* Read existing project memory, SEO memory, integrations memory, and changelog before editing.
+
+### Risks / TODO
+
+* Implement publish-back-in-place for imported blogs; current code still has hosted mirror rendering and incomplete local/static export parity.
+
+## 2026-07-03 — Analyze YAS Wine import coexistence
+
+### Summary
+
+* Checked how imported articles coexist with the source site's existing blog.
+* Inspected `yas.wine` public blog, robots, sitemap index, article canonical metadata, and import/rendering code.
+* Confirmed that import is non-destructive and stores source canonical URLs, but hosted rendering does not yet emit canonical tags from that stored source URL.
+* Confirmed that current discovery finds 61 English `yas.wine/blog/` article URLs from the blog index, while `sitemap-blog.xml` and `/blog/sitemap.xml` return 404.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — recorded duplicate-content/canonical migration rule and `sitemap_index.xml` import pitfall.
+* `docs/SEO_MEMORY.md` — documented source canonical/noindex recommendation during coexistence and the missing hosted canonical output.
+* `docs/INTEGRATIONS.md` — documented current `yas.wine` import discovery behavior and sitemap-index limitation.
+* `docs/CHANGELOG_AI.md` — logged this analysis task.
+
+### Decisions
+
+* Treat the source blog URL as authoritative until an explicit cutover is implemented.
+* Do not expose a public indexed Blog Core mirror of imported content without canonical/noindex/redirect strategy.
+
+### Checks run
+
+* Read project memory and import/render code.
+* `curl -I -L https://yas.wine/blog/`
+* Fetched `https://yas.wine/robots.txt`, `https://yas.wine/sitemap.xml`, `https://yas.wine/sitemap_index.xml`, language sitemaps, and a sample article canonical.
+* Counted 61 candidate English article URLs from `https://yas.wine/blog/`.
+
+### Risks / TODO
+
+* Add recursive sitemap-index discovery for multilingual imports.
+* Add hosted canonical/noindex behavior before exposing imported mirrors to search engines.
+
+## 2026-07-03 — Refresh self-updating project memory after local clone
+
+### Summary
+
+* Verified the separate local clone at `/Users/yasyas/Library/Mobile Documents/com~apple~CloudDocs/проекты/blogcore`.
+* Read existing memory, README, runtime files, nginx template, `.gitignore`, and key `app.py` routes/schema before editing.
+* Tightened future-agent memory rules and refreshed durable project/deployment/SEO notes from confirmed repository state.
+* Marked the older SEO sitemap limitation as replaced for hosted CNAME blogs while preserving the remaining local static export gap.
+
+### Files changed
+
+* `AGENTS.md` — clarified mandatory final memory-status reporting and Git remote expectations for VPS vs local clones.
+* `docs/PROJECT_MEMORY.md` — refreshed durable product, architecture, SEO, deployment, pitfalls, and decisions after local clone setup.
+* `docs/SEO_MEMORY.md` — updated hosted sitemap/content-job behavior and marked the stale dynamic-sitemap gap as replaced.
+* `docs/DEPLOYMENT.md` — recorded local clone path and Git access notes without secrets.
+* `docs/CHANGELOG_AI.md` — logged this memory refresh task.
+
+### Decisions
+
+* Future Codex sessions must treat repository memory as the durable source of truth and still verify relevant code before changes.
+* Local HTTPS Git access through GitHub CLI is acceptable when SSH publickey auth is unavailable locally; VPS SSH remote remains valid server context.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* `git status --short --branch`
+* Read `AGENTS.md`, `README.md`, `.gitignore`, `requirements.txt`, `run.sh`, `deploy/nginx-blog.yas.ooo.conf`, docs memory files, and relevant `app.py` schema/routes.
+
+### Risks / TODO
+
+* Keep memory concise; do not duplicate all code details.
+* Final article publishing/export, social OAuth/publishing, autopublish runner, GSC/sitemap submission, and production custom-domain SSL remain incomplete parity items.
+
 ## 2026-07-01 — Set up self-updating project memory
 
 ### Summary

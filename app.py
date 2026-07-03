@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 import secrets
@@ -959,12 +960,96 @@ def get_site_jobs(site_id):
         ).fetchall()
 
 
-def get_content_jobs(site_id):
+def content_job_language(row):
+    try:
+        sources = json.loads(row["sources_json"] or "{}")
+    except Exception:
+        sources = {}
+    language = str(sources.get("language") or "").strip().lower()
+    if language:
+        return language
+    path = urllib.parse.urlsplit(row["published_url"] or "").path or ""
+    first = path.strip("/").split("/", 1)[0]
+    return first if first in {"ru", "es", "de", "fr"} else "en"
+
+
+def content_job_base_path(row):
+    path = urllib.parse.urlsplit(row["published_url"] or "").path or ""
+    parts = [part for part in path.strip("/").split("/") if part]
+    if parts and parts[0] in {"ru", "es", "de", "fr"}:
+        parts = parts[1:]
+    if not parts:
+        return row["slug"] or row["title"] or row["topic"] or ""
+    return "/".join(parts)
+
+
+def content_job_sort_key(row):
+    base_path = content_job_base_path(row)
+    section_order = 0
+    if base_path.startswith("blog/"):
+        section_order = 0
+    elif base_path.startswith("wine-countries/"):
+        section_order = 1
+    elif base_path.startswith("wine-regions/"):
+        section_order = 2
+    else:
+        section_order = 3
+    return (section_order, base_path, row["title"] or row["topic"] or "", row["id"])
+
+
+def get_content_jobs(site_id, page=1, per_page=24, hide_hubs=True, language="en"):
+    try:
+        page = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = max(1, min(100, int(per_page or 24)))
+    except (TypeError, ValueError):
+        per_page = 24
     with db() as conn:
-        return conn.execute(
-            "select * from content_jobs where site_id=? order by created_at desc limit 24",
+        rows = conn.execute(
+            "select * from content_jobs where site_id=? order by created_at desc, id desc",
             (site_id,),
         ).fetchall()
+    if hide_hubs:
+        rows = [row for row in rows if not is_imported_content_hub(row)]
+    language_order = ["en", "ru", "es", "de", "fr"]
+    language_set = {content_job_language(row) for row in rows if content_job_language(row)}
+    available_languages = [lang for lang in language_order if lang in language_set] + sorted(language_set - set(language_order))
+    language = (language or "en").strip().lower()
+    if language != "all" and available_languages and language not in available_languages:
+        language = available_languages[0]
+    if language != "all":
+        rows = [row for row in rows if content_job_language(row) == language]
+    rows = sorted(rows, key=content_job_sort_key)
+    total = len(rows)
+    total_pages = max(1, math.ceil(total / per_page)) if total else 1
+    page = min(page, total_pages)
+    offset = (page - 1) * per_page
+    page_rows = rows[offset:offset + per_page]
+    return {
+        "rows": page_rows,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": total_pages,
+        "language": language,
+        "available_languages": available_languages,
+    }
+
+
+def get_planned_content_jobs(site_id, limit=12):
+    with db() as conn:
+        rows = conn.execute(
+            """
+            select * from content_jobs
+            where site_id=? and status in ('QUEUED','GENERATING','DRAFT','ERROR')
+            order by created_at desc, id desc
+            limit ?
+            """,
+            (site_id, int(limit or 12)),
+        ).fetchall()
+    return rows
 
 
 def get_autopublish_settings(site_id):
@@ -996,6 +1081,12 @@ def simple_slug(text):
     slug = re.sub(r"[^a-z0-9\s-]", "", (text or "").lower())
     slug = re.sub(r"\s+", "-", slug).strip("-")
     return slug[:90] or "article"
+
+
+def path_slug(text):
+    slug = re.sub(r"[^a-z0-9]+", "-", (text or "").lower())
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return slug[:120] or "article"
 
 
 def normalize_public_article_url(url):
@@ -1033,6 +1124,74 @@ def is_probable_article_url(url, site):
     return True
 
 
+IMPORT_CONTENT_PREFIXES = (
+    "/blog/",
+    "/ru/blog/",
+    "/es/blog/",
+    "/de/blog/",
+    "/fr/blog/",
+    "/wine-countries/",
+    "/ru/wine-countries/",
+    "/es/wine-countries/",
+    "/de/wine-countries/",
+    "/fr/wine-countries/",
+    "/wine-regions/",
+    "/ru/wine-regions/",
+    "/es/wine-regions/",
+    "/de/wine-regions/",
+    "/fr/wine-regions/",
+)
+
+CONTENT_HUB_PATHS = {prefix for prefix in IMPORT_CONTENT_PREFIXES}
+
+
+def normalized_url_path(url):
+    path = urllib.parse.urlsplit(url or "").path or "/"
+    if path != "/" and not path.endswith("/"):
+        path += "/"
+    return path
+
+
+def is_imported_content_hub(row):
+    status = row["status"] if "status" in row.keys() else ""
+    if status != "IMPORTED":
+        return False
+    published_path = normalized_url_path(row["published_url"] if "published_url" in row.keys() else "")
+    if published_path in CONTENT_HUB_PATHS:
+        return True
+    try:
+        sources = json.loads(row["sources_json"] or "{}")
+    except Exception:
+        sources = {}
+    relative_path = str(sources.get("relativePath") or "").lstrip("/")
+    return relative_path in {path.lstrip("/") + "index.html" for path in CONTENT_HUB_PATHS}
+
+
+def import_page_type(path):
+    if "/blog/" in path or path.startswith("/blog/"):
+        return "blog"
+    return "seo_money_page"
+
+
+def import_page_language(path):
+    first = path.strip("/").split("/", 1)[0]
+    return first if first in {"ru", "es", "de", "fr"} else "en"
+
+
+def is_importable_existing_content_url(url, site):
+    if not url:
+        return False
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if domain_from_url(url) != site["domain"]:
+        return False
+    path = parsed.path or "/"
+    if re.search(r"\.(xml|css|js|json|png|jpe?g|webp|gif|svg|pdf|zip|mp4|mov)$", path.rsplit("/", 1)[-1].lower()):
+        return False
+    return any(path == prefix.rstrip("/") or path.startswith(prefix) for prefix in IMPORT_CONTENT_PREFIXES)
+
+
 def parse_sitemap_locs(xml_text):
     locs = []
     try:
@@ -1047,17 +1206,123 @@ def parse_sitemap_locs(xml_text):
     return locs
 
 
-def discover_existing_blog_articles(site, limit=80):
+def site_base_url(site):
+    return normalize_url(site["homepage_url"]).rstrip("/")
+
+
+def local_file_to_public_url(site, root_path, file_path, parser=None):
+    rel = file_path.relative_to(root_path).as_posix()
+    if rel == "index.html":
+        route = "/"
+    elif rel.endswith("/index.html"):
+        route = "/" + rel[: -len("index.html")]
+    elif rel.endswith(".html"):
+        route = "/" + rel[:-5] + "/"
+    else:
+        route = "/" + rel
+    fallback = site_base_url(site) + route
+    canonical = (parser.canonical if parser else "") or ""
+    if canonical.startswith(site_base_url(site)):
+        return normalize_public_article_url(canonical)
+    return normalize_public_article_url(fallback)
+
+
+def candidate_local_import_file(root_path, url):
+    parsed = urllib.parse.urlsplit(url)
+    route = urllib.parse.unquote(parsed.path or "/")
+    rel = route.lstrip("/")
+    candidates = []
+    if not rel:
+        candidates.append(root_path / "index.html")
+    if route.endswith("/"):
+        candidates.append(root_path / rel / "index.html")
+        if rel:
+            candidates.append(root_path / f"{rel.rstrip('/')}.html")
+    else:
+        candidates.append(root_path / rel)
+        candidates.append(root_path / f"{rel}.html")
+        candidates.append(root_path / rel / "index.html")
+    try:
+        root_resolved = root_path.resolve()
+    except OSError:
+        return None
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if root_resolved == resolved or root_resolved in resolved.parents:
+            if resolved.is_file() and resolved.suffix.lower() in {".html", ".htm"}:
+                return resolved
+    return None
+
+
+def discover_existing_content_from_webroot(site, limit=2000):
+    root_value = (site["root_path"] or "").strip()
+    if not root_value:
+        return None
+    root_path = Path(root_value)
+    if not root_path.exists() or not root_path.is_dir():
+        return None
+    candidates = []
+    duplicate_files = []
+    warnings = []
+    for file_path in sorted(root_path.rglob("*.html")):
+        try:
+            rel = file_path.relative_to(root_path).as_posix()
+        except ValueError:
+            continue
+        if not any(rel.startswith(prefix.lstrip("/")) for prefix in IMPORT_CONTENT_PREFIXES):
+            continue
+        try:
+            html = file_path.read_text(errors="ignore")
+            parser = ExistingArticleParser()
+            parser.feed(html[:250000])
+            url = local_file_to_public_url(site, root_path, file_path, parser)
+            if not is_importable_existing_content_url(url, site):
+                continue
+            current = next((item for item in candidates if item["url"] == url), None)
+            item = {
+                "url": url,
+                "slug": path_slug(urllib.parse.urlsplit(url).path.strip("/") or parser.title or rel),
+                "path": rel,
+                "pageType": import_page_type("/" + rel),
+                "language": import_page_language("/" + rel),
+            }
+            if current:
+                duplicate_files.append({"url": url, "kept": current["path"], "duplicate": rel})
+                if current["path"].endswith("/index.html") and not rel.endswith("/index.html"):
+                    current.update(item)
+                continue
+            candidates.append(item)
+        except Exception as e:
+            warnings.append(f"{rel}: {e}")
+        if len(candidates) >= limit:
+            break
+    return {"articles": candidates[:limit], "warnings": warnings[:5], "source": "local_webroot", "duplicates": duplicate_files[:20]}
+
+
+def discover_existing_blog_articles(site, limit=2000):
+    local_result = discover_existing_content_from_webroot(site, limit=limit)
+    if local_result:
+        return local_result
     base = normalize_url(site["homepage_url"]).rstrip("/")
     candidates = []
     warnings = []
-    sitemap_urls = [f"{base}/sitemap.xml", f"{base}/sitemap-blog.xml", f"{base}/blog/sitemap.xml"]
+    sitemap_urls = [f"{base}/sitemap_index.xml", f"{base}/sitemap.xml", f"{base}/sitemap-blog.xml", f"{base}/blog/sitemap.xml"]
+    seen_sitemaps = set()
     for sitemap_url in sitemap_urls:
+        if sitemap_url in seen_sitemaps:
+            continue
+        seen_sitemaps.add(sitemap_url)
         try:
             xml, _ = fetch_url(sitemap_url)
             for loc in parse_sitemap_locs(xml):
                 absolute = normalize_public_article_url(absolutize(base + "/", loc))
-                if is_probable_article_url(absolute, site) and absolute not in candidates:
+                if absolute.endswith(".xml") and absolute not in seen_sitemaps and len(seen_sitemaps) < 20:
+                    sitemap_urls.append(absolute)
+                    continue
+                if is_importable_existing_content_url(absolute, site) and absolute not in candidates:
                     candidates.append(absolute)
         except Exception as e:
             warnings.append(f"{sitemap_url}: {e}")
@@ -1071,7 +1336,7 @@ def discover_existing_blog_articles(site, limit=80):
             parser.feed(html)
             for href in parser.links:
                 absolute = normalize_public_article_url(absolutize(blog_url, href))
-                if is_probable_article_url(absolute, site) and absolute not in candidates:
+                if is_importable_existing_content_url(absolute, site) and absolute not in candidates:
                     candidates.append(absolute)
                 if len(candidates) >= limit:
                     break
@@ -1079,8 +1344,14 @@ def discover_existing_blog_articles(site, limit=80):
             warnings.append(f"blog index: {e}")
     articles = []
     for url in candidates[:limit]:
-        articles.append({"url": url, "slug": simple_slug(urllib.parse.urlsplit(url).path.strip("/").split("/")[-1])})
-    return {"articles": articles, "warnings": warnings[:5]}
+        path = urllib.parse.urlsplit(url).path or "/"
+        articles.append({
+            "url": url,
+            "slug": path_slug(path.strip("/") or urllib.parse.urlsplit(url).netloc),
+            "pageType": import_page_type(path),
+            "language": import_page_language(path),
+        })
+    return {"articles": articles, "warnings": warnings[:5], "source": "public_fetch"}
 
 
 def extract_existing_article(url):
@@ -1105,6 +1376,43 @@ def extract_existing_article(url):
     }
 
 
+def extract_existing_article_from_webroot(site, url):
+    root_value = (site["root_path"] or "").strip()
+    if not root_value:
+        return None
+    root_path = Path(root_value)
+    file_path = candidate_local_import_file(root_path, url)
+    if not file_path:
+        return None
+    html = file_path.read_text(errors="ignore")
+    parser = ExistingArticleParser()
+    parser.feed(html)
+    canonical = normalize_public_article_url(absolutize(url, parser.canonical or url))
+    if domain_from_url(canonical) != site["domain"]:
+        canonical = normalize_public_article_url(url)
+    title = re.sub(r"\s+", " ", (parser.title or "").strip())[:220]
+    description = re.sub(r"\s+", " ", (parser.description or "").strip())[:320]
+    article_html = absolutize_html_attrs(canonical, parser.article_html or "")[:500000]
+    if not article_html:
+        body_match = re.search(r"(?is)<body[^>]*>(.*?)</body>", html)
+        article_html = absolutize_html_attrs(canonical, body_match.group(1) if body_match else html)[:500000]
+    rel = file_path.relative_to(root_path).as_posix()
+    return {
+        "url": normalize_public_article_url(url),
+        "canonical": canonical,
+        "title": title or urllib.parse.urlsplit(canonical).path.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").title(),
+        "description": description,
+        "heroImage": absolutize(canonical, parser.og_image) if parser.og_image else "",
+        "contentHtml": article_html,
+        "contentType": "text/html; charset=utf-8",
+        "importMethod": "direct_webroot",
+        "webrootPath": str(file_path),
+        "relativePath": rel,
+        "pageType": import_page_type("/" + rel),
+        "language": import_page_language("/" + rel),
+    }
+
+
 def import_existing_articles(site_id, urls):
     site = get_site(site_id)
     if not site:
@@ -1115,28 +1423,36 @@ def import_existing_articles(site_id, urls):
     unique_urls = []
     for url in urls:
         clean = normalize_public_article_url(absolutize(site["homepage_url"], str(url or "")))
-        if is_probable_article_url(clean, site) and clean not in unique_urls:
+        if is_importable_existing_content_url(clean, site) and clean not in unique_urls:
             unique_urls.append(clean)
     with db() as conn:
         existing = {
             normalize_public_article_url(r["published_url"] or "")
             for r in conn.execute("select published_url from content_jobs where site_id=? and published_url is not null and published_url <> ''", (site_id,)).fetchall()
         }
-    for url in unique_urls[:100]:
+    for url in unique_urls[:2000]:
         if url in existing:
             skipped.append({"url": url, "reason": "already imported"})
             continue
         try:
-            article = extract_existing_article(url)
-            slug = simple_slug(urllib.parse.urlsplit(article["canonical"] or article["url"]).path.strip("/").split("/")[-1] or article["title"])
+            article = extract_existing_article_from_webroot(site, url) or extract_existing_article(url)
+            path_for_slug = urllib.parse.urlsplit(article["canonical"] or article["url"]).path.strip("/")
+            slug = path_slug(path_for_slug or article["title"])
             job_id = secrets.token_hex(12)
             now = now_iso()
             source = {
                 "imported": True,
+                "importMethod": article.get("importMethod", "public_fetch"),
                 "sourceUrl": article["url"],
                 "canonical": article["canonical"],
                 "contentType": article["contentType"],
+                "webrootPath": article.get("webrootPath", ""),
+                "relativePath": article.get("relativePath", ""),
+                "pageType": article.get("pageType", import_page_type(urllib.parse.urlsplit(article["canonical"] or article["url"]).path)),
+                "language": article.get("language", import_page_language(urllib.parse.urlsplit(article["canonical"] or article["url"]).path)),
+                "ownership": "source_site_authoritative",
             }
+            page_type = source["pageType"]
             with db() as conn:
                 conn.execute(
                     """
@@ -1153,7 +1469,7 @@ def import_existing_articles(site_id, urls):
                         "IMPORTED",
                         article["title"],
                         article["description"],
-                        "Imported",
+                        "Imported Blog" if page_type == "blog" else "Imported SEO Money Page",
                         article["heroImage"],
                         article["contentHtml"],
                         json.dumps(source, ensure_ascii=False),
@@ -1173,62 +1489,265 @@ def import_existing_articles(site_id, urls):
     return {"imported": imported, "skipped": skipped, "errors": errors}
 
 
+def summarize_job_message(kind, message):
+    raw = message or ""
+    if not raw:
+        return ""
+    try:
+        data = json.loads(raw)
+    except Exception:
+        text = re.sub(r"\s+", " ", raw).strip()
+        return text[:500] + ("..." if len(text) > 500 else "")
+
+    if kind in {"import-existing-blog", "import-existing-blog-direct-webroot"}:
+        imported = data.get("imported", [])
+        skipped = data.get("skipped", [])
+        errors = data.get("errors", [])
+        parts = []
+        if "candidates" in data:
+            parts.append(f"candidates {data.get('candidates')}")
+        if "distinct_urls" in data:
+            parts.append(f"distinct URLs {data.get('distinct_urls')}")
+        if "inserted" in data:
+            parts.append(f"inserted {data.get('inserted')}")
+        else:
+            parts.append(f"imported {len(imported)}")
+        if "skipped_existing" in data:
+            parts.append(f"skipped existing {data.get('skipped_existing')}")
+        else:
+            parts.append(f"skipped {len(skipped)}")
+        parts.append(f"errors {len(errors)}")
+        if "duplicate_files" in data:
+            parts.append(f"duplicate files {data.get('duplicate_files')}")
+        detail = "; ".join(parts) + "."
+        sample = []
+        for item in imported[:3]:
+            sample.append(item.get("url") or item.get("rel") or item.get("title") or "")
+        for item in errors[:3]:
+            sample.append((item.get("url") or "") + ": " + (item.get("error") or "error"))
+        sample = [s for s in sample if s]
+        if sample:
+            detail += " Sample: " + " | ".join(sample)
+        return detail
+
+    if kind == "article-ideas":
+        signals = data.get("signals", [])
+        ideas = data.get("ideas", [])
+        titles = [idea.get("title") for idea in ideas[:3] if idea.get("title")]
+        detail = f"range {data.get('range', 'unknown')}; signals {len(signals)}; ideas {len(ideas)}."
+        if titles:
+            detail += " " + " | ".join(titles)
+        return detail
+
+    if isinstance(data, dict):
+        return "; ".join(f"{k}={v}" for k, v in data.items() if not isinstance(v, (list, dict)))[:500]
+    return raw[:500]
+
+
 def render_jobs(rows):
     if not rows:
         return "<div class='empty'>No publish jobs yet.</div>"
     out = []
     for row in rows:
+        message = summarize_job_message(row["kind"], row["message"])
         out.append(
             f"""
             <div class="job-row">
               <div><strong>{escape(row['kind'])}</strong><span>{escape(row['created_at'])}</span></div>
               <b class="status {escape(row['status'])}">{escape(row['status'])}</b>
-              <p>{escape(row['message'] or '')}</p>
+              <p>{escape(message)}</p>
             </div>
             """
         )
     return "".join(out)
 
 
-def render_content_jobs(rows):
+def render_content_pagination(meta):
+    total = int(meta.get("total") or 0)
+    page = int(meta.get("page") or 1)
+    total_pages = int(meta.get("total_pages") or 1)
+    language = meta.get("language") or "all"
+    lang_q = "" if language == "all" else f"&content_lang={escape(language, quote=True)}"
+    if not total or total_pages <= 1:
+        return ""
+    links = []
+    if page > 1:
+        links.append(f"<a class='page-link nav' href='?content_page={page - 1}{lang_q}#content'>‹</a>")
+    window_start = max(1, page - 2)
+    window_end = min(total_pages, page + 2)
+    for page_number in range(window_start, window_end + 1):
+        active = " active" if page_number == page else ""
+        links.append(f"<a class='page-link{active}' href='?content_page={page_number}{lang_q}#content'>{page_number}</a>")
+    if page < total_pages:
+        links.append(f"<a class='page-link nav' href='?content_page={page + 1}{lang_q}#content'>›</a>")
+    return f"""
+    <nav class="content-pagination" aria-label="Content pages">{''.join(links)}</nav>
+    """
+
+
+def render_content_language_switcher(meta):
+    current = meta.get("language") or "en"
+    languages = meta.get("available_languages") or []
+    if not languages:
+        return ""
+    labels = {"en": "EN", "ru": "RU", "es": "ES", "de": "DE", "fr": "FR"}
+    links = []
+    for lang in languages:
+        active = " active" if lang == current else ""
+        href = f"?content_page=1&content_lang={escape(lang, quote=True)}#content"
+        links.append(f"<a class='lang-chip{active}' href='{href}'>{escape(labels.get(lang, lang.upper()))}</a>")
+    return "<div class='content-toolbar'><div class='language-switcher' aria-label='Content language'>" + "".join(links) + "</div></div>"
+
+
+def social_icon_label(channel):
+    return {
+        "linkedin": "in",
+        "telegram": "tg",
+        "twitter": "X",
+        "tumblr": "t",
+    }.get(channel, channel[:2])
+
+
+def social_status_class(status):
+    normalized = (status or "not queued").strip().lower().replace("_", " ").replace("-", " ")
+    if normalized in {"published", "posted", "sent", "done", "completed", "success"}:
+        return "published"
+    if normalized in {"queued", "scheduled", "pending", "processing"}:
+        return "queued"
+    if normalized in {"failed", "error"}:
+        return "failed"
+    return "muted"
+
+
+def render_social_statuses(row):
+    items = []
+    for channel in ("linkedin", "telegram", "twitter", "tumblr"):
+        status = row[f"{channel}_status"] or "not queued"
+        status_class = social_status_class(status)
+        label = social_icon_label(channel)
+        title = f"{channel}: {status}"
+        items.append(
+            f"<span class='social-icon {escape(channel)} {status_class}' title='{escape(title, quote=True)}' aria-label='{escape(title, quote=True)}'>{escape(label)}</span>"
+        )
+    return "<div class='social-statuses' aria-label='Social publishing status'>" + "".join(items) + "</div>"
+
+
+def render_content_type_badge(row):
+    category = (row["category"] or "").strip().lower()
+    try:
+        sources = json.loads(row["sources_json"] or "{}")
+    except Exception:
+        sources = {}
+    page_type = str(sources.get("pageType") or "").strip().lower()
+    if "seo money" in category or page_type == "seo_money_page":
+        return "<span class='content-type-badge seo'>SEO money page</span>"
+    if "blog" in category or page_type == "blog":
+        return "<span class='content-type-badge blog'>Blog</span>"
+    return f"<span class='content-type-badge other'>{escape(row['category'] or 'Content')}</span>"
+
+
+def live_page_icon(url):
+    if not url:
+        return ""
+    return f"<a class='icon-btn external-link' target='_blank' href='{escape(url, quote=True)}' title='Open live page' aria-label='Open live page'>↗</a>"
+
+
+def render_planned_publications(rows):
     if not rows:
-        return "<div class='empty'>No article production jobs yet. Select trend signals and create article ideas to queue jobs.</div>"
+        return "<div class='planned-empty'>No planned Blog Core publications yet.</div>"
+    items = []
+    for row in rows:
+        status = row["status"] or "UNKNOWN"
+        status_class = escape(status.lower())
+        title = row["title"] or row["topic"] or "Untitled"
+        source = "Discovery idea" if row["category"] == "Article Ideas" else (row["category"] or "Content task")
+        action = ""
+        if status in {"QUEUED", "ERROR"}:
+            action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate</button>"
+        items.append(
+            f"""
+            <div class="planned-row">
+              <div><strong>{escape(title)}</strong><span>{escape(source)} · {escape(row['created_at'] or '')}</span></div>
+              <div class="actions"><b class="status {status_class}">{escape(status)}</b>{action}</div>
+            </div>
+            """
+        )
+    return "".join(items)
+
+
+def render_content_jobs(content_page):
+    rows = content_page["rows"]
+    toolbar = render_content_language_switcher(content_page)
+    if not rows:
+        return toolbar + "<div class='empty'>No content records found for this language.</div>"
     out = []
     for row in rows:
         title = row["title"] or row["topic"]
-        social = []
-        for channel in ("linkedin", "telegram", "twitter", "tumblr"):
-            status = row[f"{channel}_status"] or "not queued"
-            social.append(f"<span>{channel}: {escape(status)}</span>")
+        social_statuses = render_social_statuses(row)
+        status = row["status"] or ""
+        status_class = escape(status.lower())
+        if status == "IMPORTED":
+            status_label = "LIVE / IMPORTED"
+            action = live_page_icon(row["published_url"])
+            descriptor = "Already published on the source site"
+        elif status in {"QUEUED", "ERROR"}:
+            status_label = status
+            action = f"<button class='ghost' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate draft</button>"
+            descriptor = "New Blog Core task"
+        elif status == "DRAFT":
+            status_label = "DRAFT"
+            action = ""
+            descriptor = "Draft ready for review"
+        elif status == "PUBLISHED":
+            status_label = "PUBLISHED"
+            action = live_page_icon(row["published_url"])
+            descriptor = "Published by Blog Core"
+        else:
+            status_label = status or "UNKNOWN"
+            action = ""
+            descriptor = "Content record"
         out.append(
             f"""
             <div class="job-row production-job">
-              <div><strong>{escape(title)}</strong><span>{escape(row['created_at'])} · {escape(row['category'] or 'Uncategorized')}</span></div>
-              <div class="actions"><b class="status {escape((row['status'] or '').lower())}">{escape(row['status'])}</b><button class="ghost" type="button" onclick="generateArticleJob('{escape(row['id'], quote=True)}')">Generate draft</button></div>
+              <div><strong>{escape(title)}</strong><span>{escape(descriptor)} · {escape(row['published_url'] or 'not published yet')}</span></div>
+              <div class="actions">{render_content_type_badge(row)}<b class="status {status_class}">{escape(status_label)}</b>{action}</div>
               <p>{escape(row['description'] or row['topic'] or '')}</p>
-              <div class="social-statuses">{''.join(social)}</div>
+              {social_statuses}
             </div>
             """
         )
-    return "".join(out)
+    return toolbar + "".join(out) + render_content_pagination(content_page)
 
 
 def render_distribution_settings(site_id):
     auto = get_autopublish_settings(site_id)
     disc = get_topic_discovery_settings(site_id)
     connections = get_social_connections(site_id)
-    channels = []
+    planned_publications = render_planned_publications(get_planned_content_jobs(site_id))
     try:
         selected = set(json.loads(auto["channels_json"] or "[]"))
     except Exception:
         selected = {"linkedin", "telegram", "twitter", "tumblr"}
-    connection_cards = []
+    channel_cards = []
     for provider, label in (("linkedin", "LinkedIn"), ("telegram", "Telegram"), ("twitter", "X / Twitter"), ("tumblr", "Tumblr")):
         row = connections.get(provider)
         status = row["status"] if row else "disconnected"
         checked = "checked" if provider in selected else ""
-        channels.append(f"<label class='check compact'><input type='checkbox' name='channels' value='{provider}' {checked}> {label}</label>")
-        connection_cards.append(f"<div class='channel-card'><strong>{label}</strong><span>{escape(status)}</span></div>")
+        include_field = f"{provider}_include_link"
+        include_checked = "checked" if int(auto[include_field] or 0) else ""
+        status_class = "connected" if status == "connected" else "disconnected"
+        channel_cards.append(
+            f"""
+            <div class="channel-card unified-channel">
+              <div class="channel-head">
+                <div><strong>{label}</strong><span class="channel-state {status_class}">{escape(status)}</span></div>
+                <span class="connect-placeholder" title="Per-site OAuth/connect routes are not wired yet">OAuth setup needed</span>
+              </div>
+              <label class="check compact"><input type="checkbox" name="channels" value="{provider}" {checked}> Use for autopublish</label>
+              <label class="check compact"><input type="checkbox" name="{include_field}" {include_checked}> Include article link</label>
+            </div>
+            """
+        )
     return f"""
     <section class="panel production-panel">
       <div class="panel-title-row"><div><h2>Distribution and autopublish</h2><div class="muted">Same publishing controls as the YAS Wine factory, scoped to this connected site.</div></div></div>
@@ -1243,14 +1762,14 @@ def render_distribution_settings(site_id):
         <div class="field"><label>Timezone</label><input name="timezone" value="{escape(auto['timezone'] or 'UTC', quote=True)}"></div>
         <div class="field"><label>Start hour</label><input name="start_hour" type="number" min="0" max="23" value="{int(auto['start_hour'] or 9)}"></div>
         <div class="field"><label>End hour</label><input name="end_hour" type="number" min="0" max="23" value="{int(auto['end_hour'] or 21)}"></div>
-        <div class="field full"><label>Publish channels</label><div class="channel-checks">{''.join(channels)}</div></div>
-        <label class="check"><input type="checkbox" name="linkedin_include_link" {'checked' if int(auto['linkedin_include_link'] or 0) else ''}> LinkedIn includes article link</label>
-        <label class="check"><input type="checkbox" name="telegram_include_link" {'checked' if int(auto['telegram_include_link'] or 0) else ''}> Telegram includes article link</label>
-        <label class="check"><input type="checkbox" name="twitter_include_link" {'checked' if int(auto['twitter_include_link'] or 0) else ''}> X includes article link</label>
-        <label class="check"><input type="checkbox" name="tumblr_include_link" {'checked' if int(auto['tumblr_include_link'] or 0) else ''}> Tumblr includes article link</label>
-        <div class="field full"><label>Channel connection status</label><div class="channel-grid">{''.join(connection_cards)}</div><div class="hint">OAuth/connect routes will be wired to the same providers as YAS Wine: LinkedIn, Telegram, X, and Tumblr.</div></div>
+        <div class="field full"><label>Channels</label><div class="channel-grid unified-channels">{''.join(channel_cards)}</div><div class="hint">Channel connection requires per-site OAuth/connect routes. Until those routes are implemented, channels can be selected for future autopublish settings but cannot connect accounts.</div></div>
         <div class="actions full"><button type="submit">Save factory distribution settings</button></div>
       </form>
+      <div class="planned-publications-block">
+        <h3>Planned publications</h3>
+        <div class="hint">Queued drafts and generated article tasks waiting for the publishing pipeline.</div>
+        <div class="planned-list">{planned_publications}</div>
+      </div>
     </section>
     """
 
@@ -1270,7 +1789,8 @@ def render_site_switcher(current_site_id):
 
 def render_manage_site_page(site):
     jobs = render_jobs(get_site_jobs(site["id"]))
-    content_jobs = render_content_jobs(get_content_jobs(site["id"]))
+    content_page = get_content_jobs(site["id"], page=request.args.get("content_page", 1), language=request.args.get("content_lang", "en"))
+    content_jobs = render_content_jobs(content_page)
     distribution_settings = render_distribution_settings(site["id"])
     preview = f"<a class='btn ghost' target='_blank' href='{escape(site['preview_path'])}'>Open preview</a>" if site["preview_path"] else "<span class='muted'>Build preview first</span>"
     colors = []
@@ -1354,6 +1874,29 @@ REDDIT_WEAK_MATCH_TERMS = {
     "store", "stores", "topic", "topics", "travel", "use", "uses", "visual", "visuals",
 }
 
+LOCAL_EVENT_SIGNAL_TERMS = {
+    "agenda", "announces", "announced", "awards", "calendar", "conference", "convention", "expo", "fair",
+    "fest", "fests", "festival", "festivals", "grand opening", "lineup", "market", "near me", "opens", "opening", "parade",
+    "pop-up", "popup", "show", "summit", "tickets", "tour", "tours", "weekend",
+    "city", "cities", "village", "villages", "visit", "visiting",
+}
+
+LOCAL_SIGNAL_PLACE_TERMS = {
+    "atlanta", "austin", "boston", "brooklyn", "chicago", "dallas", "denver", "houston", "las vegas",
+    "london", "los angeles", "miami", "nashville", "new york", "orlando", "paris", "philadelphia",
+    "phoenix", "portland", "san diego", "san francisco", "seattle", "toronto", "vancouver", "washington",
+}
+
+GLOBAL_SIGNAL_TERMS = {
+    "consumer", "consumers", "global", "industry", "markets", "online",
+    "people", "report", "research", "search", "shoppers", "study", "trend", "trends", "worldwide",
+}
+
+PROMO_TRADE_SIGNAL_TERMS = {
+    "£", "$", "€", "campaign", "discount", "grant", "indie", "indies", "month", "promo", "promotion",
+    "receive", "receives", "retail", "retailer", "retailers", "stockist", "stockists", "trade", "voucher",
+}
+
 
 def timeframe_to_reddit(range_key):
     return {"week": "week", "month": "month", "3m": "year", "6m": "year"}.get(range_key, "week")
@@ -1373,6 +1916,12 @@ def signal_keywords(query):
     return words
 
 
+def broad_topic_signal_query(site):
+    keywords = signal_keywords(site_topic_seed(site))
+    core = " ".join(keywords[:3]) or site_topic_seed(site)
+    return f"{core} global trends consumer industry"
+
+
 def signal_term_matches(title, query):
     haystack = (title or "").lower()
     matches = []
@@ -1388,7 +1937,29 @@ def signal_relevance_score(title, query):
     return sum(weight for _, weight in signal_term_matches(title, query))
 
 
+def is_global_topic_signal(title):
+    text = re.sub(r"\s+", " ", (title or "").lower()).strip()
+    if not text:
+        return False, "empty"
+    if any(term in text for term in LOCAL_EVENT_SIGNAL_TERMS):
+        return False, "local/event-specific"
+    if any(term in text for term in PROMO_TRADE_SIGNAL_TERMS):
+        return False, "promotion/trade-specific"
+    if any(re.search(rf"\b{re.escape(place)}\b", text) for place in LOCAL_SIGNAL_PLACE_TERMS):
+        return False, "place-specific"
+    if re.search(r"\b(in|near|around)\s+[A-Z][a-z]+", title or ""):
+        return False, "place-specific"
+    if re.search(r"\b(20[2-9][0-9])\b", text) and any(term in text for term in {"festival", "expo", "conference", "summit", "awards"}):
+        return False, "dated event"
+    if any(term in text for term in GLOBAL_SIGNAL_TERMS):
+        return True, ""
+    return True, ""
+
+
 def reddit_signal_is_relevant(title, query):
+    is_global, _ = is_global_topic_signal(title)
+    if not is_global:
+        return False, 0, []
     keywords = signal_keywords(query)
     matches = signal_term_matches(title, query)
     matched_words = {word for word, _ in matches}
@@ -1417,7 +1988,7 @@ def reddit_signal_is_relevant(title, query):
 
 
 def fetch_google_trend_signals(site, range_key):
-    query = site_topic_seed(site)
+    query = broad_topic_signal_query(site)
     days = timeframe_to_days(range_key)
     warnings = []
     url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({"q": f"{query} when:{days}d", "hl": "en-US", "gl": "US", "ceid": "US:en"})
@@ -1431,6 +2002,7 @@ def fetch_google_trend_signals(site, range_key):
 
     ranked = []
     seen = set()
+    filtered_global = 0
     for index, item in enumerate(root.findall(".//item")[:60]):
         title = re.sub(r"\s+-\s+[^-]+$", "", (item.findtext("title") or "").strip())
         link = (item.findtext("link") or "").strip()
@@ -1441,18 +2013,24 @@ def fetch_google_trend_signals(site, range_key):
         if key in seen:
             continue
         seen.add(key)
+        is_global, reason = is_global_topic_signal(title)
+        if not is_global:
+            filtered_global += 1
+            continue
         score = signal_relevance_score(title, query)
         ranked.append((score, -index, {"source": "google_trends", "title": title, "url": link, "meta": pub, "range": range_key, "score": score}))
     ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
     positive = [item for score, _, item in ranked if score > 0]
     signals = positive[:SIGNALS_PER_SOURCE]
+    if filtered_global:
+        warnings.append(f"Filtered {filtered_global} local, city-specific, or event-specific Google signals.")
     if not signals and ranked:
         warnings.append("No strongly relevant Google topic signals found for this site topic and period.")
     return signals, warnings
 
 
 def fetch_reddit_signals(site, range_key):
-    query = site_topic_seed(site)
+    query = broad_topic_signal_query(site)
     reddit_t = timeframe_to_reddit(range_key)
     warnings = []
     if range_key in {"3m", "6m"}:
@@ -1469,6 +2047,7 @@ def fetch_reddit_signals(site, range_key):
     ns = {"atom": "http://www.w3.org/2005/Atom"}
     signals = []
     seen = set()
+    filtered_global = 0
     for entry in root.findall("atom:entry", ns)[:80]:
         title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
         link_node = entry.find("atom:link", ns)
@@ -1480,12 +2059,18 @@ def fetch_reddit_signals(site, range_key):
         if key in seen:
             continue
         seen.add(key)
+        is_global, reason = is_global_topic_signal(title)
+        if not is_global:
+            filtered_global += 1
+            continue
         is_relevant, score, matched_terms = reddit_signal_is_relevant(title, query)
         if not is_relevant:
             continue
         signals.append({"source": "reddit", "title": title, "url": link, "meta": updated, "range": range_key, "score": score, "matchedTerms": matched_terms})
         if len(signals) >= SIGNALS_PER_SOURCE:
             break
+    if filtered_global:
+        warnings.append(f"Filtered {filtered_global} local, city-specific, or event-specific Reddit discussions.")
     if not signals:
         warnings.append("No relevant Reddit top discussions found for this site topic and period.")
     return signals, warnings
@@ -1500,7 +2085,7 @@ def generate_article_ideas(site, signals):
             continue
         ideas.append({
             "title": title,
-            "angle": f"Use this signal as the hook, answer the underlying buyer or reader question, then connect the solution to {brand}'s offer, expertise, or editorial point of view around {seed}.",
+            "angle": f"Use this broad signal as the hook for a generalizable article, answer the underlying buyer or reader question, avoid making the piece about a single city/event/festival, then connect the solution to {brand}'s offer, expertise, or editorial point of view around {seed}.",
             "source": signal.get("source"),
             "source_title": title,
             "source_url": signal.get("url", ""),
@@ -1830,7 +2415,7 @@ def topic_signals(site_id):
     return jsonify({
         "ok": True,
         "range": range_key,
-        "query": site_topic_seed(site),
+        "query": broad_topic_signal_query(site),
         "signals": signals,
         "warnings": google_warnings + reddit_warnings,
         "counts": {"google": len(google), "reddit": len(reddit), "total": len(signals)},
@@ -1983,7 +2568,17 @@ def update_factory_settings(site_id):
 def list_content_jobs(site_id):
     if not get_site(site_id):
         return jsonify({"error": "site not found"}), 404
-    return jsonify({"ok": True, "jobs": [dict(r) for r in get_content_jobs(site_id)]})
+    content_page = get_content_jobs(site_id, page=request.args.get("page", 1), per_page=request.args.get("per_page", 24), language=request.args.get("language", "en"))
+    return jsonify({
+        "ok": True,
+        "jobs": [dict(r) for r in content_page["rows"]],
+        "page": content_page["page"],
+        "per_page": content_page["per_page"],
+        "total": content_page["total"],
+        "total_pages": content_page["total_pages"],
+        "language": content_page["language"],
+        "available_languages": content_page["available_languages"],
+    })
 
 
 @app.get("/api/sites/<int:site_id>/content-jobs/<job_id>")
@@ -2178,7 +2773,56 @@ MANAGE_SITE_HTML = """<!doctype html>
 <title>Manage __DOMAIN__ · Blog Core</title>
 <style>
 :root{--bg:#0b1020;--panel:rgba(255,255,255,.08);--line:rgba(255,255,255,.15);--text:#f8fafc;--muted:#a6b0c3;--accent:#8b5cf6;--accent2:#22c55e;--danger:#ef4444}
-*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.top-actions{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}.site-switcher{display:flex;flex-direction:column;gap:6px;min-width:260px}.site-switcher span{font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900}.site-switcher select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.75);color:#fff;padding:13px 14px;font-size:14px;outline:none}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1fr;gap:18px}.settings-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.settings-toggle{width:48px;height:48px;border-radius:999px;font-size:22px;padding:0}.settings-panel[hidden]{display:none}.compact-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.signal-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.signal-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.signal-card{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px}.signal-card input{width:18px;height:18px;margin-top:2px}.import-list{display:grid;gap:10px;margin-top:14px}.import-row{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px}.import-row input{width:18px;height:18px;margin-top:2px}.import-row strong{display:block;font-size:14px}.import-row span{display:block;color:var(--muted);font-size:12px;margin-top:4px;word-break:break-all}.signal-card strong{display:block;font-size:15px;line-height:1.25}.signal-card span{display:block;color:var(--muted);font-size:12px;margin-top:5px}.source-pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:4px 8px;margin-bottom:7px;color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase}.loading{color:var(--muted);padding:18px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38)}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:6px}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.production-panel{border-color:rgba(139,92,246,.35)}.panel-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.channel-checks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.check.compact{padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38)}.channel-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.channel-card{border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.45);padding:12px}.channel-card strong{display:block}.channel-card span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.social-statuses{grid-column:1 / -1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.social-statuses span{border:1px solid var(--line);border-radius:999px;padding:6px 8px;background:rgba(255,255,255,.06)}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;word-break:break-word}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid,.compact-grid{display:block}.channel-checks,.channel-grid,.social-statuses{grid-template-columns:1fr}.top-actions{justify-content:flex-start;margin-top:18px}.site-switcher{min-width:0;width:100%}.form-grid,.signal-list{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.top-actions{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}.site-switcher{display:flex;flex-direction:column;gap:6px;min-width:260px}.site-switcher span{font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900}.site-switcher select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.75);color:#fff;padding:13px 14px;font-size:14px;outline:none}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1fr;gap:18px}.settings-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.settings-toggle{width:48px;height:48px;border-radius:999px;font-size:22px;padding:0}.settings-panel[hidden]{display:none}.compact-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.signal-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.signal-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.signal-card{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px}.signal-card input{width:18px;height:18px;margin-top:2px}.import-list{display:grid;gap:10px;margin-top:14px}.import-row{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px}.import-row input{width:18px;height:18px;margin-top:2px}.import-row strong{display:block;font-size:14px}.import-row span{display:block;color:var(--muted);font-size:12px;margin-top:4px;word-break:break-all}.signal-card strong{display:block;font-size:15px;line-height:1.25}.signal-card span{display:block;color:var(--muted);font-size:12px;margin-top:5px}.source-pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:4px 8px;margin-bottom:7px;color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase}.loading{color:var(--muted);padding:18px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38)}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:6px}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.production-panel{border-color:rgba(139,92,246,.35)}.panel-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.channel-checks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.check.compact{padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38)}.channel-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.channel-card{border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.45);padding:12px}.channel-card strong{display:block}.channel-card span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.social-statuses{grid-column:1 / -1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.social-statuses span{border:1px solid var(--line);border-radius:999px;padding:6px 8px;background:rgba(255,255,255,.06)}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow-wrap:anywhere}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid,.compact-grid{display:block}.channel-checks,.channel-grid,.social-statuses{grid-template-columns:1fr}.top-actions{justify-content:flex-start;margin-top:18px}.site-switcher{min-width:0;width:100%}.form-grid,.signal-list{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
+</style>
+<style>
+.content-toolbar{display:flex;justify-content:flex-end;align-items:center;margin:14px 0 8px}
+.language-switcher{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.lang-chip{min-width:42px;min-height:32px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.06);display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:#d8cdfd;font-size:12px;font-weight:900}
+.lang-chip.active{background:rgba(139,92,246,.7);border-color:transparent;color:#fff}
+.content-pagination{display:flex;justify-content:center;gap:8px;align-items:center;margin:18px 0 0}
+.content-pagination strong{display:block;font-size:16px;color:#fff;margin-bottom:3px}
+.content-pagination span{display:block;color:var(--muted);font-size:13px;line-height:1.4}
+.pagination-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.page-link{min-width:34px;min-height:34px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.07);display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font-weight:900;color:#d8cdfd;padding:0 10px}
+.page-link.active{background:rgba(139,92,246,.7);color:#fff;border-color:transparent}
+.page-link.nav{font-size:18px;padding-bottom:2px}
+.production-job .social-statuses{grid-column:1 / -1;display:flex;gap:8px;align-items:center;margin-top:2px}
+.production-job .social-icon{width:30px;height:30px;border-radius:999px;border:1px solid rgba(255,255,255,.18);display:inline-flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08);color:#fff;font-size:11px;font-weight:900;line-height:1;text-transform:uppercase}
+.production-job .social-icon.muted{opacity:.32;filter:grayscale(1);background:rgba(255,255,255,.04)}
+.production-job .social-icon.queued{opacity:.72;border-color:rgba(139,92,246,.45);background:rgba(139,92,246,.14)}
+.production-job .social-icon.published{opacity:1;border-color:rgba(34,197,94,.75);background:rgba(34,197,94,.18)}
+.production-job .social-icon.failed{opacity:1;border-color:rgba(239,68,68,.75);background:rgba(239,68,68,.18)}
+.production-job .social-icon.linkedin{text-transform:none;font-size:13px}
+.production-job .social-icon.twitter{font-size:13px}
+.production-job .social-icon.telegram,.production-job .social-icon.tumblr{text-transform:lowercase}
+.production-job .icon-btn{width:34px;height:34px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.08);display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:#fff;font-weight:900;font-size:17px}
+.production-job .icon-btn:hover{border-color:rgba(34,197,94,.75);background:rgba(34,197,94,.16);transform:translateY(-1px)}
+.production-job .content-type-badge{display:inline-flex;align-items:center;min-height:28px;border-radius:999px;padding:5px 9px;border:1px solid var(--line);background:rgba(255,255,255,.07);color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase;white-space:nowrap}
+.production-job .content-type-badge.blog{border-color:rgba(96,165,250,.45);background:rgba(96,165,250,.13);color:#bfdbfe}
+.production-job .content-type-badge.seo{border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.14);color:#fde68a}
+.status.imported{background:rgba(34,197,94,.2);color:#bbf7d0;border:1px solid rgba(34,197,94,.38)}
+.unified-channels{grid-template-columns:repeat(2,minmax(0,1fr))}
+.unified-channel{display:grid;gap:10px}
+.channel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.channel-state{display:inline-flex;margin-top:5px;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:900;text-transform:uppercase;border:1px solid var(--line);color:var(--muted)}
+.channel-state.connected{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.14);color:#bbf7d0}
+.channel-state.disconnected{opacity:.72}
+.connect-placeholder{display:inline-flex;align-items:center;min-height:30px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);font-size:11px;font-weight:900;text-transform:uppercase;padding:6px 9px;white-space:nowrap}
+.planned-publications-block{margin-top:18px;border-top:1px solid var(--line);padding-top:18px}
+.planned-publications-block h3{margin:0 0 4px;color:#efe9ff;font-size:15px;text-transform:uppercase;letter-spacing:.08em}
+.planned-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px;margin-top:10px}
+.planned-row strong{display:block;font-size:14px}
+.planned-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+.mini-action{min-height:34px;padding:8px 11px;font-size:12px}
+.planned-empty{margin-top:10px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.28);color:var(--muted);font-size:13px;padding:12px}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px;border-bottom:1px solid var(--line);padding-bottom:10px}
+.tab{background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:999px;color:#d8cdfd;min-height:38px;padding:9px 14px}
+.tab.active{background:linear-gradient(135deg,rgba(139,92,246,.95),rgba(34,197,94,.78));color:#fff;border-color:transparent}
+.tab-panel[hidden]{display:none}
+.tab-panel{display:grid;gap:18px}
+.tab-panel>.panel:first-child{margin-top:0}
+@media(max-width:900px){.content-toolbar{justify-content:flex-start}.content-pagination{flex-wrap:wrap}}
 </style>
 </head>
 <body>
@@ -2192,6 +2836,15 @@ MANAGE_SITE_HTML = """<!doctype html>
     <div class="top-actions">__SITE_SWITCHER__<div class="actions">__PREVIEW__</div></div>
   </section>
 
+  <nav class="tabs" role="tablist" aria-label="Site factory sections">
+    <button class="tab active" type="button" role="tab" aria-selected="true" data-tab="content">Content</button>
+    <button class="tab" type="button" role="tab" aria-selected="false" data-tab="discovery">Discovery</button>
+    <button class="tab" type="button" role="tab" aria-selected="false" data-tab="distribution">Distribution</button>
+    <button class="tab" type="button" role="tab" aria-selected="false" data-tab="activity">Activity</button>
+    <button class="tab" type="button" role="tab" aria-selected="false" data-tab="setup">Setup</button>
+  </nav>
+
+  <div class="tab-panel" data-panel="setup" hidden>
   <section class="panel">
     <div class="settings-head">
       <div>
@@ -2200,7 +2853,7 @@ MANAGE_SITE_HTML = """<!doctype html>
       </div>
       <button class="settings-toggle ghost" type="button" onclick="toggleSettings()" aria-label="Open settings">⚙</button>
     </div>
-    <div id="settingsPanel" class="settings-panel" hidden>
+    <div id="settingsPanel" class="settings-panel">
       <div class="compact-grid">
         <section class="stat">
           <h2>Site setup</h2>
@@ -2236,23 +2889,29 @@ MANAGE_SITE_HTML = """<!doctype html>
       </div>
     </div>
   </section>
+  </div>
 
+  <div class="tab-panel" data-panel="content">
   <section class="panel production-panel">
     <div class="panel-title-row"><div><h2>Import existing blog</h2><div class="muted">Scan the current public /blog/ and import existing articles into Blog Core without changing live URLs or deleting files.</div></div><div class="actions"><button class="ghost" type="button" onclick="scanExistingBlog()">Scan existing blog</button><button type="button" onclick="importSelectedBlogArticles()">Import selected</button></div></div>
     <div id="importBlogResult" class="loading">Scan first to review existing article URLs before importing.</div>
   </section>
 
   <section class="panel production-panel">
-    <h2>Article production queue</h2>
-    <div class="muted">Generated article jobs, publish state, and social channel status for this site.</div>
+    <h2>Content inventory</h2>
+    <div class="muted">Existing imported live pages and new Blog Core article tasks. Imported pages are already published on the source site; queued items are future work. Section listing pages such as /blog/ are stored as import metadata and hidden from this work list.</div>
     __CONTENT_JOBS__
   </section>
+  </div>
 
+  <div class="tab-panel" data-panel="distribution" hidden>
   __DISTRIBUTION_SETTINGS__
+  </div>
 
+  <div class="tab-panel" data-panel="discovery" hidden>
   <section class="panel">
     <h2 style="margin:0">Google Trends and Reddit discussions</h2>
-    <div class="muted">Choose live signals related to this site's topic, then generate article ideas from them.</div>
+    <div class="muted">Choose broad global topic signals related to this site's category. Local city events, festivals, ticket pages, and one-off news are filtered out.</div>
     <div class="signal-toolbar">
       <button class="ghost" data-range="week" onclick="loadSignals('week')">Last week</button>
       <button class="ghost" data-range="month" onclick="loadSignals('month')">Month</button>
@@ -2263,17 +2922,23 @@ MANAGE_SITE_HTML = """<!doctype html>
     <div id="signalQuery" class="muted"></div>
     <div id="signals" class="loading">Loading topic signals...</div>
   </section>
+  </div>
 
+  <div class="tab-panel" data-panel="activity" hidden>
   <section class="panel">
     <h2>Factory jobs</h2>
     __JOBS__
   </section>
+  </div>
 </main>
 <div id="toast" class="toast"></div>
 <script>
 const SITE_ID=__SITE_ID__;let currentSignals=[];let currentRange='week';
 function showToast(text){const toast=document.getElementById('toast');toast.textContent=text;toast.className='toast show';}
 function toggleSettings(){const panel=document.getElementById('settingsPanel');panel.hidden=!panel.hidden;}
+function showTab(name){document.querySelectorAll('.tab').forEach(tab=>{const active=tab.dataset.tab===name;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',active?'true':'false');});document.querySelectorAll('.tab-panel').forEach(panel=>{panel.hidden=panel.dataset.panel!==name;});if(location.hash!=='#'+name){history.replaceState(null,'','#'+name);}}
+document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>showTab(tab.dataset.tab)));
+showTab((location.hash||'#content').slice(1));
 async function runAction(id, action){showToast('Running '+action+'...');try{const res=await fetch('/api/sites/'+id+'/'+action,{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(action+' completed');setTimeout(()=>location.reload(),700);}catch(e){showToast(action+' failed: '+e.message);}}
 async function queueTopicPlan(id){showToast('Queueing topic plan...');try{const res=await fetch('/api/sites/'+id+'/queue-topic-plan',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Topic plan queued');setTimeout(()=>location.reload(),700);}catch(e){showToast('Queue failed: '+e.message);}}
 async function checkCname(id){showToast('Checking CNAME...');try{const res=await fetch('/api/sites/'+id+'/check-cname',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('CNAME status: '+data.status);setTimeout(()=>location.reload(),900);}catch(e){showToast('CNAME check failed: '+e.message);}}

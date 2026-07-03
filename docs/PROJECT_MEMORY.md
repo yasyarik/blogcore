@@ -15,7 +15,7 @@ It must be updated after every meaningful task.
   - Build a preview blog under `/previews/{site_id}/blog/`.
   - For local VPS sites, install static `/blog/` files into a configured webroot.
   - For external sites, configure `custom_blog_domain`, ask the client to CNAME it to `blog.yas.ooo`, enable hosted CNAME blog, and serve the blog by Host routing.
-  - Manage a site's factory settings, discover topic signals, select trends/discussions, queue article idea jobs, and import existing /blog articles as preserved Blog Core content jobs.
+  - Manage a site's factory settings, discover topic signals, select trends/discussions, queue article idea jobs, generate draft article jobs, and import existing `/blog/` articles as preserved Blog Core content jobs.
 
 ## 2. Current architecture
 
@@ -30,6 +30,7 @@ It must be updated after every meaningful task.
   - Google News RSS search is used as the current Google trend/news signal source.
   - Reddit search RSS is used for discussion signals; it may rate-limit.
   - DNS resolution uses Python `socket.getaddrinfo` for CNAME/custom-domain status checks.
+  - Draft generation is represented by the content job generation contract in `app.py`; provider credentials/secrets must not be committed or documented in raw form.
 * Important folders/files:
   - `app.py` — Flask app, routes, SQLite schema/migrations, scanner, blog rendering, dashboard UI.
   - `run.sh` — Gunicorn launcher bound to `127.0.0.1:3299`.
@@ -49,7 +50,20 @@ It must be updated after every meaningful task.
 * Factory settings are per site: content context, topic strategy, languages, cadence, CNAME settings, and jobs belong to the site.
 * The manage page should allow switching between connected sites without returning to the dashboard.
 * Factory parity with the old YAS Wine factory must include article jobs, logs, generation modes, social channels, autopublish settings, topic discovery settings, and publish status per site.
+* Social publishing/OAuth must be scoped per site, not globally.
 * Technical settings should stay compact on the site factory page; main workflow should focus on topic discovery and jobs.
+* Existing imported blogs and Blog Core-created blogs have different ownership models. For imported existing blogs, Blog Core should act as the control plane/dashboard and publish new/updated tasks back into the same original site locations and URL structure. It should not default to becoming a second public copy of that blog. For blogs created by Blog Core from scratch, Blog Core can be the full source of truth and public hosting/publishing layer.
+* The site manage page is organized by tabs: `Content` for import and article production queue, `Discovery` for topic signals, `Distribution` for autopublish/social settings, `Activity` for system/factory job logs, and `Setup` for webroot/CNAME/design settings.
+* In the `Content` tab, imported records must be presented as already-live source-site pages, not as publication tasks. Use labels such as `Content inventory`, `LIVE / IMPORTED`, and `Open live page`; reserve generation actions for `QUEUED`/new Blog Core tasks.
+* In content cards, social publishing status must be compact icon indicators, not large text pills. Unpublished/not queued channels should be visually muted; published/sent channels should appear active.
+* Content card actions should stay compact: use an external-link icon for the live URL action, render `LIVE / IMPORTED` as a green status, and show content type with small badges such as `Blog` or `SEO money page`.
+* Content inventory must not mix languages by default. Use language switching chips (`EN`, `RU`, `ES`, `DE`, `FR`) and filter content jobs by language server-side.
+* Content inventory sorting must be stable across languages. Sort imported pages by normalized base URL/path with the language prefix removed, so switching `EN/RU/ES/DE/FR` keeps the same article/topic positions when translations exist.
+* Content inventory pagination should appear only once at the bottom of the list, centered, using compact numeric links and arrow icons without `Page X of Y` wording.
+* Planned/future Blog Core publications should be visible separately from imported live pages. Show `Planned publications` at the bottom of Distribution, below the social channel settings, for `QUEUED`, `GENERATING`, `DRAFT`, and `ERROR` content jobs; imported live pages stay in Content inventory. If there are no planned jobs, keep the empty state compact.
+* Distribution channel settings should not duplicate the same providers across separate blocks. Each channel card should combine connection status, Connect action, autopublish enablement, and include-link setting in one place.
+* Social `Connect` controls must not look actionable until per-site OAuth/connect routes exist. Render them as disabled/setup-needed state, not a clickable placeholder toast.
+* Imported section listing/hub pages such as `/blog/`, language blog indexes, `/wine-countries/`, and `/wine-regions/` may be stored as import metadata, but they must be hidden from the Content inventory work list so they are not confused with articles or publish tasks.
 
 ## 4. Integrations
 
@@ -59,6 +73,10 @@ It must be updated after every meaningful task.
 * CNAME status check compares resolved custom domain IPs against `HOSTED_BLOG_IPS` or the resolved `CNAME_TARGET`.
 * Topic discovery currently uses Google News RSS query with `when:{days}d`, not an official Google Trends API.
 * Reddit signal fetching uses `https://www.reddit.com/search.rss` with top sorting; rate limits are expected and must be handled gracefully without rendering error cards. Reddit matches must include a strong site-topic anchor and contextual match; do not surface broad matches based only on generic words like `food`, `product`, or `shop`.
+* Discovery signals should be broad/global topic signals suitable for scalable articles. Filter out city-specific, festival/event, ticket, local-opening, trade-promo/campaign/grant/retailer, and one-off local news signals before showing them as selectable Google/Reddit items.
+* Existing blog import scans sitemap and `/blog/` index sources for external sites. If a connected site has a local `root_path`, import must prefer direct webroot discovery and include multilingual `/blog/` pages plus SEO money pages under `wine-countries` and `wine-regions`.
+* Replaced/deprecated 2026-07-03: The earlier production state note saying `yas.wine` import found only 61 English `/blog/` URLs was an incomplete external-scan result, not a complete import.
+* Current production state: On 2026-07-03, `yas.wine` site `id=5` was fully imported from local webroot `/var/www/yaswine`. Blog Core now has 821 distinct `content_jobs.status=IMPORTED`: 426 blog pages and 395 SEO money pages. All records have `published_url` on `https://yas.wine/...` and `sources_json.webrootPath` pointing to the source file.
 
 ## 5. SEO / content rules
 
@@ -67,6 +85,9 @@ It must be updated after every meaningful task.
 * Local install writes `sitemap-blog.xml` and appends its URL to target site's `robots.txt` when possible.
 * Generated sample blog/article content is placeholder-level and should not be treated as final editorial content. Existing blogs can be imported as `content_jobs.status=IMPORTED` while preserving original slugs, canonical/source URLs, metadata, and saved HTML.
 * Article ideas generated from trend/discussion signals are queued as jobs and should connect audience problems/questions to the site's offer, expertise, or editorial point of view.
+* Final publishing parity is still incomplete: local static `/blog` install writes the sample shell, while hosted rendering can serve imported/generated content jobs.
+* For imported blogs, the target behavior is not a public Blog Core mirror. Imported content should let Blog Core understand, display, manage, update, and create tasks for the existing blog while preserving the original live URL structure. The original site URL remains the canonical/authoritative destination unless an explicit cutover is requested.
+* For imported local sites, distinguish Blog Core dashboard UI from the source site's public UI. Fixes requested against `https://yas.wine/blog/` usually require editing `/var/www/yaswine`, not only Blog Core's `/sites/<id>` dashboard.
 
 ## 6. Deployment
 
@@ -77,6 +98,8 @@ It must be updated after every meaningful task.
 * Live nginx `blog.yas.ooo` vhost proxies to `http://127.0.0.1:3299`.
 * Live default catchall nginx config proxies unknown HTTP/HTTPS Host traffic to Blog Core so CNAME domains can be routed by the Flask app.
 * Current vhost/catchall configs reference self-signed certificate paths. Automated public SSL issuance for arbitrary custom domains is not yet implemented.
+* Repository clone path for local Codex work: `/Users/yasyas/Library/Mobile Documents/com~apple~CloudDocs/проекты/blogcore`.
+* Canonical GitHub repo: `yasyarik/blogcore`; local clone currently uses HTTPS remote because SSH publickey auth was unavailable locally.
 * Important environment variables:
   - `PORT` default `3299`.
   - `ADMIN_HOSTS` default `blog.yas.ooo,127.0.0.1,localhost`.
@@ -92,8 +115,25 @@ It must be updated after every meaningful task.
 * HTTPS for arbitrary CNAME domains is not production-complete until certificate automation is added.
 * Reddit may return `429 Too Many Requests`; topic discovery must surface it as a note/warning, not as a selectable signal card.
 * Google signal source is Google News RSS search labelled in UI/code as trend/news signals; it is not official Google Trends API data.
+* Do not turn Discovery into a local event or trade-promo feed. Results like a city wine festival, local guide, `Indies to receive £250 for Bordeaux Wine Month`, or retailer campaign should be filtered out even if they contain topical words.
 * `install-blog` writes static files into `root_path/blog`; avoid using it for external sites with no local webroot.
 * Theme scan depends on public HTML/CSS structure and may fail or capture weak design context for SPA-heavy or protected sites.
+* `SEO_MEMORY.md` had an older note that dynamic sitemap expansion was not implemented. As of the imported/generated content job renderer, that note is replaced for hosted CNAME blogs; local static install still lacks final article publishing/export parity.
+* Replaced/deprecated 2026-07-03: Existing blog import no longer has to rely on `sitemap_index.xml` for local VPS sites with `root_path`. For local sites such as `yas.wine`, direct webroot discovery is the authoritative inventory path.
+* Production API may reject default Python `urllib` requests with `403`; use a normal User-Agent for scripted verification/import calls.
+* Factory job messages may contain large JSON payloads from import/article-idea jobs. UI must render summarized job messages, not raw `publish_jobs.message`, or the dashboard becomes unreadable.
+* Do not collapse content queue, discovery, distribution, setup, and activity logs into one long page again; keep these concerns separated in the tabbed manage UI.
+* Do not show `Generate draft` on `IMPORTED` records; that makes already-published source pages look like unpublished tasks.
+* Do not render per-channel social status as full-width text buttons/pills inside content cards; use compact icons with tooltips.
+* Do not use a large text button for `Open live page` in content cards; use the compact external-link icon.
+* Do not mix imported multilingual content in one default Content inventory list; default to a concrete language and require explicit language switching.
+* Do not sort language-specific inventories by import timestamp/id; this makes each language show different first articles. Use normalized base path sorting instead.
+* Do not place planned/future publication tasks in the Content inventory area; keep them at the bottom of Distribution below social channel settings.
+* Do not render content pagination both above and below the cards, and do not use verbose `Page`/`Showing` text there.
+* Do not show Publish Channels, include-link checkboxes, and connection status as three separate repeated channel sections. Use one unified card per social provider.
+* Do not show active-looking `Connect` buttons for social providers while OAuth/connect routes are not implemented.
+* Large imports need pagination in the Content inventory. Do not return to a hard-coded latest-24 list without navigation.
+* Do not confuse Blog Core Content inventory pagination with public source-site blog pagination. `yas.wine/blog/` is a static public page in `/var/www/yaswine/blog/index.html`; its visible pagination must be fixed in that webroot.
 
 ## 8. Decisions log
 
@@ -140,6 +180,27 @@ It must be updated after every meaningful task.
 * Files/areas affected: `app.py` import scanner/import endpoints and hosted blog renderer.
 * Replaced/deprecated: Rebuilding or overwriting existing blog content as the first migration step.
 
+### 2026-07-03 — Keep project memory self-updating after local repo setup
+
+* Decision: Treat repository memory files as the durable source of truth for future Codex runs and require a final memory-status line after every task.
+* Reason: The project is now in a separate local clone and future sessions may start after context compaction or from a fresh Codex launch.
+* Files/areas affected: `AGENTS.md`, `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`.
+* Replaced/deprecated: Relying on the current chat or older VPS-only context as the only memory source.
+
+### 2026-07-03 — Imported blogs are managed in place, not mirrored by default
+
+* Decision: For existing imported blogs, Blog Core should be the management/control plane and publish generated updates/articles back to the same original site locations and URL structure. Blog Core should not default to hosting an indexed second copy. For new blogs created entirely by Blog Core, Blog Core may fully host/publish the blog.
+* Reason: Imported sites such as `yas.wine` already have working indexed blogs. The goal is to preserve those URLs and operations while adding a stronger dashboard/factory layer.
+* Files/areas affected: Import model, publishing/export pipeline, hosted renderer SEO rules, future local/CMS/static publisher.
+* Replaced/deprecated: Treating all imported content as if it should become public under Blog Core-hosted URLs.
+
+### 2026-07-03 — Hide imported hub pages from content work lists
+
+* Decision: Keep imported section index pages in metadata, but hide them from the Content inventory and paginate the visible records.
+* Reason: Pages such as `https://yas.wine/blog/` are blog listing/hub pages, not article records or publication tasks. Showing them beside articles confused the imported-content workflow.
+* Files/areas affected: `app.py` content job listing/rendering and `/api/sites/<id>/content-jobs`.
+* Replaced/deprecated: Showing all latest imported `content_jobs` with `limit 24`, including `/blog/` and other section indexes, without pagination.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
@@ -147,3 +208,5 @@ It must be updated after every meaningful task.
 * Do not commit SQLite database, generated previews, virtualenv, logs, or secrets.
 * Do not treat Reddit availability as guaranteed; build and test degraded states.
 * Do not assume chat context has all prior decisions; read memory first.
+* Do not silently delete outdated memory. Mark replaced/deprecated and add the current version.
+* Do not design imported-blog workflows as public mirrors by default. Preserve the source site's URLs and publish back in place unless the user explicitly asks for a cutover.

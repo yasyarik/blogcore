@@ -29,6 +29,10 @@ Final responses after each task must include:
 - `Memory updated: no, because ...` if there was nothing durable to update.
 - A short list of memory/changelog files changed.
 
+This final-response memory line is mandatory even for small tasks. If a task is
+purely investigative and creates no durable project knowledge, say why memory
+was not updated.
+
 ## What Belongs In Memory
 
 Store only durable, useful knowledge:
@@ -57,7 +61,9 @@ If information becomes outdated, do not silently remove it. Mark it as `replaced
 ## Repository Rules
 
 - Primary live working copy is on the VPS at `/var/www/blog.yas.ooo`.
-- Git remote is `git@github.com:yasyarik/blogcore.git`.
+- Canonical GitHub repo is `yasyarik/blogcore`.
+- The VPS may use SSH remote `git@github.com:yasyarik/blogcore.git`; local
+  clones may use HTTPS through GitHub CLI when SSH keys are unavailable.
 - Do not commit `data/`, `previews/`, `.venv/`, logs, secrets, or generated caches.
 - Preserve existing user/server state unless the user explicitly asks to remove it.
 - For deployment-affecting changes, run at least `python3 -m py_compile app.py` and a health check after restart.

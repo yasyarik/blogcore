@@ -7,7 +7,9 @@
 * Gunicorn: `127.0.0.1:3299`, 2 workers, 120s timeout.
 * PM2 process: `blog-yas-core`.
 * VPS path: `/var/www/blog.yas.ooo`.
+* Local Codex clone path: `/Users/yasyas/Library/Mobile Documents/com~apple~CloudDocs/проекты/blogcore`.
 * Public dashboard: `https://blog.yas.ooo`.
+* Canonical GitHub repo: `yasyarik/blogcore`.
 
 ## Commands
 
@@ -32,6 +34,11 @@ curl -fsS http://127.0.0.1:3299/health
 * `HOSTED_BLOG_IPS`: default `72.61.1.109`.
 
 Do not store secrets or raw `.env` contents in this file.
+
+## Git access notes
+
+* VPS working copy may use SSH remote `git@github.com:yasyarik/blogcore.git`.
+* Local Codex clone currently uses HTTPS remote `https://github.com/yasyarik/blogcore.git` through GitHub CLI because local SSH auth returned `Permission denied (publickey)`.
 
 ## Deployment checks
 
