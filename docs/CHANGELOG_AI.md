@@ -2,6 +2,41 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-04 — Collapse planned jobs by canonical task
+
+### Summary
+
+* Updated the planned publications UI so legacy per-language rows are grouped into one canonical task per topic/path.
+* Corrected AIREP24 site language configuration from EN/DE/ES/FR back to EN only.
+* Planned rows now show active generation languages from site settings and show old extra language rows as legacy variants.
+
+### Files changed
+
+* `app.py` — added planned-job grouping by canonical group/base path and language-aware primary-row selection.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that generation tasks should be canonical and language expansion should come from site settings.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Preserve old per-language rows in SQLite for traceability, but do not show them as separate generation tasks.
+* Use `sites.languages` as the active language set for new generation. For AIREP24, active languages are now `["en"]`.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Updated live AIREP24 site `id=9` `sites.languages` to `["en"]`.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified live `/sites/9` planned block now renders 14 planned rows instead of 56.
+* Verified the database still preserves 56 queued legacy rows grouped into 14 canonical groups.
+* Verified planned rows show `Generates: EN` and legacy variant chips.
+
+### Risks / TODO
+
+* The generation endpoint still operates on a single primary `content_jobs` row. Full multi-language generation should be implemented as a canonical parent task with language child outputs in a future schema/publisher pass.
+
 ## 2026-07-04 — Point imported-site open action to live blogs
 
 ### Summary

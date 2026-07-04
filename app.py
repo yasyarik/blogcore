@@ -2273,6 +2273,66 @@ def planned_job_meta(row):
     return "".join(parts)
 
 
+def planned_group_key(row):
+    sources = content_job_sources(row)
+    canonical = str(sources.get("canonicalGroup") or "").strip()
+    content_type = str(sources.get("contentType") or "").strip()
+    page_kind = str(sources.get("pageKind") or "").strip()
+    if canonical:
+        return (content_type, page_kind, canonical)
+    return (content_type, page_kind, content_job_base_path(row) or row["slug"] or row["id"])
+
+
+def planned_row_language(row):
+    sources = content_job_sources(row)
+    language = str(sources.get("language") or sources.get("locale") or "").strip().lower()
+    return language or content_job_language(row)
+
+
+def group_planned_rows(rows, site_languages):
+    groups = []
+    by_key = {}
+    site_languages = site_languages or ["en"]
+    for row in rows:
+        key = planned_group_key(row)
+        group = by_key.get(key)
+        if not group:
+            group = {"rows": [], "languages": set(), "primary": row}
+            by_key[key] = group
+            groups.append(group)
+        group["rows"].append(row)
+        language = planned_row_language(row)
+        if language:
+            group["languages"].add(language)
+        primary_language = planned_row_language(group["primary"])
+        if language in site_languages and primary_language not in site_languages:
+            group["primary"] = row
+        elif language == site_languages[0] and primary_language != site_languages[0]:
+            group["primary"] = row
+    return groups
+
+
+def planned_group_status(rows):
+    statuses = {row["status"] for row in rows}
+    for status in ("ERROR", "GENERATING", "DRAFT", "QUEUED"):
+        if status in statuses:
+            return status
+    return rows[0]["status"] or "UNKNOWN"
+
+
+def planned_group_meta(group, site_languages):
+    primary = group["primary"]
+    active_languages = [lang.upper() for lang in site_languages if lang]
+    legacy_languages = sorted(lang.upper() for lang in group["languages"] if lang and lang not in set(site_languages))
+    parts = []
+    if active_languages:
+        parts.append(f"<span class='planned-chip'>Generates: {escape(', '.join(active_languages))}</span>")
+    if legacy_languages:
+        parts.append(f"<span class='planned-chip muted-chip'>Legacy variants: {escape(', '.join(legacy_languages))}</span>")
+    primary_meta = planned_job_meta(primary)
+    return "".join(parts) + primary_meta
+
+
 def live_page_icon(url):
     if not url:
         return ""
@@ -2329,23 +2389,27 @@ def render_social_credentials_setup(site_id):
     """
 
 
-def render_planned_publications(rows):
+def render_planned_publications(rows, site_languages=None):
     if not rows:
         return "<div class='planned-empty'>No planned Blog Core publications yet.</div>"
+    site_languages = site_languages or ["en"]
+    groups = group_planned_rows(rows, site_languages)
     items = []
-    for row in rows:
-        status = row["status"] or "UNKNOWN"
+    for group in groups:
+        row = group["primary"]
+        status = planned_group_status(group["rows"])
         status_class = escape(status.lower())
         title = row["title"] or row["topic"] or "Untitled"
         source = "Discovery idea" if row["category"] == "Article Ideas" else (row["category"] or "Content task")
-        meta = planned_job_meta(row)
+        duplicate_note = f" · {len(group['rows'])} language variants collapsed" if len(group["rows"]) > 1 else ""
+        meta = planned_group_meta(group, site_languages)
         action = ""
         if status in {"QUEUED", "ERROR"}:
             action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate</button>"
         items.append(
             f"""
             <div class="planned-row">
-              <div><strong>{escape(title)}</strong><span>{escape(source)} · {escape(row['created_at'] or '')}</span><div class="planned-meta">{render_content_type_badge(row)}{meta}</div></div>
+              <div><strong>{escape(title)}</strong><span>{escape(source)} · {escape(row['created_at'] or '')}{escape(duplicate_note)}</span><div class="planned-meta">{render_content_type_badge(row)}{meta}</div></div>
               <div class="actions"><b class="status {status_class}">{escape(status)}</b>{action}</div>
             </div>
             """
@@ -2398,10 +2462,12 @@ def render_content_jobs(content_page):
 
 
 def render_distribution_settings(site_id):
+    site = get_site(site_id)
+    site_languages = parse_languages(site["languages"] if site else "[]")
     auto = get_autopublish_settings(site_id)
     disc = get_topic_discovery_settings(site_id)
     connections = get_social_connections(site_id)
-    planned_publications = render_planned_publications(get_planned_content_jobs(site_id))
+    planned_publications = render_planned_publications(get_planned_content_jobs(site_id), site_languages)
     try:
         selected = set(json.loads(auto["channels_json"] or "[]"))
     except Exception:
@@ -3718,6 +3784,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 .planned-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}
 .planned-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}
 .planned-row .planned-chip,.planned-row .planned-target{display:inline-flex;align-items:center;min-height:26px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.05);padding:4px 8px;color:#d8cdfd;font-size:11px;font-weight:800}
+.planned-row .muted-chip{opacity:.7;filter:grayscale(.35)}
 .planned-row .planned-target{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;text-transform:none;max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mini-action{min-height:34px;padding:8px 11px;font-size:12px}
 .planned-empty{margin-top:10px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.28);color:var(--muted);font-size:13px;padding:12px}
