@@ -2,6 +2,43 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-04 — Add bulk actions for planned task groups
+
+### Summary
+
+* Added selection checkboxes to canonical planned task groups.
+* Added bulk actions for `Generate selected` and `Delete selected`.
+* Added a bulk planned-groups API for group-level delete operations.
+* Kept grouped planned tasks as the operator-facing model while preserving legacy per-language rows in SQLite.
+
+### Files changed
+
+* `app.py` — added stable planned group IDs, bulk selection UI, bulk delete endpoint, and browser-side sequential bulk generation.
+* `docs/PROJECT_MEMORY.md` — recorded the durable bulk-operation behavior for planned task groups.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Bulk generate runs one selected primary job per canonical group as separate browser requests to avoid one long HTTP request timing out.
+* Bulk delete removes all legacy rows in the selected canonical groups, plus their content logs and social draft rows, but never touches live source-site files.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified live `/sites/9` renders 14 grouped planned rows, 14 stable group IDs, bulk selection UI, `Generate selected`, and `Delete selected`.
+* Verified `POST /api/sites/9/planned-groups/bulk` with an empty selection returns HTTP 400.
+* Verified `POST /api/sites/9/planned-groups/bulk` with a fake group ID returns HTTP 404.
+* Verified AIREP24 still has 56 queued legacy rows after non-destructive checks.
+
+### Risks / TODO
+
+* The underlying schema still stores legacy language rows in `content_jobs`. A future schema pass should introduce explicit parent tasks and language output rows.
+* Bulk generate can still take time because each selected task calls Gemini; the browser keeps it as separate requests to avoid server timeout.
+
 ## 2026-07-04 — Collapse planned jobs by canonical task
 
 ### Summary

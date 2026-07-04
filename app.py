@@ -2283,6 +2283,15 @@ def planned_group_key(row):
     return (content_type, page_kind, content_job_base_path(row) or row["slug"] or row["id"])
 
 
+def planned_group_id_from_key(key):
+    raw = json.dumps(list(key), ensure_ascii=False, sort_keys=True)
+    return sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def planned_group_id(row):
+    return planned_group_id_from_key(planned_group_key(row))
+
+
 def planned_row_language(row):
     sources = content_job_sources(row)
     language = str(sources.get("language") or sources.get("locale") or "").strip().lower()
@@ -2297,7 +2306,7 @@ def group_planned_rows(rows, site_languages):
         key = planned_group_key(row)
         group = by_key.get(key)
         if not group:
-            group = {"rows": [], "languages": set(), "primary": row}
+            group = {"id": planned_group_id_from_key(key), "key": key, "rows": [], "languages": set(), "primary": row}
             by_key[key] = group
             groups.append(group)
         group["rows"].append(row)
@@ -2394,7 +2403,17 @@ def render_planned_publications(rows, site_languages=None):
         return "<div class='planned-empty'>No planned Blog Core publications yet.</div>"
     site_languages = site_languages or ["en"]
     groups = group_planned_rows(rows, site_languages)
-    items = []
+    items = [
+        """
+        <div class="planned-bulkbar">
+          <label class="planned-select-all"><input type="checkbox" onchange="togglePlannedSelection(this.checked)"> Select all</label>
+          <div class="actions">
+            <button class="ghost mini-action" type="button" onclick="bulkPlannedAction('generate')">Generate selected</button>
+            <button class="ghost mini-action danger-lite" type="button" onclick="bulkPlannedAction('delete')">Delete selected</button>
+          </div>
+        </div>
+        """
+    ]
     for group in groups:
         row = group["primary"]
         status = planned_group_status(group["rows"])
@@ -2408,7 +2427,8 @@ def render_planned_publications(rows, site_languages=None):
             action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate</button>"
         items.append(
             f"""
-            <div class="planned-row">
+            <div class="planned-row" data-group-id="{escape(group['id'], quote=True)}">
+              <label class="planned-check"><input type="checkbox" class="planned-select" value="{escape(group['id'], quote=True)}" data-job-id="{escape(row['id'], quote=True)}" aria-label="Select planned task"></label>
               <div><strong>{escape(title)}</strong><span>{escape(source)} · {escape(row['created_at'] or '')}{escape(duplicate_note)}</span><div class="planned-meta">{render_content_type_badge(row)}{meta}</div></div>
               <div class="actions"><b class="status {status_class}">{escape(status)}</b>{action}</div>
             </div>
@@ -3561,6 +3581,64 @@ def generate_social_drafts_route(site_id, job_id):
         return jsonify({"error": str(e)}), 500
 
 
+def planned_groups_for_site(site_id):
+    site = get_site(site_id)
+    if not site:
+        return None, []
+    groups = group_planned_rows(get_planned_content_jobs(site_id, limit=1000), parse_languages(site["languages"]))
+    return site, groups
+
+
+@app.post("/api/sites/<int:site_id>/planned-groups/bulk")
+def bulk_planned_groups_route(site_id):
+    payload = request.get_json(silent=True) or {}
+    action = str(payload.get("action") or "").strip().lower()
+    group_ids = payload.get("groupIds") or []
+    if action not in {"generate", "delete"}:
+        return jsonify({"error": "unsupported action"}), 400
+    if not isinstance(group_ids, list) or not group_ids:
+        return jsonify({"error": "select at least one planned task"}), 400
+    group_ids = [str(group_id) for group_id in group_ids if str(group_id or "").strip()]
+    site, groups = planned_groups_for_site(site_id)
+    if not site:
+        return jsonify({"error": "site not found"}), 404
+    groups_by_id = {group["id"]: group for group in groups}
+    selected = [groups_by_id[group_id] for group_id in group_ids if group_id in groups_by_id]
+    if not selected:
+        return jsonify({"error": "no selected planned tasks found"}), 404
+    if action == "generate":
+        results = []
+        for group in selected:
+            job_id = group["primary"]["id"]
+            try:
+                results.append(generate_content_job(site_id, job_id))
+            except Exception as e:
+                results.append({"ok": False, "jobId": job_id, "error": str(e)})
+        failed = [item for item in results if not item.get("ok")]
+        return jsonify({"ok": not failed, "action": action, "groups": len(selected), "results": results}), (207 if failed else 200)
+    deleted_jobs = []
+    now = now_iso()
+    with db() as conn:
+        for group in selected:
+            job_ids = [row["id"] for row in group["rows"]]
+            for job_id in job_ids:
+                conn.execute("delete from social_posts where site_id=? and job_id=?", (site_id, job_id))
+                conn.execute("delete from content_job_logs where site_id=? and job_id=?", (site_id, job_id))
+                conn.execute("delete from content_jobs where site_id=? and id=?", (site_id, job_id))
+            deleted_jobs.extend(job_ids)
+        conn.execute(
+            "insert into publish_jobs(site_id, kind, status, message, created_at) values(?,?,?,?,?)",
+            (
+                site_id,
+                "planned-groups-bulk-delete",
+                "completed",
+                json.dumps({"groups": len(selected), "deletedJobIds": deleted_jobs}, ensure_ascii=False),
+                now,
+            ),
+        )
+    return jsonify({"ok": True, "action": action, "groups": len(selected), "deletedJobs": len(deleted_jobs)})
+
+
 
 @app.post("/api/sites/<int:site_id>/import-blog/scan")
 def scan_existing_blog_route(site_id):
@@ -3779,7 +3857,11 @@ MANAGE_SITE_HTML = """<!doctype html>
 .social-credential-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .planned-publications-block{margin-top:18px;border-top:1px solid var(--line);padding-top:18px}
 .planned-publications-block h3{margin:0 0 4px;color:#efe9ff;font-size:15px;text-transform:uppercase;letter-spacing:.08em}
-.planned-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px;margin-top:10px}
+.planned-bulkbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.28);padding:10px 12px;margin-top:12px}
+.planned-select-all,.planned-check{display:inline-flex;align-items:center;gap:8px;color:#d8cdfd;font-size:12px;font-weight:900}
+.planned-select-all input,.planned-check input{width:16px;height:16px}
+.danger-lite{border-color:rgba(239,68,68,.45)!important;color:#fecaca!important}
+.planned-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px;margin-top:10px}
 .planned-row strong{display:block;font-size:14px}
 .planned-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}
 .planned-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}
@@ -3921,6 +4003,10 @@ function renderSignals(items){const box=document.getElementById('signals');curre
 async function loadSignals(range){currentRange=range||'week';const box=document.getElementById('signals');box.className='loading';box.textContent='Loading Google topic signals and Reddit top discussions...';try{const res=await fetch('/api/sites/'+SITE_ID+'/topic-signals?range='+encodeURIComponent(currentRange));const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const counts=data.counts||{};const warnings=(data.warnings||[]).length?' · Notes: '+data.warnings.join(' · '):'';document.getElementById('signalQuery').textContent='Topic query: '+data.query+' · range: '+data.range+' · signals: '+(counts.total??(data.signals||[]).length)+warnings;renderSignals(data.signals);}catch(e){box.className='loading';box.textContent='Topic discovery failed: '+e.message;}}
 async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}showToast('Creating article jobs...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Article jobs queued: '+(data.jobs||[]).length);setTimeout(()=>location.reload(),900);}catch(e){showToast('Article ideas failed: '+e.message);}}
 async function generateArticleJob(jobId){showToast('Generating draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Draft generated: '+(data.slug||jobId));setTimeout(()=>location.reload(),900);}catch(e){showToast('Generation failed: '+e.message);}}
+function selectedPlannedTasks(){return [...document.querySelectorAll('.planned-select:checked')].map(input=>({groupId:input.value,jobId:input.dataset.jobId})).filter(item=>item.groupId);}
+function selectedPlannedGroupIds(){return selectedPlannedTasks().map(item=>item.groupId);}
+function togglePlannedSelection(checked){document.querySelectorAll('.planned-select').forEach(input=>{input.checked=checked;});}
+async function bulkPlannedAction(action){const tasks=selectedPlannedTasks();const groupIds=tasks.map(item=>item.groupId);if(!groupIds.length){showToast('Select at least one planned task');return;}if(action==='generate'){if(!confirm('Generate '+tasks.length+' selected planned task groups now?')) return;let ok=0;let failed=0;for(let i=0;i<tasks.length;i++){const task=tasks[i];showToast('Generating '+(i+1)+'/'+tasks.length+'...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(task.jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);ok++;}catch(e){failed++;}}showToast('Bulk generation finished: '+ok+' ok, '+failed+' failed');setTimeout(()=>location.reload(),1200);return;}if(action==='delete'&&!confirm('Delete '+groupIds.length+' selected planned task groups from Blog Core? This does not delete live site files.')) return;showToast('Deleting '+groupIds.length+' planned task groups...');try{const res=await fetch('/api/sites/'+SITE_ID+'/planned-groups/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,groupIds})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Deleted '+(data.deletedJobs||0)+' job rows in '+(data.groups||groupIds.length)+' groups');setTimeout(()=>location.reload(),1200);}catch(e){showToast('Bulk delete failed: '+e.message);}}
 async function generateSocialDrafts(jobId){showToast('Preparing social drafts...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const summary=(data.drafts||[]).map(d=>d.channel+': '+d.charCount+'/'+d.maxChars).join(' · ');showToast('Social drafts ready: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Social drafts failed: '+e.message);}}
 async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}
