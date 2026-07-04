@@ -2,6 +2,39 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-04 — Hide bootstrap actions on imported site cards
+
+### Summary
+
+* Removed `Scan design`, `Build preview`, and `Install /blog` from dashboard cards for sites that already have imported live content.
+* Added a compact imported live-site status badge with the imported page count.
+* Kept the relevant actions for imported sites: `Manage`, `Open live blog`, and `Delete`.
+
+### Files changed
+
+* `app.py` — dashboard site query now includes imported page count and renders setup/bootstrap buttons only for non-imported sites.
+* `docs/PROJECT_MEMORY.md` — recorded that imported live-site cards should not show new-site bootstrap/install actions.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* A site is treated as imported on the dashboard when it has at least one `content_jobs.status=IMPORTED` row.
+* New-site bootstrap actions remain available for sites that do not yet have imported live content.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified the AIREP24 dashboard card contains `Manage`, `Imported live site`, `Open live blog`, and `Delete`.
+* Verified the AIREP24 dashboard card no longer contains `Scan design`, `Build preview`, or `Install /blog`.
+
+### Risks / TODO
+
+* The Setup tab still contains technical settings for operators who explicitly enter site management; this change only simplifies the main dashboard card.
+
 ## 2026-07-04 — Render local draft previews with source-site templates
 
 ### Summary

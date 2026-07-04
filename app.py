@@ -3356,7 +3356,16 @@ def index():
             return render_hosted_blog_response(site, "")
         abort(404)
     with db() as conn:
-        sites = conn.execute("select s.*, p.scanned_at, t.preview_path from sites s left join site_theme_profiles p on p.site_id=s.id left join blog_templates t on t.site_id=s.id order by s.updated_at desc").fetchall()
+        sites = conn.execute(
+            """
+            select s.*, p.scanned_at, t.preview_path,
+                   (select count(*) from content_jobs cj where cj.site_id=s.id and cj.status='IMPORTED') as imported_count
+            from sites s
+            left join site_theme_profiles p on p.site_id=s.id
+            left join blog_templates t on t.site_id=s.id
+            order by s.updated_at desc
+            """
+        ).fetchall()
     rows = "".join(render_site_row(s) for s in sites) or "<div class='empty'>No sites connected yet.</div>"
     return DASHBOARD_HTML.replace("__ROWS__", rows)
 
@@ -3364,6 +3373,15 @@ def index():
 def render_site_row(s):
     preview = render_primary_site_link(s)
     scanned = escape(s["scanned_at"] or "Not scanned")
+    imported_count = int(s["imported_count"] or 0) if "imported_count" in s.keys() else 0
+    if imported_count:
+        technical_actions = f"<span class='site-state imported'>Imported live site · {imported_count} pages</span>"
+    else:
+        technical_actions = f"""
+    <button onclick="runAction({s['id']}, 'scan')">Scan design</button>
+    <button onclick="runAction({s['id']}, 'bootstrap-preview')">Build preview</button>
+    <button onclick="runAction({s['id']}, 'install-blog')">Install /blog</button>
+"""
     return f"""
 <div class="site-card">
   <div>
@@ -3373,9 +3391,7 @@ def render_site_row(s):
   </div>
   <div class="actions">
     <a class="btn ghost" href="/sites/{s['id']}">Manage</a>
-    <button onclick="runAction({s['id']}, 'scan')">Scan design</button>
-    <button onclick="runAction({s['id']}, 'bootstrap-preview')">Build preview</button>
-    <button onclick="runAction({s['id']}, 'install-blog')">Install /blog</button>
+    {technical_actions}
     {preview}
     <button class="danger" onclick="deleteSite({s['id']}, '{escape(s['domain'], quote=True)}')">Delete</button>
   </div>
@@ -4230,7 +4246,7 @@ DASHBOARD_HTML = """<!doctype html>
 <title>Blog Core</title>
 <style>
 :root{--bg:#0b1020;--panel:rgba(255,255,255,.08);--line:rgba(255,255,255,.15);--text:#f8fafc;--muted:#a6b0c3;--accent:#8b5cf6;--accent2:#22c55e}
-*{box-sizing:border-box} body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh} a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:44px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:28px}.title{font-size:clamp(42px,7vw,78px);letter-spacing:-.055em;line-height:.92;margin:0}.sub{color:var(--muted);font-size:18px;line-height:1.55;max-width:720px;margin:18px 0 0}.badge{border:1px solid var(--line);background:rgba(255,255,255,.07);border-radius:999px;padding:10px 14px;color:#d8cdfd;font-weight:800;white-space:nowrap}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.form{display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:12px}.form input{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:14px 15px;font-size:14px;outline:none}.form input:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}button,.btn{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.site-card{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;border:1px solid var(--line);border-radius:20px;background:rgba(8,13,29,.58);padding:18px;margin-top:14px}.site-domain{font-size:22px;font-weight:900;letter-spacing:-.02em}.site-url,.site-meta,.muted{color:var(--muted);font-size:13px;margin-top:5px}.actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}.actions button{background:rgba(255,255,255,.1);border:1px solid var(--line)}.actions .danger{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.45);color:#fecaca}.empty{color:var(--muted);padding:26px;text-align:center}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.site-card{display:block}.form{grid-template-columns:1fr}.actions{justify-content:flex-start;margin-top:16px}.badge{display:inline-block;margin-top:18px}}
+*{box-sizing:border-box} body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh} a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:44px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:28px}.title{font-size:clamp(42px,7vw,78px);letter-spacing:-.055em;line-height:.92;margin:0}.sub{color:var(--muted);font-size:18px;line-height:1.55;max-width:720px;margin:18px 0 0}.badge{border:1px solid var(--line);background:rgba(255,255,255,.07);border-radius:999px;padding:10px 14px;color:#d8cdfd;font-weight:800;white-space:nowrap}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.form{display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:12px}.form input{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:14px 15px;font-size:14px;outline:none}.form input:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}button,.btn{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.site-card{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;border:1px solid var(--line);border-radius:20px;background:rgba(8,13,29,.58);padding:18px;margin-top:14px}.site-domain{font-size:22px;font-weight:900;letter-spacing:-.02em}.site-url,.site-meta,.muted{color:var(--muted);font-size:13px;margin-top:5px}.actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;align-items:center}.actions button{background:rgba(255,255,255,.1);border:1px solid var(--line)}.actions .danger{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.45);color:#fecaca}.site-state{display:inline-flex;align-items:center;min-height:38px;border:1px solid rgba(34,197,94,.28);background:rgba(34,197,94,.1);border-radius:999px;padding:0 13px;color:#a7f3d0;font-size:12px;font-weight:900;white-space:nowrap}.empty{color:var(--muted);padding:26px;text-align:center}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.site-card{display:block}.form{grid-template-columns:1fr}.actions{justify-content:flex-start;margin-top:16px}.badge{display:inline-block;margin-top:18px}.site-state{white-space:normal}}
 </style>
 </head>
 <body>
