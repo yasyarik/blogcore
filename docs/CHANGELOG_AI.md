@@ -2,6 +2,37 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-04 — Point imported-site open action to live blogs
+
+### Summary
+
+* Changed the primary top/dashboard open action for imported sites from generated Blog Core previews to the live source-site blog URL.
+* Imported local-path sites now show `Open live blog` and link to `https://domain/blog/`.
+
+### Files changed
+
+* `app.py` — added primary site link selection based on imported inventory and live blog URL generation.
+* `docs/PROJECT_MEMORY.md` — recorded that imported blogs should open the live source-site blog, not generated previews.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Generated previews remain available as a technical Build preview flow, but they are not the main open action for existing imported blogs.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified live `/sites/9` contains `Open live blog` and `https://airep24.com/blog/`, and no longer contains `/previews/9/blog/`.
+* Verified the dashboard contains live blog links for imported sites.
+
+### Risks / TODO
+
+* The generated preview files still exist under `/previews/...`; they are not deleted because they may still be useful for technical checks.
+
 ## 2026-07-04 — Add content type filter chips
 
 ### Summary

@@ -2466,6 +2466,32 @@ def render_site_switcher(current_site_id):
     return "<label class=\"site-switcher\"><span>Switch site</span><select onchange=\"if(this.value) location.href=this.value\">" + "".join(options) + "</select></label>"
 
 
+def imported_inventory_count(site_id):
+    with db() as conn:
+        row = conn.execute(
+            "select count(*) as count from content_jobs where site_id=? and status='IMPORTED'",
+            (site_id,),
+        ).fetchone()
+    return int(row["count"] or 0) if row else 0
+
+
+def site_live_blog_url(site):
+    blog_path = (site["blog_path"] or "/blog/").strip() or "/blog/"
+    if not blog_path.startswith("/"):
+        blog_path = "/" + blog_path
+    if not blog_path.endswith("/"):
+        blog_path += "/"
+    return urllib.parse.urljoin(site_base_url(site) + "/", blog_path.lstrip("/"))
+
+
+def render_primary_site_link(site):
+    if imported_inventory_count(site["id"]):
+        return f"<a class='btn ghost' target='_blank' href='{escape(site_live_blog_url(site), quote=True)}'>Open live blog</a>"
+    if site["preview_path"]:
+        return f"<a class='btn ghost' target='_blank' href='{escape(site['preview_path'], quote=True)}'>Open preview</a>"
+    return "<span class='muted'>Build preview first</span>"
+
+
 def render_manage_site_page(site):
     jobs = render_jobs(get_site_jobs(site["id"]))
     content_page = get_content_jobs(
@@ -2477,7 +2503,7 @@ def render_manage_site_page(site):
     content_jobs = render_content_jobs(content_page)
     distribution_settings = render_distribution_settings(site["id"])
     social_credentials_setup = render_social_credentials_setup(site["id"])
-    preview = f"<a class='btn ghost' target='_blank' href='{escape(site['preview_path'])}'>Open preview</a>" if site["preview_path"] else "<span class='muted'>Build preview first</span>"
+    preview = render_primary_site_link(site)
     colors = []
     fonts = []
     css_count = 0
@@ -3101,7 +3127,7 @@ def index():
 
 
 def render_site_row(s):
-    preview = f"<a class='btn ghost' target='_blank' href='{escape(s['preview_path'])}'>Open preview</a>" if s["preview_path"] else "<span class='muted'>No preview</span>"
+    preview = render_primary_site_link(s)
     scanned = escape(s["scanned_at"] or "Not scanned")
     return f"""
 <div class="site-card">
