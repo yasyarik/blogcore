@@ -2352,6 +2352,10 @@ def social_draft_button(job_id):
     return f"<button class='ghost mini-action social-draft-action' type='button' onclick=\"generateSocialDrafts('{escape(job_id, quote=True)}')\" title='Prepare social posts'>Social drafts</button>"
 
 
+def draft_preview_button(site_id, job_id):
+    return f"<a class='ghost mini-action draft-preview-action' target='_blank' href='/sites/{int(site_id)}/content-jobs/{escape(job_id, quote=True)}/preview'>Preview draft</a>"
+
+
 def render_social_credentials_setup(site_id):
     connections = get_social_connections(site_id)
     cards = []
@@ -2411,6 +2415,7 @@ def render_planned_publications(rows, site_languages=None):
             <button class="ghost mini-action" type="button" onclick="bulkPlannedAction('generate')">Generate selected</button>
             <button class="ghost mini-action danger-lite" type="button" onclick="bulkPlannedAction('delete')">Delete selected</button>
           </div>
+          <div id="bulkProgress" class="bulk-progress" hidden></div>
         </div>
         """
     ]
@@ -2425,6 +2430,8 @@ def render_planned_publications(rows, site_languages=None):
         action = ""
         if status in {"QUEUED", "ERROR"}:
             action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate</button>"
+        elif status == "DRAFT":
+            action = draft_preview_button(row["site_id"], row["id"]) + social_draft_button(row["id"])
         items.append(
             f"""
             <div class="planned-row" data-group-id="{escape(group['id'], quote=True)}">
@@ -2458,7 +2465,7 @@ def render_content_jobs(content_page):
             descriptor = "New Blog Core task"
         elif status == "DRAFT":
             status_label = "DRAFT"
-            action = social_draft_button(row["id"])
+            action = draft_preview_button(row["site_id"], row["id"]) + social_draft_button(row["id"])
             descriptor = "Draft ready for review"
         elif status == "PUBLISHED":
             status_label = "PUBLISHED"
@@ -3557,6 +3564,48 @@ def get_content_job(site_id, job_id):
     return jsonify({"ok": True, "job": dict(row), "logs": [dict(r) for r in logs]})
 
 
+@app.get("/sites/<int:site_id>/blog-core.css")
+def site_blog_core_css(site_id):
+    profile = get_profile(site_id)
+    if not profile:
+        return Response("/* no profile */", mimetype="text/css")
+    return Response(theme_css(profile), mimetype="text/css")
+
+
+@app.get("/sites/<int:site_id>/content-jobs/<job_id>/preview")
+def preview_content_job(site_id, job_id):
+    with db() as conn:
+        site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
+        job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+    if not site or not job:
+        return Response("Draft not found.", status=404, mimetype="text/plain")
+    if job["status"] not in {"DRAFT", "PUBLISHED", "IMPORTED"} or not (job["draft_html"] or "").strip():
+        return Response("Draft is not generated yet.", status=409, mimetype="text/plain")
+    profile = get_profile(site_id)
+    brand = site["brand_name"] or site["domain"]
+    if profile:
+        source_css = profile["head_css"] if "head_css" in profile.keys() and profile["head_css"] else ""
+        source_css_urls = json.loads(profile["css_urls_json"] or "[]")
+        html = render_content_job_article(
+            brand,
+            profile["header_html"] or "",
+            profile["footer_html"] or "",
+            job,
+            f"/sites/{site_id}/blog-core.css",
+            source_css,
+            source_css_urls,
+        )
+    else:
+        html = f"""
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(job['title'] or job['topic'] or 'Draft')}</title>
+<style>body{{font-family:Inter,system-ui,sans-serif;max-width:860px;margin:0 auto;padding:42px 20px;line-height:1.6;color:#111827}}h1{{line-height:1.1}}img{{max-width:100%;height:auto}}</style></head>
+<body><p><a href="/sites/{site_id}#distribution">Back to dashboard</a></p><h1>{escape(job['title'] or job['topic'] or 'Draft')}</h1>{job['draft_html']}</body></html>
+"""
+    return Response(html, mimetype="text/html")
+
+
 @app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/generate")
 def generate_content_job_route(site_id, job_id):
     try:
@@ -3861,6 +3910,8 @@ MANAGE_SITE_HTML = """<!doctype html>
 .planned-select-all,.planned-check{display:inline-flex;align-items:center;gap:8px;color:#d8cdfd;font-size:12px;font-weight:900}
 .planned-select-all input,.planned-check input{width:16px;height:16px}
 .danger-lite{border-color:rgba(239,68,68,.45)!important;color:#fecaca!important}
+.bulk-progress{flex-basis:100%;border:1px solid rgba(139,92,246,.38);border-radius:12px;background:rgba(139,92,246,.14);color:#ddd6fe;padding:9px 11px;font-size:12px;font-weight:900}
+button[disabled]{opacity:.55;cursor:not-allowed}
 .planned-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px;margin-top:10px}
 .planned-row strong{display:block;font-size:14px}
 .planned-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}
@@ -4006,7 +4057,9 @@ async function generateArticleJob(jobId){showToast('Generating draft...');try{co
 function selectedPlannedTasks(){return [...document.querySelectorAll('.planned-select:checked')].map(input=>({groupId:input.value,jobId:input.dataset.jobId})).filter(item=>item.groupId);}
 function selectedPlannedGroupIds(){return selectedPlannedTasks().map(item=>item.groupId);}
 function togglePlannedSelection(checked){document.querySelectorAll('.planned-select').forEach(input=>{input.checked=checked;});}
-async function bulkPlannedAction(action){const tasks=selectedPlannedTasks();const groupIds=tasks.map(item=>item.groupId);if(!groupIds.length){showToast('Select at least one planned task');return;}if(action==='generate'){if(!confirm('Generate '+tasks.length+' selected planned task groups now?')) return;let ok=0;let failed=0;for(let i=0;i<tasks.length;i++){const task=tasks[i];showToast('Generating '+(i+1)+'/'+tasks.length+'...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(task.jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);ok++;}catch(e){failed++;}}showToast('Bulk generation finished: '+ok+' ok, '+failed+' failed');setTimeout(()=>location.reload(),1200);return;}if(action==='delete'&&!confirm('Delete '+groupIds.length+' selected planned task groups from Blog Core? This does not delete live site files.')) return;showToast('Deleting '+groupIds.length+' planned task groups...');try{const res=await fetch('/api/sites/'+SITE_ID+'/planned-groups/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,groupIds})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Deleted '+(data.deletedJobs||0)+' job rows in '+(data.groups||groupIds.length)+' groups');setTimeout(()=>location.reload(),1200);}catch(e){showToast('Bulk delete failed: '+e.message);}}
+function setBulkProgress(text, active=true){const box=document.getElementById('bulkProgress');if(!box) return;box.hidden=false;box.textContent=text;document.querySelectorAll('.planned-bulkbar button,.planned-select,.planned-select-all input').forEach(el=>{el.disabled=active;});}
+function clearBulkProgress(){document.querySelectorAll('.planned-bulkbar button,.planned-select,.planned-select-all input').forEach(el=>{el.disabled=false;});}
+async function bulkPlannedAction(action){const tasks=selectedPlannedTasks();const groupIds=tasks.map(item=>item.groupId);if(!groupIds.length){showToast('Select at least one planned task');return;}if(action==='generate'){if(!confirm('Generate '+tasks.length+' selected planned task groups now?')) return;let ok=0;let failed=0;for(let i=0;i<tasks.length;i++){const task=tasks[i];setBulkProgress('Generating '+(i+1)+'/'+tasks.length+'. Keep this tab open.');showToast('Generating '+(i+1)+'/'+tasks.length+'...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(task.jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);ok++;}catch(e){failed++;}}setBulkProgress('Bulk generation finished: '+ok+' ok, '+failed+' failed. Reloading...', false);showToast('Bulk generation finished: '+ok+' ok, '+failed+' failed');setTimeout(()=>location.reload(),1800);return;}if(action==='delete'&&!confirm('Delete '+groupIds.length+' selected planned task groups from Blog Core? This does not delete live site files.')) return;setBulkProgress('Deleting '+groupIds.length+' planned task groups...');showToast('Deleting '+groupIds.length+' planned task groups...');try{const res=await fetch('/api/sites/'+SITE_ID+'/planned-groups/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,groupIds})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);setBulkProgress('Deleted '+(data.deletedJobs||0)+' job rows. Reloading...', false);showToast('Deleted '+(data.deletedJobs||0)+' job rows in '+(data.groups||groupIds.length)+' groups');setTimeout(()=>location.reload(),1200);}catch(e){clearBulkProgress();showToast('Bulk delete failed: '+e.message);}}
 async function generateSocialDrafts(jobId){showToast('Preparing social drafts...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const summary=(data.drafts||[]).map(d=>d.channel+': '+d.charCount+'/'+d.maxChars).join(' · ');showToast('Social drafts ready: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Social drafts failed: '+e.message);}}
 async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}

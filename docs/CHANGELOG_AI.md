@@ -2,6 +2,40 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-04 — Add generation progress and draft preview
+
+### Summary
+
+* Added persistent in-page progress for bulk generation.
+* Added `Preview draft` actions for `DRAFT` planned rows and Content inventory rows.
+* Added an admin draft preview route that renders generated draft HTML with the site's scanned design shell and Blog Core CSS.
+
+### Files changed
+
+* `app.py` — added draft preview buttons, preview HTML/CSS routes, bulk progress UI, and control disabling during bulk operations.
+* `docs/PROJECT_MEMORY.md` — recorded the durable UX rule for long-running generation and draft previews.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Draft preview is an admin dashboard route under `/sites/<site_id>/content-jobs/<job_id>/preview`; it does not publish the draft to the live source site.
+* Bulk generation progress stays visible inside Planned publications and tells the operator to keep the tab open.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified live `/sites/9` contains `Preview draft`, `bulkProgress`, and the `Keep this tab open` progress text.
+* Verified an AIREP24 draft preview returns HTTP 200 and includes the generated article title/content.
+* Verified `/sites/9/blog-core.css` returns HTTP 200 CSS for draft preview styling.
+
+### Risks / TODO
+
+* Draft preview is for review only. Publishing the approved draft back into `/var/www/airep24.com` is still separate publish-back work.
+
 ## 2026-07-04 — Add bulk actions for planned task groups
 
 ### Summary
