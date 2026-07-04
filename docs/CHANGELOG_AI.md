@@ -2,6 +2,40 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-04 — Gate social drafts behind configured channels
+
+### Summary
+
+* Stopped offering `Social drafts` actions when a site has no configured/connected social channels selected for autopublish.
+* Removed the fallback that generated drafts for every social provider when channels were missing.
+* Changed the social draft API to return `400` without creating drafts when no active social channel exists.
+
+### Files changed
+
+* `app.py` — added active-channel gating for social draft buttons and API generation.
+* `docs/PROJECT_MEMORY.md` — recorded the durable product rule that social drafts require selected and configured/connected channels.
+* `docs/INTEGRATIONS.md` — documented the `social-drafts` endpoint's active-channel contract.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Distribution selection is not enough to generate social drafts. A channel must also be configured or connected in Setup.
+* Blog Core must not silently create social drafts for all providers as a fallback.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified AIREP24 site `id=9` has no rendered `social-draft-action` buttons or `generateSocialDrafts` click handlers when no social connections exist.
+* Verified direct `POST /api/sites/9/content-jobs/{draft_id}/social-drafts` returns HTTP 400 and leaves `social_posts` unchanged at 0.
+
+### Risks / TODO
+
+* Real per-provider publishing/OAuth completion remains separate parity work.
+
 ## 2026-07-04 — Add generation progress and draft preview
 
 ### Summary

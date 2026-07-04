@@ -1282,6 +1282,24 @@ def get_social_connections(site_id):
     return {provider: rows.get(provider) for provider in providers}
 
 
+def active_social_channels(site_id, requested_channels=None):
+    auto = get_autopublish_settings(site_id)
+    try:
+        selected = set(json.loads(auto["channels_json"] or "[]"))
+    except Exception:
+        selected = set()
+    if requested_channels is not None:
+        selected &= {channel for channel in requested_channels if channel in SOCIAL_CHANNEL_LIMITS}
+    connections = get_social_connections(site_id)
+    active = []
+    for channel in SOCIAL_CHANNEL_LIMITS:
+        row = connections.get(channel)
+        status = row["status"] if row else "disconnected"
+        if channel in selected and status in {"configured", "connected"}:
+            active.append(channel)
+    return active
+
+
 SOCIAL_PROVIDER_CONFIG = {
     "linkedin": {
         "label": "LinkedIn",
@@ -1555,14 +1573,9 @@ def generate_social_drafts(site_id, job_id, channels=None):
     if not job:
         raise KeyError("job not found")
     auto = get_autopublish_settings(site_id)
-    if channels is None:
-        try:
-            channels = json.loads(auto["channels_json"] or "[]")
-        except Exception:
-            channels = []
-    allowed_channels = [channel for channel in channels if channel in SOCIAL_CHANNEL_LIMITS]
+    allowed_channels = active_social_channels(site_id, channels)
     if not allowed_channels:
-        allowed_channels = list(SOCIAL_CHANNEL_LIMITS.keys())
+        raise ValueError("No social channels are configured and selected for this site. Configure and test channels in Setup, then select them in Distribution.")
     language = content_job_language(job, site)
     article_url = social_post_url(job)
     now = now_iso()
@@ -2348,8 +2361,10 @@ def live_page_icon(url):
     return f"<a class='icon-btn external-link' target='_blank' href='{escape(url, quote=True)}' title='Open live page' aria-label='Open live page'>↗</a>"
 
 
-def social_draft_button(job_id):
-    return f"<button class='ghost mini-action social-draft-action' type='button' onclick=\"generateSocialDrafts('{escape(job_id, quote=True)}')\" title='Prepare social posts'>Social drafts</button>"
+def social_draft_button(site_id, job_id):
+    if not active_social_channels(site_id):
+        return ""
+    return f"<button class='ghost mini-action social-draft-action' type='button' onclick=\"generateSocialDrafts('{escape(job_id, quote=True)}')\" title='Prepare social posts for configured channels'>Social drafts</button>"
 
 
 def draft_preview_button(site_id, job_id):
@@ -2431,7 +2446,7 @@ def render_planned_publications(rows, site_languages=None):
         if status in {"QUEUED", "ERROR"}:
             action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate</button>"
         elif status == "DRAFT":
-            action = draft_preview_button(row["site_id"], row["id"]) + social_draft_button(row["id"])
+            action = draft_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
         items.append(
             f"""
             <div class="planned-row" data-group-id="{escape(group['id'], quote=True)}">
@@ -2457,7 +2472,7 @@ def render_content_jobs(content_page):
         status_class = escape(status.lower())
         if status == "IMPORTED":
             status_label = "LIVE / IMPORTED"
-            action = social_draft_button(row["id"]) + live_page_icon(row["published_url"])
+            action = social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
             descriptor = "Already published on the source site"
         elif status in {"QUEUED", "ERROR"}:
             status_label = status
@@ -2465,11 +2480,11 @@ def render_content_jobs(content_page):
             descriptor = "New Blog Core task"
         elif status == "DRAFT":
             status_label = "DRAFT"
-            action = draft_preview_button(row["site_id"], row["id"]) + social_draft_button(row["id"])
+            action = draft_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
             descriptor = "Draft ready for review"
         elif status == "PUBLISHED":
             status_label = "PUBLISHED"
-            action = social_draft_button(row["id"]) + live_page_icon(row["published_url"])
+            action = social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
             descriptor = "Published by Blog Core"
         else:
             status_label = status or "UNKNOWN"
@@ -3626,6 +3641,8 @@ def generate_social_drafts_route(site_id, job_id):
         return jsonify(generate_social_drafts(site_id, job_id, channels=channels))
     except KeyError:
         return jsonify({"error": "job not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
