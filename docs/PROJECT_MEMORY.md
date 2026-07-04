@@ -71,6 +71,7 @@ It must be updated after every meaningful task.
 * Planned generation work should be shown as one canonical task per topic/path, not as separate tasks per language. The task should generate the site's configured languages. Legacy per-language factory rows may be preserved in the database for traceability, but the dashboard should collapse them by canonical group/base path and show extra old languages only as legacy variants.
 * Planned task groups should support bulk operations from the dashboard. Bulk generate runs selected canonical tasks one by one from the browser to avoid long single-request timeouts. Bulk delete removes selected planned groups from Blog Core records/logs/social drafts only; it must not delete live source-site files.
 * Long-running generation must show persistent in-page progress, not only a toast. When a task reaches `DRAFT`, the dashboard must provide a `Preview draft` action that opens the generated HTML before publishing.
+* For local imported sites with `root_path`, `Preview draft` must render through the real source-site HTML template/assets from the webroot, not through the generic Blog Core preview shell. The preview should be noindexed and preserve source-site visual classes, header, footer, and assets while replacing only the draft content area.
 * Distribution channel settings should not duplicate the same providers across separate blocks. Each channel card should combine connection status, Connect action, autopublish enablement, and include-link setting in one place.
 * Social channel status in Distribution should point users to Setup when credentials are missing, show `configured` after credentials are saved, and `connected` only after a successful test.
 * Imported section listing/hub pages such as `/blog/`, language blog indexes, `/wine-countries/`, and `/wine-regions/` may be stored as import metadata, but they must be hidden from the Content inventory work list so they are not confused with articles or publish tasks.
@@ -157,6 +158,7 @@ It must be updated after every meaningful task.
 * Do not show active-looking `Connect` buttons for social providers without a credential setup/test path. Setup is the place to enter keys/tokens and test connections.
 * Large imports need pagination in the Content inventory. Do not return to a hard-coded latest-24 list without navigation.
 * Do not confuse Blog Core Content inventory pagination with public source-site blog pagination. `yas.wine/blog/` is a static public page in `/var/www/yaswine/blog/index.html`; its visible pagination must be fixed in that webroot.
+* Do not render local imported-site draft previews with the generic Blog Core shell; that makes operators review the wrong design. Use the source site's local HTML template and assets.
 
 ## 8. Decisions log
 

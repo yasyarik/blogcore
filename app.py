@@ -995,6 +995,133 @@ def render_content_job_article(brand, header, footer, job, css_href="/blog/blog-
     return render_shell(title, header, footer, body, css_href, source_css, source_css_urls)
 
 
+def public_site_base_url(site):
+    homepage = site["homepage_url"] if site and "homepage_url" in site.keys() else ""
+    if homepage:
+        parsed = urllib.parse.urlsplit(homepage)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}/"
+    domain = site["domain"] if site and "domain" in site.keys() else ""
+    return f"https://{domain.strip('/')}/" if domain else "/"
+
+
+def content_job_target_path(row):
+    sources = content_job_sources(row)
+    target_path = str(sources.get("targetPath") or "").strip()
+    if not target_path and row["published_url"]:
+        target_path = urllib.parse.urlsplit(row["published_url"]).path or ""
+    if not target_path and row["slug"]:
+        target_path = f"/blog/{str(row['slug']).strip('/')}/"
+    return target_path or "/blog/"
+
+
+def local_html_path_for_url_path(root_path, url_path):
+    root = Path(root_path).resolve()
+    clean = urllib.parse.unquote((url_path or "/").split("?", 1)[0].split("#", 1)[0]).strip("/")
+    candidate = root / clean
+    if not clean:
+        candidate = root / "index.html"
+    elif str(url_path).endswith("/") or candidate.suffix == "":
+        candidate = candidate / "index.html"
+    resolved = candidate.resolve()
+    if root == resolved or root in resolved.parents:
+        return resolved
+    return None
+
+
+def find_local_preview_template(site, job):
+    root = (site["root_path"] or "").strip()
+    if not root:
+        return None
+    target = local_html_path_for_url_path(root, content_job_target_path(job))
+    if target and target.exists() and target.is_file():
+        return target
+    sources = content_job_sources(job)
+    page_type = str(sources.get("pageType") or sources.get("contentType") or job["category"] or "").lower()
+    fallbacks = []
+    if "blog" in page_type:
+        fallbacks.extend(["/blog/index.html", "/blog/"])
+    target_path = content_job_target_path(job)
+    if target_path.startswith("/use-cases/"):
+        fallbacks.extend(["/use-cases/index.html", "/use-cases/"])
+    if target_path.startswith("/features/"):
+        fallbacks.extend(["/features/index.html", "/features/"])
+    fallbacks.append("/index.html")
+    for path in fallbacks:
+        candidate = local_html_path_for_url_path(root, path)
+        if candidate and candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def inject_preview_head_metadata(html, site, job):
+    title = escape(job["title"] or job["topic"] or site["brand_name"] or site["domain"])
+    description = escape(job["description"] or strip_html_text(job["draft_html"] or "", limit=180))
+    base_url = escape(public_site_base_url(site), quote=True)
+    html = re.sub(r"<title>.*?</title>", f"<title>{title}</title>", html, count=1, flags=re.I | re.S)
+    html = re.sub(
+        r'<meta\s+name=["\']description["\']\s+content=["\'][^"\']*["\']\s*/?>',
+        f'<meta name="description" content="{description}" />',
+        html,
+        count=1,
+        flags=re.I,
+    )
+    if re.search(r'<meta\s+name=["\']robots["\']', html, flags=re.I):
+        html = re.sub(
+            r'<meta\s+name=["\']robots["\']\s+content=["\'][^"\']*["\']\s*/?>',
+            '<meta name="robots" content="noindex,nofollow" />',
+            html,
+            count=1,
+            flags=re.I,
+        )
+    else:
+        html = re.sub(r"(<head[^>]*>)", rf'\1\n    <meta name="robots" content="noindex,nofollow" />', html, count=1, flags=re.I)
+    if not re.search(r"<base\s+", html, flags=re.I):
+        html = re.sub(r"(<head[^>]*>)", rf'\1\n    <base href="{base_url}">', html, count=1, flags=re.I)
+    return html
+
+
+def local_site_draft_body(site, job):
+    title = escape(job["title"] or job["topic"] or site["brand_name"] or site["domain"])
+    description = escape(job["description"] or "")
+    category = escape(job["category"] or "Blog")
+    content = job["draft_html"] or ""
+    return f"""
+<section class="hero hero-no-media"><div class="hero-inner"><div><span class="eyebrow">{category}</span><h1>{title}</h1>{f'<p>{description}</p>' if description else ''}</div></div></section>
+<main class="site-main">
+<section class="section article-layout factory-article-layout"><div class="article-head"><div><p class="section-kicker">{category}</p><h2>{title}</h2>{f'<p class="lead">{description}</p>' if description else ''}</div></div><div class="article-body blog-core-draft-body">{content}</div></section>
+</main>
+"""
+
+
+def replace_source_site_content(html, replacement):
+    main_match = re.search(r"<main\b[^>]*>", html, flags=re.I)
+    if not main_match:
+        body_end = re.search(r"</body\s*>", html, flags=re.I)
+        if body_end:
+            return html[:body_end.start()] + replacement + html[body_end.start():]
+        return html + replacement
+    hero_match = None
+    for match in re.finditer(r"<section\b[^>]*class=[\"'][^\"']*\bhero\b[^\"']*[\"'][^>]*>", html, flags=re.I):
+        if match.start() < main_match.start():
+            hero_match = match
+    start = hero_match.start() if hero_match else main_match.start()
+    end_match = re.search(r"</main\s*>", html[main_match.end():], flags=re.I)
+    if not end_match:
+        return html[:start] + replacement + html[main_match.start():]
+    end = main_match.end() + end_match.end()
+    return html[:start] + replacement + html[end:]
+
+
+def render_local_site_draft_preview(site, job):
+    template_path = find_local_preview_template(site, job)
+    if not template_path:
+        return None
+    html = template_path.read_text(encoding="utf-8", errors="ignore")
+    html = inject_preview_head_metadata(html, site, job)
+    return replace_source_site_content(html, local_site_draft_body(site, job))
+
+
 def get_content_job_by_slug(site_id, slug):
     slug = simple_slug(slug)
     with db() as conn:
@@ -3596,6 +3723,10 @@ def preview_content_job(site_id, job_id):
         return Response("Draft not found.", status=404, mimetype="text/plain")
     if job["status"] not in {"DRAFT", "PUBLISHED", "IMPORTED"} or not (job["draft_html"] or "").strip():
         return Response("Draft is not generated yet.", status=409, mimetype="text/plain")
+    if (site["access_type"] or "") == "local_path" and (site["root_path"] or "").strip():
+        html = render_local_site_draft_preview(site, job)
+        if html:
+            return Response(html, mimetype="text/html")
     profile = get_profile(site_id)
     brand = site["brand_name"] or site["domain"]
     if profile:

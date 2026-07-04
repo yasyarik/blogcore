@@ -2,6 +2,39 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-04 — Render local draft previews with source-site templates
+
+### Summary
+
+* Changed `Preview draft` for local imported sites to render through the real source-site HTML template from `root_path`.
+* Preserved source-site assets, header/footer, and page classes while replacing the article/content area with the Blog Core draft.
+* Added `base href` for the source domain and `noindex,nofollow` metadata to draft previews.
+
+### Files changed
+
+* `app.py` — added local webroot template discovery and source-site draft preview rendering before the generic Blog Core fallback.
+* `docs/PROJECT_MEMORY.md` — recorded that local imported-site previews must use source-site templates/assets.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* `Preview draft` for `local_path` sites should use `sources_json.targetPath` or the source URL to find the closest existing `index.html` in the site's webroot.
+* Generic Blog Core preview rendering remains only as a fallback when no local template can be found.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified AIREP24 draft previews include `base href="https://airep24.com/"`, `/assets/css/site.min.css`, `site-header`, `site-main`, and `factory-article-layout`.
+* Verified AIREP24 draft previews no longer include `blog-core-page` or `/sites/9/blog-core.css`.
+
+### Risks / TODO
+
+* Preview still serves from the Blog Core admin route, but it now uses the source site's template and absolute source-site assets. Final publish-back into `/var/www/airep24.com` remains separate work.
+
 ## 2026-07-04 — Gate social drafts behind configured channels
 
 ### Summary
