@@ -2,6 +2,45 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-04 — Fully migrate AIREP24 legacy factory jobs
+
+### Summary
+
+* Migrated all legacy `jobs` from `/var/www/content-factory-airep24/factory.sqlite` into Blog Core site `id=9`.
+* Preserved old factory job IDs, content type, page kind, locale/language, target path, canonical group, legacy status, and social status columns in Blog Core metadata/columns.
+* Expanded the `Planned publications` dashboard block so it shows all planned jobs instead of only the first 12, with content type, language, and target path metadata.
+
+### Files changed
+
+* `app.py` — raised planned publication display limit to 200 and added compact language/type/target-path metadata to planned rows.
+* `docs/PROJECT_MEMORY.md` — replaced the partial AIREP24 import note with the complete migration state.
+* `docs/SEO_MEMORY.md` — recorded AIREP24 SEO money-page migration behavior.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Old AIREP24 `NEW` jobs were migrated as Blog Core `QUEUED` planned jobs, not as imported live pages.
+* Old AIREP24 `PUBLISHED` jobs were migrated as Blog Core `IMPORTED` inventory records.
+* The old `content-factory-airep24` process/database was left in place; this task copied state into Blog Core without deleting the source factory.
+
+### Checks run
+
+* Created live DB backup `/var/www/blog.yas.ooo/data/blog_core.sqlite3.before-airep24-full-migration-20260704144135.bak`.
+* Migrated 64 legacy records: 56 `QUEUED` and 8 `IMPORTED`.
+* Verified Blog Core site `id=9` now has 80 `content_jobs`: 24 imported inventory records and 56 planned jobs.
+* Verified planned jobs consist of 20 blog jobs and 36 SEO money-page jobs across EN/DE/ES/FR.
+* Verified 64 records have `sources_json.migratedFrom=content-factory-airep24`.
+* Ran `python3 -m py_compile app.py` locally and on the VPS.
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified live `/sites/9` HTML contains 56 planned rows, planned metadata, SEO money-page badges, and migrated target paths.
+
+### Risks / TODO
+
+* Final publish-back from Blog Core into `/var/www/airep24.com` for these queued jobs still depends on the broader local static publisher/parity work.
+* The legacy `content-factory-airep24` process remains online as a source/rollback reference until an explicit cutover/removal decision is made.
+
 ## 2026-07-04 — Import airep24.com from local VPS webroot
 
 ### Summary

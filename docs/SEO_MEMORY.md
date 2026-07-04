@@ -17,6 +17,7 @@
 * Imported existing blogs should remain canonical on their original source URLs by default. Blog Core is the dashboard/control plane for those blogs and should publish new/updated content back into the same original locations and URL structure.
 * Blogs created from scratch by Blog Core follow a different model: Blog Core can be the canonical public host/publisher for those sites.
 * For local imported sites, SEO money pages can be part of the import inventory, not only `/blog/` articles. `yas.wine` includes imported `wine-countries` and `wine-regions` pages alongside multilingual blog pages.
+* `airep24.com` legacy factory migration keeps SEO money-page work in Blog Core as first-class content jobs. As of 2026-07-04, AIREP24 has 4 imported live SEO money pages and 36 queued SEO money-page jobs across EN/DE/ES/FR, with intended publish paths stored in `sources_json.targetPath`.
 
 ## Known SEO gaps
 

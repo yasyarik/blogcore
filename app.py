@@ -1215,7 +1215,7 @@ def get_content_jobs(site_id, page=1, per_page=24, hide_hubs=True, language="en"
     }
 
 
-def get_planned_content_jobs(site_id, limit=12):
+def get_planned_content_jobs(site_id, limit=200):
     with db() as conn:
         rows = conn.execute(
             """
@@ -1224,7 +1224,7 @@ def get_planned_content_jobs(site_id, limit=12):
             order by created_at desc, id desc
             limit ?
             """,
-            (site_id, int(limit or 12)),
+            (site_id, int(limit or 200)),
         ).fetchall()
     return rows
 
@@ -2205,6 +2205,23 @@ def render_content_type_badge(row):
     return f"<span class='content-type-badge other'>{escape(row['category'] or 'Content')}</span>"
 
 
+def planned_job_meta(row):
+    try:
+        sources = json.loads(row["sources_json"] or "{}")
+    except Exception:
+        sources = {}
+    language = str(sources.get("language") or sources.get("locale") or "").strip().upper()
+    target_path = str(sources.get("targetPath") or "").strip()
+    if not target_path and row["published_url"]:
+        target_path = normalized_url_path(row["published_url"])
+    parts = []
+    if language:
+        parts.append(f"<span class='planned-chip'>{escape(language)}</span>")
+    if target_path:
+        parts.append(f"<span class='planned-target'>{escape(target_path)}</span>")
+    return "".join(parts)
+
+
 def live_page_icon(url):
     if not url:
         return ""
@@ -2270,13 +2287,14 @@ def render_planned_publications(rows):
         status_class = escape(status.lower())
         title = row["title"] or row["topic"] or "Untitled"
         source = "Discovery idea" if row["category"] == "Article Ideas" else (row["category"] or "Content task")
+        meta = planned_job_meta(row)
         action = ""
         if status in {"QUEUED", "ERROR"}:
             action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate</button>"
         items.append(
             f"""
             <div class="planned-row">
-              <div><strong>{escape(title)}</strong><span>{escape(source)} · {escape(row['created_at'] or '')}</span></div>
+              <div><strong>{escape(title)}</strong><span>{escape(source)} · {escape(row['created_at'] or '')}</span><div class="planned-meta">{render_content_type_badge(row)}{meta}</div></div>
               <div class="actions"><b class="status {status_class}">{escape(status)}</b>{action}</div>
             </div>
             """
@@ -3585,9 +3603,9 @@ MANAGE_SITE_HTML = """<!doctype html>
 .production-job .social-icon.telegram,.production-job .social-icon.tumblr{text-transform:lowercase}
 .production-job .icon-btn{width:34px;height:34px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.08);display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:#fff;font-weight:900;font-size:17px}
 .production-job .icon-btn:hover{border-color:rgba(34,197,94,.75);background:rgba(34,197,94,.16);transform:translateY(-1px)}
-.production-job .content-type-badge{display:inline-flex;align-items:center;min-height:28px;border-radius:999px;padding:5px 9px;border:1px solid var(--line);background:rgba(255,255,255,.07);color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase;white-space:nowrap}
-.production-job .content-type-badge.blog{border-color:rgba(96,165,250,.45);background:rgba(96,165,250,.13);color:#bfdbfe}
-.production-job .content-type-badge.seo{border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.14);color:#fde68a}
+.production-job .content-type-badge,.planned-row .content-type-badge{display:inline-flex;align-items:center;min-height:28px;border-radius:999px;padding:5px 9px;border:1px solid var(--line);background:rgba(255,255,255,.07);color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase;white-space:nowrap}
+.production-job .content-type-badge.blog,.planned-row .content-type-badge.blog{border-color:rgba(96,165,250,.45);background:rgba(96,165,250,.13);color:#bfdbfe}
+.production-job .content-type-badge.seo,.planned-row .content-type-badge.seo{border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.14);color:#fde68a}
 .status.imported{background:rgba(34,197,94,.2);color:#bbf7d0;border:1px solid rgba(34,197,94,.38)}
 .unified-channels{grid-template-columns:repeat(2,minmax(0,1fr))}
 .unified-channel{display:grid;gap:10px}
@@ -3606,6 +3624,9 @@ MANAGE_SITE_HTML = """<!doctype html>
 .planned-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px;margin-top:10px}
 .planned-row strong{display:block;font-size:14px}
 .planned-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+.planned-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}
+.planned-row .planned-chip,.planned-row .planned-target{display:inline-flex;align-items:center;min-height:26px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.05);padding:4px 8px;color:#d8cdfd;font-size:11px;font-weight:800}
+.planned-row .planned-target{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;text-transform:none;max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mini-action{min-height:34px;padding:8px 11px;font-size:12px}
 .planned-empty{margin-top:10px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.28);color:var(--muted);font-size:13px;padding:12px}
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px;border-bottom:1px solid var(--line);padding-bottom:10px}
