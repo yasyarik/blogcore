@@ -6,6 +6,8 @@ import secrets
 import shutil
 import socket
 import sqlite3
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,6 +30,12 @@ PORT = int(os.environ.get("PORT", "3299"))
 ADMIN_HOSTS = {h.strip().lower() for h in os.environ.get("ADMIN_HOSTS", "blog.yas.ooo,127.0.0.1,localhost").split(",") if h.strip()}
 CNAME_TARGET = os.environ.get("CNAME_TARGET", "blog.yas.ooo").strip().lower()
 EXPECTED_HOSTED_IPS = {ip.strip() for ip in os.environ.get("HOSTED_BLOG_IPS", "72.61.1.109").split(",") if ip.strip()}
+LEGACY_FACTORY_ENDPOINTS = {
+    "content-factory-airep24": os.environ.get("LEGACY_FACTORY_AIREP24_URL", "http://127.0.0.1:12631").rstrip("/"),
+    "content-factory-yaswine": os.environ.get("LEGACY_FACTORY_YASWINE_URL", "http://127.0.0.1:3199").rstrip("/"),
+    "content-factory-solocruz": os.environ.get("LEGACY_FACTORY_SOLOCRUZ_URL", "http://127.0.0.1:12838").rstrip("/"),
+    "content-factory-laycanmatch": os.environ.get("LEGACY_FACTORY_LAYCANMATCH_URL", "http://127.0.0.1:13157").rstrip("/"),
+}
 
 app = Flask(__name__)
 DATA_DIR.mkdir(exist_ok=True)
@@ -2569,6 +2577,8 @@ def render_planned_publications(rows, site_languages=None):
         source = "Discovery idea" if row["category"] == "Article Ideas" else (row["category"] or "Content task")
         duplicate_note = f" · {len(group['rows'])} language variants collapsed" if len(group["rows"]) > 1 else ""
         meta = planned_group_meta(group, site_languages)
+        errors = [r["error"] for r in group["rows"] if "error" in r.keys() and r["error"]]
+        error_note = f"<div class='planned-error'>{escape(errors[0])}</div>" if status == "ERROR" and errors else ""
         action = ""
         if status in {"QUEUED", "ERROR"}:
             action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate</button>"
@@ -2578,7 +2588,7 @@ def render_planned_publications(rows, site_languages=None):
             f"""
             <div class="planned-row" data-group-id="{escape(group['id'], quote=True)}">
               <label class="planned-check"><input type="checkbox" class="planned-select" value="{escape(group['id'], quote=True)}" data-job-id="{escape(row['id'], quote=True)}" aria-label="Select planned task"></label>
-              <div><strong>{escape(title)}</strong><span>{escape(source)} · {escape(row['created_at'] or '')}{escape(duplicate_note)}</span><div class="planned-meta">{render_content_type_badge(row)}{meta}</div></div>
+              <div><strong>{escape(title)}</strong><span>{escape(source)} · {escape(row['created_at'] or '')}{escape(duplicate_note)}</span><div class="planned-meta">{render_content_type_badge(row)}{meta}</div>{error_note}</div>
               <div class="actions"><b class="status {status_class}">{escape(status)}</b>{action}</div>
             </div>
             """
@@ -3243,6 +3253,10 @@ def generate_content_job(site_id, job_id):
         job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
         if not site or not job:
             raise KeyError("job not found")
+        sources = content_job_sources(job)
+    if sources.get("migratedFrom") and sources.get("oldFactoryJobId"):
+        return generate_legacy_factory_content_job(site, job, sources)
+    with db() as conn:
         conn.execute("update content_jobs set status='GENERATING', error=NULL, updated_at=? where site_id=? and id=?", (now_iso(), site_id, job_id))
         conn.execute("insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "INFO", "generate", "Starting article draft generation"))
     try:
@@ -3275,6 +3289,121 @@ def generate_content_job(site_id, job_id):
             conn.execute("update content_jobs set status='ERROR', error=?, updated_at=? where site_id=? and id=?", (str(e), now_iso(), site_id, job_id))
             conn.execute("insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "ERROR", "generate", str(e)))
         raise
+
+
+def legacy_factory_url(factory_name):
+    env_name = f"LEGACY_FACTORY_URL_{re.sub(r'[^A-Z0-9]+', '_', factory_name.upper()).strip('_')}"
+    explicit = os.environ.get(env_name)
+    if explicit:
+        return explicit.rstrip("/")
+    return LEGACY_FACTORY_ENDPOINTS.get(factory_name)
+
+
+def legacy_factory_request_json(url, method="GET", timeout=900):
+    req = urllib.request.Request(url, method=method, headers={"accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8", errors="replace"))
+
+
+def legacy_job_payload(data):
+    if isinstance(data, dict) and isinstance(data.get("job"), dict):
+        return data["job"]
+    return data if isinstance(data, dict) else {}
+
+
+def generate_legacy_factory_content_job(site, job, sources):
+    factory_name = str(sources.get("migratedFrom") or "").strip()
+    old_job_id = str(sources.get("oldFactoryJobId") or "").strip()
+    base_url = legacy_factory_url(factory_name)
+    if not base_url:
+        raise RuntimeError(f"No legacy factory endpoint configured for {factory_name}")
+    now = now_iso()
+    with db() as conn:
+        conn.execute("update content_jobs set status='GENERATING', error=NULL, updated_at=? where site_id=? and id=?", (now, site["id"], job["id"]))
+        conn.execute(
+            "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+            (site["id"], job["id"], now, "INFO", "legacy-generate", f"Queued legacy factory generation via {factory_name} job {old_job_id}"),
+        )
+    thread = threading.Thread(target=legacy_factory_generate_and_sync, args=(site["id"], job["id"], factory_name, old_job_id, base_url), daemon=True)
+    thread.start()
+    return {"ok": True, "jobId": job["id"], "status": "GENERATING", "legacyFactory": factory_name, "legacyJobId": old_job_id}
+
+
+def legacy_factory_generate_and_sync(site_id, job_id, factory_name, old_job_id, base_url):
+    try:
+        quoted_job_id = urllib.parse.quote(old_job_id)
+        detail = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}")
+        legacy = legacy_job_payload(detail)
+        if str(legacy.get("status") or "").upper() not in {"GENERATING", "READY", "PUBLISHED"}:
+            result = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}/generate", method="POST")
+            if result.get("success") is False:
+                raise RuntimeError(result.get("error") or json.dumps(result, ensure_ascii=False)[:500])
+        deadline = time.time() + 1800
+        while time.time() < deadline:
+            detail = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}")
+            legacy = legacy_job_payload(detail)
+            status = str(legacy.get("status") or "").upper()
+            if status in {"READY", "PUBLISHED"}:
+                break
+            if status == "ERROR":
+                raise RuntimeError(legacy.get("error") or f"Legacy factory job {old_job_id} failed")
+            time.sleep(5)
+        else:
+            raise RuntimeError(f"Legacy factory job {old_job_id} did not finish within 30 minutes")
+        draft_html = legacy.get("draftHtml") or legacy.get("draft_html") or ""
+        if not draft_html.strip():
+            raise RuntimeError(f"Legacy factory returned no draft HTML for {old_job_id}")
+        with db() as conn:
+            job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+        if not job:
+            raise RuntimeError(f"Blog Core job {job_id} no longer exists")
+        merged_sources = content_job_sources(job)
+        merged_sources["legacyFactoryResult"] = {
+            "factory": factory_name,
+            "jobId": old_job_id,
+            "status": legacy.get("status"),
+            "sources": legacy.get("sources"),
+            "queries": legacy.get("queries"),
+        }
+        faq = legacy.get("faq") or []
+        if isinstance(faq, str):
+            try:
+                faq = json.loads(faq)
+            except Exception:
+                faq = []
+        update_time = now_iso()
+        slug = legacy.get("slug") or job["slug"] or simple_slug(legacy.get("title") or job["topic"])
+        with db() as conn:
+            conn.execute(
+                """
+                update content_jobs set status='DRAFT', slug=?, title=?, description=?, category=?, hero_image=?,
+                    draft_html=?, faq_json=?, sources_json=?, error=NULL, updated_at=? where site_id=? and id=?
+                """,
+                (
+                    slug,
+                    legacy.get("title") or job["title"] or job["topic"],
+                    legacy.get("description") or job["description"] or "",
+                    legacy.get("category") or job["category"] or "Article",
+                    legacy.get("heroImage") or legacy.get("hero_image") or job["hero_image"] or "",
+                    draft_html,
+                    json.dumps(faq if isinstance(faq, list) else [], ensure_ascii=False),
+                    json.dumps(merged_sources, ensure_ascii=False),
+                    update_time,
+                    site_id,
+                    job["id"],
+                ),
+            )
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (site_id, job["id"], update_time, "INFO", "legacy-generate", f"Synced validated draft from {factory_name}"),
+            )
+    except Exception as e:
+        with db() as conn:
+            conn.execute("update content_jobs set status='ERROR', error=?, updated_at=? where site_id=? and id=?", (str(e), now_iso(), site_id, job_id))
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (site_id, job_id, now_iso(), "ERROR", "legacy-generate", str(e)),
+            )
 
 
 def get_site_by_custom_host(host):
@@ -4083,6 +4212,7 @@ button[disabled]{opacity:.55;cursor:not-allowed}
 .planned-row .planned-chip,.planned-row .planned-target{display:inline-flex;align-items:center;min-height:26px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.05);padding:4px 8px;color:#d8cdfd;font-size:11px;font-weight:800}
 .planned-row .muted-chip{opacity:.7;filter:grayscale(.35)}
 .planned-row .planned-target{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;text-transform:none;max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.planned-error{margin-top:8px;color:#fecaca;font-size:12px;line-height:1.35;max-width:820px}
 .mini-action{min-height:34px;padding:8px 11px;font-size:12px}
 .planned-empty{margin-top:10px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.28);color:var(--muted);font-size:13px;padding:12px}
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px;border-bottom:1px solid var(--line);padding-bottom:10px}
@@ -4217,7 +4347,7 @@ function sourceLabel(source){return source==='google_trends'?'Google topic signa
 function renderSignals(items){const box=document.getElementById('signals');currentSignals=(items||[]).filter(item=>!item.disabled);if(!currentSignals.length){box.className='loading';box.textContent='No usable signals found for this site topic.';return;}box.className='signal-list';box.innerHTML=currentSignals.map((item,index)=>`<label class="signal-card"><input type="checkbox" data-index="${index}"><div><em class="source-pill">${sourceLabel(item.source)}</em><strong>${item.title}</strong><span>${item.meta||''}</span></div></label>`).join('');}
 async function loadSignals(range){currentRange=range||'week';const box=document.getElementById('signals');box.className='loading';box.textContent='Loading Google topic signals and Reddit top discussions...';try{const res=await fetch('/api/sites/'+SITE_ID+'/topic-signals?range='+encodeURIComponent(currentRange));const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const counts=data.counts||{};const warnings=(data.warnings||[]).length?' · Notes: '+data.warnings.join(' · '):'';document.getElementById('signalQuery').textContent='Topic query: '+data.query+' · range: '+data.range+' · signals: '+(counts.total??(data.signals||[]).length)+warnings;renderSignals(data.signals);}catch(e){box.className='loading';box.textContent='Topic discovery failed: '+e.message;}}
 async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}showToast('Creating article jobs...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Article jobs queued: '+(data.jobs||[]).length);setTimeout(()=>location.reload(),900);}catch(e){showToast('Article ideas failed: '+e.message);}}
-async function generateArticleJob(jobId){showToast('Generating draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Draft generated: '+(data.slug||jobId));setTimeout(()=>location.reload(),900);}catch(e){showToast('Generation failed: '+e.message);}}
+async function generateArticleJob(jobId){showToast('Generating draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);if(data.status==='GENERATING'){showToast('Generation started in source factory. Refreshing status...');setTimeout(()=>location.reload(),1800);}else{showToast('Draft generated: '+(data.slug||jobId));setTimeout(()=>location.reload(),900);}}catch(e){showToast('Generation failed: '+e.message);}}
 function selectedPlannedTasks(){return [...document.querySelectorAll('.planned-select:checked')].map(input=>({groupId:input.value,jobId:input.dataset.jobId})).filter(item=>item.groupId);}
 function selectedPlannedGroupIds(){return selectedPlannedTasks().map(item=>item.groupId);}
 function togglePlannedSelection(checked){document.querySelectorAll('.planned-select').forEach(input=>{input.checked=checked;});}

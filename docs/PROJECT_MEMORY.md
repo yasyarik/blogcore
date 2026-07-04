@@ -58,6 +58,7 @@ It must be updated after every meaningful task.
 * Social publishing drafts must not be offered or generated unless at least one social channel is both selected in Distribution and configured/connected in Setup. There must be no fallback that silently generates drafts for every provider when channels are missing.
 * Technical settings should stay compact on the site factory page; main workflow should focus on topic discovery and jobs.
 * Existing imported blogs and Blog Core-created blogs have different ownership models. For imported existing blogs, Blog Core should act as the control plane/dashboard and publish new/updated tasks back into the same original site locations and URL structure. It should not default to becoming a second public copy of that blog. For blogs created by Blog Core from scratch, Blog Core can be the full source of truth and public hosting/publishing layer.
+* For imported sites that have legacy/source factory jobs (`sources_json.migratedFrom` and `oldFactoryJobId`), Blog Core must not use its generic article generator. It must delegate generation to the source site's factory so validation, length rules, internal-link rules, image generation, SEO money-page contracts, and publishing requirements remain site-specific.
 * For imported existing blogs, primary dashboard open actions should point to the live source-site blog URL, not to generated Blog Core previews. Generated previews are only useful for new/from-scratch Blog Core blogs or technical design checks.
 * Dashboard site cards for imported live sites must not show new-site setup actions such as `Scan design`, `Build preview`, or `Install /blog`. Imported site cards should focus on `Manage`, live-site status, `Open live blog`, and safe dashboard removal.
 * The site manage page is organized by tabs: `Content` for import and article production queue, `Discovery` for topic signals, `Distribution` for autopublish/social settings, `Activity` for system/factory job logs, and `Setup` for webroot/CNAME/design settings.
@@ -161,6 +162,7 @@ It must be updated after every meaningful task.
 * Do not confuse Blog Core Content inventory pagination with public source-site blog pagination. `yas.wine/blog/` is a static public page in `/var/www/yaswine/blog/index.html`; its visible pagination must be fixed in that webroot.
 * Do not render local imported-site draft previews with the generic Blog Core shell; that makes operators review the wrong design. Use the source site's local HTML template and assets.
 * Do not show setup/bootstrap actions on imported live-site cards; scanning/building/installing is for new Blog Core sites, not already imported production blogs.
+* Do not generate imported legacy factory jobs with the generic Blog Core prompt. If the source factory rejects a draft, surface that error instead of keeping a weaker Blog Core-generated draft.
 
 ## 8. Decisions log
 
