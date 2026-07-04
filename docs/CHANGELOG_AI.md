@@ -2,6 +2,41 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-04 — Clean VPS temporary files and caches
+
+### Summary
+
+* Inspected VPS disk usage and large backup/temp/cache files.
+* Removed safe rebuildable caches and temporary files.
+* Left active Chromium/Playwright runtime/cache paths untouched because processes were using them.
+* Left `.git/objects/pack` files untouched because they are required repository data, not disposable backups.
+
+### Files changed
+
+* `docs/CHANGELOG_AI.md` — logged this VPS maintenance task.
+
+### Decisions
+
+* Cleaned only recoverable cache/temp/log data and one obsolete dev SQLite backup.
+* Did not delete working databases, webroot HTML, source trees, `node_modules`, or Git pack files.
+
+### Checks run
+
+* Checked `df -hT`; root filesystem went from 79G used / 18G free / 83% to 76G used / 21G free / 79%.
+* Removed `.next`/Turbopack caches for `build.yas.ooo`, `my-ugc-studio-saas`, `my-ugc-studio-saas-staging`, and `revaltix`.
+* Removed root tool caches: pip, Prisma, TypeScript, cloud-code, node-gyp, and Jedi.
+* Removed `/tmp/shopify-new`, `/tmp/tsx-0`, `/tmp/inspectroute-backend.tgz`, `/tmp/yas-agent-vps.tgz`, and old `.tmp` files under `/root/.gemini`.
+* Truncated `/var/www/my-ugc-studio-saas/logs/access.log`.
+* Ran `apt-get clean`.
+* Ran `journalctl --vacuum-size=100M`.
+* Removed `/var/www/highpurebreed/backups/dev.sqlite.before-calendly-ai-20260622182214.bak`.
+* Verified `http://127.0.0.1:3299/health` still returns OK.
+
+### Risks / TODO
+
+* `/tmp/snap-private-tmp/snap.chromium` and `/root/.cache/ms-playwright` still use about 2GB combined, but active Chromium/Playwright processes were using them, so they were intentionally not removed.
+* Large `.git/objects/pack` files remain the biggest large-file category; do not delete them manually.
+
 ## 2026-07-03 — Add channel-specific social draft adaptation
 
 ### Summary
