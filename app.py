@@ -1174,7 +1174,25 @@ def content_job_sort_key(row):
     return (section_order, base_path, row["title"] or row["topic"] or "", row["id"])
 
 
-def get_content_jobs(site_id, page=1, per_page=24, hide_hubs=True, language="en"):
+def content_job_page_type(row):
+    try:
+        sources = json.loads(row["sources_json"] or "{}")
+    except Exception:
+        sources = {}
+    page_type = str(sources.get("pageType") or "").strip().lower()
+    category = (row["category"] or "").strip().lower()
+    if page_type in {"blog", "seo_money_page", "home"}:
+        return page_type
+    if "seo money" in category:
+        return "seo_money_page"
+    if "blog" in category:
+        return "blog"
+    if "homepage" in category:
+        return "home"
+    return "other"
+
+
+def get_content_jobs(site_id, page=1, per_page=24, hide_hubs=True, language="en", content_type="all"):
     try:
         page = max(1, int(page or 1))
     except (TypeError, ValueError):
@@ -1198,6 +1216,14 @@ def get_content_jobs(site_id, page=1, per_page=24, hide_hubs=True, language="en"
         language = available_languages[0]
     if language != "all":
         rows = [row for row in rows if content_job_language(row) == language]
+    type_order = ["blog", "seo_money_page", "home", "other"]
+    type_set = {content_job_page_type(row) for row in rows}
+    available_content_types = [type_name for type_name in type_order if type_name in type_set] + sorted(type_set - set(type_order))
+    content_type = (content_type or "all").strip().lower()
+    if content_type not in {"all", *set(available_content_types)}:
+        content_type = "all"
+    if content_type != "all":
+        rows = [row for row in rows if content_job_page_type(row) == content_type]
     rows = sorted(rows, key=content_job_sort_key)
     total = len(rows)
     total_pages = max(1, math.ceil(total / per_page)) if total else 1
@@ -1212,6 +1238,8 @@ def get_content_jobs(site_id, page=1, per_page=24, hide_hubs=True, language="en"
         "total_pages": total_pages,
         "language": language,
         "available_languages": available_languages,
+        "content_type": content_type,
+        "available_content_types": available_content_types,
     }
 
 
@@ -2126,36 +2154,59 @@ def render_content_pagination(meta):
     page = int(meta.get("page") or 1)
     total_pages = int(meta.get("total_pages") or 1)
     language = meta.get("language") or "all"
+    content_type = meta.get("content_type") or "all"
     lang_q = "" if language == "all" else f"&content_lang={escape(language, quote=True)}"
+    type_q = "" if content_type == "all" else f"&content_type={escape(content_type, quote=True)}"
     if not total or total_pages <= 1:
         return ""
     links = []
     if page > 1:
-        links.append(f"<a class='page-link nav' href='?content_page={page - 1}{lang_q}#content'>‹</a>")
+        links.append(f"<a class='page-link nav' href='?content_page={page - 1}{lang_q}{type_q}#content'>‹</a>")
     window_start = max(1, page - 2)
     window_end = min(total_pages, page + 2)
     for page_number in range(window_start, window_end + 1):
         active = " active" if page_number == page else ""
-        links.append(f"<a class='page-link{active}' href='?content_page={page_number}{lang_q}#content'>{page_number}</a>")
+        links.append(f"<a class='page-link{active}' href='?content_page={page_number}{lang_q}{type_q}#content'>{page_number}</a>")
     if page < total_pages:
-        links.append(f"<a class='page-link nav' href='?content_page={page + 1}{lang_q}#content'>›</a>")
+        links.append(f"<a class='page-link nav' href='?content_page={page + 1}{lang_q}{type_q}#content'>›</a>")
     return f"""
     <nav class="content-pagination" aria-label="Content pages">{''.join(links)}</nav>
     """
 
 
-def render_content_language_switcher(meta):
+def render_content_filter_toolbar(meta):
     current = meta.get("language") or "en"
     languages = meta.get("available_languages") or []
-    if not languages:
-        return ""
+    content_type = meta.get("content_type") or "all"
+    content_types = meta.get("available_content_types") or []
     labels = {"en": "EN", "ru": "RU", "es": "ES", "de": "DE", "fr": "FR"}
-    links = []
+    type_labels = {
+        "all": "All",
+        "blog": "Blog",
+        "seo_money_page": "SEO money",
+        "home": "Home",
+        "other": "Other",
+    }
+    language_links = []
     for lang in languages:
         active = " active" if lang == current else ""
-        href = f"?content_page=1&content_lang={escape(lang, quote=True)}#content"
-        links.append(f"<a class='lang-chip{active}' href='{href}'>{escape(labels.get(lang, lang.upper()))}</a>")
-    return "<div class='content-toolbar'><div class='language-switcher' aria-label='Content language'>" + "".join(links) + "</div></div>"
+        type_q = "" if content_type == "all" else f"&content_type={escape(content_type, quote=True)}"
+        href = f"?content_page=1&content_lang={escape(lang, quote=True)}{type_q}#content"
+        language_links.append(f"<a class='lang-chip{active}' href='{href}'>{escape(labels.get(lang, lang.upper()))}</a>")
+    type_links = []
+    for type_name in ["all", *content_types]:
+        active = " active" if type_name == content_type else ""
+        lang_q = "" if current == "all" else f"&content_lang={escape(current, quote=True)}"
+        href = f"?content_page=1{lang_q}&content_type={escape(type_name, quote=True)}#content"
+        if type_name == "all":
+            href = f"?content_page=1{lang_q}#content"
+        type_links.append(f"<a class='type-chip{active}' href='{href}'>{escape(type_labels.get(type_name, type_name.replace('_', ' ').title()))}</a>")
+    return (
+        "<div class='content-toolbar'>"
+        "<div class='language-switcher' aria-label='Content language'>" + "".join(language_links) + "</div>"
+        "<div class='type-switcher' aria-label='Content type'>" + "".join(type_links) + "</div>"
+        "</div>"
+    )
 
 
 def social_icon_label(channel):
@@ -2304,9 +2355,9 @@ def render_planned_publications(rows):
 
 def render_content_jobs(content_page):
     rows = content_page["rows"]
-    toolbar = render_content_language_switcher(content_page)
+    toolbar = render_content_filter_toolbar(content_page)
     if not rows:
-        return toolbar + "<div class='empty'>No content records found for this language.</div>"
+        return toolbar + "<div class='empty'>No content records found for these filters.</div>"
     out = []
     for row in rows:
         title = row["title"] or row["topic"]
@@ -2417,7 +2468,12 @@ def render_site_switcher(current_site_id):
 
 def render_manage_site_page(site):
     jobs = render_jobs(get_site_jobs(site["id"]))
-    content_page = get_content_jobs(site["id"], page=request.args.get("content_page", 1), language=request.args.get("content_lang", "en"))
+    content_page = get_content_jobs(
+        site["id"],
+        page=request.args.get("content_page", 1),
+        language=request.args.get("content_lang", "en"),
+        content_type=request.args.get("content_type", "all"),
+    )
     content_jobs = render_content_jobs(content_page)
     distribution_settings = render_distribution_settings(site["id"])
     social_credentials_setup = render_social_credentials_setup(site["id"])
@@ -3358,7 +3414,13 @@ def update_factory_settings(site_id):
 def list_content_jobs(site_id):
     if not get_site(site_id):
         return jsonify({"error": "site not found"}), 404
-    content_page = get_content_jobs(site_id, page=request.args.get("page", 1), per_page=request.args.get("per_page", 24), language=request.args.get("language", "en"))
+    content_page = get_content_jobs(
+        site_id,
+        page=request.args.get("page", 1),
+        per_page=request.args.get("per_page", 24),
+        language=request.args.get("language", "en"),
+        content_type=request.args.get("content_type", "all"),
+    )
     return jsonify({
         "ok": True,
         "jobs": [dict(r) for r in content_page["rows"]],
@@ -3368,6 +3430,8 @@ def list_content_jobs(site_id):
         "total_pages": content_page["total_pages"],
         "language": content_page["language"],
         "available_languages": content_page["available_languages"],
+        "content_type": content_page["content_type"],
+        "available_content_types": content_page["available_content_types"],
     })
 
 
@@ -3581,10 +3645,12 @@ MANAGE_SITE_HTML = """<!doctype html>
 *{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.top-actions{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}.site-switcher{display:flex;flex-direction:column;gap:6px;min-width:260px}.site-switcher span{font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900}.site-switcher select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.75);color:#fff;padding:13px 14px;font-size:14px;outline:none}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1fr;gap:18px}.settings-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.settings-toggle{width:48px;height:48px;border-radius:999px;font-size:22px;padding:0}.settings-panel[hidden]{display:none}.compact-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.signal-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.signal-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.signal-card{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px}.signal-card input{width:18px;height:18px;margin-top:2px}.import-list{display:grid;gap:10px;margin-top:14px}.import-row{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px}.import-row input{width:18px;height:18px;margin-top:2px}.import-row strong{display:block;font-size:14px}.import-row span{display:block;color:var(--muted);font-size:12px;margin-top:4px;word-break:break-all}.signal-card strong{display:block;font-size:15px;line-height:1.25}.signal-card span{display:block;color:var(--muted);font-size:12px;margin-top:5px}.source-pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:4px 8px;margin-bottom:7px;color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase}.loading{color:var(--muted);padding:18px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38)}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:6px}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.production-panel{border-color:rgba(139,92,246,.35)}.panel-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.channel-checks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.check.compact{padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38)}.channel-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.channel-card{border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.45);padding:12px}.channel-card strong{display:block}.channel-card span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.social-statuses{grid-column:1 / -1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.social-statuses span{border:1px solid var(--line);border-radius:999px;padding:6px 8px;background:rgba(255,255,255,.06)}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow-wrap:anywhere}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid,.compact-grid{display:block}.channel-checks,.channel-grid,.social-statuses{grid-template-columns:1fr}.top-actions{justify-content:flex-start;margin-top:18px}.site-switcher{min-width:0;width:100%}.form-grid,.signal-list{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
 </style>
 <style>
-.content-toolbar{display:flex;justify-content:flex-end;align-items:center;margin:14px 0 8px}
-.language-switcher{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.lang-chip{min-width:42px;min-height:32px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.06);display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:#d8cdfd;font-size:12px;font-weight:900}
-.lang-chip.active{background:rgba(139,92,246,.7);border-color:transparent;color:#fff}
+.content-toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:14px 0 8px;flex-wrap:wrap}
+.language-switcher,.type-switcher{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.type-switcher{justify-content:flex-end}
+.lang-chip,.type-chip{min-width:42px;min-height:32px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.06);display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:#d8cdfd;font-size:12px;font-weight:900;padding:0 11px;white-space:nowrap}
+.type-chip{min-width:auto}
+.lang-chip.active,.type-chip.active{background:rgba(139,92,246,.7);border-color:transparent;color:#fff}
 .content-pagination{display:flex;justify-content:center;gap:8px;align-items:center;margin:18px 0 0}
 .content-pagination strong{display:block;font-size:16px;color:#fff;margin-bottom:3px}
 .content-pagination span{display:block;color:var(--muted);font-size:13px;line-height:1.4}
@@ -3635,7 +3701,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 .tab-panel[hidden]{display:none}
 .tab-panel{display:grid;gap:18px}
 .tab-panel>.panel:first-child{margin-top:0}
-@media(max-width:900px){.content-toolbar{justify-content:flex-start}.content-pagination{flex-wrap:wrap}.social-credentials-grid,.social-credential-fields{grid-template-columns:1fr}}
+@media(max-width:900px){.content-toolbar{justify-content:flex-start;align-items:flex-start}.type-switcher{justify-content:flex-start}.content-pagination{flex-wrap:wrap}.social-credentials-grid,.social-credential-fields{grid-template-columns:1fr}}
 </style>
 </head>
 <body>

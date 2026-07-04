@@ -2,6 +2,39 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-04 — Add content type filter chips
+
+### Summary
+
+* Added content-type filters to the Content inventory toolbar.
+* Operators can now switch between `All`, `Blog`, `SEO money`, `Home`, and `Other` while keeping the selected language.
+* Pagination and the content jobs API now preserve and expose the selected content type.
+
+### Files changed
+
+* `app.py` — added `content_job_page_type`, server-side `content_type` filtering, filter chips, pagination query preservation, API response fields, and compact toolbar styling.
+* `docs/PROJECT_MEMORY.md` — recorded the durable Content inventory filtering rule.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Type filters are server-side, matching the existing language filter behavior.
+* Available content types are calculated after the language filter so the chips reflect what exists in the selected language.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified API counts for AIREP24 EN: `All=31`, `Blog=20`, `SEO money=10`, `Home=1`.
+* Verified live `/sites/9?content_lang=en&content_type=seo_money_page#content` contains type filter chips and preserves `content_type=seo_money_page` in language links.
+
+### Risks / TODO
+
+* Content inventory still includes both imported live records and queued content records according to the current underlying list behavior; planned jobs also remain visible in the Distribution planned block.
+
 ## 2026-07-04 — Fully migrate AIREP24 legacy factory jobs
 
 ### Summary
