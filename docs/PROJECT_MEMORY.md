@@ -27,7 +27,7 @@ It must be updated after every meaningful task.
 * Payments: None.
 * Main external services:
   - Public site HTML/CSS fetched via `urllib.request` for design scanning.
-  - Google News RSS search is used as the current Google trend/news signal source.
+  - Popular topic discovery uses Google autocomplete/search suggestions as a non-news search-demand signal source, plus Reddit top discussions.
   - Reddit search RSS is used for discussion signals; it may rate-limit.
   - DNS resolution uses Python `socket.getaddrinfo` for CNAME/custom-domain status checks.
   - Gemini text generation is used for draft generation and for automatic site topic-profile inference when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is configured.
@@ -84,9 +84,9 @@ It must be updated after every meaningful task.
 * If source CSS includes native patterns `.section`, `.blog-card`, `.blog-carousel`, and `.container`, generated blog pages reuse native-looking markup.
 * Hosted CNAME blog routing uses `Host` header lookup against `sites.custom_blog_domain` when `hosted_blog_enabled=1`.
 * CNAME status check compares resolved custom domain IPs against `HOSTED_BLOG_IPS` or the resolved `CNAME_TARGET`.
-* Topic discovery currently uses Google News RSS query with `when:{days}d`, not an official Google Trends API.
+* Topic discovery must not use news feeds as the default source of "trends". Use broad non-news search/topic-demand signals and Reddit top discussions, derived from the site's Discovery direction/category hint/topic profile.
 * Reddit signal fetching uses `https://www.reddit.com/search.rss` with top sorting; rate limits are expected and must be handled gracefully without rendering error cards. Reddit matches must include a strong site-topic anchor and contextual match; do not surface broad matches based only on generic words like `food`, `product`, or `shop`.
-* Discovery signals should be broad/global topic signals suitable for scalable articles. Filter out city-specific, festival/event, ticket, local-opening, trade-promo/campaign/grant/retailer, and one-off local news signals before showing them as selectable Google/Reddit items.
+* Discovery signals should be broad/global topic signals suitable for scalable articles. Filter out city-specific, festival/event, ticket, local-opening, trade-promo/campaign/grant/retailer, navigation/source-specific autocomplete tails such as `youtube`/`reddit`, and one-off news signals before showing them as selectable search/Reddit items.
 * Existing blog import scans sitemap and `/blog/` index sources for external sites. If a connected site has a local `root_path`, import must prefer direct webroot discovery and include multilingual `/blog/` pages plus SEO money pages under `wine-countries` and `wine-regions`.
 * Social credentials are stored per site in SQLite `social_connections.credentials_json`; secrets must not be rendered back into the page, committed, or written to memory files.
 * Social post adaptation uses `social_posts` for per-channel drafts. Current hard limits are LinkedIn 3000, Telegram 4096, X/Twitter 280, and Tumblr 4096 characters. The generator uses the article language from `content_jobs.sources_json.language` when present, falls back to the site's first configured language, and rejects/squeezes output before saving if it would exceed the channel limit.
@@ -139,7 +139,7 @@ It must be updated after every meaningful task.
 * The live catchall nginx config is important for CNAME routing but is not currently represented in `deploy/nginx-blog.yas.ooo.conf`.
 * HTTPS for arbitrary CNAME domains is not production-complete until certificate automation is added.
 * Reddit may return `429 Too Many Requests`; topic discovery must surface it as a note/warning, not as a selectable signal card.
-* Google signal source is Google News RSS search labelled in UI/code as trend/news signals; it is not official Google Trends API data.
+* Replaced/deprecated 2026-07-05: Google News RSS must not be used or labelled as a trend source. Discovery now uses Google autocomplete/search suggestions as a non-news popular-search signal source; this is still not the official Google Trends API.
 * Do not turn Discovery into a local event or trade-promo feed. Results like a city wine festival, local guide, `Indies to receive £250 for Bordeaux Wine Month`, or retailer campaign should be filtered out even if they contain topical words.
 * `install-blog` writes static files into `root_path/blog`; avoid using it for external sites with no local webroot.
 * Theme scan depends on public HTML/CSS structure and may fail or capture weak design context for SPA-heavy or protected sites.
@@ -229,6 +229,13 @@ It must be updated after every meaningful task.
 * Reason: Pages such as `https://yas.wine/blog/` are blog listing/hub pages, not article records or publication tasks. Showing them beside articles confused the imported-content workflow.
 * Files/areas affected: `app.py` content job listing/rendering and `/api/sites/<id>/content-jobs`.
 * Replaced/deprecated: Showing all latest imported `content_jobs` with `limit 24`, including `/blog/` and other section indexes, without pagination.
+
+### 2026-07-05 — Discovery uses non-news topic demand
+
+* Decision: Replace Google News RSS-based discovery with Google autocomplete/search suggestions plus Reddit top discussions. Apply this globally to all current and future sites.
+* Reason: Blog Core Discovery should find broad popular topic demand, not local news, events, festivals, campaigns, or trade promotions.
+* Files/areas affected: `app.py` topic signal API/UI, `docs/INTEGRATIONS.md`.
+* Replaced/deprecated: Treating Google News RSS results as trend/topic signals.
 
 ## 9. Do not repeat
 

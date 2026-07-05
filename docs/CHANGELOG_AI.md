@@ -2,6 +2,44 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-05 — Replace news-based discovery signals
+
+### Summary
+
+* Replaced Google News RSS-based Discovery signals with non-news popular search suggestions.
+* Kept Reddit top discussions as the discussion signal source.
+* Made the Discovery topic seed prefer the site's Discovery direction and category hint, so connected sites use their intended topic profile instead of weak product-description words.
+* Added filtering for navigation/source-specific autocomplete tails such as YouTube, Reddit, and marketplace-brand searches.
+* Updated the Discovery UI wording so it no longer claims to use Google Trends or news-like topic signals.
+
+### Files changed
+
+* `app.py` — removed `news.google.com` usage from topic discovery, added Google autocomplete/search suggestion fetching, updated API counts/source labels, and changed Discovery UI copy.
+* `docs/PROJECT_MEMORY.md` — recorded the global product rule that Discovery must use non-news topic-demand signals and marked Google News RSS discovery as replaced.
+* `docs/INTEGRATIONS.md` — documented the new popular search suggestion source and range behavior.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* This Discovery rule applies globally to all existing and future sites, not only `solocruz.com`.
+* Google autocomplete/search suggestions are treated as broad search-demand hints, not as the official Google Trends API.
+* The selected range affects Reddit only; Google autocomplete suggestions do not support a time range.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified live `GET /api/sites/7/topic-signals?range=month` returns `query=solo cruise travel`, `counts.popularSearches`, and `source=popular_search` signals.
+* Verified the live SoloCruz Discovery response no longer contains `news.google`, `youtube`, `costco`, `fees increase`, or the previous Bordeaux trade-promo example.
+* Verified the live `/sites/7` page shows `Popular topic trends and discussions` and no longer shows `Google Trends`/`Google topic signals` UI wording.
+
+### Risks / TODO
+
+* Google autocomplete can still temporarily fail or return sparse suggestions; failures are surfaced as warnings and must not be replaced with news fallback.
+
 ## 2026-07-04 — Delegate migrated jobs to source factories
 
 ### Summary

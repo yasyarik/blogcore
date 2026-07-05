@@ -27,8 +27,8 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 
 * `Scan design` also infers the site's topic profile. When Gemini is configured, Blog Core asks Gemini to produce `direction`, `categoryHint`, `contentContext`, and `topicStrategy` from the scanned homepage title, description, header/nav, footer, brand, and domain.
 * Auto-inferred topic profile values are written only into empty settings by normal scans so manual overrides are preserved. A deterministic metadata fallback is used when Gemini is unavailable.
-* Google signals use Google News RSS search with query derived from site context/profile and `when:{days}d`; this is a topic/news signal source, not the official Google Trends API.
-* Google signal results are deduplicated, relevance-scored against the site topic seed, and only positive-score items are returned.
+* Popular search signals use Google autocomplete/search suggestions with a query derived from the site's Discovery direction/category hint/topic profile. This is a non-news search-demand source, not Google News RSS and not the official Google Trends API.
+* Popular search suggestions are deduplicated, filtered for broad/non-local/non-promotional/non-navigation intent, relevance-scored against the site topic seed, and only positive-score items are returned. The selected range does not affect Google autocomplete suggestions; it only affects Reddit.
 * Reddit signals use Reddit search RSS with `sort=top` and time range mapping. Only `/comments/` discussion URLs with a strong site-topic anchor and contextual title match are returned; broad matches on generic words are rejected.
 * Reddit may rate-limit with `429 Too Many Requests`; source failures are returned as API `warnings` and must not render as selectable cards.
 * The topic signal API returns `counts` and `warnings` separately from `signals`; UI should show warnings as notes only.
