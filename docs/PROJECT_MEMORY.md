@@ -56,7 +56,8 @@ It must be updated after every meaningful task.
 * Setup must include per-site social channel credential configuration for LinkedIn, Telegram, X/Twitter, Tumblr, Pinterest, and Instagram, with Save credentials and Test connect actions. Distribution should only select which configured/connected channels are used for autopublish.
 * Social publishing drafts must be adapted per channel and per article language before publishing. Blog Core stores one `social_posts` draft per `job_id + channel`, validates exact character counts before saving, and must not rely on social platforms truncating overlong text.
 * Pinterest drafts are not plain text posts. Blog Core must generate a native Pinterest pin creative spec from the article: title, description/caption, overlay text, alt text, vertical 2:3 image prompt, recommended size, and optional destination URL. The pin spec is stored in `social_posts.content_json`.
-* Instagram drafts are native carousel creatives, not plain text posts and not SVG/mock previews. Blog Core generates a carousel caption plus real 4:5 JPEG slide assets through Gemini Image, stores slide metadata in `social_posts.content_json.instagramCarousel`, and serves generated files from ignored `data/social_assets/...`.
+* Instagram drafts are native carousel creatives, not plain text posts and not SVG/mock previews. Blog Core generates one shared carousel caption plus real 4:5 JPEG slide assets through Gemini Image, stores slide metadata in `social_posts.content_json.instagramCarousel`, and serves generated files from ignored `data/social_assets/...`. Instagram has one caption for the whole carousel; per-slide text is visual overlay/review metadata only.
+* Instagram publishing must go through the project's third-party intermediary publishing server, not direct Instagram Graph API calls from Blog Core.
 * Social publishing drafts must not be offered or generated unless at least one social channel is both selected in Distribution and configured/connected in Setup. There must be no fallback that silently generates drafts for every provider when channels are missing.
 * Technical settings should stay compact on the site factory page; main workflow should focus on topic discovery and jobs.
 * Existing imported blogs and Blog Core-created blogs have different ownership models. For imported existing blogs, Blog Core should act as the control plane/dashboard and publish new/updated tasks back into the same original site locations and URL structure. It should not default to becoming a second public copy of that blog. For blogs created by Blog Core from scratch, Blog Core can be the full source of truth and public hosting/publishing layer.
@@ -262,6 +263,13 @@ It must be updated after every meaningful task.
 * Reason: Operators need to see the actual visual result that the factory will publish to Instagram, not a fast SVG/layout mockup.
 * Files/areas affected: `app.py` social provider config, social draft generation, `social_posts`, ignored `data/social_assets`.
 * Replaced/deprecated: Using SVG or placeholder-only previews for Instagram carousel review.
+
+### 2026-07-05 — Instagram publishing uses an intermediary
+
+* Decision: Treat Instagram as a per-site channel backed by a third-party publishing server. Blog Core stores intermediary API credentials and generated creatives; it must not directly publish through Instagram Graph API.
+* Reason: The project publishes Instagram through a separate server-side intermediary.
+* Files/areas affected: `app.py` Instagram social provider config, Setup credential labels, future publish route.
+* Replaced/deprecated: Direct Instagram Graph API publishing assumptions in Blog Core.
 
 ## 9. Do not repeat
 

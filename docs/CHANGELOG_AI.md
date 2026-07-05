@@ -2,6 +2,41 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-05 — Clarify Instagram intermediary and caption model
+
+### Summary
+
+* Changed Instagram Setup fields from direct Graph credentials to third-party intermediary API credentials.
+* Stopped Instagram test-connect from calling Instagram Graph API directly; it now validates that intermediary credentials are saved until the intermediary contract is known.
+* Updated Instagram carousel preview so it no longer displays separate text captions under each slide.
+* Labeled the single shared Instagram caption as the caption for the whole carousel.
+
+### Files changed
+
+* `app.py` — updated Instagram credential fields, test-connect behavior, and carousel preview wording/layout.
+* `docs/PROJECT_MEMORY.md` — recorded that Instagram publishing must use the intermediary server and that Instagram has one shared carousel caption.
+* `docs/INTEGRATIONS.md` — documented intermediary credential fields and removed direct Graph publishing assumptions.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Blog Core should not publish Instagram directly through Instagram Graph API; publishing will use the project's intermediary server.
+* Per-slide headline/subtext are for image generation and visual overlay review only. The published Instagram post has one shared caption for the full carousel.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified `/sites/6/social-posts/11/instagram-carousel` contains `Single Instagram carousel caption`.
+* Verified the live preview no longer contains the old `slide-copy` per-slide caption block.
+
+### Risks / TODO
+
+* The exact intermediary publish/test endpoints still need to be wired once the API contract is provided.
+
 ## 2026-07-05 — Add real Instagram carousel creative drafts
 
 ### Summary
@@ -42,7 +77,7 @@ This file is updated by Codex after every task.
 
 ### Risks / TODO
 
-* Actual Instagram Graph publishing is still pending. This task creates the real creative assets and review surface for the publisher to consume.
+* Replaced/deprecated by 2026-07-05 intermediary decision: direct Instagram Graph publishing is not the target. This task creates the real creative assets and review surface for the intermediary publisher to consume.
 * The current social draft endpoint is synchronous; generating several images can take around a minute and should eventually move to the same background job model used for longer source-factory generation.
 
 ## 2026-07-05 — Add Pinterest social draft support

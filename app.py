@@ -642,12 +642,12 @@ def test_social_connection(provider, credentials):
             return {"ok": True, "status": "connected", "displayName": username, "message": f"Connected to Pinterest as {username}."}
 
         if provider == "instagram":
-            params = urllib.parse.urlencode({"fields": "id,username", "access_token": credentials["access_token"]})
-            data, _ = fetch_json_request(f"https://graph.facebook.com/v21.0/{urllib.parse.quote(credentials['instagram_user_id'])}?{params}")
-            username = data.get("username") or data.get("id") or "Instagram account"
-            if data.get("error"):
-                return {"ok": False, "status": "failed", "message": (data.get("error") or {}).get("message") or "Instagram token rejected."}
-            return {"ok": True, "status": "connected", "displayName": username, "message": f"Connected to Instagram as {username}."}
+            return {
+                "ok": True,
+                "status": "configured",
+                "displayName": credentials.get("instagram_profile") or "Instagram intermediary",
+                "message": "Instagram intermediary credentials are saved. Full publish test requires the intermediary API contract.",
+            }
     except urllib.error.HTTPError as e:
         detail = e.read(500).decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
         return {"ok": False, "status": "failed", "message": f"HTTP {e.code}: {detail[:220]}"}
@@ -1514,8 +1514,9 @@ SOCIAL_PROVIDER_CONFIG = {
     "instagram": {
         "label": "Instagram",
         "fields": [
-            ("access_token", "Access token", "password", "Meta/Instagram Graph API access token"),
-            ("instagram_user_id", "Instagram business account ID", "text", "1784..."),
+            ("api_key", "Intermediary API key", "password", "Third-party publishing server API key"),
+            ("api_base_url", "Intermediary API base URL", "text", "https://publisher.example.com"),
+            ("instagram_profile", "Instagram profile / route", "text", "@brand or profile id used by the intermediary"),
         ],
     },
 }
@@ -1579,7 +1580,7 @@ def social_credentials_complete(provider, credentials):
     if provider == "pinterest":
         required = ["access_token", "board_id"]
     if provider == "instagram":
-        required = ["access_token", "instagram_user_id"]
+        required = ["api_key", "api_base_url"]
     return all(str(credentials.get(key) or "").strip() for key in required)
 
 
@@ -4711,11 +4712,7 @@ def instagram_carousel_preview(site_id, post_id):
             f"""
             <article class="slide">
               <img src="{escape(image_url, quote=True)}" alt="{escape(slide.get('altText') or '', quote=True)}">
-              <div class="slide-copy">
-                <span>{escape(str(slide.get('index') or ''))}</span>
-                <strong>{escape(slide.get('headline') or '')}</strong>
-                <p>{escape(slide.get('subtext') or '')}</p>
-              </div>
+              <div class="slide-meta">Slide {escape(str(slide.get('index') or ''))} · overlay text is baked into the image</div>
             </article>
             """
         )
@@ -4727,14 +4724,14 @@ def instagram_carousel_preview(site_id, post_id):
 <meta name="robots" content="noindex,nofollow">
 <title>Instagram carousel · {escape(post['title'] or post['topic'] or post['domain'])}</title>
 <style>
-*{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#f8fafc;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}.shell{{max-width:1180px;margin:0 auto;padding:34px 18px 70px}}a{{color:#c4b5fd}}.top{{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:22px}}h1{{font-size:clamp(28px,5vw,54px);line-height:1;margin:8px 0 10px;letter-spacing:-.04em}}.muted{{color:#a6b0c3;line-height:1.5}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;margin-top:22px}}.slide{{border:1px solid rgba(255,255,255,.14);border-radius:18px;background:rgba(255,255,255,.06);overflow:hidden}}.slide img{{display:block;width:100%;aspect-ratio:4/5;object-fit:cover;background:#111827}}.slide-copy{{padding:14px}}.slide-copy span{{display:inline-flex;width:28px;height:28px;border-radius:999px;align-items:center;justify-content:center;background:#8b5cf6;font-weight:900;margin-bottom:9px}}.slide-copy strong{{display:block;font-size:17px;line-height:1.2}}.slide-copy p{{margin:8px 0 0;color:#cbd5e1;line-height:1.45}}.caption{{white-space:pre-wrap;border:1px solid rgba(255,255,255,.14);border-radius:18px;background:rgba(255,255,255,.06);padding:18px;line-height:1.5;margin-top:24px}}@media(max-width:720px){{.top{{display:block}}}}
+*{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#f8fafc;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}.shell{{max-width:1180px;margin:0 auto;padding:34px 18px 70px}}a{{color:#c4b5fd}}.top{{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:22px}}h1{{font-size:clamp(28px,5vw,54px);line-height:1;margin:8px 0 10px;letter-spacing:-.04em}}.muted{{color:#a6b0c3;line-height:1.5}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;margin-top:22px}}.slide{{border:1px solid rgba(255,255,255,.14);border-radius:18px;background:rgba(255,255,255,.06);overflow:hidden}}.slide img{{display:block;width:100%;aspect-ratio:4/5;object-fit:cover;background:#111827}}.slide-meta{{padding:10px 12px;color:#a6b0c3;font-size:12px;line-height:1.35}}.caption-wrap{{margin-top:24px}}.caption-wrap h2{{font-size:18px;margin:0 0 10px}}.caption{{white-space:pre-wrap;border:1px solid rgba(255,255,255,.14);border-radius:18px;background:rgba(255,255,255,.06);padding:18px;line-height:1.5}}@media(max-width:720px){{.top{{display:block}}}}
 </style>
 </head>
 <body>
 <main class="shell">
   <div class="top"><div><a href="/sites/{int(site_id)}#distribution">Back to dashboard</a><h1>{escape(post['title'] or post['topic'] or 'Instagram carousel')}</h1><div class="muted">{escape(post['brand_name'] or post['domain'])} · {escape(post['language'] or '')} · {len(slides)} real JPEG slides</div></div></div>
   <section class="grid">{''.join(slide_html)}</section>
-  <section class="caption">{escape(caption)}</section>
+  <section class="caption-wrap"><h2>Single Instagram carousel caption</h2><div class="caption">{escape(caption)}</div></section>
 </main>
 </body>
 </html>"""
