@@ -32,12 +32,14 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * Reddit signals use Reddit search RSS with `sort=top` and time range mapping. Only `/comments/` discussion URLs with a strong site-topic anchor and contextual title match are returned; broad matches on generic words are rejected.
 * Reddit may rate-limit with `429 Too Many Requests`; source failures are returned as API `warnings` and must not render as selectable cards.
 * The topic signal API returns `counts` and `warnings` separately from `signals`; UI should show warnings as notes only.
+* `POST /api/sites/{site_id}/article-ideas` generates reviewable idea candidates from selected Discovery signals and returns `rejectedSimilar` for topics filtered as too similar to existing site content. It must not create `content_jobs`.
+* `POST /api/sites/{site_id}/article-ideas/queue` creates `content_jobs.status=QUEUED` only for operator-selected ideas and reruns the similarity check before writing jobs.
 
 ## Jobs
 
 * `publish_jobs` stores queued/completed/failed jobs.
 * Current job kinds include `install-blog`, `topic-plan`, and `article-ideas`.
-* `article-ideas` stores selected signals and generated idea drafts as JSON in `message`.
+* `article-ideas` stores selected signals, selected idea drafts, and duplicate-filter results as JSON in `message` after ideas are queued.
 
 ## YAS Wine factory parity target
 

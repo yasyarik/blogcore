@@ -2,6 +2,45 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-05 — Add Discovery idea review before queueing
+
+### Summary
+
+* Changed Discovery from "checked signals immediately create jobs" to a two-step workflow.
+* Selected signals now generate reviewable article idea candidates first.
+* Operators can select specific generated ideas and then add only those ideas to Planned publications.
+* Added server-side similarity checks against existing imported/published and planned site content before ideas are shown and again before queueing.
+* Added compact UI for generated idea review and duplicate-filter messaging.
+
+### Files changed
+
+* `app.py` — added article idea candidate generation, duplicate similarity helpers, `/article-ideas/queue`, and Discovery idea review UI.
+* `docs/PROJECT_MEMORY.md` — recorded the durable two-step Discovery workflow and duplicate-check rule.
+* `docs/INTEGRATIONS.md` — documented the split idea-generation and queue endpoints.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* `POST /api/sites/{site_id}/article-ideas` returns ideas only and must not create `content_jobs`.
+* `POST /api/sites/{site_id}/article-ideas/queue` is the only Discovery endpoint that creates planned article jobs.
+* Duplicate checks compare generated idea titles and original signal titles against existing site topics, slugs, and published URLs.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified live SoloCruz `/article-ideas` generated ideas from selected Discovery signals without changing the planned jobs count.
+* Verified a near-duplicate SoloCruz test topic, `Best Cruises for Solo Travelers`, is rejected with `rejectedSimilar` against imported live content.
+* Verified `/article-ideas/queue` creates a `QUEUED` job on a temporary test site, then deleted the temporary site from Blog Core.
+* Verified live `/sites/7` contains `Generate article ideas`, `Article ideas to add`, `Add selected to queue`, and the `/article-ideas/queue` client call.
+
+### Risks / TODO
+
+* Similarity checking is token-based and intentionally conservative; future work can improve it with embeddings or source-factory/site-specific editorial constraints.
+
 ## 2026-07-05 — Replace news-based discovery signals
 
 ### Summary

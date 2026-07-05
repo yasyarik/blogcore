@@ -70,6 +70,8 @@ It must be updated after every meaningful task.
 * Content inventory sorting must be stable across languages. Sort imported pages by normalized base URL/path with the language prefix removed, so switching `EN/RU/ES/DE/FR` keeps the same article/topic positions when translations exist.
 * Content inventory pagination should appear only once at the bottom of the list, centered, using compact numeric links and arrow icons without `Page X of Y` wording.
 * Planned/future Blog Core publications should be visible separately from imported live pages. Show `Planned publications` at the bottom of Distribution, below the social channel settings, for `QUEUED`, `GENERATING`, `DRAFT`, and `ERROR` content jobs; imported live pages stay in Content inventory. If there are no planned jobs, keep the empty state compact.
+* Discovery must be a two-step workflow: operators select topic signals, generate article idea candidates, review/select specific ideas, then add selected ideas to Planned publications. Selecting signals alone must not immediately create planned jobs.
+* Discovery article ideas must be checked for similarity against existing imported/published and already planned site content before they are shown and again before they are queued. Topics that are too similar to existing content should be filtered or rejected instead of creating duplicate/near-duplicate planned tasks.
 * Planned generation work should be shown as one canonical task per topic/path, not as separate tasks per language. The task should generate the site's configured languages. Legacy per-language factory rows may be preserved in the database for traceability, but the dashboard should collapse them by canonical group/base path and show extra old languages only as legacy variants.
 * Planned task groups should support bulk operations from the dashboard. Bulk generate runs selected canonical tasks one by one from the browser to avoid long single-request timeouts. Bulk delete removes selected planned groups from Blog Core records/logs/social drafts only; it must not delete live source-site files.
 * Long-running generation must show persistent in-page progress, not only a toast. When a task reaches `DRAFT`, the dashboard must provide a `Preview draft` action that opens the generated HTML before publishing.
@@ -107,6 +109,7 @@ It must be updated after every meaningful task.
 * Generated sample blog/article content is placeholder-level and should not be treated as final editorial content. Existing blogs can be imported as `content_jobs.status=IMPORTED` while preserving original slugs, canonical/source URLs, metadata, and saved HTML.
 * Legacy factory job migrations should preserve old factory IDs and target paths in `sources_json`; unfinished old `NEW` jobs should become Blog Core planned jobs (`QUEUED`) rather than imported live pages.
 * Article ideas generated from trend/discussion signals are queued as jobs and should connect audience problems/questions to the site's offer, expertise, or editorial point of view.
+* Article idea generation from Discovery signals should not create `content_jobs` directly. Only the selected ideas submitted through the queue step should create `content_jobs.status=QUEUED`.
 * Final publishing parity is still incomplete: local static `/blog` install writes the sample shell, while hosted rendering can serve imported/generated content jobs.
 * For imported blogs, the target behavior is not a public Blog Core mirror. Imported content should let Blog Core understand, display, manage, update, and create tasks for the existing blog while preserving the original live URL structure. The original site URL remains the canonical/authoritative destination unless an explicit cutover is requested.
 * For imported local sites, distinguish Blog Core dashboard UI from the source site's public UI. Fixes requested against `https://yas.wine/blog/` usually require editing `/var/www/yaswine`, not only Blog Core's `/sites/<id>` dashboard.
@@ -236,6 +239,13 @@ It must be updated after every meaningful task.
 * Reason: Blog Core Discovery should find broad popular topic demand, not local news, events, festivals, campaigns, or trade promotions.
 * Files/areas affected: `app.py` topic signal API/UI, `docs/INTEGRATIONS.md`.
 * Replaced/deprecated: Treating Google News RSS results as trend/topic signals.
+
+### 2026-07-05 — Discovery ideas are reviewed before queueing
+
+* Decision: Discovery now separates signal selection, article idea generation, operator idea selection, and queue creation. Similarity checks run before ideas are shown and again before selected ideas become planned jobs.
+* Reason: Operators need to choose from generated article topics, and Blog Core must avoid suggesting/queueing near-duplicates of already published/imported or planned site content.
+* Files/areas affected: `app.py` Discovery API/UI and `content_jobs` queue creation.
+* Replaced/deprecated: Immediately creating `content_jobs` from checked Discovery signals.
 
 ## 9. Do not repeat
 

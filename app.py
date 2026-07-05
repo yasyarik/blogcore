@@ -3103,22 +3103,154 @@ def fetch_reddit_signals(site, range_key):
         warnings.append("No relevant Reddit top discussions found for this site topic and period.")
     return signals, warnings
 
-def generate_article_ideas(site, signals):
-    seed = site_topic_seed(site)
-    brand = site["brand_name"] or site["domain"]
+IDEA_DUPLICATE_THRESHOLD = 0.68
+
+
+def idea_tokens(text):
+    stop = {
+        "about", "after", "and", "are", "best", "blog", "for", "from", "guide", "guides", "how", "into",
+        "the", "this", "tips", "to", "using", "what", "when", "with", "your", "you",
+    }
+    words = []
+    for word in re.findall(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,}", (text or "").lower()):
+        if word in stop:
+            continue
+        if word.endswith("s") and len(word) > 4:
+            word = word[:-1]
+        if word not in words:
+            words.append(word)
+    return words
+
+
+def idea_similarity(left, right):
+    left_tokens = set(idea_tokens(left))
+    right_tokens = set(idea_tokens(right))
+    if not left_tokens or not right_tokens:
+        return 0.0
+    overlap = left_tokens & right_tokens
+    jaccard = len(overlap) / len(left_tokens | right_tokens)
+    coverage = len(overlap) / min(len(left_tokens), len(right_tokens))
+    return max(jaccard, coverage * 0.82)
+
+
+def existing_topic_index(site_id):
+    with db() as conn:
+        rows = conn.execute(
+            """
+            select id, status, topic, slug, title, description, category, published_url, sources_json
+            from content_jobs
+            where site_id=?
+            """,
+            (site_id,),
+        ).fetchall()
+    index = []
+    for row in rows:
+        sources = parse_json_object(row["sources_json"])
+        page_type = content_job_page_type(row)
+        title = row["title"] or row["topic"] or sources.get("title") or ""
+        slug_text = " ".join((row["slug"] or "").replace("-", " ").split("/"))
+        url_text = " ".join(urllib.parse.urlsplit(row["published_url"] or "").path.replace("-", " ").split("/"))
+        comparable = " ".join([title, row["topic"] or "", slug_text, url_text]).strip()
+        if comparable:
+            index.append({
+                "id": row["id"],
+                "title": title or row["topic"] or row["slug"] or row["id"],
+                "status": row["status"],
+                "url": row["published_url"] or "",
+                "pageType": page_type,
+                "comparable": comparable,
+            })
+    return index
+
+
+def find_similar_existing_topic(idea, existing_index):
+    comparables = [idea.get("title") or "", idea.get("source_title") or ""]
+    best = None
+    for existing in existing_index:
+        score = max(idea_similarity(text, existing["comparable"]) for text in comparables if text)
+        if best is None or score > best["score"]:
+            best = {**existing, "score": round(score, 3)}
+    if best and best["score"] >= IDEA_DUPLICATE_THRESHOLD:
+        return best
+    return None
+
+
+def title_case_phrase(text):
+    small = {"a", "an", "and", "as", "at", "for", "in", "of", "on", "or", "the", "to", "vs", "with"}
+    words = re.split(r"(\s+)", (text or "").strip())
+    cased = []
+    word_index = 0
+    for part in words:
+        if not part or part.isspace():
+            cased.append(part)
+            continue
+        lower = part.lower()
+        if word_index > 0 and lower in small:
+            cased.append(lower)
+        else:
+            cased.append(lower[:1].upper() + lower[1:])
+        word_index += 1
+    return "".join(cased).strip()
+
+
+def article_idea_candidates_for_signal(signal, brand, seed):
+    raw = re.sub(r"\s+", " ", signal.get("title", "")).strip()
+    if not raw:
+        return []
+    clean = re.sub(r"\b(202[0-9]|reddit|youtube)\b", "", raw, flags=re.I)
+    clean = re.sub(r"\s+", " ", clean).strip(" -:")
+    if not clean:
+        return []
+    base = title_case_phrase(clean)
+    lower = clean.lower()
+    candidates = []
+    if lower.startswith(("how to ", "what ", "why ", "is ", "are ")):
+        candidates.append(base)
+    else:
+        candidates.append(f"{base}: What to Know Before Booking")
+    if not lower.startswith("how to ") and len(idea_tokens(clean)) >= 2:
+        candidates.append(f"How to Choose {base}")
+    if "tips" not in lower and "guide" not in lower:
+        candidates.append(f"{base}: Costs, Safety, and Practical Tips")
     ideas = []
-    for signal in signals[:12]:
-        title = re.sub(r"\s+", " ", signal.get("title", "")).strip()
-        if not title or signal.get("disabled"):
+    for title in candidates:
+        title = re.sub(r"\s+", " ", title).strip()
+        if not title:
             continue
         ideas.append({
             "title": title,
-            "angle": f"Use this broad signal as the hook for a generalizable article, answer the underlying buyer or reader question, avoid making the piece about a single city/event/festival, then connect the solution to {brand}'s offer, expertise, or editorial point of view around {seed}.",
+            "angle": f"Use the selected topic signal to answer a durable reader question, avoid a single city/event/news angle, and connect the article to {brand}'s offer, expertise, or editorial point of view around {seed}.",
             "source": signal.get("source"),
-            "source_title": title,
+            "source_title": raw,
             "source_url": signal.get("url", ""),
+            "contentType": "blog",
         })
     return ideas
+
+
+def generate_article_ideas(site, signals, existing_index=None):
+    seed = site_topic_seed(site)
+    brand = site["brand_name"] or site["domain"]
+    ideas = []
+    rejected = []
+    seen_titles = set()
+    existing_index = existing_index if existing_index is not None else existing_topic_index(site["id"])
+    for signal in signals[:12]:
+        if signal.get("disabled"):
+            continue
+        for idea in article_idea_candidates_for_signal(signal, brand, seed):
+            key = simple_slug(idea["title"])
+            if key in seen_titles:
+                continue
+            seen_titles.add(key)
+            similar = find_similar_existing_topic(idea, existing_index)
+            if similar:
+                rejected.append({"idea": idea, "similar": similar})
+                continue
+            ideas.append(idea)
+            if len(ideas) >= 24:
+                return ideas, rejected
+    return ideas, rejected
 
 
 def _parse_json_text(text):
@@ -3754,17 +3886,58 @@ def create_article_ideas(site_id):
     signals = payload.get("signals") or []
     if not isinstance(signals, list) or not signals:
         return jsonify({"error": "select at least one trend or discussion"}), 400
-    ideas = generate_article_ideas(site, signals)
+    ideas, rejected = generate_article_ideas(site, signals)
     if not ideas:
-        return jsonify({"error": "no usable selected signals"}), 400
-    message = json.dumps({"range": payload.get("range") or "week", "signals": signals, "ideas": ideas}, ensure_ascii=False)
+        return jsonify({"error": "no new usable article ideas after duplicate checks", "rejectedSimilar": rejected}), 400
+    return jsonify({"ok": True, "ideas": ideas, "rejectedSimilar": rejected, "counts": {"ideas": len(ideas), "rejectedSimilar": len(rejected)}})
+
+
+@app.post("/api/sites/<int:site_id>/article-ideas/queue")
+def queue_article_ideas(site_id):
+    site = get_site(site_id)
+    if not site:
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    ideas = payload.get("ideas") or []
+    if not isinstance(ideas, list) or not ideas:
+        return jsonify({"error": "select at least one article idea"}), 400
+    existing_index = existing_topic_index(site_id)
+    clean_ideas = []
+    rejected = []
+    seen = set()
+    for idea in ideas[:50]:
+        if not isinstance(idea, dict):
+            continue
+        title = re.sub(r"\s+", " ", str(idea.get("title") or "")).strip()
+        if not title:
+            continue
+        key = simple_slug(title)
+        if key in seen:
+            continue
+        seen.add(key)
+        clean = {
+            "title": title,
+            "angle": re.sub(r"\s+", " ", str(idea.get("angle") or "")).strip(),
+            "source": idea.get("source") or "discovery",
+            "source_title": idea.get("source_title") or "",
+            "source_url": idea.get("source_url") or "",
+            "contentType": idea.get("contentType") or "blog",
+        }
+        similar = find_similar_existing_topic(clean, existing_index)
+        if similar:
+            rejected.append({"idea": clean, "similar": similar})
+            continue
+        clean_ideas.append(clean)
+    if not clean_ideas:
+        return jsonify({"error": "all selected ideas are too similar to existing site content", "rejectedSimilar": rejected}), 400
+    message = json.dumps({"range": payload.get("range") or "week", "signals": payload.get("signals") or [], "ideas": clean_ideas, "rejectedSimilar": rejected}, ensure_ascii=False)
     created_jobs = []
     with db() as conn:
         conn.execute(
             "insert into publish_jobs(site_id,kind,status,message,created_at) values(?,?,?,?,?)",
             (site_id, "article-ideas", "queued", message, now_iso()),
         )
-        for idea in ideas:
+        for idea in clean_ideas:
             title = idea.get("title") or "Article idea"
             job_id = secrets.token_hex(12)
             slug = simple_slug(title)
@@ -3793,10 +3966,10 @@ def create_article_ideas(site_id):
             )
             conn.execute(
                 "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
-                (site_id, job_id, now, "INFO", "queue", "Created from selected topic signal"),
+                (site_id, job_id, now, "INFO", "queue", "Created from selected Discovery article idea"),
             )
             created_jobs.append({"id": job_id, "title": title, "slug": slug})
-    return jsonify({"ok": True, "ideas": ideas, "jobs": created_jobs})
+    return jsonify({"ok": True, "ideas": clean_ideas, "jobs": created_jobs, "rejectedSimilar": rejected})
 
 
 @app.get("/api/sites/<int:site_id>/factory-settings")
@@ -4228,6 +4401,14 @@ MANAGE_SITE_HTML = """<!doctype html>
 *{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 20% 0,#3b1a75 0,transparent 38%),radial-gradient(circle at 78% 15%,#0d7a65 0,transparent 28%),#0b1020;color:var(--text);min-height:100vh}a{color:inherit}.shell{max-width:1180px;margin:0 auto;padding:38px 22px 90px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.top-actions{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}.site-switcher{display:flex;flex-direction:column;gap:6px;min-width:260px}.site-switcher span{font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900}.site-switcher select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.75);color:#fff;padding:13px 14px;font-size:14px;outline:none}.back{color:#d8cdfd;text-decoration:none;font-weight:900}.title{font-size:clamp(36px,5vw,64px);letter-spacing:-.05em;line-height:.95;margin:14px 0 8px}.sub,.muted{color:var(--muted);font-size:14px;line-height:1.5}.grid{display:grid;grid-template-columns:1fr;gap:18px}.settings-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.settings-toggle{width:48px;height:48px;border-radius:999px;font-size:22px;padding:0}.settings-panel[hidden]{display:none}.compact-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.signal-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.signal-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.signal-card{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px}.signal-card input{width:18px;height:18px;margin-top:2px}.import-list{display:grid;gap:10px;margin-top:14px}.import-row{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px}.import-row input{width:18px;height:18px;margin-top:2px}.import-row strong{display:block;font-size:14px}.import-row span{display:block;color:var(--muted);font-size:12px;margin-top:4px;word-break:break-all}.signal-card strong{display:block;font-size:15px;line-height:1.25}.signal-card span{display:block;color:var(--muted);font-size:12px;margin-top:5px}.source-pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:4px 8px;margin-bottom:7px;color:#d8cdfd;font-size:11px;font-weight:900;text-transform:uppercase}.loading{color:var(--muted);padding:18px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38)}.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:0 22px 90px rgba(0,0,0,.32);backdrop-filter:blur(22px);border-radius:24px;padding:22px;margin:18px 0}.panel h2{margin:0 0 14px;font-size:22px;letter-spacing:-.03em}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field.full{grid-column:1 / -1}.field label{display:block;font-size:12px;color:#d8cdfd;text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:0 0 7px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:14px;background:rgba(3,7,18,.55);color:#fff;padding:13px 14px;font-size:14px;outline:none}.field textarea{min-height:108px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:6px}.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(139,92,246,.9);box-shadow:0 0 0 4px rgba(139,92,246,.18)}.check{display:flex;align-items:center;gap:10px;padding:12px 0;color:#fff;font-weight:800}.check input{width:18px;height:18px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn,button{border:0;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#22c55e);color:#fff;font-weight:900;padding:13px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:42px}.btn.ghost,button.ghost{background:rgba(255,255,255,.08);border:1px solid var(--line)}.danger{background:rgba(239,68,68,.16);border:1px solid rgba(239,68,68,.45);color:#fecaca}.stat{border:1px solid var(--line);border-radius:18px;background:rgba(8,13,29,.48);padding:16px;margin-top:12px}.stat strong{display:block;font-size:15px;margin-bottom:6px}.swatches{display:flex;gap:7px;flex-wrap:wrap}.swatch{display:inline-block;width:28px;height:28px;border-radius:999px;border:1px solid rgba(255,255,255,.35)}.job-row{display:grid;grid-template-columns:1fr auto;gap:8px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.45);padding:14px;margin-top:10px}.job-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.production-panel{border-color:rgba(139,92,246,.35)}.panel-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.channel-checks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.check.compact{padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38)}.channel-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.channel-card{border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.45);padding:12px}.channel-card strong{display:block}.channel-card span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.social-statuses{grid-column:1 / -1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.social-statuses span{border:1px solid var(--line);border-radius:999px;padding:6px 8px;background:rgba(255,255,255,.06)}.job-row p{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow-wrap:anywhere}.status{border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.1);font-size:12px}.status.completed{background:rgba(34,197,94,.18);color:#bbf7d0}.status.failed{background:rgba(239,68,68,.18);color:#fecaca}.status.queued{background:rgba(139,92,246,.18);color:#ddd6fe}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 20px 80px rgba(0,0,0,.4);display:none;max-width:min(720px,calc(100vw - 32px));z-index:10}.toast.show{display:block}@media(max-width:900px){.top,.grid,.compact-grid{display:block}.channel-checks,.channel-grid,.social-statuses{grid-template-columns:1fr}.top-actions{justify-content:flex-start;margin-top:18px}.site-switcher{min-width:0;width:100%}.form-grid,.signal-list{grid-template-columns:1fr}.shell{padding:28px 16px 70px}}
 </style>
 <style>
+.idea-stage{margin-top:18px}
+.idea-stage h3{margin:0 0 6px;font-size:18px}
+.idea-list{display:grid;gap:10px;margin-top:14px}
+.idea-row{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.48);padding:14px}
+.idea-row input{width:18px;height:18px;margin-top:2px}
+.idea-row strong{display:block;font-size:15px;line-height:1.25}
+.idea-row span{display:block;color:var(--muted);font-size:12px;line-height:1.4;margin-top:5px}
+.idea-row em{display:block;color:#d8cdfd;font-size:11px;font-style:normal;margin-top:7px}
 .content-toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:14px 0 8px;flex-wrap:wrap}
 .language-switcher,.type-switcher{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .type-switcher{justify-content:flex-end}
@@ -4388,10 +4569,11 @@ button[disabled]{opacity:.55;cursor:not-allowed}
       <button class="ghost" data-range="month" onclick="loadSignals('month')">Month</button>
       <button class="ghost" data-range="3m" onclick="loadSignals('3m')">3 months</button>
       <button class="ghost" data-range="6m" onclick="loadSignals('6m')">6 months</button>
-      <button onclick="createIdeasFromSignals()">Create article ideas</button>
+      <button onclick="createIdeasFromSignals()">Generate article ideas</button>
     </div>
     <div id="signalQuery" class="muted"></div>
     <div id="signals" class="loading">Loading topic signals...</div>
+    <div id="articleIdeaResult" class="idea-stage" hidden></div>
   </section>
   </div>
 
@@ -4404,8 +4586,9 @@ button[disabled]{opacity:.55;cursor:not-allowed}
 </main>
 <div id="toast" class="toast"></div>
 <script>
-const SITE_ID=__SITE_ID__;let currentSignals=[];let currentRange='week';
+const SITE_ID=__SITE_ID__;let currentSignals=[];let currentIdeas=[];let currentRange='week';
 function showToast(text){const toast=document.getElementById('toast');toast.textContent=text;toast.className='toast show';}
+function escapeHtml(text){return String(text||'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
 function toggleSettings(){const panel=document.getElementById('settingsPanel');panel.hidden=!panel.hidden;}
 function showTab(name){document.querySelectorAll('.tab').forEach(tab=>{const active=tab.dataset.tab===name;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',active?'true':'false');});document.querySelectorAll('.tab-panel').forEach(panel=>{panel.hidden=panel.dataset.panel!==name;});if(location.hash!=='#'+name){history.replaceState(null,'','#'+name);}}
 document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>showTab(tab.dataset.tab)));
@@ -4415,9 +4598,11 @@ async function queueTopicPlan(id){showToast('Queueing topic plan...');try{const 
 async function checkCname(id){showToast('Checking CNAME...');try{const res=await fetch('/api/sites/'+id+'/check-cname',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('CNAME status: '+data.status);setTimeout(()=>location.reload(),900);}catch(e){showToast('CNAME check failed: '+e.message);}}
 async function deleteSite(id, domain){if(!confirm('Remove '+domain+' from Blog Core? Installed /blog files on the site will not be deleted.')) return;showToast('Deleting '+domain+'...');try{const res=await fetch('/api/sites/'+id+'/delete',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);location.href='/';}catch(e){showToast('Delete failed: '+e.message);}}
 function sourceLabel(source){return source==='popular_search'||source==='google_trends'?'Popular searches':'Reddit top discussions';}
-function renderSignals(items){const box=document.getElementById('signals');currentSignals=(items||[]).filter(item=>!item.disabled);if(!currentSignals.length){box.className='loading';box.textContent='No usable signals found for this site topic.';return;}box.className='signal-list';box.innerHTML=currentSignals.map((item,index)=>`<label class="signal-card"><input type="checkbox" data-index="${index}"><div><em class="source-pill">${sourceLabel(item.source)}</em><strong>${item.title}</strong><span>${item.meta||''}</span></div></label>`).join('');}
+function renderSignals(items){const box=document.getElementById('signals');currentSignals=(items||[]).filter(item=>!item.disabled);if(!currentSignals.length){box.className='loading';box.textContent='No usable signals found for this site topic.';return;}box.className='signal-list';box.innerHTML=currentSignals.map((item,index)=>`<label class="signal-card"><input type="checkbox" data-index="${index}"><div><em class="source-pill">${escapeHtml(sourceLabel(item.source))}</em><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.meta||'')}</span></div></label>`).join('');}
 async function loadSignals(range){currentRange=range||'week';const box=document.getElementById('signals');box.className='loading';box.textContent='Loading popular topic suggestions and Reddit top discussions...';try{const res=await fetch('/api/sites/'+SITE_ID+'/topic-signals?range='+encodeURIComponent(currentRange));const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const counts=data.counts||{};const warnings=(data.warnings||[]).length?' · Notes: '+data.warnings.join(' · '):'';document.getElementById('signalQuery').textContent='Topic query: '+data.query+' · range: '+data.range+' · signals: '+(counts.total??(data.signals||[]).length)+warnings;renderSignals(data.signals);}catch(e){box.className='loading';box.textContent='Topic discovery failed: '+e.message;}}
-async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}showToast('Creating article jobs...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Article jobs queued: '+(data.jobs||[]).length);setTimeout(()=>location.reload(),900);}catch(e){showToast('Article ideas failed: '+e.message);}}
+function renderArticleIdeas(ideas,rejected){const box=document.getElementById('articleIdeaResult');currentIdeas=ideas||[];box.hidden=false;if(!currentIdeas.length){box.className='loading idea-stage';box.textContent='No new article ideas after checking existing content.';return;}const rejectedNote=(rejected&&rejected.length)?'<div class="hint">Filtered '+rejected.length+' ideas because they are too similar to already imported/published or planned site content.</div>':'';box.className='idea-stage';box.innerHTML='<div class="panel-title-row"><div><h3>Article ideas to add</h3><div class="muted">Review the generated topics. Only checked ideas will be added to Planned publications.</div></div><div class="actions"><button type="button" onclick="queueSelectedArticleIdeas()">Add selected to queue</button></div></div>'+rejectedNote+'<div class="idea-list">'+currentIdeas.map((idea,index)=>`<label class="idea-row"><input type="checkbox" data-index="${index}" checked><div><strong>${escapeHtml(idea.title)}</strong><span>${escapeHtml(idea.angle||'')}</span><em>${escapeHtml(idea.source_title||'')}</em></div></label>`).join('')+'</div>';}
+async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}const box=document.getElementById('articleIdeaResult');box.hidden=false;box.className='loading idea-stage';box.textContent='Generating article ideas and checking existing site content...';showToast('Generating article ideas...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);renderArticleIdeas(data.ideas||[],data.rejectedSimilar||[]);showToast('Article ideas ready: '+((data.ideas||[]).length));}catch(e){box.className='loading idea-stage';box.textContent='Article ideas failed: '+e.message;showToast('Article ideas failed: '+e.message);}}
+async function queueSelectedArticleIdeas(){const selected=[...document.querySelectorAll('#articleIdeaResult input[type="checkbox"]:checked')].map(input=>currentIdeas[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one article idea');return;}showToast('Adding selected ideas to queue...');try{const signalSelection=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:signalSelection,ideas:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const rejected=(data.rejectedSimilar||[]).length;showToast('Queued '+(data.jobs||[]).length+' article ideas'+(rejected?' · skipped '+rejected+' similar':'')+'. Reloading...');setTimeout(()=>{location.hash='#distribution';location.reload();},1200);}catch(e){showToast('Queue failed: '+e.message);}}
 async function generateArticleJob(jobId){showToast('Generating draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);if(data.status==='GENERATING'){showToast('Generation started in source factory. Refreshing status...');setTimeout(()=>location.reload(),1800);}else{showToast('Draft generated: '+(data.slug||jobId));setTimeout(()=>location.reload(),900);}}catch(e){showToast('Generation failed: '+e.message);}}
 function selectedPlannedTasks(){return [...document.querySelectorAll('.planned-select:checked')].map(input=>({groupId:input.value,jobId:input.dataset.jobId})).filter(item=>item.groupId);}
 function selectedPlannedGroupIds(){return selectedPlannedTasks().map(item=>item.groupId);}
