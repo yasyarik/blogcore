@@ -2,6 +2,41 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-05 — Tighten Instagram caption target length
+
+### Summary
+
+* Kept Instagram's technical hard caption limit at 2200 characters.
+* Added a practical generated-caption target of 700 characters for Instagram carousel drafts.
+* Updated the Instagram prompt to produce compact captions with one hook, short context, one CTA, and at most three hashtags.
+* Made normalization shorten Instagram captions to the practical target instead of only checking the hard limit.
+
+### Files changed
+
+* `app.py` — added Instagram target character limit and tightened prompt/normalization/validation.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that Instagram captions should be much shorter than the hard limit.
+* `docs/INTEGRATIONS.md` — documented the 700-character target alongside the 2200-character hard limit.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* The hard limit protects against API rejection; the 700-character target protects feed readability.
+* Carousel slide images should carry the detailed story; the shared caption should stay compact.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Updated the existing test Instagram draft `social_posts.id=11` from 1113 chars to a 279-char caption while keeping the same generated slides.
+* Verified `/sites/6/social-posts/11/instagram-carousel` renders the shorter caption.
+
+### Risks / TODO
+
+* Other existing Instagram social draft rows, if any, are not automatically regenerated unless explicitly updated or recreated.
+
 ## 2026-07-05 — Clarify Instagram intermediary and caption model
 
 ### Summary

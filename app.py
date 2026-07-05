@@ -1530,6 +1530,10 @@ SOCIAL_CHANNEL_LIMITS = {
     "instagram": 2200,
 }
 
+SOCIAL_CHANNEL_TARGET_CHARS = {
+    "instagram": 700,
+}
+
 SOCIAL_CHANNEL_STYLE = {
     "linkedin": "professional insight post with a clear hook, practical takeaways, and no clickbait",
     "telegram": "direct channel post with short paragraphs and a practical reason to open the article",
@@ -1873,7 +1877,7 @@ def fallback_instagram_carousel(site, job, language, include_link, article_url):
         f"{title}\n\n{description}\n\nSave this carousel for later.",
         article_url,
         include_link,
-        SOCIAL_CHANNEL_LIMITS["instagram"],
+        SOCIAL_CHANNEL_TARGET_CHARS["instagram"],
     )
     slide_templates = [
         ("cover", title, "Swipe for the practical breakdown."),
@@ -1912,6 +1916,8 @@ def build_instagram_carousel_prompt(site, job, language, include_link, article_u
     language_name = LANGUAGE_NAMES.get(language, language.upper())
     source_text = social_source_text(job, limit=6500)
     link_rule = "Include the article URL exactly once at the end of caption." if include_link and article_url else "Do not include any URL."
+    target_chars = SOCIAL_CHANNEL_TARGET_CHARS["instagram"]
+    hard_limit = SOCIAL_CHANNEL_LIMITS["instagram"]
     return f"""
 You are turning an article into a native Instagram carousel for {brand}.
 
@@ -1939,7 +1945,10 @@ CAROUSEL RULES:
 - Every slide subtext <= 140 characters.
 - Every slide imagePrompt <= 700 characters and must describe the visual background/scene for that slide.
 - Every slide altText <= 250 characters.
-- Caption <= 2200 characters.
+- Caption target <= {target_chars} characters.
+- Caption hard maximum <= {hard_limit} characters.
+- Keep caption compact: 1 short hook, 1-2 useful context lines, 1 save/share CTA, and at most 3 hashtags.
+- Do not summarize every slide in the caption; the slides already carry the detail.
 - No unsupported claims, fake statistics, fake screenshots, tiny text, or cluttered UI.
 - No markdown. No variants.
 
@@ -1960,7 +1969,7 @@ def normalize_instagram_carousel(carousel, site, job, language, include_link, ar
     if not isinstance(carousel, dict):
         carousel = {}
     caption = social_normalize_text(carousel.get("caption") or fallback["caption"])
-    caption = social_text_with_optional_link(caption, article_url, include_link, SOCIAL_CHANNEL_LIMITS["instagram"])
+    caption = social_text_with_optional_link(caption, article_url, include_link, SOCIAL_CHANNEL_TARGET_CHARS["instagram"])
     raw_slides = carousel.get("slides") if isinstance(carousel.get("slides"), list) else fallback["slides"]
     slides = []
     for idx, raw in enumerate(raw_slides[:10], start=1):
@@ -1998,7 +2007,11 @@ def normalize_instagram_carousel(carousel, site, job, language, include_link, ar
 def validate_instagram_carousel(carousel):
     result = {
         "ok": True,
-        "caption": {"charCount": len(carousel.get("caption") or ""), "maxChars": SOCIAL_CHANNEL_LIMITS["instagram"]},
+        "caption": {
+            "charCount": len(carousel.get("caption") or ""),
+            "maxChars": SOCIAL_CHANNEL_LIMITS["instagram"],
+            "targetChars": SOCIAL_CHANNEL_TARGET_CHARS["instagram"],
+        },
         "slides": [],
         "slideCount": len(carousel.get("slides") or []),
         "maxSlides": 10,
