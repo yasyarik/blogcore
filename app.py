@@ -1567,7 +1567,7 @@ SOCIAL_CHANNEL_STYLE = {
     "tumblr": "short editorial micro-post with a natural blog-style intro",
     "pinterest": "native Pinterest pin description with a visual hook, useful caption, and no clickbait",
     "instagram": "native Instagram carousel caption with concise context, no clickbait, and a clear save/share cue",
-    "threads": "concise conversational Threads post, one clear thought, at most one hashtag",
+    "threads": "native Threads post: conversational, opinionated or question-led, not promotional copy, at most one hashtag",
 }
 
 LANGUAGE_NAMES = {
@@ -1831,6 +1831,95 @@ def validate_threads_post_text(text, max_bytes):
         "maxBytes": max_bytes,
         "remainingBytes": max_bytes - byte_count,
     }
+
+
+def build_threads_post_prompt(site, job, language, max_bytes, include_link, article_url):
+    brand = site["brand_name"] or site["domain"]
+    language_name = LANGUAGE_NAMES.get(language, language.upper())
+    source_text = social_source_text(job, limit=4500)
+    link_rule = "Include the article URL only if it still fits naturally." if include_link and article_url else "Do not include any URL."
+    return f"""
+You are writing a native Threads post for {brand}.
+
+This is not LinkedIn, not an ad, and not a summary paragraph.
+
+LANGUAGE:
+- Write in {language_name}.
+
+ARTICLE:
+- title: {job['title'] or job['topic']}
+- description: {job['description'] or ''}
+- source excerpt: {source_text[:4500]}
+- article URL: {article_url or 'none'}
+- link rule: {link_rule}
+
+THREADS STYLE:
+- Hard limit: {max_bytes} UTF-8 bytes.
+- Start with a question, tension, or conversational observation.
+- Make it feel like a human thought that invites replies.
+- Use 1 to 3 short sentences.
+- Do not list benefits.
+- Do not sound like paid ad copy.
+- Do not say "boost conversions" unless the article context makes it unavoidable.
+- Use at most one hashtag, and only if it feels natural.
+- No markdown. No variants.
+
+RETURN STRICT JSON ONLY:
+{{"text":"final Threads post text"}}
+""".strip()
+
+
+def fallback_threads_post_text(site, job, language, include_link, article_url):
+    title = job["title"] or job["topic"] or "this"
+    if language == "ru":
+        text = f"UGC для магазина все еще выглядит как реклама, если в нем нет ощущения реального человека. Что вы проверяете первым: картинку товара или контекст вокруг нее?"
+    elif language == "es":
+        text = "El UGC generado con IA solo funciona si parece una decision real de compra, no otro anuncio pulido. Que miras primero: el producto o el contexto?"
+    elif language == "de":
+        text = "AI-UGC funktioniert nur, wenn es nach echter Kaufentscheidung aussieht, nicht nach noch einer glatten Anzeige. Was pruefst du zuerst: Produkt oder Kontext?"
+    elif language == "fr":
+        text = "L'UGC genere par IA marche seulement s'il ressemble a une vraie decision d'achat, pas a une pub de plus. Vous regardez d'abord le produit ou le contexte?"
+    else:
+        text = "AI-generated UGC only works when it feels like a real buying moment, not another polished ad. What do you check first: the product or the context around it?"
+    return threads_text_with_optional_link(text, article_url, include_link, SOCIAL_CHANNEL_LIMITS["threads"])
+
+
+def latest_instagram_slide_media(site_id, job_id):
+    with db() as conn:
+        row = conn.execute(
+            "select content_json from social_posts where site_id=? and job_id=? and channel='instagram' and status='DRAFT' order by id desc limit 1",
+            (site_id, job_id),
+        ).fetchone()
+    payload = parse_json_object(row["content_json"] if row else "{}")
+    carousel = payload.get("instagramCarousel") if isinstance(payload.get("instagramCarousel"), dict) else {}
+    for slide in carousel.get("slides") or []:
+        if isinstance(slide, dict) and slide.get("imageUrl"):
+            return {
+                "mediaUrls": [slide["imageUrl"]],
+                "mediaSource": "instagramCarousel",
+                "mediaMimeType": slide.get("imageMimeType") or "image/jpeg",
+            }
+    return {"mediaUrls": [], "mediaSource": "", "mediaMimeType": ""}
+
+
+def generate_threads_post_draft(site_id, job_id, site, job, language, include_link, article_url):
+    max_bytes = SOCIAL_CHANNEL_LIMITS["threads"]
+    try:
+        data = _gemini_text_json(build_threads_post_prompt(site, job, language, max_bytes, include_link, article_url))
+        text = social_normalize_text(data.get("text") or "")
+    except Exception:
+        text = ""
+    if not text:
+        text = fallback_threads_post_text(site, job, language, include_link, article_url)
+    text = threads_text_with_optional_link(text, article_url, include_link, max_bytes)
+    validation = validate_threads_post_text(text, max_bytes)
+    if not validation["ok"]:
+        text = social_shorten_to_utf8_limit(text, max_bytes)
+        validation = validate_threads_post_text(text, max_bytes)
+    if not validation["ok"]:
+        raise ValueError("Threads post exceeds 500 UTF-8 bytes")
+    media = latest_instagram_slide_media(site_id, job_id)
+    return text, validation, {"threads": media}
 
 
 def generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url):
@@ -2258,9 +2347,12 @@ def generate_social_drafts(site_id, job_id, channels=None):
                     extra_payload["instagramCarousel"],
                 )
                 char_count = validation["caption"]["charCount"]
+            elif channel == "threads":
+                text, validation, extra_payload = generate_threads_post_draft(site_id, job_id, site, job, language, include_link, article_url)
+                char_count = validation["byteCount"]
             else:
                 text, validation = generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
-                char_count = validation["byteCount"] if channel == "threads" else validation["charCount"]
+                char_count = validation["charCount"]
             payload = {
                 "source": "gemini_or_fallback",
                 "channel": channel,
@@ -2302,6 +2394,8 @@ def generate_social_drafts(site_id, job_id, channels=None):
             if channel == "instagram":
                 result.update(extra_payload)
                 result["previewUrl"] = f"/sites/{int(site_id)}/social-posts/{int(cursor.lastrowid)}/instagram-carousel"
+            if channel == "threads":
+                result.update(extra_payload)
             results.append(result)
         if status_updates:
             assignments = ", ".join(f"{key}=?" for key in status_updates)
@@ -3063,6 +3157,17 @@ def instagram_carousel_preview_button(site_id, job_id):
     return f"<a class='ghost mini-action social-preview-action' target='_blank' href='/sites/{int(site_id)}/social-posts/{int(row['id'])}/instagram-carousel'>IG carousel</a>"
 
 
+def threads_post_preview_button(site_id, job_id):
+    with db() as conn:
+        row = conn.execute(
+            "select id from social_posts where site_id=? and job_id=? and channel='threads' and status='DRAFT' order by id desc limit 1",
+            (site_id, job_id),
+        ).fetchone()
+    if not row:
+        return ""
+    return f"<a class='ghost mini-action social-preview-action' target='_blank' href='/sites/{int(site_id)}/social-posts/{int(row['id'])}/threads'>Threads</a>"
+
+
 def draft_preview_button(site_id, job_id):
     return f"<a class='ghost mini-action draft-preview-action' target='_blank' href='/sites/{int(site_id)}/content-jobs/{escape(job_id, quote=True)}/preview'>Preview draft</a>"
 
@@ -3144,7 +3249,7 @@ def render_planned_publications(rows, site_languages=None):
         if status in {"QUEUED", "ERROR"}:
             action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate</button>"
         elif status == "DRAFT":
-            action = draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
+            action = draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
         items.append(
             f"""
             <div class="planned-row" data-group-id="{escape(group['id'], quote=True)}">
@@ -3170,7 +3275,7 @@ def render_content_jobs(content_page):
         status_class = escape(status.lower())
         if status == "IMPORTED":
             status_label = "LIVE / IMPORTED"
-            action = instagram_carousel_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
+            action = instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
             descriptor = "Already published on the source site"
         elif status in {"QUEUED", "ERROR"}:
             status_label = status
@@ -3178,11 +3283,11 @@ def render_content_jobs(content_page):
             descriptor = "New Blog Core task"
         elif status == "DRAFT":
             status_label = "DRAFT"
-            action = draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
+            action = draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
             descriptor = "Draft ready for review"
         elif status == "PUBLISHED":
             status_label = "PUBLISHED"
-            action = instagram_carousel_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
+            action = instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
             descriptor = "Published by Blog Core"
         else:
             status_label = status or "UNKNOWN"
@@ -4846,6 +4951,55 @@ def instagram_carousel_preview(site_id, post_id):
   <div class="top"><div><a href="/sites/{int(site_id)}#distribution">Back to dashboard</a><h1>{escape(post['title'] or post['topic'] or 'Instagram carousel')}</h1><div class="muted">{escape(post['brand_name'] or post['domain'])} · {escape(post['language'] or '')} · {len(slides)} real JPEG slides</div></div></div>
   <section class="grid">{''.join(slide_html)}</section>
   <section class="caption-wrap"><h2>Single Instagram carousel caption</h2><div class="caption">{escape(caption)}</div></section>
+</main>
+</body>
+</html>"""
+    return Response(html, mimetype="text/html")
+
+
+@app.get("/sites/<int:site_id>/social-posts/<int:post_id>/threads")
+def threads_post_preview(site_id, post_id):
+    with db() as conn:
+        post = conn.execute(
+            """
+            select sp.*, cj.title, cj.topic, s.domain, s.brand_name
+            from social_posts sp
+            join content_jobs cj on cj.id=sp.job_id and cj.site_id=sp.site_id
+            join sites s on s.id=sp.site_id
+            where sp.site_id=? and sp.id=? and sp.channel='threads'
+            """,
+            (site_id, post_id),
+        ).fetchone()
+    if not post:
+        abort(404)
+    payload = parse_json_object(post["content_json"])
+    threads = payload.get("threads") if isinstance(payload.get("threads"), dict) else {}
+    media_urls = threads.get("mediaUrls") if isinstance(threads.get("mediaUrls"), list) else []
+    media_html = "".join(f'<img src="{escape(url, quote=True)}" alt="Threads media preview">' for url in media_urls[:1])
+    validation = parse_json_object(post["validation_json"])
+    byte_count = validation.get("byteCount") or post["char_count"] or 0
+    max_bytes = validation.get("maxBytes") or post["max_chars"] or 500
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Threads draft · {escape(post['title'] or post['topic'] or post['domain'])}</title>
+<style>
+*{{box-sizing:border-box}}body{{margin:0;background:#101010;color:#f5f5f5;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}.shell{{max-width:760px;margin:0 auto;padding:34px 18px 70px}}a{{color:#ddd}}.post{{border:1px solid rgba(255,255,255,.14);border-radius:22px;background:#181818;padding:18px;margin-top:20px}}.brand{{color:#a3a3a3;font-size:13px;margin-bottom:12px}}.text{{white-space:pre-wrap;font-size:20px;line-height:1.35}}img{{display:block;width:100%;border-radius:18px;margin-top:16px;background:#222}}.meta{{color:#a3a3a3;font-size:13px;margin-top:12px}}h1{{letter-spacing:-.04em;line-height:1;margin:10px 0}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <a href="/sites/{int(site_id)}#content">Back to dashboard</a>
+  <h1>Threads draft</h1>
+  <div class="post">
+    <div class="brand">{escape(post['brand_name'] or post['domain'])} · {escape(post['language'] or '')}</div>
+    <div class="text">{escape(post['content_text'] or '')}</div>
+    {media_html}
+    <div class="meta">{int(byte_count)} / {int(max_bytes)} UTF-8 bytes · {len(media_urls[:1])} image</div>
+  </div>
 </main>
 </body>
 </html>"""

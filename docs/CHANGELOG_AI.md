@@ -2,6 +2,44 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-05 — Make Threads drafts native and media-aware
+
+### Summary
+
+* Replaced generic social copy for Threads with a Threads-specific prompt.
+* Threads drafts now aim for a short conversational question or opinion instead of promotional ad copy.
+* Threads draft metadata can attach one existing generated image from the article's Instagram carousel assets.
+* Added a Threads draft preview route that shows the post text, byte count, and attached image.
+* Added a `Threads` preview action on content/planned cards when a Threads draft exists.
+
+### Files changed
+
+* `app.py` — added Threads-specific prompt/generator, media lookup, preview route, and preview button.
+* `docs/PROJECT_MEMORY.md` — recorded native Threads style and media attachment rules.
+* `docs/INTEGRATIONS.md` — documented Threads media metadata and preview route.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Threads should not reuse LinkedIn-style or ad-style copy.
+* When available, a Threads post should use one relevant image from already generated social assets instead of being text-only.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Regenerated the test Threads draft for existing `myugc.studio` article `0619c746c0433e10b6ce64d4`.
+* Verified new Threads draft `social_posts.id=13` is question-led, `280/500` UTF-8 bytes, and stores `content_json.threads.mediaUrls[0]`.
+* Verified `/sites/6/social-posts/13/threads` renders the post text and includes `slide-01.jpg`.
+* Verified the attached `slide-01.jpg` returns HTTP `200` with `Content-Type: image/jpeg`.
+
+### Risks / TODO
+
+* Actual Threads publishing is still pending; this task prepares a more realistic draft payload and review surface.
+
 ## 2026-07-05 — Add Threads social channel
 
 ### Summary
