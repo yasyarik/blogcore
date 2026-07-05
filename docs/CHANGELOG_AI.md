@@ -2,6 +2,49 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-05 — Add real Instagram carousel creative drafts
+
+### Summary
+
+* Added Instagram as a per-site social channel in Setup, Distribution, active-channel gating, and content-card social status icons.
+* Added Instagram SQLite status fields and `instagram_include_link` persistence.
+* Added Instagram carousel draft generation with caption length validation, 5-10 slide planning, and real Gemini Image JPEG slide generation.
+* Stored generated slide metadata in `social_posts.content_json.instagramCarousel` and slide files under ignored `data/social_assets/...`.
+* Added routes to serve generated social assets and review the actual Instagram carousel creative.
+* Added an `IG carousel` action for rows that already have an Instagram creative draft.
+
+### Files changed
+
+* `app.py` — added Instagram provider/config/migrations, Gemini Image JPEG generation, carousel asset storage, review routes, and UI actions.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that Instagram drafts must be real publishable JPEG creatives, not SVG/mock previews.
+* `docs/INTEGRATIONS.md` — documented Instagram limits, Gemini Image env usage, asset storage, and preview route.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Instagram uses Gemini Image through the Gemini Interactions API and stores JPEG slide assets because the live endpoint accepts `image/jpeg` for `response_format.mime_type`.
+* Instagram draft generation is still gated by per-site Distribution selection plus configured/connected Setup credentials.
+* Review must show the real generated slide files that the publisher can use, not an SVG approximation.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified live SQLite migrations added `content_jobs.instagram_*` columns and `autopublish_settings.instagram_include_link`.
+* Generated a real Instagram draft for existing `myugc.studio` imported article `0619c746c0433e10b6ce64d4` using a temporary generation-only Instagram gate, then restored the original `myugc.studio` social settings.
+* Verified `social_posts.id=11`, `channel=instagram`, `char_count=1113`, `max_chars=2200`, `status=DRAFT`.
+* Verified six generated JPEG slides exist under `data/social_assets/6/0619c746c0433e10b6ce64d4/instagram/`.
+* Verified `slide-01.jpg` returns HTTP `200` with `Content-Type: image/jpeg`.
+* Verified `/sites/6/social-posts/11/instagram-carousel` renders and includes all six slide images.
+
+### Risks / TODO
+
+* Actual Instagram Graph publishing is still pending. This task creates the real creative assets and review surface for the publisher to consume.
+* The current social draft endpoint is synchronous; generating several images can take around a minute and should eventually move to the same background job model used for longer source-factory generation.
+
 ## 2026-07-05 — Add Pinterest social draft support
 
 ### Summary

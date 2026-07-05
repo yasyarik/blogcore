@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
-from base64 import b64encode
+from base64 import b64decode, b64encode
 from hashlib import sha1
 from hmac import new as hmac_new
 from html import escape
@@ -40,6 +40,8 @@ LEGACY_FACTORY_ENDPOINTS = {
 app = Flask(__name__)
 DATA_DIR.mkdir(exist_ok=True)
 PREVIEW_DIR.mkdir(exist_ok=True)
+SOCIAL_ASSET_DIR = DATA_DIR / "social_assets"
+SOCIAL_ASSET_DIR.mkdir(exist_ok=True)
 
 
 def now_iso():
@@ -161,6 +163,10 @@ def init_db():
                 pinterest_post_url text,
                 pinterest_posted_at text,
                 pinterest_error text,
+                instagram_status text,
+                instagram_post_url text,
+                instagram_posted_at text,
+                instagram_error text,
                 created_at text not null,
                 updated_at text not null,
                 foreign key(site_id) references sites(id) on delete cascade
@@ -212,7 +218,7 @@ def init_db():
                 site_id integer primary key,
                 enabled integer not null default 0,
                 times_per_day integer not null default 3,
-                channels_json text not null default '["linkedin","telegram","twitter","tumblr","pinterest"]',
+                channels_json text not null default '["linkedin","telegram","twitter","tumblr","pinterest","instagram"]',
                 timezone text not null default 'UTC',
                 start_hour integer not null default 9,
                 end_hour integer not null default 21,
@@ -221,6 +227,7 @@ def init_db():
                 twitter_include_link integer not null default 0,
                 tumblr_include_link integer not null default 0,
                 pinterest_include_link integer not null default 0,
+                instagram_include_link integer not null default 0,
                 last_slot_key text,
                 last_run_at text,
                 updated_at text not null,
@@ -283,7 +290,12 @@ def init_db():
             "alter table content_jobs add column pinterest_post_url text",
             "alter table content_jobs add column pinterest_posted_at text",
             "alter table content_jobs add column pinterest_error text",
+            "alter table content_jobs add column instagram_status text",
+            "alter table content_jobs add column instagram_post_url text",
+            "alter table content_jobs add column instagram_posted_at text",
+            "alter table content_jobs add column instagram_error text",
             "alter table autopublish_settings add column pinterest_include_link integer not null default 0",
+            "alter table autopublish_settings add column instagram_include_link integer not null default 0",
         ):
             try:
                 conn.execute(statement)
@@ -628,6 +640,14 @@ def test_social_connection(provider, credentials):
             if data.get("code") or data.get("message") and not data.get("username"):
                 return {"ok": False, "status": "failed", "message": data.get("message") or "Pinterest token rejected."}
             return {"ok": True, "status": "connected", "displayName": username, "message": f"Connected to Pinterest as {username}."}
+
+        if provider == "instagram":
+            params = urllib.parse.urlencode({"fields": "id,username", "access_token": credentials["access_token"]})
+            data, _ = fetch_json_request(f"https://graph.facebook.com/v21.0/{urllib.parse.quote(credentials['instagram_user_id'])}?{params}")
+            username = data.get("username") or data.get("id") or "Instagram account"
+            if data.get("error"):
+                return {"ok": False, "status": "failed", "message": (data.get("error") or {}).get("message") or "Instagram token rejected."}
+            return {"ok": True, "status": "connected", "displayName": username, "message": f"Connected to Instagram as {username}."}
     except urllib.error.HTTPError as e:
         detail = e.read(500).decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
         return {"ok": False, "status": "failed", "message": f"HTTP {e.code}: {detail[:220]}"}
@@ -1428,7 +1448,7 @@ def get_topic_discovery_settings(site_id):
 
 
 def get_social_connections(site_id):
-    providers = ["linkedin", "telegram", "twitter", "tumblr", "pinterest"]
+    providers = ["linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram"]
     with db() as conn:
         rows = {r["provider"]: r for r in conn.execute("select * from social_connections where site_id=?", (site_id,)).fetchall()}
     return {provider: rows.get(provider) for provider in providers}
@@ -1491,6 +1511,13 @@ SOCIAL_PROVIDER_CONFIG = {
             ("board_id", "Board ID", "text", "Pinterest board id for publishing pins"),
         ],
     },
+    "instagram": {
+        "label": "Instagram",
+        "fields": [
+            ("access_token", "Access token", "password", "Meta/Instagram Graph API access token"),
+            ("instagram_user_id", "Instagram business account ID", "text", "1784..."),
+        ],
+    },
 }
 
 SOCIAL_CHANNEL_LIMITS = {
@@ -1499,6 +1526,7 @@ SOCIAL_CHANNEL_LIMITS = {
     "twitter": 280,
     "tumblr": 4096,
     "pinterest": 500,
+    "instagram": 2200,
 }
 
 SOCIAL_CHANNEL_STYLE = {
@@ -1507,6 +1535,7 @@ SOCIAL_CHANNEL_STYLE = {
     "twitter": "single concise X post, no thread, no hashtags unless essential",
     "tumblr": "short editorial micro-post with a natural blog-style intro",
     "pinterest": "native Pinterest pin description with a visual hook, useful caption, and no clickbait",
+    "instagram": "native Instagram carousel caption with concise context, no clickbait, and a clear save/share cue",
 }
 
 LANGUAGE_NAMES = {
@@ -1549,6 +1578,8 @@ def social_credentials_complete(provider, credentials):
         required = ["consumer_key", "consumer_secret", "oauth_token", "oauth_token_secret"]
     if provider == "pinterest":
         required = ["access_token", "board_id"]
+    if provider == "instagram":
+        required = ["access_token", "instagram_user_id"]
     return all(str(credentials.get(key) or "").strip() for key in required)
 
 
@@ -1833,6 +1864,253 @@ def generate_pinterest_pin_draft(site, job, language, include_link, article_url)
     return pin["description"], validation, {"pin": pin}
 
 
+def fallback_instagram_carousel(site, job, language, include_link, article_url):
+    brand = site["brand_name"] or site["domain"]
+    title = social_shorten_to_limit(job["title"] or job["topic"] or "New article", 90)
+    description = social_shorten_to_limit(job["description"] or "", 240)
+    caption = social_text_with_optional_link(
+        f"{title}\n\n{description}\n\nSave this carousel for later.",
+        article_url,
+        include_link,
+        SOCIAL_CHANNEL_LIMITS["instagram"],
+    )
+    slide_templates = [
+        ("cover", title, "Swipe for the practical breakdown."),
+        ("problem", "The core question", description or "What readers need to understand before they decide."),
+        ("insight", "What matters first", "Start with the decision criteria, not generic advice."),
+        ("insight", "What to compare", "Look at tradeoffs, timing, cost, and practical fit."),
+        ("checklist", "Quick checklist", "Use these points before taking the next step."),
+        ("cta", f"Read the full guide", f"More context from {brand}."),
+    ]
+    slides = []
+    for index, (role, headline, subtext) in enumerate(slide_templates, start=1):
+        headline = social_shorten_to_limit(headline, 70)
+        subtext = social_shorten_to_limit(subtext, 140)
+        slides.append({
+            "index": index,
+            "role": role,
+            "headline": headline,
+            "subtext": subtext,
+            "imagePrompt": social_shorten_to_limit(
+                f"Create an Instagram carousel slide background for '{headline}'. "
+                f"Brand: {brand}. Editorial, polished, high-contrast, mobile-first 4:5 layout with room for text.",
+                700,
+            ),
+            "altText": social_shorten_to_limit(f"Instagram carousel slide: {headline}. {subtext}", 250),
+        })
+    return {
+        "caption": caption,
+        "slides": slides,
+        "visualSpec": {"aspectRatio": "4:5", "recommendedSize": "1080x1350", "maxSlides": 10},
+        "destinationUrl": article_url if include_link and article_url else "",
+    }
+
+
+def build_instagram_carousel_prompt(site, job, language, include_link, article_url):
+    brand = site["brand_name"] or site["domain"]
+    language_name = LANGUAGE_NAMES.get(language, language.upper())
+    source_text = social_source_text(job, limit=6500)
+    link_rule = "Include the article URL exactly once at the end of caption." if include_link and article_url else "Do not include any URL."
+    return f"""
+You are turning an article into a native Instagram carousel for {brand}.
+
+GOAL:
+- Create one Instagram carousel draft with 5 to 8 slides.
+- This must feel native to Instagram: short slide text, visual storytelling, useful saveable content.
+- Do not copy long article paragraphs onto slides.
+
+LANGUAGE:
+- Write caption and all slide text in {language_name}.
+
+ARTICLE:
+- title: {job['title'] or job['topic']}
+- description: {job['description'] or ''}
+- source excerpt: {source_text[:6500]}
+- article URL: {article_url or 'none'}
+- link rule: {link_rule}
+
+CAROUSEL RULES:
+- Use 4:5 portrait format, recommended 1080x1350.
+- Make 5 to 8 slides, never more than 10.
+- Slide 1 must be a cover.
+- Last slide must be a soft CTA or save/share cue.
+- Every slide headline <= 70 characters.
+- Every slide subtext <= 140 characters.
+- Every slide imagePrompt <= 700 characters and must describe the visual background/scene for that slide.
+- Every slide altText <= 250 characters.
+- Caption <= 2200 characters.
+- No unsupported claims, fake statistics, fake screenshots, tiny text, or cluttered UI.
+- No markdown. No variants.
+
+RETURN STRICT JSON ONLY:
+{{
+  "caption":"...",
+  "visualSpec":{{"aspectRatio":"4:5","recommendedSize":"1080x1350","maxSlides":10}},
+  "destinationUrl":"{article_url if include_link and article_url else ''}",
+  "slides":[
+    {{"index":1,"role":"cover","headline":"...","subtext":"...","imagePrompt":"...","altText":"..."}}
+  ]
+}}
+""".strip()
+
+
+def normalize_instagram_carousel(carousel, site, job, language, include_link, article_url):
+    fallback = fallback_instagram_carousel(site, job, language, include_link, article_url)
+    if not isinstance(carousel, dict):
+        carousel = {}
+    caption = social_normalize_text(carousel.get("caption") or fallback["caption"])
+    caption = social_text_with_optional_link(caption, article_url, include_link, SOCIAL_CHANNEL_LIMITS["instagram"])
+    raw_slides = carousel.get("slides") if isinstance(carousel.get("slides"), list) else fallback["slides"]
+    slides = []
+    for idx, raw in enumerate(raw_slides[:10], start=1):
+        if not isinstance(raw, dict):
+            continue
+        headline = social_shorten_to_limit(raw.get("headline") or fallback["slides"][min(idx - 1, len(fallback["slides"]) - 1)]["headline"], 70)
+        subtext = social_shorten_to_limit(raw.get("subtext") or "", 140)
+        image_prompt = social_shorten_to_limit(raw.get("imagePrompt") or raw.get("visualPrompt") or "", 700)
+        if not image_prompt:
+            image_prompt = social_shorten_to_limit(
+                f"Instagram carousel 4:5 editorial slide for '{headline}', clean mobile composition, strong contrast, room for overlay text.",
+                700,
+            )
+        slides.append({
+            "index": len(slides) + 1,
+            "role": social_shorten_to_limit(raw.get("role") or ("cover" if idx == 1 else "insight"), 32).lower(),
+            "headline": headline,
+            "subtext": subtext,
+            "imagePrompt": image_prompt,
+            "altText": social_shorten_to_limit(raw.get("altText") or f"{headline}. {subtext}", 250),
+        })
+    if len(slides) < 5:
+        for raw in fallback["slides"][len(slides):]:
+            slides.append({**raw, "index": len(slides) + 1})
+            if len(slides) >= 5:
+                break
+    return {
+        "caption": caption,
+        "slides": slides[:10],
+        "visualSpec": {"aspectRatio": "4:5", "recommendedSize": "1080x1350", "maxSlides": 10},
+        "destinationUrl": article_url if include_link and article_url else "",
+    }
+
+
+def validate_instagram_carousel(carousel):
+    result = {
+        "ok": True,
+        "caption": {"charCount": len(carousel.get("caption") or ""), "maxChars": SOCIAL_CHANNEL_LIMITS["instagram"]},
+        "slides": [],
+        "slideCount": len(carousel.get("slides") or []),
+        "maxSlides": 10,
+    }
+    if result["caption"]["charCount"] > SOCIAL_CHANNEL_LIMITS["instagram"]:
+        result["ok"] = False
+    if result["slideCount"] < 2 or result["slideCount"] > 10:
+        result["ok"] = False
+    for slide in carousel.get("slides") or []:
+        row = {
+            "index": slide.get("index"),
+            "headline": {"charCount": len(slide.get("headline") or ""), "maxChars": 70},
+            "subtext": {"charCount": len(slide.get("subtext") or ""), "maxChars": 140},
+            "imagePrompt": {"charCount": len(slide.get("imagePrompt") or ""), "maxChars": 700},
+            "altText": {"charCount": len(slide.get("altText") or ""), "maxChars": 250},
+        }
+        if any(item["charCount"] > item["maxChars"] for key, item in row.items() if isinstance(item, dict)):
+            result["ok"] = False
+        result["slides"].append(row)
+    return result
+
+
+def generate_instagram_carousel_draft(site, job, language, include_link, article_url):
+    try:
+        data = _gemini_text_json(build_instagram_carousel_prompt(site, job, language, include_link, article_url))
+    except Exception:
+        data = {}
+    carousel = normalize_instagram_carousel(data if isinstance(data, dict) else {}, site, job, language, include_link, article_url)
+    validation = validate_instagram_carousel(carousel)
+    if not validation["ok"]:
+        carousel = normalize_instagram_carousel(carousel, site, job, language, include_link, article_url)
+        validation = validate_instagram_carousel(carousel)
+    if not validation["ok"]:
+        raise ValueError("Instagram carousel draft exceeds slide or caption limits")
+    return carousel["caption"], validation, {"instagramCarousel": carousel}
+
+
+def social_asset_job_dir(site_id, job_id, channel):
+    safe_job = re.sub(r"[^A-Za-z0-9_.-]", "_", str(job_id))
+    safe_channel = re.sub(r"[^A-Za-z0-9_.-]", "_", str(channel))
+    return SOCIAL_ASSET_DIR / str(int(site_id)) / safe_job / safe_channel
+
+
+def social_asset_url(site_id, job_id, channel, filename):
+    return f"/sites/{int(site_id)}/social-assets/{urllib.parse.quote(str(job_id), safe='')}/{urllib.parse.quote(channel, safe='')}/{urllib.parse.quote(filename, safe='')}"
+
+
+def build_instagram_slide_image_prompt(site, job, language, slide, slide_count):
+    brand = site["brand_name"] or site["domain"]
+    language_name = LANGUAGE_NAMES.get(language, language.upper())
+    title = job["title"] or job["topic"] or "Article"
+    headline = slide.get("headline") or title
+    subtext = slide.get("subtext") or ""
+    image_prompt = slide.get("imagePrompt") or ""
+    return f"""
+Create one finished Instagram carousel slide as a real raster JPEG image.
+
+FORMAT:
+- Portrait 4:5 Instagram carousel slide.
+- Clean editorial/mobile composition, not a website screenshot.
+- The image itself must include readable overlay text.
+- No SVG, no wireframe, no placeholder, no fake UI.
+
+BRAND AND ARTICLE:
+- brand: {brand}
+- article title: {title}
+- language for visible text: {language_name}
+- slide: {slide.get('index')} of {slide_count}
+- slide role: {slide.get('role') or 'insight'}
+
+VISIBLE TEXT TO PLACE ON THE IMAGE:
+- headline, exactly: {headline}
+- supporting line, exactly: {subtext}
+
+VISUAL DIRECTION:
+{image_prompt}
+
+QUALITY RULES:
+- Keep text large, sharp, high-contrast, and centered or aligned with clear safe margins.
+- Do not add extra small paragraphs or unreadable microtext.
+- Do not invent logos, statistics, prices, awards, UI screenshots, or people endorsements.
+- Make it ready to publish as one Instagram carousel slide.
+""".strip()
+
+
+def generate_instagram_carousel_images(site_id, job_id, site, job, language, carousel):
+    slides = carousel.get("slides") or []
+    if not slides:
+        return carousel
+    target_dir = social_asset_job_dir(site_id, job_id, "instagram")
+    shutil.rmtree(target_dir, ignore_errors=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for index, slide in enumerate(slides, start=1):
+        filename = f"slide-{index:02d}.jpg"
+        prompt = build_instagram_slide_image_prompt(site, job, language, slide, len(slides))
+        image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="4:5")
+        if not image_bytes.startswith(b"\xff\xd8"):
+            raise RuntimeError(f"Gemini image for Instagram slide {index} was not JPEG")
+        (target_dir / filename).write_bytes(image_bytes)
+        slide["imageStatus"] = "generated"
+        slide["imageMimeType"] = "image/jpeg"
+        slide["imageUrl"] = social_asset_url(site_id, job_id, "instagram", filename)
+        slide["generatedAt"] = now_iso()
+    carousel["visualSpec"] = {
+        **(carousel.get("visualSpec") if isinstance(carousel.get("visualSpec"), dict) else {}),
+        "aspectRatio": "4:5",
+        "recommendedSize": "1080x1350",
+        "assetFormat": "jpeg",
+        "generator": os.environ.get("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-image",
+    }
+    return carousel
+
+
 def generate_social_drafts(site_id, job_id, channels=None):
     site = get_site(site_id)
     if not site:
@@ -1858,6 +2136,17 @@ def generate_social_drafts(site_id, job_id, channels=None):
             if channel == "pinterest":
                 text, validation, extra_payload = generate_pinterest_pin_draft(site, job, language, include_link, article_url)
                 char_count = validation["fields"]["description"]["charCount"]
+            elif channel == "instagram":
+                text, validation, extra_payload = generate_instagram_carousel_draft(site, job, language, include_link, article_url)
+                extra_payload["instagramCarousel"] = generate_instagram_carousel_images(
+                    site_id,
+                    job_id,
+                    site,
+                    job,
+                    language,
+                    extra_payload["instagramCarousel"],
+                )
+                char_count = validation["caption"]["charCount"]
             else:
                 text, validation = generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
                 char_count = validation["charCount"]
@@ -1871,7 +2160,7 @@ def generate_social_drafts(site_id, job_id, channels=None):
                 "validation": validation,
                 **extra_payload,
             }
-            conn.execute(
+            cursor = conn.execute(
                 """
                 insert into social_posts(
                     site_id, job_id, channel, content_text, content_json, remote_url, status,
@@ -1899,6 +2188,9 @@ def generate_social_drafts(site_id, job_id, channels=None):
             result = {"channel": channel, "language": language, "charCount": char_count, "maxChars": max_chars, "text": text}
             if channel == "pinterest":
                 result.update(extra_payload)
+            if channel == "instagram":
+                result.update(extra_payload)
+                result["previewUrl"] = f"/sites/{int(site_id)}/social-posts/{int(cursor.lastrowid)}/instagram-carousel"
             results.append(result)
         if status_updates:
             assignments = ", ".join(f"{key}=?" for key in status_updates)
@@ -2508,6 +2800,7 @@ def social_icon_label(channel):
         "twitter": "X",
         "tumblr": "t",
         "pinterest": "P",
+        "instagram": "ig",
     }.get(channel, channel[:2])
 
 
@@ -2524,7 +2817,7 @@ def social_status_class(status):
 
 def render_social_statuses(row):
     items = []
-    for channel in ("linkedin", "telegram", "twitter", "tumblr", "pinterest"):
+    for channel in ("linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram"):
         status = row[f"{channel}_status"] or "not queued"
         status_class = social_status_class(status)
         label = social_icon_label(channel)
@@ -2647,6 +2940,17 @@ def social_draft_button(site_id, job_id):
     return f"<button class='ghost mini-action social-draft-action' type='button' onclick=\"generateSocialDrafts('{escape(job_id, quote=True)}')\" title='Prepare social posts for configured channels'>Social drafts</button>"
 
 
+def instagram_carousel_preview_button(site_id, job_id):
+    with db() as conn:
+        row = conn.execute(
+            "select id from social_posts where site_id=? and job_id=? and channel='instagram' and status='DRAFT' order by id desc limit 1",
+            (site_id, job_id),
+        ).fetchone()
+    if not row:
+        return ""
+    return f"<a class='ghost mini-action social-preview-action' target='_blank' href='/sites/{int(site_id)}/social-posts/{int(row['id'])}/instagram-carousel'>IG carousel</a>"
+
+
 def draft_preview_button(site_id, job_id):
     return f"<a class='ghost mini-action draft-preview-action' target='_blank' href='/sites/{int(site_id)}/content-jobs/{escape(job_id, quote=True)}/preview'>Preview draft</a>"
 
@@ -2728,7 +3032,7 @@ def render_planned_publications(rows, site_languages=None):
         if status in {"QUEUED", "ERROR"}:
             action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate</button>"
         elif status == "DRAFT":
-            action = draft_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
+            action = draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
         items.append(
             f"""
             <div class="planned-row" data-group-id="{escape(group['id'], quote=True)}">
@@ -2754,7 +3058,7 @@ def render_content_jobs(content_page):
         status_class = escape(status.lower())
         if status == "IMPORTED":
             status_label = "LIVE / IMPORTED"
-            action = social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
+            action = instagram_carousel_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
             descriptor = "Already published on the source site"
         elif status in {"QUEUED", "ERROR"}:
             status_label = status
@@ -2762,11 +3066,11 @@ def render_content_jobs(content_page):
             descriptor = "New Blog Core task"
         elif status == "DRAFT":
             status_label = "DRAFT"
-            action = draft_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
+            action = draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
             descriptor = "Draft ready for review"
         elif status == "PUBLISHED":
             status_label = "PUBLISHED"
-            action = social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
+            action = instagram_carousel_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
             descriptor = "Published by Blog Core"
         else:
             status_label = status or "UNKNOWN"
@@ -2795,7 +3099,7 @@ def render_distribution_settings(site_id):
     try:
         selected = set(json.loads(auto["channels_json"] or "[]"))
     except Exception:
-        selected = {"linkedin", "telegram", "twitter", "tumblr", "pinterest"}
+        selected = {"linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram"}
     channel_cards = []
     for provider, config in SOCIAL_PROVIDER_CONFIG.items():
         label = config["label"]
@@ -3428,6 +3732,56 @@ def _gemini_text_json(prompt):
     except Exception:
         raise RuntimeError(f"Unexpected Gemini response: {data}")
     return _parse_json_text(text)
+
+
+def _extract_interaction_image_b64(data):
+    output_image = data.get("output_image") or data.get("outputImage") or {}
+    if isinstance(output_image, dict) and output_image.get("data"):
+        return output_image["data"]
+    for step in data.get("steps") or []:
+        blocks = []
+        if isinstance(step, dict):
+            blocks.extend(step.get("content") or [])
+            blocks.extend(step.get("summary") or [])
+        for block in blocks:
+            if isinstance(block, dict) and block.get("type") == "image" and block.get("data"):
+                return block["data"]
+    candidates = data.get("candidates") or []
+    for candidate in candidates:
+        for part in ((candidate.get("content") or {}).get("parts") or []):
+            inline = part.get("inlineData") or part.get("inline_data") or {}
+            if inline.get("data"):
+                return inline["data"]
+    raise RuntimeError(f"Gemini image response did not include image data: {str(data)[:500]}")
+
+
+def _gemini_image_jpeg(prompt, aspect_ratio="4:5"):
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+    model = os.environ.get("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-image"
+    response_format = {"type": "image", "mime_type": "image/jpeg", "aspect_ratio": aspect_ratio}
+    image_size = os.environ.get("GEMINI_IMAGE_SIZE")
+    if image_size:
+        response_format["image_size"] = image_size
+    payload = {
+        "model": model,
+        "input": [{"type": "text", "text": prompt}],
+        "response_format": response_format,
+    }
+    req = urllib.request.Request(
+        "https://generativelanguage.googleapis.com/v1beta/interactions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"content-type": "application/json", "x-goog-api-key": api_key},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=240) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read(1000).decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
+        raise RuntimeError(f"Gemini image HTTP {e.code}: {detail[:900]}")
+    return b64decode(_extract_interaction_image_b64(data))
 
 
 def build_site_topic_profile_prompt(site, theme):
@@ -4179,21 +4533,22 @@ def update_factory_settings(site_id):
             """
             insert into autopublish_settings(
                 site_id, enabled, times_per_day, channels_json, timezone, start_hour, end_hour,
-                linkedin_include_link, telegram_include_link, twitter_include_link, tumblr_include_link, pinterest_include_link, updated_at
-            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                linkedin_include_link, telegram_include_link, twitter_include_link, tumblr_include_link, pinterest_include_link, instagram_include_link, updated_at
+            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             on conflict(site_id) do update set
                 enabled=excluded.enabled, times_per_day=excluded.times_per_day, channels_json=excluded.channels_json,
                 timezone=excluded.timezone, start_hour=excluded.start_hour, end_hour=excluded.end_hour,
                 linkedin_include_link=excluded.linkedin_include_link, telegram_include_link=excluded.telegram_include_link,
                 twitter_include_link=excluded.twitter_include_link, tumblr_include_link=excluded.tumblr_include_link,
                 pinterest_include_link=excluded.pinterest_include_link,
+                instagram_include_link=excluded.instagram_include_link,
                 updated_at=excluded.updated_at
             """,
             (
                 site_id,
                 1 if auto.get("enabled") else 0,
                 int(auto.get("timesPerDay") or 3),
-                json.dumps(allowed_channels or ["linkedin", "telegram", "twitter", "tumblr", "pinterest"]),
+                json.dumps(allowed_channels or ["linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram"]),
                 auto.get("timezone") or "UTC",
                 int(auto.get("startHour") or 9),
                 int(auto.get("endHour") or 21),
@@ -4202,6 +4557,7 @@ def update_factory_settings(site_id):
                 1 if auto.get("twitterIncludeLink") else 0,
                 1 if auto.get("tumblrIncludeLink") else 0,
                 1 if auto.get("pinterestIncludeLink") else 0,
+                1 if auto.get("instagramIncludeLink") else 0,
                 now,
             ),
         )
@@ -4313,6 +4669,76 @@ def generate_social_drafts_route(site_id, job_id):
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.get("/sites/<int:site_id>/social-assets/<job_id>/<channel>/<filename>")
+def serve_social_asset(site_id, job_id, channel, filename):
+    if channel not in SOCIAL_CHANNEL_LIMITS:
+        abort(404)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", filename or ""):
+        abort(404)
+    directory = social_asset_job_dir(site_id, job_id, channel)
+    if not (directory / filename).is_file():
+        abort(404)
+    return send_from_directory(directory, filename)
+
+
+@app.get("/sites/<int:site_id>/social-posts/<int:post_id>/instagram-carousel")
+def instagram_carousel_preview(site_id, post_id):
+    with db() as conn:
+        post = conn.execute(
+            """
+            select sp.*, cj.title, cj.topic, cj.description, s.domain, s.brand_name
+            from social_posts sp
+            join content_jobs cj on cj.id=sp.job_id and cj.site_id=sp.site_id
+            join sites s on s.id=sp.site_id
+            where sp.site_id=? and sp.id=? and sp.channel='instagram'
+            """,
+            (site_id, post_id),
+        ).fetchone()
+    if not post:
+        abort(404)
+    payload = parse_json_object(post["content_json"])
+    carousel = payload.get("instagramCarousel") if isinstance(payload.get("instagramCarousel"), dict) else {}
+    slides = carousel.get("slides") if isinstance(carousel.get("slides"), list) else []
+    if not slides:
+        abort(404)
+    caption = post["content_text"] or carousel.get("caption") or ""
+    slide_html = []
+    for slide in slides:
+        image_url = slide.get("imageUrl") or ""
+        slide_html.append(
+            f"""
+            <article class="slide">
+              <img src="{escape(image_url, quote=True)}" alt="{escape(slide.get('altText') or '', quote=True)}">
+              <div class="slide-copy">
+                <span>{escape(str(slide.get('index') or ''))}</span>
+                <strong>{escape(slide.get('headline') or '')}</strong>
+                <p>{escape(slide.get('subtext') or '')}</p>
+              </div>
+            </article>
+            """
+        )
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Instagram carousel · {escape(post['title'] or post['topic'] or post['domain'])}</title>
+<style>
+*{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#f8fafc;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}.shell{{max-width:1180px;margin:0 auto;padding:34px 18px 70px}}a{{color:#c4b5fd}}.top{{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:22px}}h1{{font-size:clamp(28px,5vw,54px);line-height:1;margin:8px 0 10px;letter-spacing:-.04em}}.muted{{color:#a6b0c3;line-height:1.5}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;margin-top:22px}}.slide{{border:1px solid rgba(255,255,255,.14);border-radius:18px;background:rgba(255,255,255,.06);overflow:hidden}}.slide img{{display:block;width:100%;aspect-ratio:4/5;object-fit:cover;background:#111827}}.slide-copy{{padding:14px}}.slide-copy span{{display:inline-flex;width:28px;height:28px;border-radius:999px;align-items:center;justify-content:center;background:#8b5cf6;font-weight:900;margin-bottom:9px}}.slide-copy strong{{display:block;font-size:17px;line-height:1.2}}.slide-copy p{{margin:8px 0 0;color:#cbd5e1;line-height:1.45}}.caption{{white-space:pre-wrap;border:1px solid rgba(255,255,255,.14);border-radius:18px;background:rgba(255,255,255,.06);padding:18px;line-height:1.5;margin-top:24px}}@media(max-width:720px){{.top{{display:block}}}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <div class="top"><div><a href="/sites/{int(site_id)}#distribution">Back to dashboard</a><h1>{escape(post['title'] or post['topic'] or 'Instagram carousel')}</h1><div class="muted">{escape(post['brand_name'] or post['domain'])} · {escape(post['language'] or '')} · {len(slides)} real JPEG slides</div></div></div>
+  <section class="grid">{''.join(slide_html)}</section>
+  <section class="caption">{escape(caption)}</section>
+</main>
+</body>
+</html>"""
+    return Response(html, mimetype="text/html")
 
 
 def planned_groups_for_site(site_id):
@@ -4760,7 +5186,7 @@ function setBulkProgress(text, active=true){const box=document.getElementById('b
 function clearBulkProgress(){document.querySelectorAll('.planned-bulkbar button,.planned-select,.planned-select-all input').forEach(el=>{el.disabled=false;});}
 async function bulkPlannedAction(action){const tasks=selectedPlannedTasks();const groupIds=tasks.map(item=>item.groupId);if(!groupIds.length){showToast('Select at least one planned task');return;}if(action==='generate'){if(!confirm('Generate '+tasks.length+' selected planned task groups now?')) return;let ok=0;let failed=0;for(let i=0;i<tasks.length;i++){const task=tasks[i];setBulkProgress('Generating '+(i+1)+'/'+tasks.length+'. Keep this tab open.');showToast('Generating '+(i+1)+'/'+tasks.length+'...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(task.jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);ok++;}catch(e){failed++;}}setBulkProgress('Bulk generation finished: '+ok+' ok, '+failed+' failed. Reloading...', false);showToast('Bulk generation finished: '+ok+' ok, '+failed+' failed');setTimeout(()=>location.reload(),1800);return;}if(action==='delete'&&!confirm('Delete '+groupIds.length+' selected planned task groups from Blog Core? This does not delete live site files.')) return;setBulkProgress('Deleting '+groupIds.length+' planned task groups...');showToast('Deleting '+groupIds.length+' planned task groups...');try{const res=await fetch('/api/sites/'+SITE_ID+'/planned-groups/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,groupIds})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);setBulkProgress('Deleted '+(data.deletedJobs||0)+' job rows. Reloading...', false);showToast('Deleted '+(data.deletedJobs||0)+' job rows in '+(data.groups||groupIds.length)+' groups');setTimeout(()=>location.reload(),1200);}catch(e){clearBulkProgress();showToast('Bulk delete failed: '+e.message);}}
 async function generateSocialDrafts(jobId){showToast('Preparing social drafts...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const summary=(data.drafts||[]).map(d=>d.channel+': '+d.charCount+'/'+d.maxChars).join(' · ');showToast('Social drafts ready: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Social drafts failed: '+e.message);}}
-async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
+async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}
 async function saveSocialCredentials(event,provider){event.preventDefault();const form=event.currentTarget;const credentials=socialCredentialsFromForm(form);showToast('Saving '+provider+' credentials...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(provider+' credentials saved: '+data.status);setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 async function testSocialConnection(provider){const form=document.querySelector('.social-credentials-card[data-provider="'+provider+'"]');const credentials=form?socialCredentialsFromForm(form):{};showToast('Testing '+provider+' connection...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider)+'/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.message||data.error||res.statusText);showToast(data.message||provider+' connected');setTimeout(()=>location.reload(),900);}catch(e){showToast('Connection test failed: '+e.message);}}
