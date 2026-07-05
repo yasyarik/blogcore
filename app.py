@@ -1884,22 +1884,53 @@ def fallback_threads_post_text(site, job, language, include_link, article_url):
     return threads_text_with_optional_link(text, article_url, include_link, SOCIAL_CHANNEL_LIMITS["threads"])
 
 
-def latest_instagram_slide_media(site_id, job_id):
-    with db() as conn:
-        row = conn.execute(
-            "select content_json from social_posts where site_id=? and job_id=? and channel='instagram' and status='DRAFT' order by id desc limit 1",
-            (site_id, job_id),
-        ).fetchone()
-    payload = parse_json_object(row["content_json"] if row else "{}")
-    carousel = payload.get("instagramCarousel") if isinstance(payload.get("instagramCarousel"), dict) else {}
-    for slide in carousel.get("slides") or []:
-        if isinstance(slide, dict) and slide.get("imageUrl"):
-            return {
-                "mediaUrls": [slide["imageUrl"]],
-                "mediaSource": "instagramCarousel",
-                "mediaMimeType": slide.get("imageMimeType") or "image/jpeg",
-            }
-    return {"mediaUrls": [], "mediaSource": "", "mediaMimeType": ""}
+def build_threads_image_prompt(site, job, language, text):
+    brand = site["brand_name"] or site["domain"]
+    language_name = LANGUAGE_NAMES.get(language, language.upper())
+    source_text = social_source_text(job, limit=2500)
+    return f"""
+Create one natural image for a Threads post.
+
+FORMAT:
+- Real raster JPEG image.
+- Portrait 4:5.
+- Looks like a candid/simple social photo, not an ad creative.
+- No text overlay, no headline, no logo, no UI screenshot, no poster design.
+- No readable text anywhere in the image: no labels, captions, spreadsheet text, app UI words, package text, or phone-screen text.
+- If screens or packaging are present, keep them blank, blurred, turned away, or too out-of-focus to read.
+- No collage, no infographic, no polished marketing banner.
+
+BRAND AND ARTICLE CONTEXT:
+- brand: {brand}
+- language context: {language_name}
+- article title: {job['title'] or job['topic']}
+- article description: {job['description'] or ''}
+- Threads post text: {text}
+- article excerpt: {source_text[:2500]}
+
+VISUAL DIRECTION:
+- Make it feel like a real moment related to the post's question or observation.
+- Prefer a simple desk, product-planning, ecommerce workflow, creator workspace, phone/laptop, or behind-the-scenes setup when relevant.
+- Keep it understated, useful, and believable for a feed conversation.
+""".strip()
+
+
+def generate_threads_media_image(site_id, job_id, site, job, language, text):
+    target_dir = social_asset_job_dir(site_id, job_id, "threads")
+    shutil.rmtree(target_dir, ignore_errors=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    filename = "image-01.jpg"
+    prompt = build_threads_image_prompt(site, job, language, text)
+    image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="4:5")
+    if not image_bytes.startswith(b"\xff\xd8"):
+        raise RuntimeError("Gemini image for Threads media was not JPEG")
+    (target_dir / filename).write_bytes(image_bytes)
+    return {
+        "mediaUrls": [social_asset_url(site_id, job_id, "threads", filename)],
+        "mediaSource": "threadsGenerated",
+        "mediaMimeType": "image/jpeg",
+        "generatedAt": now_iso(),
+    }
 
 
 def generate_threads_post_draft(site_id, job_id, site, job, language, include_link, article_url):
@@ -1918,7 +1949,7 @@ def generate_threads_post_draft(site_id, job_id, site, job, language, include_li
         validation = validate_threads_post_text(text, max_bytes)
     if not validation["ok"]:
         raise ValueError("Threads post exceeds 500 UTF-8 bytes")
-    media = latest_instagram_slide_media(site_id, job_id)
+    media = generate_threads_media_image(site_id, job_id, site, job, language, text)
     return text, validation, {"threads": media}
 
 

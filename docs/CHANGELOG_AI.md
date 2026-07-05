@@ -2,6 +2,44 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-06 — Generate Threads-specific media images
+
+### Summary
+
+* Stopped reusing Instagram carousel slides as Threads media.
+* Added separate Threads image generation through Gemini Image.
+* Threads media is now one natural 4:5 JPEG with no overlay text, no logo, no UI screenshot, and no banner/advertising composition.
+* Threads media is stored separately under `data/social_assets/{site_id}/{job_id}/threads/image-01.jpg`.
+
+### Files changed
+
+* `app.py` — added Threads-specific image prompt and media generation/storage.
+* `docs/PROJECT_MEMORY.md` — recorded that Threads should generate separate native images rather than reuse Instagram creatives.
+* `docs/INTEGRATIONS.md` — documented Threads media storage and visual rules.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Threads image style should be simpler and more candid than Instagram carousel creative.
+* Threads images must not contain text overlay; the post text carries the conversation.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Regenerated the test Threads draft for existing `myugc.studio` article `0619c746c0433e10b6ce64d4`.
+* Verified new Threads draft `social_posts.id=15` is question-led, `224/500` UTF-8 bytes, and stores `content_json.threads.mediaUrls[0]` as `/threads/image-01.jpg`.
+* Verified `/sites/6/social-posts/15/threads` renders and includes the Threads-specific image.
+* Verified `/sites/6/social-assets/0619c746c0433e10b6ce64d4/threads/image-01.jpg` returns HTTP `200` with `Content-Type: image/jpeg`.
+* Visually inspected the generated Threads image: simple workspace/social-photo style, no banner layout or readable ad text.
+
+### Risks / TODO
+
+* Threads actual publishing is still pending; this task updates the draft payload and preview assets.
+
 ## 2026-07-05 — Make Threads drafts native and media-aware
 
 ### Summary
