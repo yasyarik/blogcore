@@ -53,8 +53,9 @@ It must be updated after every meaningful task.
 * The manage page should allow switching between connected sites without returning to the dashboard.
 * Factory parity with the old YAS Wine factory must include article jobs, logs, generation modes, social channels, autopublish settings, topic discovery settings, and publish status per site.
 * Social publishing/OAuth must be scoped per site, not globally.
-* Setup must include per-site social channel credential configuration for LinkedIn, Telegram, X/Twitter, and Tumblr, with Save credentials and Test connect actions. Distribution should only select which configured/connected channels are used for autopublish.
+* Setup must include per-site social channel credential configuration for LinkedIn, Telegram, X/Twitter, Tumblr, and Pinterest, with Save credentials and Test connect actions. Distribution should only select which configured/connected channels are used for autopublish.
 * Social publishing drafts must be adapted per channel and per article language before publishing. Blog Core stores one `social_posts` draft per `job_id + channel`, validates exact character counts before saving, and must not rely on social platforms truncating overlong text.
+* Pinterest drafts are not plain text posts. Blog Core must generate a native Pinterest pin creative spec from the article: title, description/caption, overlay text, alt text, vertical 2:3 image prompt, recommended size, and optional destination URL. The pin spec is stored in `social_posts.content_json`.
 * Social publishing drafts must not be offered or generated unless at least one social channel is both selected in Distribution and configured/connected in Setup. There must be no fallback that silently generates drafts for every provider when channels are missing.
 * Technical settings should stay compact on the site factory page; main workflow should focus on topic discovery and jobs.
 * Existing imported blogs and Blog Core-created blogs have different ownership models. For imported existing blogs, Blog Core should act as the control plane/dashboard and publish new/updated tasks back into the same original site locations and URL structure. It should not default to becoming a second public copy of that blog. For blogs created by Blog Core from scratch, Blog Core can be the full source of truth and public hosting/publishing layer.
@@ -91,7 +92,7 @@ It must be updated after every meaningful task.
 * Discovery signals should be broad/global topic signals suitable for scalable articles. Filter out city-specific, festival/event, ticket, local-opening, trade-promo/campaign/grant/retailer, navigation/source-specific autocomplete tails such as `youtube`/`reddit`, and one-off news signals before showing them as selectable search/Reddit items.
 * Existing blog import scans sitemap and `/blog/` index sources for external sites. If a connected site has a local `root_path`, import must prefer direct webroot discovery and include multilingual `/blog/` pages plus SEO money pages under `wine-countries` and `wine-regions`.
 * Social credentials are stored per site in SQLite `social_connections.credentials_json`; secrets must not be rendered back into the page, committed, or written to memory files.
-* Social post adaptation uses `social_posts` for per-channel drafts. Current hard limits are LinkedIn 3000, Telegram 4096, X/Twitter 280, and Tumblr 4096 characters. The generator uses the article language from `content_jobs.sources_json.language` when present, falls back to the site's first configured language, and rejects/squeezes output before saving if it would exceed the channel limit.
+* Social post adaptation uses `social_posts` for per-channel drafts. Current hard limits are LinkedIn 3000, Telegram 4096, X/Twitter 280, Tumblr 4096, and Pinterest description 500 characters. The generator uses the article language from `content_jobs.sources_json.language` when present, falls back to the site's first configured language, and rejects/squeezes output before saving if it would exceed the channel limit.
 * Replaced/deprecated 2026-07-03: The earlier production state note saying `yas.wine` import found only 61 English `/blog/` URLs was an incomplete external-scan result, not a complete import.
 * Current production state: On 2026-07-03, `yas.wine` site `id=5` was fully imported from local webroot `/var/www/yaswine`. Blog Core now has 821 distinct `content_jobs.status=IMPORTED`: 426 blog pages and 395 SEO money pages. All records have `published_url` on `https://yas.wine/...` and `sources_json.webrootPath` pointing to the source file.
 * Replaced/deprecated 2026-07-03: The earlier `myugc.studio` import as `public_sitemap` with 343 records was based on checking the wrong local path (`/var/www/my-ugc-studio`). The public site is served by nginx from `/var/www/landing`, not `/var/www/my-ugc-studio`.
@@ -246,6 +247,13 @@ It must be updated after every meaningful task.
 * Reason: Operators need to choose from generated article topics, and Blog Core must avoid suggesting/queueing near-duplicates of already published/imported or planned site content.
 * Files/areas affected: `app.py` Discovery API/UI and `content_jobs` queue creation.
 * Replaced/deprecated: Immediately creating `content_jobs` from checked Discovery signals.
+
+### 2026-07-05 — Pinterest social drafts use native pin specs
+
+* Decision: Add Pinterest as a per-site social channel and generate native pin draft specs instead of treating it as a plain text post.
+* Reason: Pinterest needs vertical image creative, overlay/caption text, description, alt text, and destination URL metadata based on the article.
+* Files/areas affected: `app.py` social provider config, social draft generation, Distribution/Setup UI, SQLite migrations.
+* Replaced/deprecated: Treating all social channels as only text-length-limited post drafts.
 
 ## 9. Do not repeat
 

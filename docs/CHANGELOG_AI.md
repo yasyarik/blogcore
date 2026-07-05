@@ -2,6 +2,44 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-05 — Add Pinterest social draft support
+
+### Summary
+
+* Added Pinterest as a per-site social channel in Setup, Distribution, active-channel gating, and content-card status icons.
+* Added SQLite migrations for Pinterest content job status fields and `pinterest_include_link`.
+* Added Pinterest credential configuration and test-connect support using Pinterest API v5 user account probing.
+* Added native Pinterest pin draft generation based on an article: pin title, description/caption, overlay text, alt text, 2:3 image prompt, recommended size, and optional destination URL.
+* Stored Pinterest creative metadata in `social_posts.content_json.pin` while keeping the description/caption in `content_text`.
+
+### Files changed
+
+* `app.py` — added Pinterest provider config, migrations, UI, settings persistence, active-channel support, and pin creative draft generation.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that Pinterest drafts are native pin creative specs, not plain text posts.
+* `docs/INTEGRATIONS.md` — documented Pinterest draft fields and limits.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Pinterest is gated the same way as other social channels: selected in Distribution and configured/connected in Setup.
+* Pinterest draft generation creates a pin creative spec for downstream image generation/publishing; it does not upload an image or publish to Pinterest yet.
+* Pinterest description limit is treated as 500 characters; pin title, overlay text, alt text, and image prompt have their own validation limits.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified live SQLite migrations added `content_jobs.pinterest_*` columns and `autopublish_settings.pinterest_include_link`.
+* Verified live `/sites/7` renders Pinterest in Setup, Distribution, include-link settings, and content-card social icons.
+* Verified Pinterest draft generation on a temporary test site creates `social_posts.channel=pinterest` with `content_json.pin.imageAspectRatio=2:3`, `recommendedSize=1000x1500`, overlay text, image prompt, and a 500-char-limited description; then deleted the temporary test site.
+
+### Risks / TODO
+
+* Real Pinterest image rendering/upload and pin publishing are still future publisher work. The current implementation prepares the native pin creative spec and stores it for the publishing pipeline.
+
 ## 2026-07-05 — Add Discovery idea review before queueing
 
 ### Summary

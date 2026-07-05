@@ -157,6 +157,10 @@ def init_db():
                 tumblr_post_url text,
                 tumblr_posted_at text,
                 tumblr_error text,
+                pinterest_status text,
+                pinterest_post_url text,
+                pinterest_posted_at text,
+                pinterest_error text,
                 created_at text not null,
                 updated_at text not null,
                 foreign key(site_id) references sites(id) on delete cascade
@@ -208,7 +212,7 @@ def init_db():
                 site_id integer primary key,
                 enabled integer not null default 0,
                 times_per_day integer not null default 3,
-                channels_json text not null default '["linkedin","telegram","twitter","tumblr"]',
+                channels_json text not null default '["linkedin","telegram","twitter","tumblr","pinterest"]',
                 timezone text not null default 'UTC',
                 start_hour integer not null default 9,
                 end_hour integer not null default 21,
@@ -216,6 +220,7 @@ def init_db():
                 telegram_include_link integer not null default 0,
                 twitter_include_link integer not null default 0,
                 tumblr_include_link integer not null default 0,
+                pinterest_include_link integer not null default 0,
                 last_slot_key text,
                 last_run_at text,
                 updated_at text not null,
@@ -274,6 +279,11 @@ def init_db():
             "alter table social_posts add column include_link integer not null default 0",
             "alter table social_posts add column validation_json text",
             "alter table social_posts add column updated_at text",
+            "alter table content_jobs add column pinterest_status text",
+            "alter table content_jobs add column pinterest_post_url text",
+            "alter table content_jobs add column pinterest_posted_at text",
+            "alter table content_jobs add column pinterest_error text",
+            "alter table autopublish_settings add column pinterest_include_link integer not null default 0",
         ):
             try:
                 conn.execute(statement)
@@ -611,6 +621,13 @@ def test_social_connection(provider, credentials):
             if not user:
                 return {"ok": False, "status": "failed", "message": (data.get("meta") or {}).get("msg") or "Tumblr credentials rejected."}
             return {"ok": True, "status": "connected", "displayName": name, "message": f"Connected to Tumblr as {name}."}
+
+        if provider == "pinterest":
+            data, _ = fetch_json_request("https://api.pinterest.com/v5/user_account", headers={"Authorization": f"Bearer {credentials['access_token']}"})
+            username = data.get("username") or data.get("account_type") or "Pinterest account"
+            if data.get("code") or data.get("message") and not data.get("username"):
+                return {"ok": False, "status": "failed", "message": data.get("message") or "Pinterest token rejected."}
+            return {"ok": True, "status": "connected", "displayName": username, "message": f"Connected to Pinterest as {username}."}
     except urllib.error.HTTPError as e:
         detail = e.read(500).decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
         return {"ok": False, "status": "failed", "message": f"HTTP {e.code}: {detail[:220]}"}
@@ -1411,7 +1428,7 @@ def get_topic_discovery_settings(site_id):
 
 
 def get_social_connections(site_id):
-    providers = ["linkedin", "telegram", "twitter", "tumblr"]
+    providers = ["linkedin", "telegram", "twitter", "tumblr", "pinterest"]
     with db() as conn:
         rows = {r["provider"]: r for r in conn.execute("select * from social_connections where site_id=?", (site_id,)).fetchall()}
     return {provider: rows.get(provider) for provider in providers}
@@ -1467,6 +1484,13 @@ SOCIAL_PROVIDER_CONFIG = {
             ("blog_hostname", "Blog hostname", "text", "example.tumblr.com"),
         ],
     },
+    "pinterest": {
+        "label": "Pinterest",
+        "fields": [
+            ("access_token", "Access token", "password", "Pinterest OAuth access token"),
+            ("board_id", "Board ID", "text", "Pinterest board id for publishing pins"),
+        ],
+    },
 }
 
 SOCIAL_CHANNEL_LIMITS = {
@@ -1474,6 +1498,7 @@ SOCIAL_CHANNEL_LIMITS = {
     "telegram": 4096,
     "twitter": 280,
     "tumblr": 4096,
+    "pinterest": 500,
 }
 
 SOCIAL_CHANNEL_STYLE = {
@@ -1481,6 +1506,7 @@ SOCIAL_CHANNEL_STYLE = {
     "telegram": "direct channel post with short paragraphs and a practical reason to open the article",
     "twitter": "single concise X post, no thread, no hashtags unless essential",
     "tumblr": "short editorial micro-post with a natural blog-style intro",
+    "pinterest": "native Pinterest pin description with a visual hook, useful caption, and no clickbait",
 }
 
 LANGUAGE_NAMES = {
@@ -1521,6 +1547,8 @@ def social_credentials_complete(provider, credentials):
         required = ["bearer_token"]
     if provider == "tumblr":
         required = ["consumer_key", "consumer_secret", "oauth_token", "oauth_token_secret"]
+    if provider == "pinterest":
+        required = ["access_token", "board_id"]
     return all(str(credentials.get(key) or "").strip() for key in required)
 
 
@@ -1699,6 +1727,112 @@ def generate_social_post_text(site, job, channel, language, max_chars, include_l
     return text, validation
 
 
+def fallback_pinterest_pin(site, job, language, include_link, article_url):
+    brand = site["brand_name"] or site["domain"]
+    title = social_shorten_to_limit(job["title"] or job["topic"] or "New article", 100)
+    description = social_shorten_to_limit(job["description"] or f"A practical guide from {brand}.", SOCIAL_CHANNEL_LIMITS["pinterest"])
+    overlay = social_shorten_to_limit(title, 80)
+    alt_text = social_shorten_to_limit(f"Pinterest-style vertical image for {title}", 250)
+    image_prompt = social_shorten_to_limit(
+        f"Create a native Pinterest vertical 2:3 editorial photo for an article titled '{title}' by {brand}. "
+        "Use a polished lifestyle/editorial composition, readable visual hierarchy, and space for a short overlay caption. "
+        "Avoid logos, UI screenshots, tiny text, and misleading claims.",
+        1000,
+    )
+    pin = {
+        "pinTitle": title,
+        "description": description,
+        "overlayText": overlay,
+        "altText": alt_text,
+        "imagePrompt": image_prompt,
+        "imageAspectRatio": "2:3",
+        "recommendedSize": "1000x1500",
+        "destinationUrl": article_url if include_link and article_url else "",
+    }
+    return pin
+
+
+def build_pinterest_pin_prompt(site, job, language, include_link, article_url):
+    brand = site["brand_name"] or site["domain"]
+    language_name = LANGUAGE_NAMES.get(language, language.upper())
+    source_text = social_source_text(job, limit=5000)
+    link_rule = "Use the article URL as destinationUrl." if include_link and article_url else "Leave destinationUrl empty."
+    return f"""
+You are adapting an article into a native Pinterest pin creative for {brand}.
+
+GOAL:
+- Create one Pinterest-ready pin concept based on the article.
+- This is not a generic social text post. It needs a vertical image concept plus native Pinterest title/description/caption text.
+
+LANGUAGE:
+- Write pinTitle, description, overlayText, and altText in {language_name}.
+
+ARTICLE:
+- title: {job['title'] or job['topic']}
+- description: {job['description'] or ''}
+- source excerpt: {source_text[:5000]}
+- article URL: {article_url or 'none'}
+- link rule: {link_rule}
+
+PINTEREST REQUIREMENTS:
+- pinTitle max 100 characters.
+- description max 500 characters.
+- overlayText max 80 characters, designed to sit on the image.
+- altText max 250 characters.
+- imagePrompt max 1000 characters.
+- image must be a native Pinterest vertical 2:3 editorial/lifestyle image concept, recommended 1000x1500.
+- imagePrompt must describe the actual visual content to generate: scene, subject, composition, mood, colors, and where overlay text can fit.
+- Do not request logos, screenshots, cluttered text, fake UI, false before/after claims, or unsupported statistics.
+- No markdown. No variants.
+
+RETURN STRICT JSON ONLY:
+{{"pinTitle":"...","description":"...","overlayText":"...","altText":"...","imagePrompt":"...","imageAspectRatio":"2:3","recommendedSize":"1000x1500","destinationUrl":"{article_url if include_link and article_url else ''}"}}
+""".strip()
+
+
+def validate_pinterest_pin(pin):
+    limits = {"pinTitle": 100, "description": 500, "overlayText": 80, "altText": 250, "imagePrompt": 1000}
+    result = {"ok": True, "limits": limits, "fields": {}}
+    for key, limit in limits.items():
+        value = social_normalize_text(pin.get(key) or "")
+        count = len(value)
+        result["fields"][key] = {"charCount": count, "maxChars": limit, "remaining": limit - count}
+        if count > limit:
+            result["ok"] = False
+    return result
+
+
+def normalize_pinterest_pin(pin, site, job, language, include_link, article_url):
+    fallback = fallback_pinterest_pin(site, job, language, include_link, article_url)
+    clean = {}
+    for key in ("pinTitle", "description", "overlayText", "altText", "imagePrompt"):
+        clean[key] = social_normalize_text(pin.get(key) or fallback.get(key) or "")
+    clean["pinTitle"] = social_shorten_to_limit(clean["pinTitle"], 100)
+    clean["description"] = social_shorten_to_limit(clean["description"], SOCIAL_CHANNEL_LIMITS["pinterest"])
+    clean["overlayText"] = social_shorten_to_limit(clean["overlayText"], 80)
+    clean["altText"] = social_shorten_to_limit(clean["altText"], 250)
+    clean["imagePrompt"] = social_shorten_to_limit(clean["imagePrompt"], 1000)
+    clean["imageAspectRatio"] = "2:3"
+    clean["recommendedSize"] = "1000x1500"
+    clean["destinationUrl"] = article_url if include_link and article_url else ""
+    return clean
+
+
+def generate_pinterest_pin_draft(site, job, language, include_link, article_url):
+    try:
+        data = _gemini_text_json(build_pinterest_pin_prompt(site, job, language, include_link, article_url))
+    except Exception:
+        data = {}
+    pin = normalize_pinterest_pin(data if isinstance(data, dict) else {}, site, job, language, include_link, article_url)
+    validation = validate_pinterest_pin(pin)
+    if not validation["ok"]:
+        pin = normalize_pinterest_pin(pin, site, job, language, include_link, article_url)
+        validation = validate_pinterest_pin(pin)
+    if not validation["ok"]:
+        raise ValueError("Pinterest pin draft exceeds field limits")
+    return pin["description"], validation, {"pin": pin}
+
+
 def generate_social_drafts(site_id, job_id, channels=None):
     site = get_site(site_id)
     if not site:
@@ -1720,7 +1854,13 @@ def generate_social_drafts(site_id, job_id, channels=None):
         for channel in allowed_channels:
             include_link = bool(auto[f"{channel}_include_link"] if f"{channel}_include_link" in auto.keys() else 0)
             max_chars = SOCIAL_CHANNEL_LIMITS[channel]
-            text, validation = generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
+            extra_payload = {}
+            if channel == "pinterest":
+                text, validation, extra_payload = generate_pinterest_pin_draft(site, job, language, include_link, article_url)
+                char_count = validation["fields"]["description"]["charCount"]
+            else:
+                text, validation = generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
+                char_count = validation["charCount"]
             payload = {
                 "source": "gemini_or_fallback",
                 "channel": channel,
@@ -1729,6 +1869,7 @@ def generate_social_drafts(site_id, job_id, channels=None):
                 "includeLink": include_link,
                 "articleUrl": article_url,
                 "validation": validation,
+                **extra_payload,
             }
             conn.execute(
                 """
@@ -1747,7 +1888,7 @@ def generate_social_drafts(site_id, job_id, channels=None):
                     "DRAFT",
                     language,
                     max_chars,
-                    validation["charCount"],
+                    char_count,
                     1 if include_link else 0,
                     json.dumps(validation, ensure_ascii=False),
                     now,
@@ -1755,7 +1896,10 @@ def generate_social_drafts(site_id, job_id, channels=None):
                 ),
             )
             status_updates[f"{channel}_status"] = "drafted"
-            results.append({"channel": channel, "language": language, "charCount": validation["charCount"], "maxChars": max_chars, "text": text})
+            result = {"channel": channel, "language": language, "charCount": char_count, "maxChars": max_chars, "text": text}
+            if channel == "pinterest":
+                result.update(extra_payload)
+            results.append(result)
         if status_updates:
             assignments = ", ".join(f"{key}=?" for key in status_updates)
             conn.execute(
@@ -2363,6 +2507,7 @@ def social_icon_label(channel):
         "telegram": "tg",
         "twitter": "X",
         "tumblr": "t",
+        "pinterest": "P",
     }.get(channel, channel[:2])
 
 
@@ -2379,7 +2524,7 @@ def social_status_class(status):
 
 def render_social_statuses(row):
     items = []
-    for channel in ("linkedin", "telegram", "twitter", "tumblr"):
+    for channel in ("linkedin", "telegram", "twitter", "tumblr", "pinterest"):
         status = row[f"{channel}_status"] or "not queued"
         status_class = social_status_class(status)
         label = social_icon_label(channel)
@@ -2650,9 +2795,10 @@ def render_distribution_settings(site_id):
     try:
         selected = set(json.loads(auto["channels_json"] or "[]"))
     except Exception:
-        selected = {"linkedin", "telegram", "twitter", "tumblr"}
+        selected = {"linkedin", "telegram", "twitter", "tumblr", "pinterest"}
     channel_cards = []
-    for provider, label in (("linkedin", "LinkedIn"), ("telegram", "Telegram"), ("twitter", "X / Twitter"), ("tumblr", "Tumblr")):
+    for provider, config in SOCIAL_PROVIDER_CONFIG.items():
+        label = config["label"]
         row = connections.get(provider)
         status = row["status"] if row else "disconnected"
         checked = "checked" if provider in selected else ""
@@ -3995,7 +4141,7 @@ def update_factory_settings(site_id):
     channels = payload.get("channels") or []
     if not isinstance(channels, list):
         channels = []
-    allowed_channels = [c for c in channels if c in {"linkedin", "telegram", "twitter", "tumblr"}]
+    allowed_channels = [c for c in channels if c in SOCIAL_CHANNEL_LIMITS]
     topic = payload.get("topicDiscovery") or {}
     auto = payload.get("autopublish") or {}
     now = now_iso()
@@ -4033,20 +4179,21 @@ def update_factory_settings(site_id):
             """
             insert into autopublish_settings(
                 site_id, enabled, times_per_day, channels_json, timezone, start_hour, end_hour,
-                linkedin_include_link, telegram_include_link, twitter_include_link, tumblr_include_link, updated_at
-            ) values(?,?,?,?,?,?,?,?,?,?,?,?)
+                linkedin_include_link, telegram_include_link, twitter_include_link, tumblr_include_link, pinterest_include_link, updated_at
+            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?)
             on conflict(site_id) do update set
                 enabled=excluded.enabled, times_per_day=excluded.times_per_day, channels_json=excluded.channels_json,
                 timezone=excluded.timezone, start_hour=excluded.start_hour, end_hour=excluded.end_hour,
                 linkedin_include_link=excluded.linkedin_include_link, telegram_include_link=excluded.telegram_include_link,
                 twitter_include_link=excluded.twitter_include_link, tumblr_include_link=excluded.tumblr_include_link,
+                pinterest_include_link=excluded.pinterest_include_link,
                 updated_at=excluded.updated_at
             """,
             (
                 site_id,
                 1 if auto.get("enabled") else 0,
                 int(auto.get("timesPerDay") or 3),
-                json.dumps(allowed_channels or ["linkedin", "telegram", "twitter", "tumblr"]),
+                json.dumps(allowed_channels or ["linkedin", "telegram", "twitter", "tumblr", "pinterest"]),
                 auto.get("timezone") or "UTC",
                 int(auto.get("startHour") or 9),
                 int(auto.get("endHour") or 21),
@@ -4054,6 +4201,7 @@ def update_factory_settings(site_id):
                 1 if auto.get("telegramIncludeLink") else 0,
                 1 if auto.get("twitterIncludeLink") else 0,
                 1 if auto.get("tumblrIncludeLink") else 0,
+                1 if auto.get("pinterestIncludeLink") else 0,
                 now,
             ),
         )
@@ -4430,6 +4578,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 .production-job .social-icon.failed{opacity:1;border-color:rgba(239,68,68,.75);background:rgba(239,68,68,.18)}
 .production-job .social-icon.linkedin{text-transform:none;font-size:13px}
 .production-job .social-icon.twitter{font-size:13px}
+.production-job .social-icon.pinterest{font-size:13px}
 .production-job .social-icon.telegram,.production-job .social-icon.tumblr{text-transform:lowercase}
 .production-job .icon-btn{width:34px;height:34px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.08);display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:#fff;font-weight:900;font-size:17px}
 .production-job .icon-btn:hover{border-color:rgba(34,197,94,.75);background:rgba(34,197,94,.16);transform:translateY(-1px)}
@@ -4611,7 +4760,7 @@ function setBulkProgress(text, active=true){const box=document.getElementById('b
 function clearBulkProgress(){document.querySelectorAll('.planned-bulkbar button,.planned-select,.planned-select-all input').forEach(el=>{el.disabled=false;});}
 async function bulkPlannedAction(action){const tasks=selectedPlannedTasks();const groupIds=tasks.map(item=>item.groupId);if(!groupIds.length){showToast('Select at least one planned task');return;}if(action==='generate'){if(!confirm('Generate '+tasks.length+' selected planned task groups now?')) return;let ok=0;let failed=0;for(let i=0;i<tasks.length;i++){const task=tasks[i];setBulkProgress('Generating '+(i+1)+'/'+tasks.length+'. Keep this tab open.');showToast('Generating '+(i+1)+'/'+tasks.length+'...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(task.jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);ok++;}catch(e){failed++;}}setBulkProgress('Bulk generation finished: '+ok+' ok, '+failed+' failed. Reloading...', false);showToast('Bulk generation finished: '+ok+' ok, '+failed+' failed');setTimeout(()=>location.reload(),1800);return;}if(action==='delete'&&!confirm('Delete '+groupIds.length+' selected planned task groups from Blog Core? This does not delete live site files.')) return;setBulkProgress('Deleting '+groupIds.length+' planned task groups...');showToast('Deleting '+groupIds.length+' planned task groups...');try{const res=await fetch('/api/sites/'+SITE_ID+'/planned-groups/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,groupIds})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);setBulkProgress('Deleted '+(data.deletedJobs||0)+' job rows. Reloading...', false);showToast('Deleted '+(data.deletedJobs||0)+' job rows in '+(data.groups||groupIds.length)+' groups');setTimeout(()=>location.reload(),1200);}catch(e){clearBulkProgress();showToast('Bulk delete failed: '+e.message);}}
 async function generateSocialDrafts(jobId){showToast('Preparing social drafts...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const summary=(data.drafts||[]).map(d=>d.channel+': '+d.charCount+'/'+d.maxChars).join(' · ');showToast('Social drafts ready: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Social drafts failed: '+e.message);}}
-async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
+async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}
 async function saveSocialCredentials(event,provider){event.preventDefault();const form=event.currentTarget;const credentials=socialCredentialsFromForm(form);showToast('Saving '+provider+' credentials...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(provider+' credentials saved: '+data.status);setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 async function testSocialConnection(provider){const form=document.querySelector('.social-credentials-card[data-provider="'+provider+'"]');const credentials=form?socialCredentialsFromForm(form):{};showToast('Testing '+provider+' connection...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider)+'/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.message||data.error||res.statusText);showToast(data.message||provider+' connected');setTimeout(()=>location.reload(),900);}catch(e){showToast('Connection test failed: '+e.message);}}
