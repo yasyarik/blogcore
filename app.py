@@ -167,6 +167,10 @@ def init_db():
                 instagram_post_url text,
                 instagram_posted_at text,
                 instagram_error text,
+                threads_status text,
+                threads_post_url text,
+                threads_posted_at text,
+                threads_error text,
                 created_at text not null,
                 updated_at text not null,
                 foreign key(site_id) references sites(id) on delete cascade
@@ -218,7 +222,7 @@ def init_db():
                 site_id integer primary key,
                 enabled integer not null default 0,
                 times_per_day integer not null default 3,
-                channels_json text not null default '["linkedin","telegram","twitter","tumblr","pinterest","instagram"]',
+                channels_json text not null default '["linkedin","telegram","twitter","tumblr","pinterest","instagram","threads"]',
                 timezone text not null default 'UTC',
                 start_hour integer not null default 9,
                 end_hour integer not null default 21,
@@ -228,6 +232,7 @@ def init_db():
                 tumblr_include_link integer not null default 0,
                 pinterest_include_link integer not null default 0,
                 instagram_include_link integer not null default 0,
+                threads_include_link integer not null default 0,
                 last_slot_key text,
                 last_run_at text,
                 updated_at text not null,
@@ -294,8 +299,13 @@ def init_db():
             "alter table content_jobs add column instagram_post_url text",
             "alter table content_jobs add column instagram_posted_at text",
             "alter table content_jobs add column instagram_error text",
+            "alter table content_jobs add column threads_status text",
+            "alter table content_jobs add column threads_post_url text",
+            "alter table content_jobs add column threads_posted_at text",
+            "alter table content_jobs add column threads_error text",
             "alter table autopublish_settings add column pinterest_include_link integer not null default 0",
             "alter table autopublish_settings add column instagram_include_link integer not null default 0",
+            "alter table autopublish_settings add column threads_include_link integer not null default 0",
         ):
             try:
                 conn.execute(statement)
@@ -648,6 +658,14 @@ def test_social_connection(provider, credentials):
                 "displayName": credentials.get("instagram_profile") or "Instagram intermediary",
                 "message": "Instagram intermediary credentials are saved. Full publish test requires the intermediary API contract.",
             }
+
+        if provider == "threads":
+            params = urllib.parse.urlencode({"fields": "id,username", "access_token": credentials["access_token"]})
+            data, _ = fetch_json_request(f"https://graph.threads.net/v1.0/me?{params}")
+            username = data.get("username") or data.get("id") or "Threads account"
+            if data.get("error"):
+                return {"ok": False, "status": "failed", "message": (data.get("error") or {}).get("message") or "Threads token rejected."}
+            return {"ok": True, "status": "connected", "displayName": username, "message": f"Connected to Threads as {username}."}
     except urllib.error.HTTPError as e:
         detail = e.read(500).decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
         return {"ok": False, "status": "failed", "message": f"HTTP {e.code}: {detail[:220]}"}
@@ -1448,7 +1466,7 @@ def get_topic_discovery_settings(site_id):
 
 
 def get_social_connections(site_id):
-    providers = ["linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram"]
+    providers = ["linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads"]
     with db() as conn:
         rows = {r["provider"]: r for r in conn.execute("select * from social_connections where site_id=?", (site_id,)).fetchall()}
     return {provider: rows.get(provider) for provider in providers}
@@ -1519,6 +1537,13 @@ SOCIAL_PROVIDER_CONFIG = {
             ("instagram_profile", "Instagram profile / route", "text", "@brand or profile id used by the intermediary"),
         ],
     },
+    "threads": {
+        "label": "Threads",
+        "fields": [
+            ("access_token", "Access token", "password", "Threads API access token"),
+            ("threads_user_id", "Threads user ID", "text", "Optional; /me is used for connection test"),
+        ],
+    },
 }
 
 SOCIAL_CHANNEL_LIMITS = {
@@ -1528,6 +1553,7 @@ SOCIAL_CHANNEL_LIMITS = {
     "tumblr": 4096,
     "pinterest": 500,
     "instagram": 2200,
+    "threads": 500,
 }
 
 SOCIAL_CHANNEL_TARGET_CHARS = {
@@ -1541,6 +1567,7 @@ SOCIAL_CHANNEL_STYLE = {
     "tumblr": "short editorial micro-post with a natural blog-style intro",
     "pinterest": "native Pinterest pin description with a visual hook, useful caption, and no clickbait",
     "instagram": "native Instagram carousel caption with concise context, no clickbait, and a clear save/share cue",
+    "threads": "concise conversational Threads post, one clear thought, at most one hashtag",
 }
 
 LANGUAGE_NAMES = {
@@ -1585,6 +1612,8 @@ def social_credentials_complete(provider, credentials):
         required = ["access_token", "board_id"]
     if provider == "instagram":
         required = ["api_key", "api_base_url"]
+    if provider == "threads":
+        required = ["access_token"]
     return all(str(credentials.get(key) or "").strip() for key in required)
 
 
@@ -1642,6 +1671,32 @@ def social_shorten_to_limit(text, max_chars):
     return candidate[:max_chars].rstrip()
 
 
+def social_utf8_len(text):
+    return len(str(text or "").encode("utf-8"))
+
+
+def social_shorten_to_utf8_limit(text, max_bytes):
+    text = social_normalize_text(text)
+    if social_utf8_len(text) <= max_bytes:
+        return text
+    candidate = text
+    while candidate and social_utf8_len(candidate) > max_bytes:
+        candidate = candidate[:-1].rstrip()
+    if not candidate:
+        return ""
+    sentence_cut = max(candidate.rfind("."), candidate.rfind("!"), candidate.rfind("?"), candidate.rfind("\n"))
+    if sentence_cut >= max(20, int(len(candidate) * 0.55)):
+        trimmed = candidate[: sentence_cut + 1].rstrip()
+        if social_utf8_len(trimmed) <= max_bytes:
+            return trimmed
+    space_cut = candidate.rfind(" ")
+    if space_cut >= max(15, int(len(candidate) * 0.65)):
+        trimmed = candidate[:space_cut].rstrip()
+        if social_utf8_len(trimmed) <= max_bytes:
+            return trimmed
+    return candidate
+
+
 def social_text_with_optional_link(text, article_url, include_link, max_chars):
     text = social_normalize_text(text)
     article_url = (article_url or "").strip()
@@ -1655,6 +1710,19 @@ def social_text_with_optional_link(text, article_url, include_link, max_chars):
     return social_normalize_text(body + separator + article_url)
 
 
+def threads_text_with_optional_link(text, article_url, include_link, max_bytes):
+    text = social_normalize_text(text)
+    article_url = (article_url or "").strip()
+    if not include_link or not article_url:
+        return social_shorten_to_utf8_limit(text, max_bytes)
+    separator = "\n\n"
+    link_budget = social_utf8_len(separator + article_url)
+    if link_budget >= max_bytes:
+        return social_shorten_to_utf8_limit(article_url, max_bytes)
+    body = social_shorten_to_utf8_limit(text, max_bytes - link_budget)
+    return social_normalize_text(body + separator + article_url)
+
+
 def fallback_social_post_text(site, job, channel, language, max_chars, include_link, article_url):
     brand = site["brand_name"] or site["domain"]
     title = job["title"] or job["topic"] or "New article"
@@ -1665,6 +1733,7 @@ def fallback_social_post_text(site, job, channel, language, max_chars, include_l
             "telegram": f"{title}\n\n{description}\n\nОткрывайте материал, если тема сейчас актуальна.",
             "twitter": f"{title}. {description}",
             "tumblr": f"{title}\n\n{description}\n\nЗаметка от {brand}.",
+            "threads": f"{title}\n\n{description}\n\nСохраните, если тема актуальна.",
         }
     elif language == "es":
         templates = {
@@ -1672,6 +1741,7 @@ def fallback_social_post_text(site, job, channel, language, max_chars, include_l
             "telegram": f"{title}\n\n{description}\n\nLee el articulo si este tema es relevante para ti.",
             "twitter": f"{title}. {description}",
             "tumblr": f"{title}\n\n{description}\n\nUna nota de {brand}.",
+            "threads": f"{title}\n\n{description}\n\nGuardalo si este tema te resulta util.",
         }
     elif language == "de":
         templates = {
@@ -1679,6 +1749,7 @@ def fallback_social_post_text(site, job, channel, language, max_chars, include_l
             "telegram": f"{title}\n\n{description}\n\nZum Artikel, wenn das Thema gerade relevant ist.",
             "twitter": f"{title}. {description}",
             "tumblr": f"{title}\n\n{description}\n\nEin kurzer Beitrag von {brand}.",
+            "threads": f"{title}\n\n{description}\n\nSpeichern, wenn das Thema gerade relevant ist.",
         }
     elif language == "fr":
         templates = {
@@ -1686,6 +1757,7 @@ def fallback_social_post_text(site, job, channel, language, max_chars, include_l
             "telegram": f"{title}\n\n{description}\n\nA lire si le sujet vous concerne.",
             "twitter": f"{title}. {description}",
             "tumblr": f"{title}\n\n{description}\n\nUne note de {brand}.",
+            "threads": f"{title}\n\n{description}\n\nA garder si le sujet vous concerne.",
         }
     else:
         templates = {
@@ -1693,8 +1765,12 @@ def fallback_social_post_text(site, job, channel, language, max_chars, include_l
             "telegram": f"{title}\n\n{description}\n\nOpen the article if this is on your radar.",
             "twitter": f"{title}. {description}",
             "tumblr": f"{title}\n\n{description}\n\nA short note from {brand}.",
+            "threads": f"{title}\n\n{description}\n\nSave this if it is on your radar.",
         }
-    return social_text_with_optional_link(templates.get(channel, templates["linkedin"]), article_url, include_link, max_chars)
+    fallback = templates.get(channel, templates["linkedin"])
+    if channel == "threads":
+        return threads_text_with_optional_link(fallback, article_url, include_link, max_chars)
+    return social_text_with_optional_link(fallback, article_url, include_link, max_chars)
 
 
 def build_social_post_prompt(site, job, channel, language, max_chars, include_link, article_url):
@@ -1725,6 +1801,7 @@ RULES:
 - Output STRICT JSON only.
 - Return one finished post, not variants.
 - Stay under the hard maximum. Do not rely on platform truncation.
+- For Threads, stay under 500 UTF-8 bytes and use at most one hashtag.
 - Do not say "read more" if no URL is included.
 - No markdown headings.
 - No invented claims, prices, guarantees, statistics, or hashtags unless the article explicitly supports them.
@@ -1745,6 +1822,17 @@ def validate_social_post_text(text, max_chars):
     }
 
 
+def validate_threads_post_text(text, max_bytes):
+    byte_count = social_utf8_len(text)
+    return {
+        "ok": byte_count <= max_bytes,
+        "charCount": len(text or ""),
+        "byteCount": byte_count,
+        "maxBytes": max_bytes,
+        "remainingBytes": max_bytes - byte_count,
+    }
+
+
 def generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url):
     try:
         data = _gemini_text_json(build_social_post_prompt(site, job, channel, language, max_chars, include_link, article_url))
@@ -1753,6 +1841,15 @@ def generate_social_post_text(site, job, channel, language, max_chars, include_l
         text = ""
     if not text:
         text = fallback_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
+    if channel == "threads":
+        text = threads_text_with_optional_link(text, article_url, include_link, max_chars)
+        validation = validate_threads_post_text(text, max_chars)
+        if not validation["ok"]:
+            text = social_shorten_to_utf8_limit(text, max_chars)
+            validation = validate_threads_post_text(text, max_chars)
+        if not validation["ok"]:
+            raise ValueError(f"{channel} social post exceeds {max_chars} UTF-8 bytes")
+        return text, validation
     text = social_text_with_optional_link(text, article_url, include_link, max_chars)
     validation = validate_social_post_text(text, max_chars)
     if not validation["ok"]:
@@ -2163,7 +2260,7 @@ def generate_social_drafts(site_id, job_id, channels=None):
                 char_count = validation["caption"]["charCount"]
             else:
                 text, validation = generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
-                char_count = validation["charCount"]
+                char_count = validation["byteCount"] if channel == "threads" else validation["charCount"]
             payload = {
                 "source": "gemini_or_fallback",
                 "channel": channel,
@@ -2815,6 +2912,7 @@ def social_icon_label(channel):
         "tumblr": "t",
         "pinterest": "P",
         "instagram": "ig",
+        "threads": "th",
     }.get(channel, channel[:2])
 
 
@@ -2831,7 +2929,7 @@ def social_status_class(status):
 
 def render_social_statuses(row):
     items = []
-    for channel in ("linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram"):
+    for channel in ("linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads"):
         status = row[f"{channel}_status"] or "not queued"
         status_class = social_status_class(status)
         label = social_icon_label(channel)
@@ -3113,7 +3211,7 @@ def render_distribution_settings(site_id):
     try:
         selected = set(json.loads(auto["channels_json"] or "[]"))
     except Exception:
-        selected = {"linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram"}
+        selected = {"linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads"}
     channel_cards = []
     for provider, config in SOCIAL_PROVIDER_CONFIG.items():
         label = config["label"]
@@ -4547,8 +4645,9 @@ def update_factory_settings(site_id):
             """
             insert into autopublish_settings(
                 site_id, enabled, times_per_day, channels_json, timezone, start_hour, end_hour,
-                linkedin_include_link, telegram_include_link, twitter_include_link, tumblr_include_link, pinterest_include_link, instagram_include_link, updated_at
-            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                linkedin_include_link, telegram_include_link, twitter_include_link, tumblr_include_link,
+                pinterest_include_link, instagram_include_link, threads_include_link, updated_at
+            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             on conflict(site_id) do update set
                 enabled=excluded.enabled, times_per_day=excluded.times_per_day, channels_json=excluded.channels_json,
                 timezone=excluded.timezone, start_hour=excluded.start_hour, end_hour=excluded.end_hour,
@@ -4556,13 +4655,14 @@ def update_factory_settings(site_id):
                 twitter_include_link=excluded.twitter_include_link, tumblr_include_link=excluded.tumblr_include_link,
                 pinterest_include_link=excluded.pinterest_include_link,
                 instagram_include_link=excluded.instagram_include_link,
+                threads_include_link=excluded.threads_include_link,
                 updated_at=excluded.updated_at
             """,
             (
                 site_id,
                 1 if auto.get("enabled") else 0,
                 int(auto.get("timesPerDay") or 3),
-                json.dumps(allowed_channels or ["linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram"]),
+                json.dumps(allowed_channels or ["linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads"]),
                 auto.get("timezone") or "UTC",
                 int(auto.get("startHour") or 9),
                 int(auto.get("endHour") or 21),
@@ -4572,6 +4672,7 @@ def update_factory_settings(site_id):
                 1 if auto.get("tumblrIncludeLink") else 0,
                 1 if auto.get("pinterestIncludeLink") else 0,
                 1 if auto.get("instagramIncludeLink") else 0,
+                1 if auto.get("threadsIncludeLink") else 0,
                 now,
             ),
         )
@@ -5196,7 +5297,7 @@ function setBulkProgress(text, active=true){const box=document.getElementById('b
 function clearBulkProgress(){document.querySelectorAll('.planned-bulkbar button,.planned-select,.planned-select-all input').forEach(el=>{el.disabled=false;});}
 async function bulkPlannedAction(action){const tasks=selectedPlannedTasks();const groupIds=tasks.map(item=>item.groupId);if(!groupIds.length){showToast('Select at least one planned task');return;}if(action==='generate'){if(!confirm('Generate '+tasks.length+' selected planned task groups now?')) return;let ok=0;let failed=0;for(let i=0;i<tasks.length;i++){const task=tasks[i];setBulkProgress('Generating '+(i+1)+'/'+tasks.length+'. Keep this tab open.');showToast('Generating '+(i+1)+'/'+tasks.length+'...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(task.jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);ok++;}catch(e){failed++;}}setBulkProgress('Bulk generation finished: '+ok+' ok, '+failed+' failed. Reloading...', false);showToast('Bulk generation finished: '+ok+' ok, '+failed+' failed');setTimeout(()=>location.reload(),1800);return;}if(action==='delete'&&!confirm('Delete '+groupIds.length+' selected planned task groups from Blog Core? This does not delete live site files.')) return;setBulkProgress('Deleting '+groupIds.length+' planned task groups...');showToast('Deleting '+groupIds.length+' planned task groups...');try{const res=await fetch('/api/sites/'+SITE_ID+'/planned-groups/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,groupIds})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);setBulkProgress('Deleted '+(data.deletedJobs||0)+' job rows. Reloading...', false);showToast('Deleted '+(data.deletedJobs||0)+' job rows in '+(data.groups||groupIds.length)+' groups');setTimeout(()=>location.reload(),1200);}catch(e){clearBulkProgress();showToast('Bulk delete failed: '+e.message);}}
 async function generateSocialDrafts(jobId){showToast('Preparing social drafts...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const summary=(data.drafts||[]).map(d=>d.channel+': '+d.charCount+'/'+d.maxChars).join(' · ');showToast('Social drafts ready: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Social drafts failed: '+e.message);}}
-async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
+async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link'),threadsIncludeLink:fd.has('threads_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}
 async function saveSocialCredentials(event,provider){event.preventDefault();const form=event.currentTarget;const credentials=socialCredentialsFromForm(form);showToast('Saving '+provider+' credentials...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(provider+' credentials saved: '+data.status);setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 async function testSocialConnection(provider){const form=document.querySelector('.social-credentials-card[data-provider="'+provider+'"]');const credentials=form?socialCredentialsFromForm(form):{};showToast('Testing '+provider+' connection...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider)+'/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.message||data.error||res.statusText);showToast(data.message||provider+' connected');setTimeout(()=>location.reload(),900);}catch(e){showToast('Connection test failed: '+e.message);}}

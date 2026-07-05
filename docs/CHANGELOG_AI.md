@@ -2,6 +2,44 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-05 — Add Threads social channel
+
+### Summary
+
+* Added Threads as a separate social channel in Setup, Distribution, active-channel gating, content-card status icons, and factory settings persistence.
+* Added SQLite migrations for `content_jobs.threads_*` status fields and `autopublish_settings.threads_include_link`.
+* Added Threads credential configuration and test-connect support through the Threads `/me` API probe.
+* Added Threads draft generation through the text social draft path with Threads-specific 500 UTF-8 byte validation.
+* Added byte-aware shortening so emoji and non-ASCII languages do not silently exceed the Threads limit.
+
+### Files changed
+
+* `app.py` — added Threads provider config, migrations, UI/settings integration, byte-aware validation, and text draft generation.
+* `docs/PROJECT_MEMORY.md` — recorded Threads as a separate channel with a 500 UTF-8 byte rule.
+* `docs/INTEGRATIONS.md` — documented Threads credentials, connection test, and validation behavior.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Threads is not X/Twitter and not Instagram; it has its own provider, status fields, credentials, include-link setting, and draft validation.
+* Threads uses byte-aware validation because the platform counts emoji/non-ASCII text by UTF-8 bytes.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Verified `http://127.0.0.1:3299/health`.
+* Verified live SQLite migrations added `content_jobs.threads_*` columns and `autopublish_settings.threads_include_link`.
+* Generated a Threads draft for existing `myugc.studio` imported article `0619c746c0433e10b6ce64d4` using a temporary generation-only Threads gate, then restored the original `myugc.studio` social settings.
+* Verified the generated Threads draft stores `char_count=324`, `max_chars=500`, and validation JSON `byteCount=324`, `maxBytes=500`.
+* Verified live `/sites/6` renders Threads in Setup/Distribution, `threads_include_link`, and the Distribution channel value `threads`.
+
+### Risks / TODO
+
+* Actual Threads publishing is still pending; this task prepares connection setup and validated drafts for the publisher.
+
 ## 2026-07-05 — Tighten Instagram caption target length
 
 ### Summary
