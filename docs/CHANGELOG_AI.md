@@ -2,6 +2,42 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-08 — Normalize Discovery topic queries
+
+### Summary
+
+* Fixed topic query extraction so short meaningful terms such as `AI` and `UGC` are preserved.
+* Normalized `user generated content` to `ugc` and `e-commerce` to `ecommerce`.
+* Stopped dropping category-defining terms only because they appear in a brand/domain name.
+* Changed source relevance matching to whole-word matching so unrelated substrings do not pass Reddit filtering.
+* Expanded search and Reddit source fetching to use multiple normalized query candidates instead of one fragile query.
+
+### Files changed
+
+* `app.py` — updated Discovery topic normalization, keyword extraction, query candidates, search suggestion variants, and Reddit query/scoring behavior.
+* `docs/PROJECT_MEMORY.md` — recorded durable topic-normalization and whole-word relevance rules.
+* `docs/INTEGRATIONS.md` — documented normalized query candidates and multi-query Reddit/search behavior.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Discovery fixes must stay site-agnostic; `AI/UGC/ecommerce` handling is category normalization, not a one-site exception.
+* Reddit returning `429` remains a source degradation and should be shown as a warning, not silently treated as real absence of discussion demand.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `GET /api/sites/6/topic-signals?range=week` now uses query `ai ugc creation ecommerce`, returns 84 raw search suggestions, 20 kept search-demand signals, and shows Reddit query variants/429 degradation separately.
+* Verified `POST /api/sites/6/article-ideas` returned four SEO-rationalized article ideas from the normalized `ai ugc` signals, with one similar idea rejected.
+
+### Risks / TODO
+
+* Reddit RSS is still rate-limiting multi-period calls; the next robustness step should be caching Reddit source responses or adding a non-Reddit discussion source fallback.
+
 ## 2026-07-08 — Split Discovery signal sources
 
 ### Summary

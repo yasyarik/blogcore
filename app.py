@@ -3493,6 +3493,19 @@ def render_manage_site_page(site):
     )
 
 
+def normalize_topic_text(text):
+    clean = (text or "").lower()
+    clean = clean.replace("ai-generated", "ai generated")
+    clean = clean.replace("ai generated user generated content", "ai ugc")
+    clean = clean.replace("user-generated content", "ugc")
+    clean = clean.replace("user generated content", "ugc")
+    clean = clean.replace("e-commerce", "ecommerce")
+    clean = clean.replace("e commerce", "ecommerce")
+    clean = clean.replace("shopify & tech", "shopify tech")
+    clean = re.sub(r"\s+", " ", clean)
+    return clean.strip()
+
+
 def site_topic_seed(site):
     profile = get_profile(site["id"]) if site and "id" in site.keys() else None
     profile_text = ""
@@ -3502,18 +3515,28 @@ def site_topic_seed(site):
     if site and "id" in site.keys():
         try:
             disc = get_topic_discovery_settings(site["id"])
-            discovery_text = " ".join([disc["direction"] or "", disc["category_hint"] or ""])
+            discovery_text = " ".join([disc["category_hint"] or "", disc["direction"] or ""])
         except Exception:
             discovery_text = ""
     brand_tokens = set(re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}", ((site["brand_name"] or "") + " " + (site["domain"] or "")).lower()))
     pieces = [discovery_text, site["topic_strategy"] or "", site["content_context"] or "", profile_text, site["brand_name"] or "", site["domain"] or ""]
-    full = " ".join(pieces).lower()
-    stop = {"www", "com", "https", "http", "blog", "site", "content", "topics", "brand", "with", "from", "that", "this", "and", "the", "for", "guide", "guides", "buying", "choose", "clear", "help", "helps", "understand", "plan", "upcoming", "platform", "compatible", "paying", "costs"}
+    full = normalize_topic_text(" ".join(pieces))
+    stop = {
+        "www", "com", "https", "http", "blog", "site", "content", "topics", "brand", "brands", "with", "from",
+        "that", "this", "and", "the", "for", "guide", "guides", "buying", "choose", "clear", "help", "helps",
+        "understand", "plan", "upcoming", "platform", "compatible", "paying", "costs", "generated", "looking",
+        "scale", "their", "custom", "category", "hint",
+    }
     words = []
-    for word in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}", full):
+    for word in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{1,}", full):
         if word in stop:
             continue
-        if word in brand_tokens and word not in {"wine", "wines", "food", "pairing", "travel", "fashion", "beauty", "pets", "home"}:
+        if len(word) < 3 and word not in {"ai"}:
+            continue
+        if word in brand_tokens and word not in {
+            "ai", "ugc", "ecommerce", "marketing", "photography", "visual", "wine", "wines", "food", "pairing",
+            "travel", "fashion", "beauty", "pets", "home",
+        }:
             continue
         if word not in words:
             words.append(word)
@@ -3526,7 +3549,7 @@ def site_topic_seed(site):
 SIGNALS_PER_SOURCE = int(os.environ.get("SIGNALS_PER_SOURCE", "20"))
 SIGNAL_STOP_WORDS = {
     "about", "after", "and", "are", "blog", "brand", "buying", "content", "for", "from", "guide", "guides",
-    "how", "into", "site", "that", "the", "this", "tips", "topics", "what", "when", "with", "your",
+    "generated", "how", "into", "site", "that", "the", "this", "tips", "topics", "what", "when", "with", "your",
 }
 
 REDDIT_WEAK_MATCH_TERMS = {
@@ -3571,18 +3594,48 @@ def timeframe_to_reddit(range_key):
 
 def signal_keywords(query):
     words = []
-    for word in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}", (query or "").lower()):
+    for word in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{1,}", normalize_topic_text(query or "")):
         if word in SIGNAL_STOP_WORDS:
+            continue
+        if len(word) < 3 and word not in {"ai"}:
             continue
         if word not in words:
             words.append(word)
     return words
 
 
+def topic_query_candidates(site):
+    seed = site_topic_seed(site)
+    keywords = signal_keywords(seed)
+    candidates = []
+
+    def add(value):
+        clean = re.sub(r"\s+", " ", normalize_topic_text(value)).strip()
+        if clean and clean not in candidates:
+            candidates.append(clean)
+
+    add(" ".join(keywords[:4]) or seed)
+    if "ugc" in keywords:
+        add("ugc ecommerce")
+        add("ai ugc")
+        add("ugc product photography")
+        add("ugc ads ecommerce")
+    if "ecommerce" in keywords and "photography" in keywords:
+        add("ecommerce product photography")
+        add("product images ecommerce")
+    if "shopify" in keywords:
+        add("shopify product photography")
+        add("shopify ugc ads")
+    if "ai" in keywords and "visual" in keywords:
+        add("ai visual content")
+    if len(keywords) >= 2:
+        add(" ".join(keywords[:2]))
+    return candidates[:8]
+
+
 def broad_topic_signal_query(site):
-    keywords = signal_keywords(site_topic_seed(site))
-    core = " ".join(keywords[:3]) or site_topic_seed(site)
-    return core
+    candidates = topic_query_candidates(site)
+    return candidates[0] if candidates else site_topic_seed(site)
 
 
 def signal_term_matches(title, query):
@@ -3591,8 +3644,6 @@ def signal_term_matches(title, query):
     for word in signal_keywords(query):
         if re.search(rf"\b{re.escape(word)}\b", haystack):
             matches.append((word, 2))
-        elif word in haystack:
-            matches.append((word, 1))
     return matches
 
 
@@ -3655,33 +3706,35 @@ def reddit_signal_is_relevant(title, query):
 def popular_search_queries(site):
     query = broad_topic_signal_query(site)
     keywords = signal_keywords(query)
-    core = " ".join(keywords[:4]) or query
-    variants = [
-        core,
-        f"{core} guide",
-        f"{core} examples",
-        f"{core} problems",
-        f"{core} mistakes",
-        f"{core} comparison",
-        f"{core} workflow",
-        f"{core} strategy",
-        f"{core} software",
-        f"{core} automation",
-        f"how to {core}",
-        f"best {core}",
-        f"{core} alternatives",
-        f"{core} roi",
-        f"{core} checklist",
-        f"{core} implementation",
-        f"{core} use cases",
-        f"{core} benchmarks",
-    ]
+    cores = topic_query_candidates(site) or [" ".join(keywords[:4]) or query]
+    variants = []
+    for core in cores:
+        variants.extend([
+            core,
+            f"{core} guide",
+            f"{core} examples",
+            f"{core} problems",
+            f"{core} mistakes",
+            f"{core} comparison",
+            f"{core} workflow",
+            f"{core} strategy",
+            f"{core} software",
+            f"{core} automation",
+            f"how to {core}",
+            f"best {core}",
+            f"{core} alternatives",
+            f"{core} roi",
+            f"{core} checklist",
+            f"{core} implementation",
+            f"{core} use cases",
+            f"{core} benchmarks",
+        ])
     clean = []
     for variant in variants:
         variant = re.sub(r"\s+", " ", variant).strip()
         if variant and variant not in clean:
             clean.append(variant)
-    return clean
+    return clean[:48]
 
 
 def popular_search_signal_is_relevant(title, query):
@@ -3741,7 +3794,7 @@ def fetch_popular_search_signals(site, range_key):
             if not is_global:
                 filtered_global += 1
                 continue
-            is_relevant, score, matched_terms = popular_search_signal_is_relevant(title, query)
+            is_relevant, score, matched_terms = popular_search_signal_is_relevant(title, suggest_query)
             if not is_relevant:
                 filtered_relevance += 1
                 continue
@@ -3788,24 +3841,6 @@ def fetch_reddit_signals(site, range_key):
     warnings = []
     if range_key in {"3m", "6m"}:
         warnings.append("Reddit RSS supports week/month/year buckets; using year bucket for this range.")
-    url = "https://www.reddit.com/search.rss?" + urllib.parse.urlencode({"q": query, "sort": "top", "t": reddit_t})
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "BlogCoreTopicDiscovery/1.0 (+https://blog.yas.ooo)"})
-        with urllib.request.urlopen(req, timeout=18) as resp:
-            xml = resp.read(1200000).decode("utf-8", errors="replace")
-        root = ET.fromstring(xml)
-    except Exception as e:
-        return [], [f"Reddit temporarily unavailable: {e}"], {
-            "raw": 0,
-            "kept": 0,
-            "filteredGlobal": 0,
-            "filteredRelevance": 0,
-            "deduped": 0,
-            "limit": SIGNALS_PER_SOURCE,
-            "rangeApplies": True,
-            "bucket": reddit_t,
-        }
-
     ns = {"atom": "http://www.w3.org/2005/Atom"}
     signals = []
     seen = set()
@@ -3813,28 +3848,51 @@ def fetch_reddit_signals(site, range_key):
     filtered_global = 0
     filtered_relevance = 0
     duplicate_count = 0
-    for entry in root.findall("atom:entry", ns)[:80]:
-        title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
-        link_node = entry.find("atom:link", ns)
-        link = link_node.attrib.get("href", "") if link_node is not None else ""
-        updated = (entry.findtext("atom:updated", default="", namespaces=ns) or "").strip()
-        if not title or "/comments/" not in link:
+    query_failures = []
+    query_candidates = topic_query_candidates(site)[:5] or [query]
+    for reddit_query in query_candidates:
+        url = "https://www.reddit.com/search.rss?" + urllib.parse.urlencode({"q": reddit_query, "sort": "top", "t": reddit_t})
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "BlogCoreTopicDiscovery/1.0 (+https://blog.yas.ooo)"})
+            with urllib.request.urlopen(req, timeout=18) as resp:
+                xml = resp.read(1200000).decode("utf-8", errors="replace")
+            root = ET.fromstring(xml)
+        except Exception as e:
+            query_failures.append(str(e))
             continue
-        raw_count += 1
-        key = (title.lower(), link)
-        if key in seen:
-            duplicate_count += 1
-            continue
-        seen.add(key)
-        is_global, reason = is_global_topic_signal(title)
-        if not is_global:
-            filtered_global += 1
-            continue
-        is_relevant, score, matched_terms = reddit_signal_is_relevant(title, query)
-        if not is_relevant:
-            filtered_relevance += 1
-            continue
-        signals.append({"source": "reddit", "title": title, "url": link, "meta": updated, "range": range_key, "score": score, "matchedTerms": matched_terms})
+        for entry in root.findall("atom:entry", ns)[:60]:
+            title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
+            link_node = entry.find("atom:link", ns)
+            link = link_node.attrib.get("href", "") if link_node is not None else ""
+            updated = (entry.findtext("atom:updated", default="", namespaces=ns) or "").strip()
+            if not title or "/comments/" not in link:
+                continue
+            raw_count += 1
+            key = (title.lower(), link)
+            if key in seen:
+                duplicate_count += 1
+                continue
+            seen.add(key)
+            is_global, reason = is_global_topic_signal(title)
+            if not is_global:
+                filtered_global += 1
+                continue
+            is_relevant, score, matched_terms = reddit_signal_is_relevant(title, reddit_query)
+            if not is_relevant:
+                filtered_relevance += 1
+                continue
+            signals.append({
+                "source": "reddit",
+                "title": title,
+                "url": link,
+                "meta": updated,
+                "range": range_key,
+                "score": score,
+                "matchedTerms": matched_terms,
+                "query": reddit_query,
+            })
+            if len(signals) >= SIGNALS_PER_SOURCE:
+                break
         if len(signals) >= SIGNALS_PER_SOURCE:
             break
     meta = {
@@ -3846,7 +3904,13 @@ def fetch_reddit_signals(site, range_key):
         "limit": SIGNALS_PER_SOURCE,
         "rangeApplies": True,
         "bucket": reddit_t,
+        "queries": query_candidates,
+        "failedQueries": len(query_failures),
     }
+    if query_failures and not raw_count:
+        return [], [f"Reddit temporarily unavailable: {query_failures[0]}"], meta
+    if query_failures:
+        warnings.append(f"Reddit skipped {len(query_failures)} query variants because of temporary source errors.")
     if filtered_global:
         warnings.append(f"Filtered {filtered_global} local, city-specific, or event-specific Reddit discussions.")
     if not signals:
