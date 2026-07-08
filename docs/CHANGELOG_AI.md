@@ -2,6 +2,46 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-08 — Split Discovery signal sources
+
+### Summary
+
+* Split Discovery into source-aware search-demand and Reddit discussion signals.
+* Made it explicit that the period selector affects Reddit only, not Google autocomplete demand signals.
+* Added API metadata for raw, kept, filtered, deduped, source limit, and Reddit time bucket counts.
+* Expanded reusable autocomplete query variants and kept the journalist/SEO idea generator as the step that turns raw signals into article ideas.
+* Replaced the mechanical signal-to-title idea generator with a Gemini journalist/SEO prompt and strict idea validation requiring SEO intent and rationale.
+
+### Files changed
+
+* `app.py` — added source metadata to topic-signal fetchers/API, grouped Discovery UI rendering by source, default-checked usable signals, let idea generation use all visible signals if none are manually selected, and required generated ideas to include SEO intent/rationale.
+* `docs/PROJECT_MEMORY.md` — recorded durable Discovery rules about raw signals vs article ideas and source-specific period behavior.
+* `docs/INTEGRATIONS.md` — documented the updated `/api/sites/{site_id}/topic-signals` contract.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Search-demand autocomplete is treated as a non-time-filtered audience signal source.
+* Reddit remains the period-controlled discussion source, with 3-month and 6-month UI ranges mapped to Reddit's year bucket where needed.
+* Raw signals must remain inputs for the journalist/SEO prompt; they are not final article titles.
+* Article idea generation should reject direct copies of raw signal titles and reject ideas missing durable SEO rationale.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed updated `app.py` and memory docs to `/var/www/blog.yas.ooo`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Ran `git diff --check`.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `GET /api/sites/6/topic-signals?range=6m` returns `sources.popularSearches.rangeApplies=false`, `sources.reddit.rangeApplies=true`, Reddit `bucket=year`, combined `signals`, and raw/filtered/kept counts.
+* Verified live dashboard HTML for site `id=6` contains `Discovery inputs`, `Reddit: last week`, `Generate SEO article ideas`, and the source-specific UI copy.
+* Verified `POST /api/sites/6/article-ideas` with live Discovery signals returned four journalist-style SEO ideas with `seo_intent` and `seo_rationale` and did not append mechanical fallback titles after valid Gemini results.
+
+### Risks / TODO
+
+* Search-demand autocomplete can still return fewer visible cards than the source limit after dedupe/relevance/global-topic filters; the UI now shows raw/filtered/kept counts to make this explicit.
+
 ## 2026-07-06 — Generate Threads-specific media images
 
 ### Summary

@@ -31,7 +31,8 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * Popular search suggestions are deduplicated, filtered for broad/non-local/non-promotional/non-navigation intent, relevance-scored against the site topic seed, and only positive-score items are returned. The selected range does not affect Google autocomplete suggestions; it only affects Reddit.
 * Reddit signals use Reddit search RSS with `sort=top` and time range mapping. Only `/comments/` discussion URLs with a strong site-topic anchor and contextual title match are returned; broad matches on generic words are rejected.
 * Reddit may rate-limit with `429 Too Many Requests`; source failures are returned as API `warnings` and must not render as selectable cards.
-* The topic signal API returns `counts` and `warnings` separately from `signals`; UI should show warnings as notes only.
+* The topic signal API returns a backward-compatible combined `signals` list plus source-specific `sources.popularSearches` and `sources.reddit` blocks. Each source block includes `signals`, `warnings`, and `meta` with `raw`, `kept`, `filteredGlobal`, `filteredRelevance`, `deduped`, `limit`, and `rangeApplies`. `sources.popularSearches.rangeApplies=false`; `sources.reddit.rangeApplies=true` and includes the Reddit bucket (`week`, `month`, or `year`).
+* The Discovery UI must show source-specific counts/warnings and must not imply the selected period affects search-demand autocomplete signals.
 * `POST /api/sites/{site_id}/article-ideas` generates reviewable idea candidates from selected Discovery signals and returns `rejectedSimilar` for topics filtered as too similar to existing site content. It must not create `content_jobs`.
 * `POST /api/sites/{site_id}/article-ideas/queue` creates `content_jobs.status=QUEUED` only for operator-selected ideas and reruns the similarity check before writing jobs.
 

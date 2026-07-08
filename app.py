@@ -3658,15 +3658,23 @@ def popular_search_queries(site):
     core = " ".join(keywords[:4]) or query
     variants = [
         core,
-        f"{core} tips",
         f"{core} guide",
-        f"{core} cost",
-        f"{core} best",
-        f"{core} safety",
+        f"{core} examples",
+        f"{core} problems",
+        f"{core} mistakes",
+        f"{core} comparison",
+        f"{core} workflow",
+        f"{core} strategy",
+        f"{core} software",
+        f"{core} automation",
         f"how to {core}",
-        f"{core} for beginners",
-        f"{core} reviews",
+        f"best {core}",
         f"{core} alternatives",
+        f"{core} roi",
+        f"{core} checklist",
+        f"{core} implementation",
+        f"{core} use cases",
+        f"{core} benchmarks",
     ]
     clean = []
     for variant in variants:
@@ -3703,9 +3711,13 @@ def fetch_popular_search_signals(site, range_key):
     warnings = []
     ranked = []
     seen = set()
+    raw_count = 0
     filtered_global = 0
+    filtered_relevance = 0
+    duplicate_count = 0
     suggest_failures = 0
-    for query_index, suggest_query in enumerate(popular_search_queries(site)):
+    queries = popular_search_queries(site)
+    for query_index, suggest_query in enumerate(queries):
         url = "https://suggestqueries.google.com/complete/search?" + urllib.parse.urlencode({"client": "firefox", "hl": "en", "q": suggest_query})
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 BlogCore topic discovery"})
@@ -3719,8 +3731,10 @@ def fetch_popular_search_signals(site, range_key):
             title = re.sub(r"\s+", " ", str(suggestion or "")).strip()
             if not title:
                 continue
+            raw_count += 1
             key = title.lower()
             if key in seen:
+                duplicate_count += 1
                 continue
             seen.add(key)
             is_global, _ = is_global_topic_signal(title)
@@ -3729,6 +3743,7 @@ def fetch_popular_search_signals(site, range_key):
                 continue
             is_relevant, score, matched_terms = popular_search_signal_is_relevant(title, query)
             if not is_relevant:
+                filtered_relevance += 1
                 continue
             rank_hint = -(query_index * 100 + suggestion_index)
             ranked.append((
@@ -3746,13 +3761,25 @@ def fetch_popular_search_signals(site, range_key):
             ))
     ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
     signals = [item for _, _, item in ranked[:SIGNALS_PER_SOURCE]]
-    if suggest_failures and suggest_failures == len(popular_search_queries(site)):
+    meta = {
+        "raw": raw_count,
+        "kept": len(signals),
+        "filteredGlobal": filtered_global,
+        "filteredRelevance": filtered_relevance,
+        "deduped": duplicate_count,
+        "limit": SIGNALS_PER_SOURCE,
+        "rangeApplies": False,
+        "queries": queries,
+        "queryCount": len(queries),
+        "failedQueries": suggest_failures,
+    }
+    if suggest_failures and suggest_failures == len(queries):
         warnings.append("Popular search suggestions are temporarily unavailable.")
     if filtered_global:
         warnings.append(f"Filtered {filtered_global} local, city-specific, or event-specific search suggestions.")
     if not signals and not suggest_failures:
         warnings.append("No strongly relevant popular search suggestions found for this site topic.")
-    return signals, warnings
+    return signals, warnings, meta
 
 
 def fetch_reddit_signals(site, range_key):
@@ -3768,12 +3795,24 @@ def fetch_reddit_signals(site, range_key):
             xml = resp.read(1200000).decode("utf-8", errors="replace")
         root = ET.fromstring(xml)
     except Exception as e:
-        return [], [f"Reddit temporarily unavailable: {e}"]
+        return [], [f"Reddit temporarily unavailable: {e}"], {
+            "raw": 0,
+            "kept": 0,
+            "filteredGlobal": 0,
+            "filteredRelevance": 0,
+            "deduped": 0,
+            "limit": SIGNALS_PER_SOURCE,
+            "rangeApplies": True,
+            "bucket": reddit_t,
+        }
 
     ns = {"atom": "http://www.w3.org/2005/Atom"}
     signals = []
     seen = set()
+    raw_count = 0
     filtered_global = 0
+    filtered_relevance = 0
+    duplicate_count = 0
     for entry in root.findall("atom:entry", ns)[:80]:
         title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
         link_node = entry.find("atom:link", ns)
@@ -3781,8 +3820,10 @@ def fetch_reddit_signals(site, range_key):
         updated = (entry.findtext("atom:updated", default="", namespaces=ns) or "").strip()
         if not title or "/comments/" not in link:
             continue
+        raw_count += 1
         key = (title.lower(), link)
         if key in seen:
+            duplicate_count += 1
             continue
         seen.add(key)
         is_global, reason = is_global_topic_signal(title)
@@ -3791,15 +3832,26 @@ def fetch_reddit_signals(site, range_key):
             continue
         is_relevant, score, matched_terms = reddit_signal_is_relevant(title, query)
         if not is_relevant:
+            filtered_relevance += 1
             continue
         signals.append({"source": "reddit", "title": title, "url": link, "meta": updated, "range": range_key, "score": score, "matchedTerms": matched_terms})
         if len(signals) >= SIGNALS_PER_SOURCE:
             break
+    meta = {
+        "raw": raw_count,
+        "kept": len(signals),
+        "filteredGlobal": filtered_global,
+        "filteredRelevance": filtered_relevance,
+        "deduped": duplicate_count,
+        "limit": SIGNALS_PER_SOURCE,
+        "rangeApplies": True,
+        "bucket": reddit_t,
+    }
     if filtered_global:
         warnings.append(f"Filtered {filtered_global} local, city-specific, or event-specific Reddit discussions.")
     if not signals:
         warnings.append("No relevant Reddit top discussions found for this site topic and period.")
-    return signals, warnings
+    return signals, warnings, meta
 
 IDEA_DUPLICATE_THRESHOLD = 0.68
 
@@ -3891,6 +3943,103 @@ def title_case_phrase(text):
     return "".join(cased).strip()
 
 
+def build_journalist_article_ideas_prompt(site, signals, existing_index):
+    brand = site["brand_name"] or site["domain"]
+    topic_seed = site_topic_seed(site)
+    signal_rows = []
+    for signal in signals[:18]:
+        if signal.get("disabled"):
+            continue
+        signal_rows.append({
+            "source": signal.get("source"),
+            "title": signal.get("title"),
+            "meta": signal.get("meta"),
+            "matchedTerms": signal.get("matchedTerms", []),
+        })
+    existing_rows = [
+        {
+            "title": item.get("title"),
+            "status": item.get("status"),
+            "url": item.get("url"),
+            "pageType": item.get("pageType"),
+        }
+        for item in existing_index[:160]
+    ]
+    return f"""
+You are an experienced commissioning editor and SEO strategist.
+
+Create article ideas for this website.
+
+Site:
+- Brand: {brand}
+- Domain: {site['domain']}
+- Topic seed: {topic_seed}
+
+Audience/search/discussion signals:
+{json.dumps(signal_rows, ensure_ascii=False, indent=2)}
+
+Existing imported/published/planned content to avoid duplicating:
+{json.dumps(existing_rows, ensure_ascii=False, indent=2)}
+
+Rules:
+- Do not copy a signal title directly.
+- Do not write local city/event/news/campaign topics.
+- Turn audience interests into durable article concepts with a clear editorial angle.
+- Every idea must carry SEO value for this specific site, not generic traffic.
+- Avoid topics already covered by existing content.
+- Prefer practical, specific titles that a real editor would approve.
+- Return only JSON with this shape:
+{{
+  "ideas": [
+    {{
+      "title": "Specific article title",
+      "angle": "Editorial angle and why readers care",
+      "seo_intent": "informational|commercial|comparison|transactional",
+      "seo_rationale": "Why this can rank and why it supports the site",
+      "source_title": "The audience signal that inspired the idea",
+      "source": "popular_search|reddit",
+      "contentType": "blog"
+    }}
+  ]
+}}
+""".strip()
+
+
+def sanitize_article_idea(raw_idea, signals):
+    if not isinstance(raw_idea, dict):
+        return None
+    title = re.sub(r"\s+", " ", str(raw_idea.get("title") or "")).strip()
+    angle = re.sub(r"\s+", " ", str(raw_idea.get("angle") or "")).strip()
+    seo_intent = re.sub(r"\s+", " ", str(raw_idea.get("seo_intent") or raw_idea.get("seoIntent") or "")).strip().lower()
+    seo_rationale = re.sub(r"\s+", " ", str(raw_idea.get("seo_rationale") or raw_idea.get("seoRationale") or "")).strip()
+    if len(title) < 28 or len(angle) < 30 or len(seo_rationale) < 35:
+        return None
+    if seo_intent not in {"informational", "commercial", "comparison", "transactional"}:
+        return None
+    source_title = re.sub(r"\s+", " ", str(raw_idea.get("source_title") or raw_idea.get("sourceTitle") or "")).strip()
+    matched_signal = None
+    for signal in signals:
+        signal_title = re.sub(r"\s+", " ", str(signal.get("title") or "")).strip()
+        if source_title and signal_title and source_title.lower() == signal_title.lower():
+            matched_signal = signal
+            break
+    if not matched_signal and signals:
+        matched_signal = signals[0]
+    direct_copy = any(idea_similarity(title, signal.get("title") or "") > 0.9 for signal in signals)
+    if direct_copy:
+        return None
+    return {
+        "title": title,
+        "angle": angle,
+        "seo_intent": seo_intent,
+        "seo_rationale": seo_rationale,
+        "source": raw_idea.get("source") or (matched_signal or {}).get("source") or "popular_search",
+        "source_title": source_title or (matched_signal or {}).get("title") or "",
+        "source_url": (matched_signal or {}).get("url") or raw_idea.get("source_url") or "",
+        "contentType": raw_idea.get("contentType") or "blog",
+    }
+
+
 def article_idea_candidates_for_signal(signal, brand, seed):
     raw = re.sub(r"\s+", " ", signal.get("title", "")).strip()
     if not raw:
@@ -3918,6 +4067,8 @@ def article_idea_candidates_for_signal(signal, brand, seed):
         ideas.append({
             "title": title,
             "angle": f"Use the selected topic signal to answer a durable reader question, avoid a single city/event/news angle, and connect the article to {brand}'s offer, expertise, or editorial point of view around {seed}.",
+            "seo_intent": "informational",
+            "seo_rationale": f"This topic can capture non-news search demand around {seed} and connect the reader's problem to {brand}'s expertise.",
             "source": signal.get("source"),
             "source_title": raw,
             "source_url": signal.get("url", ""),
@@ -3933,10 +4084,35 @@ def generate_article_ideas(site, signals, existing_index=None):
     rejected = []
     seen_titles = set()
     existing_index = existing_index if existing_index is not None else existing_topic_index(site["id"])
-    for signal in signals[:12]:
+    usable_signals = [signal for signal in signals[:18] if not signal.get("disabled")]
+    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+        try:
+            payload = _gemini_text_json(build_journalist_article_ideas_prompt(site, usable_signals, existing_index))
+            for raw_idea in payload.get("ideas") or []:
+                idea = sanitize_article_idea(raw_idea, usable_signals)
+                if not idea:
+                    continue
+                key = simple_slug(idea["title"])
+                if key in seen_titles:
+                    continue
+                seen_titles.add(key)
+                similar = find_similar_existing_topic(idea, existing_index)
+                if similar:
+                    rejected.append({"idea": idea, "similar": similar})
+                    continue
+                ideas.append(idea)
+                if len(ideas) >= 12:
+                    return ideas, rejected
+            if ideas:
+                return ideas, rejected
+        except Exception as e:
+            rejected.append({"idea": {"title": "Gemini article idea generation failed"}, "similar": {"title": str(e), "score": 0}})
+    for signal in usable_signals[:12]:
         if signal.get("disabled"):
             continue
         for idea in article_idea_candidates_for_signal(signal, brand, seed):
+            if not idea.get("seo_rationale") or not idea.get("seo_intent"):
+                continue
             key = simple_slug(idea["title"])
             if key in seen_titles:
                 continue
@@ -4612,16 +4788,44 @@ def topic_signals(site_id):
     range_key = request.args.get("range") or "week"
     if range_key not in {"week", "month", "3m", "6m"}:
         range_key = "week"
-    popular_search, popular_search_warnings = fetch_popular_search_signals(site, range_key)
-    reddit, reddit_warnings = fetch_reddit_signals(site, range_key)
+    popular_search, popular_search_warnings, popular_search_meta = fetch_popular_search_signals(site, range_key)
+    reddit, reddit_warnings, reddit_meta = fetch_reddit_signals(site, range_key)
     signals = popular_search + reddit
     return jsonify({
         "ok": True,
         "range": range_key,
         "query": broad_topic_signal_query(site),
         "signals": signals,
+        "sources": {
+            "popularSearches": {
+                "label": "Search demand signals",
+                "description": "Autocomplete demand signals. The selected period does not apply to this source.",
+                "rangeApplies": False,
+                "signals": popular_search,
+                "warnings": popular_search_warnings,
+                "meta": popular_search_meta,
+            },
+            "reddit": {
+                "label": "Reddit discussions",
+                "description": "Top Reddit discussions for the selected period bucket.",
+                "rangeApplies": True,
+                "range": range_key,
+                "bucket": reddit_meta.get("bucket"),
+                "signals": reddit,
+                "warnings": reddit_warnings,
+                "meta": reddit_meta,
+            },
+        },
         "warnings": popular_search_warnings + reddit_warnings,
-        "counts": {"popularSearches": len(popular_search), "reddit": len(reddit), "total": len(signals)},
+        "counts": {
+            "popularSearches": len(popular_search),
+            "reddit": len(reddit),
+            "total": len(signals),
+            "popularSearchesRaw": popular_search_meta.get("raw", 0),
+            "popularSearchesFiltered": popular_search_meta.get("filteredGlobal", 0) + popular_search_meta.get("filteredRelevance", 0) + popular_search_meta.get("deduped", 0),
+            "redditRaw": reddit_meta.get("raw", 0),
+            "redditFiltered": reddit_meta.get("filteredGlobal", 0) + reddit_meta.get("filteredRelevance", 0) + reddit_meta.get("deduped", 0),
+        },
     })
 
 
@@ -5433,14 +5637,14 @@ button[disabled]{opacity:.55;cursor:not-allowed}
 
   <div class="tab-panel" data-panel="discovery" hidden>
   <section class="panel">
-    <h2 style="margin:0">Popular topic trends and discussions</h2>
-    <div class="muted">Choose broad topic/search-demand signals related to this site's category. Local city events, festivals, ticket pages, campaigns, and news stories are filtered out.</div>
+    <h2 style="margin:0">Discovery inputs</h2>
+    <div class="muted">Search demand and Reddit discussions are audience signals for the journalist prompt, not article titles. The period selector applies only to Reddit; autocomplete search demand is not time-filtered. Local events, ticket pages, campaigns, and one-off news are filtered out.</div>
     <div class="signal-toolbar">
-      <button class="ghost" data-range="week" onclick="loadSignals('week')">Last week</button>
-      <button class="ghost" data-range="month" onclick="loadSignals('month')">Month</button>
-      <button class="ghost" data-range="3m" onclick="loadSignals('3m')">3 months</button>
-      <button class="ghost" data-range="6m" onclick="loadSignals('6m')">6 months</button>
-      <button onclick="createIdeasFromSignals()">Generate article ideas</button>
+      <button class="ghost" data-range="week" onclick="loadSignals('week')">Reddit: last week</button>
+      <button class="ghost" data-range="month" onclick="loadSignals('month')">Reddit: month</button>
+      <button class="ghost" data-range="3m" onclick="loadSignals('3m')">Reddit: 3 months</button>
+      <button class="ghost" data-range="6m" onclick="loadSignals('6m')">Reddit: 6 months</button>
+      <button onclick="createIdeasFromSignals()">Generate SEO article ideas</button>
     </div>
     <div id="signalQuery" class="muted"></div>
     <div id="signals" class="loading">Loading topic signals...</div>
@@ -5468,12 +5672,15 @@ async function runAction(id, action){showToast('Running '+action+'...');try{cons
 async function queueTopicPlan(id){showToast('Queueing topic plan...');try{const res=await fetch('/api/sites/'+id+'/queue-topic-plan',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Topic plan queued');setTimeout(()=>location.reload(),700);}catch(e){showToast('Queue failed: '+e.message);}}
 async function checkCname(id){showToast('Checking CNAME...');try{const res=await fetch('/api/sites/'+id+'/check-cname',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('CNAME status: '+data.status);setTimeout(()=>location.reload(),900);}catch(e){showToast('CNAME check failed: '+e.message);}}
 async function deleteSite(id, domain){if(!confirm('Remove '+domain+' from Blog Core? Installed /blog files on the site will not be deleted.')) return;showToast('Deleting '+domain+'...');try{const res=await fetch('/api/sites/'+id+'/delete',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);location.href='/';}catch(e){showToast('Delete failed: '+e.message);}}
-function sourceLabel(source){return source==='popular_search'||source==='google_trends'?'Popular searches':'Reddit top discussions';}
-function renderSignals(items){const box=document.getElementById('signals');currentSignals=(items||[]).filter(item=>!item.disabled);if(!currentSignals.length){box.className='loading';box.textContent='No usable signals found for this site topic.';return;}box.className='signal-list';box.innerHTML=currentSignals.map((item,index)=>`<label class="signal-card"><input type="checkbox" data-index="${index}"><div><em class="source-pill">${escapeHtml(sourceLabel(item.source))}</em><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.meta||'')}</span></div></label>`).join('');}
-async function loadSignals(range){currentRange=range||'week';const box=document.getElementById('signals');box.className='loading';box.textContent='Loading popular topic suggestions and Reddit top discussions...';try{const res=await fetch('/api/sites/'+SITE_ID+'/topic-signals?range='+encodeURIComponent(currentRange));const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const counts=data.counts||{};const warnings=(data.warnings||[]).length?' · Notes: '+data.warnings.join(' · '):'';document.getElementById('signalQuery').textContent='Topic query: '+data.query+' · range: '+data.range+' · signals: '+(counts.total??(data.signals||[]).length)+warnings;renderSignals(data.signals);}catch(e){box.className='loading';box.textContent='Topic discovery failed: '+e.message;}}
-function renderArticleIdeas(ideas,rejected){const box=document.getElementById('articleIdeaResult');currentIdeas=ideas||[];box.hidden=false;if(!currentIdeas.length){box.className='loading idea-stage';box.textContent='No new article ideas after checking existing content.';return;}const rejectedNote=(rejected&&rejected.length)?'<div class="hint">Filtered '+rejected.length+' ideas because they are too similar to already imported/published or planned site content.</div>':'';box.className='idea-stage';box.innerHTML='<div class="panel-title-row"><div><h3>Article ideas to add</h3><div class="muted">Review the generated topics. Only checked ideas will be added to Planned publications.</div></div><div class="actions"><button type="button" onclick="queueSelectedArticleIdeas()">Add selected to queue</button></div></div>'+rejectedNote+'<div class="idea-list">'+currentIdeas.map((idea,index)=>`<label class="idea-row"><input type="checkbox" data-index="${index}" checked><div><strong>${escapeHtml(idea.title)}</strong><span>${escapeHtml(idea.angle||'')}</span><em>${escapeHtml(idea.source_title||'')}</em></div></label>`).join('')+'</div>';}
-async function createIdeasFromSignals(){const selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one trend or discussion');return;}const box=document.getElementById('articleIdeaResult');box.hidden=false;box.className='loading idea-stage';box.textContent='Generating article ideas and checking existing site content...';showToast('Generating article ideas...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);renderArticleIdeas(data.ideas||[],data.rejectedSimilar||[]);showToast('Article ideas ready: '+((data.ideas||[]).length));}catch(e){box.className='loading idea-stage';box.textContent='Article ideas failed: '+e.message;showToast('Article ideas failed: '+e.message);}}
-async function queueSelectedArticleIdeas(){const selected=[...document.querySelectorAll('#articleIdeaResult input[type="checkbox"]:checked')].map(input=>currentIdeas[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one article idea');return;}showToast('Adding selected ideas to queue...');try{const signalSelection=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:signalSelection,ideas:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const rejected=(data.rejectedSimilar||[]).length;showToast('Queued '+(data.jobs||[]).length+' article ideas'+(rejected?' · skipped '+rejected+' similar':'')+'. Reloading...');setTimeout(()=>{location.hash='#distribution';location.reload();},1200);}catch(e){showToast('Queue failed: '+e.message);}}
+function sourceLabel(source){return source==='popular_search'||source==='google_trends'?'Search demand':'Reddit discussion';}
+function signalStatText(source){const meta=source.meta||{};const filtered=(Number(meta.filteredGlobal||0)+Number(meta.filteredRelevance||0)+Number(meta.deduped||0));const raw=Number(meta.raw||0);const kept=Number(meta.kept||(source.signals||[]).length);const limit=meta.limit?' · cap '+meta.limit:'';return 'kept '+kept+' / raw '+raw+' · filtered '+filtered+limit;}
+function signalWarnings(source){return (source.warnings||[]).map(item=>`<div class="hint">${escapeHtml(item)}</div>`).join('');}
+function renderSignalGroup(key,source,startIndex){const items=(source.signals||[]).filter(item=>!item.disabled);const applies=source.rangeApplies?'Period: '+escapeHtml(source.range||currentRange)+(source.bucket?' · Reddit bucket: '+escapeHtml(source.bucket):''):'No date filter';const empty=items.length?'':'<div class="loading">No usable signals found from this source.</div>';let index=startIndex;const cards=items.map(item=>{const cardIndex=index++;return `<label class="signal-card"><input type="checkbox" data-index="${cardIndex}" checked><div><em class="source-pill">${escapeHtml(sourceLabel(item.source))}</em><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.meta||'Audience signal, not an article title')}</span></div></label>`;}).join('');return {html:`<div class="signal-source-block" data-source="${escapeHtml(key)}"><div class="panel-title-row" style="margin:16px 0 10px"><div><h3 style="margin:0;font-size:18px">${escapeHtml(source.label||key)}</h3><div class="muted">${escapeHtml(source.description||'')}</div></div><div class="muted" style="text-align:right">${applies}<br>${escapeHtml(signalStatText(source))}</div></div>${signalWarnings(source)}${empty||'<div class="signal-list">'+cards+'</div>'}</div>`,nextIndex:index,items};}
+function renderSignals(data){const box=document.getElementById('signals');const sources=(data&&data.sources)||null;if(!sources){currentSignals=(data&&data.signals||data||[]).filter(item=>!item.disabled);if(!currentSignals.length){box.className='loading';box.textContent='No usable signals found for this site topic.';return;}box.className='';box.innerHTML='<div class="signal-list">'+currentSignals.map((item,index)=>`<label class="signal-card"><input type="checkbox" data-index="${index}" checked><div><em class="source-pill">${escapeHtml(sourceLabel(item.source))}</em><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.meta||'')}</span></div></label>`).join('')+'</div>';return;}currentSignals=[];let nextIndex=0;const blocks=[];['popularSearches','reddit'].forEach(key=>{if(!sources[key]) return;const rendered=renderSignalGroup(key,sources[key],nextIndex);nextIndex=rendered.nextIndex;currentSignals=currentSignals.concat(rendered.items);blocks.push(rendered.html);});if(!currentSignals.length){box.className='loading';box.textContent='No usable signals found for this site topic.';return;}box.className='';box.innerHTML=blocks.join('');}
+async function loadSignals(range){currentRange=range||'week';const box=document.getElementById('signals');box.className='loading';box.textContent='Loading search demand and Reddit discussion signals...';try{const res=await fetch('/api/sites/'+SITE_ID+'/topic-signals?range='+encodeURIComponent(currentRange));const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const counts=data.counts||{};const searchText='Search demand: '+(counts.popularSearches||0)+' kept / '+(counts.popularSearchesRaw||0)+' raw, '+(counts.popularSearchesFiltered||0)+' filtered';const redditText='Reddit: '+(counts.reddit||0)+' kept / '+(counts.redditRaw||0)+' raw, '+(counts.redditFiltered||0)+' filtered';document.getElementById('signalQuery').textContent='Topic query: '+data.query+' · '+searchText+' · '+redditText+' · selected period applies only to Reddit';renderSignals(data);}catch(e){box.className='loading';box.textContent='Topic discovery failed: '+e.message;}}
+function renderArticleIdeas(ideas,rejected){const box=document.getElementById('articleIdeaResult');currentIdeas=ideas||[];box.hidden=false;if(!currentIdeas.length){box.className='loading idea-stage';box.textContent='No new article ideas after checking existing content.';return;}const rejectedNote=(rejected&&rejected.length)?'<div class="hint">Filtered '+rejected.length+' ideas because they are too similar to already imported/published or planned site content.</div>':'';box.className='idea-stage';box.innerHTML='<div class="panel-title-row"><div><h3>SEO article ideas to add</h3><div class="muted">Generated by the journalist prompt from selected audience interests. Only checked ideas will be added to Planned publications.</div></div><div class="actions"><button type="button" onclick="queueSelectedArticleIdeas()">Add selected to queue</button></div></div>'+rejectedNote+'<div class="idea-list">'+currentIdeas.map((idea,index)=>`<label class="idea-row"><input type="checkbox" data-index="${index}" checked><div><strong>${escapeHtml(idea.title)}</strong><span>${escapeHtml(idea.angle||'')}</span><span>${escapeHtml(idea.seo_intent||'seo')}: ${escapeHtml(idea.seo_rationale||'')}</span><em>${escapeHtml(idea.source_title||'')}</em></div></label>`).join('')+'</div>';}
+async function createIdeasFromSignals(){let selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length&&currentSignals.length){selected=currentSignals;}if(!selected.length){showToast('No audience signals available yet');return;}const box=document.getElementById('articleIdeaResult');box.hidden=false;box.className='loading idea-stage';box.textContent='Generating SEO-weighted editorial article ideas and checking existing site content...';showToast('Generating article ideas...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);renderArticleIdeas(data.ideas||[],data.rejectedSimilar||[]);showToast('Article ideas ready: '+((data.ideas||[]).length));}catch(e){box.className='loading idea-stage';box.textContent='Article ideas failed: '+e.message;showToast('Article ideas failed: '+e.message);}}
+async function queueSelectedArticleIdeas(){const selected=[...document.querySelectorAll('#articleIdeaResult input[type="checkbox"]:checked')].map(input=>currentIdeas[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one article idea');return;}showToast('Adding selected ideas to queue...');try{let signalSelection=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!signalSelection.length&&currentSignals.length){signalSelection=currentSignals;}const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:signalSelection,ideas:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const rejected=(data.rejectedSimilar||[]).length;showToast('Queued '+(data.jobs||[]).length+' article ideas'+(rejected?' · skipped '+rejected+' similar':'')+'. Reloading...');setTimeout(()=>{location.hash='#distribution';location.reload();},1200);}catch(e){showToast('Queue failed: '+e.message);}}
 async function generateArticleJob(jobId){showToast('Generating draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);if(data.status==='GENERATING'){showToast('Generation started in source factory. Refreshing status...');setTimeout(()=>location.reload(),1800);}else{showToast('Draft generated: '+(data.slug||jobId));setTimeout(()=>location.reload(),900);}}catch(e){showToast('Generation failed: '+e.message);}}
 function selectedPlannedTasks(){return [...document.querySelectorAll('.planned-select:checked')].map(input=>({groupId:input.value,jobId:input.dataset.jobId})).filter(item=>item.groupId);}
 function selectedPlannedGroupIds(){return selectedPlannedTasks().map(item=>item.groupId);}
