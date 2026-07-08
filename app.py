@@ -4007,21 +4007,16 @@ def title_case_phrase(text):
     return "".join(cased).strip()
 
 
-def target_article_idea_count(signal_count):
-    if signal_count <= 4:
-        return max(4, signal_count)
-    if signal_count <= 10:
-        return 8
-    if signal_count <= 18:
-        return 12
-    return 16
+ARTICLE_IDEA_SAFETY_CAP = int(os.environ.get("ARTICLE_IDEA_SAFETY_CAP", "50"))
+ARTICLE_IDEA_SIGNAL_CAP = int(os.environ.get("ARTICLE_IDEA_SIGNAL_CAP", "40"))
+ARTICLE_IDEA_MAX_PASSES = int(os.environ.get("ARTICLE_IDEA_MAX_PASSES", "4"))
 
 
-def build_journalist_article_ideas_prompt(site, signals, existing_index, target_count=12, accepted_titles=None):
+def build_journalist_article_ideas_prompt(site, signals, existing_index, accepted_titles=None, second_pass=False):
     brand = site["brand_name"] or site["domain"]
     topic_seed = site_topic_seed(site)
     signal_rows = []
-    for signal in signals[:24]:
+    for signal in signals[:ARTICLE_IDEA_SIGNAL_CAP]:
         if signal.get("disabled"):
             continue
         signal_rows.append({
@@ -4059,7 +4054,9 @@ Already accepted ideas in this generation run, also avoid duplicating:
 {json.dumps(accepted_titles or [], ensure_ascii=False, indent=2)}
 
 Rules:
-- Generate {target_count} distinct article ideas if enough non-duplicate editorial opportunities exist.
+- Generate every distinct article idea that is editorially justified by the selected signals and useful for this site.
+- Do not stop at an arbitrary fixed count. If 3 ideas are genuinely valid, return 3; if 30 are genuinely valid, return 30.
+- Respect the technical safety cap of {ARTICLE_IDEA_SAFETY_CAP} ideas in one response.
 - Do not copy a signal title directly.
 - Do not write local city/event/news/campaign topics.
 - Turn audience interests into durable article concepts with a clear editorial angle.
@@ -4067,6 +4064,7 @@ Rules:
 - Avoid topics already covered by existing content.
 - Cover different clusters from the selected signals instead of producing only one cluster.
 - If many signals are near-duplicates, consolidate them into one stronger idea and use other signals for separate ideas.
+- {'This is a second pass. Focus only on valid ideas missing from the accepted list above.' if second_pass else 'Prefer breadth across all selected signal clusters before depth inside one cluster.'}
 - Prefer practical, specific titles that a real editor would approve.
 - Return only JSON with this shape:
 {{
@@ -4164,13 +4162,16 @@ def generate_article_ideas(site, signals, existing_index=None):
     rejected = []
     seen_titles = set()
     existing_index = existing_index if existing_index is not None else existing_topic_index(site["id"])
-    usable_signals = [signal for signal in signals[:24] if not signal.get("disabled")]
-    target_count = target_article_idea_count(len(usable_signals))
+    usable_signals = [signal for signal in signals[:ARTICLE_IDEA_SIGNAL_CAP] if not signal.get("disabled")]
     generated_count = 0
+    generation_passes = 0
 
     def accept_payload_ideas(payload):
         nonlocal generated_count
+        accepted_before = len(ideas)
         for raw_idea in payload.get("ideas") or []:
+            if len(ideas) >= ARTICLE_IDEA_SAFETY_CAP:
+                break
             generated_count += 1
             idea = sanitize_article_idea(raw_idea, usable_signals)
             if not idea:
@@ -4186,31 +4187,33 @@ def generate_article_ideas(site, signals, existing_index=None):
                 rejected.append({"idea": idea, "similar": similar})
                 continue
             ideas.append(idea)
-            if len(ideas) >= target_count:
-                break
+        return len(ideas) - accepted_before
 
     if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
         try:
-            payload = _gemini_text_json(build_journalist_article_ideas_prompt(site, usable_signals, existing_index, target_count))
-            accept_payload_ideas(payload)
-            if 0 < len(ideas) < target_count:
-                remaining_target = target_count - len(ideas)
+            generation_passes += 1
+            payload = _gemini_text_json(build_journalist_article_ideas_prompt(site, usable_signals, existing_index))
+            accepted_this_pass = accept_payload_ideas(payload)
+            while ideas and accepted_this_pass > 0 and len(ideas) < ARTICLE_IDEA_SAFETY_CAP and generation_passes < ARTICLE_IDEA_MAX_PASSES:
+                generation_passes += 1
                 retry_payload = _gemini_text_json(build_journalist_article_ideas_prompt(
                     site,
                     usable_signals,
                     existing_index,
-                    remaining_target,
                     [idea["title"] for idea in ideas],
+                    second_pass=True,
                 ))
-                accept_payload_ideas(retry_payload)
+                accepted_this_pass = accept_payload_ideas(retry_payload)
             if ideas:
-                return ideas, rejected, {"target": target_count, "generated": generated_count, "accepted": len(ideas), "rejected": len(rejected), "signals": len(usable_signals)}
+                return ideas, rejected, {"generated": generated_count, "accepted": len(ideas), "rejected": len(rejected), "signals": len(usable_signals), "safetyCap": ARTICLE_IDEA_SAFETY_CAP, "passes": generation_passes}
         except Exception as e:
             rejected.append({"idea": {"title": "Gemini article idea generation failed"}, "similar": {"title": str(e), "score": 0}})
-    for signal in usable_signals[:12]:
+    for signal in usable_signals:
         if signal.get("disabled"):
             continue
         for idea in article_idea_candidates_for_signal(signal, brand, seed):
+            if len(ideas) >= ARTICLE_IDEA_SAFETY_CAP:
+                break
             if not idea.get("seo_rationale") or not idea.get("seo_intent"):
                 continue
             key = simple_slug(idea["title"])
@@ -4222,9 +4225,9 @@ def generate_article_ideas(site, signals, existing_index=None):
                 rejected.append({"idea": idea, "similar": similar})
                 continue
             ideas.append(idea)
-            if len(ideas) >= 24:
-                return ideas, rejected, {"target": target_count, "generated": generated_count, "accepted": len(ideas), "rejected": len(rejected), "signals": len(usable_signals)}
-    return ideas, rejected, {"target": target_count, "generated": generated_count, "accepted": len(ideas), "rejected": len(rejected), "signals": len(usable_signals)}
+        if len(ideas) >= ARTICLE_IDEA_SAFETY_CAP:
+            break
+    return ideas, rejected, {"generated": generated_count, "accepted": len(ideas), "rejected": len(rejected), "signals": len(usable_signals), "safetyCap": ARTICLE_IDEA_SAFETY_CAP, "passes": generation_passes}
 
 
 def _parse_json_text(text):
@@ -5778,8 +5781,8 @@ function signalWarnings(source){return (source.warnings||[]).map(item=>`<div cla
 function renderSignalGroup(key,source,startIndex){const items=(source.signals||[]).filter(item=>!item.disabled);const applies=source.rangeApplies?'Period: '+escapeHtml(source.range||currentRange)+(source.bucket?' · Reddit bucket: '+escapeHtml(source.bucket):''):'No date filter';const empty=items.length?'':'<div class="loading">No usable signals found from this source.</div>';let index=startIndex;const cards=items.map(item=>{const cardIndex=index++;return `<label class="signal-card"><input type="checkbox" data-index="${cardIndex}" checked><div><em class="source-pill">${escapeHtml(sourceLabel(item.source))}</em><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.meta||'Audience signal, not an article title')}</span></div></label>`;}).join('');return {html:`<div class="signal-source-block" data-source="${escapeHtml(key)}"><div class="panel-title-row" style="margin:16px 0 10px"><div><h3 style="margin:0;font-size:18px">${escapeHtml(source.label||key)}</h3><div class="muted">${escapeHtml(source.description||'')}</div></div><div class="muted" style="text-align:right">${applies}<br>${escapeHtml(signalStatText(source))}</div></div>${signalWarnings(source)}${empty||'<div class="signal-list">'+cards+'</div>'}</div>`,nextIndex:index,items};}
 function renderSignals(data){const box=document.getElementById('signals');const sources=(data&&data.sources)||null;if(!sources){currentSignals=(data&&data.signals||data||[]).filter(item=>!item.disabled);if(!currentSignals.length){box.className='loading';box.textContent='No usable signals found for this site topic.';return;}box.className='';box.innerHTML='<div class="signal-list">'+currentSignals.map((item,index)=>`<label class="signal-card"><input type="checkbox" data-index="${index}" checked><div><em class="source-pill">${escapeHtml(sourceLabel(item.source))}</em><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.meta||'')}</span></div></label>`).join('')+'</div>';return;}currentSignals=[];let nextIndex=0;const blocks=[];['popularSearches','reddit'].forEach(key=>{if(!sources[key]) return;const rendered=renderSignalGroup(key,sources[key],nextIndex);nextIndex=rendered.nextIndex;currentSignals=currentSignals.concat(rendered.items);blocks.push(rendered.html);});if(!currentSignals.length){box.className='loading';box.textContent='No usable signals found for this site topic.';return;}box.className='';box.innerHTML=blocks.join('');}
 async function loadSignals(range){currentRange=range||'week';const box=document.getElementById('signals');box.className='loading';box.textContent='Loading search demand and Reddit discussion signals...';try{const res=await fetch('/api/sites/'+SITE_ID+'/topic-signals?range='+encodeURIComponent(currentRange));const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const counts=data.counts||{};const searchText='Search demand: '+(counts.popularSearches||0)+' kept / '+(counts.popularSearchesRaw||0)+' raw, '+(counts.popularSearchesFiltered||0)+' filtered';const redditText='Reddit: '+(counts.reddit||0)+' kept / '+(counts.redditRaw||0)+' raw, '+(counts.redditFiltered||0)+' filtered';document.getElementById('signalQuery').textContent='Topic query: '+data.query+' · '+searchText+' · '+redditText+' · selected period applies only to Reddit';renderSignals(data);}catch(e){box.className='loading';box.textContent='Topic discovery failed: '+e.message;}}
-function renderArticleIdeas(ideas,rejected,counts){const box=document.getElementById('articleIdeaResult');currentIdeas=ideas||[];box.hidden=false;if(!currentIdeas.length){box.className='loading idea-stage';box.textContent='No new article ideas after checking existing content.';return;}counts=counts||{};const target=counts.target||currentIdeas.length;const generated=counts.generated||currentIdeas.length;const statNote='<div class="hint">Accepted '+currentIdeas.length+' / target '+target+' ideas from '+(counts.signals||'selected')+' signals. Model candidates checked: '+generated+'. Rejected: '+((rejected&&rejected.length)||0)+'.</div>';const rejectedNote=(rejected&&rejected.length)?'<div class="hint">Filtered '+rejected.length+' ideas because they were too similar, duplicated, or failed SEO/editorial validation.</div>':'';box.className='idea-stage';box.innerHTML='<div class="panel-title-row"><div><h3>SEO article ideas to add</h3><div class="muted">Generated by the journalist prompt from selected audience interests. Only checked ideas will be added to Planned publications.</div></div><div class="actions"><button type="button" onclick="queueSelectedArticleIdeas()">Add selected to queue</button></div></div>'+statNote+rejectedNote+'<div class="idea-list">'+currentIdeas.map((idea,index)=>`<label class="idea-row"><input type="checkbox" data-index="${index}" checked><div><strong>${escapeHtml(idea.title)}</strong><span>${escapeHtml(idea.angle||'')}</span><span>${escapeHtml(idea.seo_intent||'seo')}: ${escapeHtml(idea.seo_rationale||'')}</span><em>${escapeHtml(idea.source_title||'')}</em></div></label>`).join('')+'</div>';}
-async function createIdeasFromSignals(){let selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length&&currentSignals.length){selected=currentSignals;}if(!selected.length){showToast('No audience signals available yet');return;}const box=document.getElementById('articleIdeaResult');box.hidden=false;box.className='loading idea-stage';box.textContent='Generating SEO-weighted editorial article ideas and checking existing site content...';showToast('Generating article ideas...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);renderArticleIdeas(data.ideas||[],data.rejectedSimilar||[],data.counts||{});const counts=data.counts||{};showToast('Article ideas ready: '+((data.ideas||[]).length)+' / target '+(counts.target||'?'));}catch(e){box.className='loading idea-stage';box.textContent='Article ideas failed: '+e.message;showToast('Article ideas failed: '+e.message);}}
+function renderArticleIdeas(ideas,rejected,counts){const box=document.getElementById('articleIdeaResult');currentIdeas=ideas||[];box.hidden=false;if(!currentIdeas.length){box.className='loading idea-stage';box.textContent='No new article ideas after checking existing content.';return;}counts=counts||{};const generated=counts.generated||currentIdeas.length;const passes=counts.passes?' across '+counts.passes+' pass'+(counts.passes===1?'':'es'):'';const safety=counts.safetyCap?' · safety cap '+counts.safetyCap:'';const statNote='<div class="hint">Accepted '+currentIdeas.length+' valid ideas from '+(counts.signals||'selected')+' signals. Model candidates checked: '+generated+passes+'. Rejected: '+((rejected&&rejected.length)||0)+safety+'.</div>';const rejectedNote=(rejected&&rejected.length)?'<div class="hint">Filtered '+rejected.length+' ideas because they were too similar, duplicated, or failed SEO/editorial validation.</div>':'';box.className='idea-stage';box.innerHTML='<div class="panel-title-row"><div><h3>SEO article ideas to add</h3><div class="muted">Generated by the journalist prompt from selected audience interests. Only checked ideas will be added to Planned publications.</div></div><div class="actions"><button type="button" onclick="queueSelectedArticleIdeas()">Add selected to queue</button></div></div>'+statNote+rejectedNote+'<div class="idea-list">'+currentIdeas.map((idea,index)=>`<label class="idea-row"><input type="checkbox" data-index="${index}" checked><div><strong>${escapeHtml(idea.title)}</strong><span>${escapeHtml(idea.angle||'')}</span><span>${escapeHtml(idea.seo_intent||'seo')}: ${escapeHtml(idea.seo_rationale||'')}</span><em>${escapeHtml(idea.source_title||'')}</em></div></label>`).join('')+'</div>';}
+async function createIdeasFromSignals(){let selected=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!selected.length&&currentSignals.length){selected=currentSignals;}if(!selected.length){showToast('No audience signals available yet');return;}const box=document.getElementById('articleIdeaResult');box.hidden=false;box.className='loading idea-stage';box.textContent='Generating SEO-weighted editorial article ideas and checking existing site content...';showToast('Generating article ideas...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);renderArticleIdeas(data.ideas||[],data.rejectedSimilar||[],data.counts||{});const counts=data.counts||{};showToast('Article ideas ready: '+((data.ideas||[]).length)+' valid ideas');}catch(e){box.className='loading idea-stage';box.textContent='Article ideas failed: '+e.message;showToast('Article ideas failed: '+e.message);}}
 async function queueSelectedArticleIdeas(){const selected=[...document.querySelectorAll('#articleIdeaResult input[type="checkbox"]:checked')].map(input=>currentIdeas[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one article idea');return;}showToast('Adding selected ideas to queue...');try{let signalSelection=[...document.querySelectorAll('#signals input[type="checkbox"]:checked')].map(input=>currentSignals[Number(input.dataset.index)]).filter(Boolean);if(!signalSelection.length&&currentSignals.length){signalSelection=currentSignals;}const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:signalSelection,ideas:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const rejected=(data.rejectedSimilar||[]).length;showToast('Queued '+(data.jobs||[]).length+' article ideas'+(rejected?' · skipped '+rejected+' similar':'')+'. Reloading...');setTimeout(()=>{location.hash='#distribution';location.reload();},1200);}catch(e){showToast('Queue failed: '+e.message);}}
 async function generateArticleJob(jobId){showToast('Generating draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);if(data.status==='GENERATING'){showToast('Generation started in source factory. Refreshing status...');setTimeout(()=>location.reload(),1800);}else{showToast('Draft generated: '+(data.slug||jobId));setTimeout(()=>location.reload(),900);}}catch(e){showToast('Generation failed: '+e.message);}}
 function selectedPlannedTasks(){return [...document.querySelectorAll('.planned-select:checked')].map(input=>({groupId:input.value,jobId:input.dataset.jobId})).filter(item=>item.groupId);}

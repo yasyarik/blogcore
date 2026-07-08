@@ -2,10 +2,45 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-08 — Remove fixed Discovery idea targets
+
+### Summary
+
+* Removed fixed article idea targets such as 4, 12, or 16 from Discovery generation.
+* Changed Gemini idea generation to iterate while new valid ideas are still being accepted.
+* Kept only technical guards: `ARTICLE_IDEA_SAFETY_CAP`, `ARTICLE_IDEA_SIGNAL_CAP`, and `ARTICLE_IDEA_MAX_PASSES`.
+* Updated UI/API copy to show accepted/generated/rejected/pass counts instead of accepted/target.
+
+### Files changed
+
+* `app.py` — replaced target-count generation with iterative multi-pass generation until no new valid ideas are found or a technical guard is reached.
+* `docs/PROJECT_MEMORY.md` — recorded that Discovery should return all valid ideas after filters, not arbitrary target counts.
+* `docs/INTEGRATIONS.md` — updated the article idea `counts` contract.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* The number of article ideas is determined by editorial/SEO validity after filters, not by a product-level target.
+* Technical caps remain only to control runaway latency/cost and are exposed as diagnostics, not presented as the desired number of ideas.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `POST /api/sites/6/article-ideas` with 25 live Discovery signals now returns counts `accepted=21`, `generated=27`, `rejected=6`, `passes=4`, `safetyCap=50`, `signals=25`.
+
+### Risks / TODO
+
+* More passes increase latency; the current guard is configurable with `ARTICLE_IDEA_MAX_PASSES`.
+
 ## 2026-07-08 — Scale Discovery article idea volume
 
 ### Summary
 
+* Replaced/deprecated by 2026-07-08 — Remove fixed Discovery idea targets.
 * Made article idea generation target scale with the number of selected Discovery signals.
 * Added a second Gemini pass when the first validated idea set is below target.
 * Increased the selected signal window used by the idea generator from 18 to 24.
