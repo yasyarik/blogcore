@@ -35,6 +35,7 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * The topic signal API returns a backward-compatible combined `signals` list plus source-specific `sources.popularSearches` and `sources.reddit` blocks. Each source block includes `signals`, `warnings`, and `meta` with `raw`, `kept`, `filteredGlobal`, `filteredRelevance`, `deduped`, `limit`, and `rangeApplies`. `sources.popularSearches.rangeApplies=false`; `sources.reddit.rangeApplies=true` and includes the Reddit bucket (`week`, `month`, or `year`).
 * The Discovery UI must show source-specific counts/warnings and must not imply the selected period affects search-demand autocomplete signals.
 * `POST /api/sites/{site_id}/article-ideas` generates reviewable idea candidates from selected Discovery signals and returns `rejectedSimilar` for topics filtered as too similar to existing site content. It must not create `content_jobs`.
+* Article idea generation returns `counts` with `target`, `generated`, `accepted`, `rejected`, and `signals`. The target scales with selected signal count, and Gemini may run a second pass to fill missing validated ideas.
 * `POST /api/sites/{site_id}/article-ideas/queue` creates `content_jobs.status=QUEUED` only for operator-selected ideas and reruns the similarity check before writing jobs.
 
 ## Jobs

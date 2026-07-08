@@ -2,6 +2,40 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-08 — Scale Discovery article idea volume
+
+### Summary
+
+* Made article idea generation target scale with the number of selected Discovery signals.
+* Added a second Gemini pass when the first validated idea set is below target.
+* Increased the selected signal window used by the idea generator from 18 to 24.
+* Added API/UI counts for accepted, target, generated, rejected, and signal count so a short result set is explainable.
+
+### Files changed
+
+* `app.py` — added target idea count logic, second-pass Gemini generation, idea generation counts, and UI copy showing accepted/target/generated/rejected.
+* `docs/PROJECT_MEMORY.md` — recorded that Discovery idea volume should scale with selected signal volume.
+* `docs/INTEGRATIONS.md` — documented the article idea counts contract.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Do not fill the UI with weak mechanical fallback ideas when Gemini returns some valid ideas. Use a second journalist/SEO Gemini pass first.
+* For 20+ selected signals, target 16 validated ideas while still allowing duplicate/SEO-quality filters to reject bad candidates.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `POST /api/sites/6/article-ideas` with 25 live Discovery signals now returns counts `target=16`, `generated=21`, `accepted=15`, `rejected=6`, `signals=24`.
+
+### Risks / TODO
+
+* The quality filter can still return fewer than target when many model candidates duplicate existing/planned content or fail SEO/editorial validation; the UI now exposes that instead of hiding it.
+
 ## 2026-07-08 — Normalize Discovery topic queries
 
 ### Summary
