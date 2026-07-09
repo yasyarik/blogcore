@@ -2,6 +2,40 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Fix article image aspect ratio
+
+### Summary
+
+* Fixed generic Blog Core article image generation after Gemini rejected the unsupported `16:10` aspect ratio.
+* Changed article hero/body image prompts and Gemini Image calls to use supported `16:9`.
+* Regenerated the failed AIREP24 draft task `fbd0f8d9fee07da8482f01e0` successfully after deploy.
+
+### Files changed
+
+* `app.py` — changed generic article image generation from `16:10` to `16:9`.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule to use supported Gemini Image aspect ratios only.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Generic article assets use `16:9` because it is supported by Gemini Image and fits article hero/body media.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` and docs to `/var/www/blog.yas.ooo`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Ran `POST /api/sites/9/content-jobs/fbd0f8d9fee07da8482f01e0/generate`; it returned `ok: true`, `status: DRAFT`.
+* Verified the regenerated draft has 1822 validated words, 7 sections, 3 body images, 6 FAQ items, TOC, FAQ, table, ordered list, and no generation error.
+* Verified 4 JPEG files were created under `data/article_assets/9/fbd0f8d9fee07da8482f01e0`.
+* Verified the draft preview returns HTTP 200 and article asset URLs return HTTP 200.
+
+### Risks / TODO
+
+* None yet.
+
 ## 2026-07-09 — Add explicit draft regeneration controls
 
 ### Summary

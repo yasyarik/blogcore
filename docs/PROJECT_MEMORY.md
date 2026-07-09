@@ -97,6 +97,7 @@ It must be updated after every meaningful task.
 * Structured article rendering must preserve the full article/page block contract: one page title rendered outside the body, non-duplicated meta description and lead, TOC from section headings, 3 body figures, useful table, ordered list, quote, and 5-7 FAQ items. Do not regress back to short body-only drafts.
 * Generic Blog Core article/page drafts must pass server-side validation before becoming `DRAFT`: minimum useful length, enough sections, exactly 3 body image specs, FAQ, table, and ordered list. Invalid structured output should fail with a clear generation error instead of being saved as a ready draft.
 * Generic Blog Core article/page drafts must generate real JPEG article assets through Gemini Image: one hero image for cards plus 3 body images. Generated files live in ignored `data/article_assets/...` and are served by Blog Core asset routes. Imported legacy factory jobs continue to use their source factory output instead.
+* Gemini Image article assets must use supported aspect ratios only. For generic article hero/body images, use `16:9`; do not use unsupported ratios such as `16:10`.
 * For local imported sites with `root_path`, `Preview draft` must render through the real source-site HTML template/assets from the webroot, not through the generic Blog Core preview shell. The preview should be noindexed and preserve source-site visual classes, header, footer, and assets while replacing only the draft content area.
 * Distribution channel settings should not duplicate the same providers across separate blocks. Each channel card should combine connection status, Connect action, autopublish enablement, and include-link setting in one place.
 * Social channel status in Distribution should point users to Setup when credentials are missing, show `configured` after credentials are saved, and `connected` only after a successful test.
@@ -196,6 +197,7 @@ It must be updated after every meaningful task.
 * Do not generate imported legacy factory jobs with the generic Blog Core prompt. If the source factory rejects a draft, surface that error instead of keeping a weaker Blog Core-generated draft.
 * Do not remove article TOC, FAQ, body figures, tables, ordered lists, quotes, length validation, or real article image generation when changing the structured article schema/prompt.
 * Do not make operators delete a planned/content task just to fix a bad generated draft. Provide explicit regeneration for `DRAFT` tasks.
+* Do not invent Gemini Image aspect ratios. Check provider-supported values before changing image generation contracts.
 
 ## 8. Decisions log
 

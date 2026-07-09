@@ -5231,7 +5231,7 @@ def build_article_image_prompt(site, job, draft, image, role):
 Create one editorial raster JPEG image for a business article.
 
 FORMAT:
-- Real JPEG image, 16:10 aspect ratio.
+- Real JPEG image, 16:9 aspect ratio.
 - Editorial/photo-realistic or polished editorial illustration, suitable for a serious website article.
 - No text overlay, no headline, no logo, no watermark, no UI screenshot, no readable text.
 - If screens, documents, labels, dashboards, packaging, or phones appear, keep them blank, blurred, turned away, or too out-of-focus to read.
@@ -5273,7 +5273,7 @@ def generate_article_image_assets(site_id, job_id, site, job, draft, slug):
     draft["heroImage"] = hero_filename
     for role, filename, image in assets_to_generate:
         prompt = build_article_image_prompt(site, job, draft, image, role)
-        image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="16:10")
+        image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="16:9")
         if not image_bytes.startswith(b"\xff\xd8"):
             raise RuntimeError(f"Gemini image for article {role} was not JPEG")
         (target_dir / filename).write_bytes(image_bytes)
