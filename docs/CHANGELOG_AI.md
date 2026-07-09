@@ -2,6 +2,37 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Add Discovery idea generation progress
+
+### Summary
+
+* Added an in-page progress panel while SEO article ideas are being generated.
+* The progress panel shows an active loader, elapsed time, and staged status text for context prep, model passes, and validation.
+* Disabled the generation button while a generation request is in flight and re-enabled it afterward.
+
+### Files changed
+
+* `app.py` — added Discovery idea progress CSS and client-side progress/timer logic around `createIdeasFromSignals`.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that long Discovery idea generation must show visible progress.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* The current backend does not stream exact model-pass progress, so the UI shows a truthful staged waiting indicator and elapsed timer until the request returns.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `/sites/9#discovery` HTML contains the new progress UI and JS hooks.
+
+### Risks / TODO
+
+* Exact server-side progress would require changing the article-idea endpoint to a job/polling or streaming model. Current progress is client-side but clearly shows the request is still active.
+
 ## 2026-07-09 — Simplify Discovery signal selection UX
 
 ### Summary
