@@ -3205,6 +3205,10 @@ def draft_preview_button(site_id, job_id):
     return f"<a class='ghost mini-action draft-preview-action' target='_blank' href='/sites/{int(site_id)}/content-jobs/{escape(job_id, quote=True)}/preview'>Preview draft</a>"
 
 
+def regenerate_draft_button(job_id):
+    return f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(job_id, quote=True)}', 'Regenerating draft')\">Regenerate draft</button>"
+
+
 def render_social_credentials_setup(site_id):
     connections = get_social_connections(site_id)
     cards = []
@@ -3261,7 +3265,7 @@ def render_planned_publications(rows, site_languages=None):
         <div class="planned-bulkbar">
           <label class="planned-select-all"><input type="checkbox" onchange="togglePlannedSelection(this.checked)"> Select all</label>
           <div class="actions">
-            <button class="ghost mini-action" type="button" onclick="bulkPlannedAction('generate')">Generate selected</button>
+            <button class="ghost mini-action" type="button" onclick="bulkPlannedAction('generate')">Generate / regenerate selected</button>
             <button class="ghost mini-action danger-lite" type="button" onclick="bulkPlannedAction('delete')">Delete selected</button>
           </div>
           <div id="bulkProgress" class="bulk-progress" hidden></div>
@@ -3280,9 +3284,9 @@ def render_planned_publications(rows, site_languages=None):
         error_note = f"<div class='planned-error'>{escape(errors[0])}</div>" if status == "ERROR" and errors else ""
         action = ""
         if status in {"QUEUED", "ERROR"}:
-            action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate</button>"
+            action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}', 'Generating draft')\">Generate</button>"
         elif status == "DRAFT":
-            action = draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
+            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
         items.append(
             f"""
             <div class="planned-row" data-group-id="{escape(group['id'], quote=True)}">
@@ -3312,11 +3316,11 @@ def render_content_jobs(content_page):
             descriptor = "Already published on the source site"
         elif status in {"QUEUED", "ERROR"}:
             status_label = status
-            action = f"<button class='ghost' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}')\">Generate draft</button>"
+            action = f"<button class='ghost' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}', 'Generating draft')\">Generate draft</button>"
             descriptor = "New Blog Core task"
         elif status == "DRAFT":
             status_label = "DRAFT"
-            action = draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
+            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
             descriptor = "Draft ready for review"
         elif status == "PUBLISHED":
             status_label = "PUBLISHED"
@@ -6675,7 +6679,7 @@ async function queueSelectedArticleIdeas(){const selected=[...document.querySele
 function draftProgressStep(elapsed){if(elapsed<8)return 'Preparing article context and source-site rules';if(elapsed<24)return 'Generating the draft body and metadata';if(elapsed<55)return 'Validating HTML, FAQ, images, and SEO fields';if(elapsed<95)return 'Still working: long articles and legacy factories can take a bit';return 'Still running. Keep this tab open while the factory finishes.';}
 function startDraftProgress(label){stopDraftProgress(false);draftProgressStartedAt=Date.now();const startMessage=(label||'Generating draft')+' · 0:00 · Preparing article context and source-site rules';setBulkProgress(startMessage);showToast(startMessage);draftProgressTimer=setInterval(()=>{const elapsed=Date.now()-draftProgressStartedAt;const message=(label||'Generating draft')+' · '+formatElapsed(elapsed)+' · '+draftProgressStep(Math.floor(elapsed/1000));setBulkProgress(message);showToast(message);},1000);}
 function stopDraftProgress(complete){if(draftProgressTimer){clearInterval(draftProgressTimer);draftProgressTimer=null;}if(complete){setBulkProgress('Finalizing draft status...', false);}}
-async function generateArticleJob(jobId){showToast('Generating draft...');startDraftProgress('Generating selected draft');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);stopDraftProgress(true);if(data.status==='GENERATING'){showToast('Generation started in source factory. Refreshing status...');setBulkProgress('Generation started in source factory. Reloading status...', false);setTimeout(()=>location.reload(),1800);}else{showToast('Draft generated: '+(data.slug||jobId));setBulkProgress('Draft generated. Reloading...', false);setTimeout(()=>location.reload(),900);}}catch(e){stopDraftProgress(false);setBulkProgress('Generation failed: '+e.message, false);clearBulkProgress();showToast('Generation failed: '+e.message);}}
+async function generateArticleJob(jobId,label){const progressLabel=label||'Generating draft';showToast(progressLabel+'...');startDraftProgress(progressLabel);try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);stopDraftProgress(true);if(data.status==='GENERATING'){showToast('Generation started in source factory. Refreshing status...');setBulkProgress('Generation started in source factory. Reloading status...', false);setTimeout(()=>location.reload(),1800);}else{showToast('Draft generated: '+(data.slug||jobId));setBulkProgress('Draft generated. Reloading...', false);setTimeout(()=>location.reload(),900);}}catch(e){stopDraftProgress(false);setBulkProgress('Generation failed: '+e.message, false);clearBulkProgress();showToast('Generation failed: '+e.message);}}
 function selectedPlannedTasks(){return [...document.querySelectorAll('.planned-select:checked')].map(input=>({groupId:input.value,jobId:input.dataset.jobId})).filter(item=>item.groupId);}
 function selectedPlannedGroupIds(){return selectedPlannedTasks().map(item=>item.groupId);}
 function togglePlannedSelection(checked){document.querySelectorAll('.planned-select').forEach(input=>{input.checked=checked;});}

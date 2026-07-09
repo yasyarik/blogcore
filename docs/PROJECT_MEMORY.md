@@ -90,6 +90,7 @@ It must be updated after every meaningful task.
 * Planned generation work should be shown as one canonical task per topic/path, not as separate tasks per language. The task should generate the site's configured languages. Legacy per-language factory rows may be preserved in the database for traceability, but the dashboard should collapse them by canonical group/base path and show extra old languages only as legacy variants.
 * Planned task groups should support bulk operations from the dashboard. Bulk generate runs selected canonical tasks one by one from the browser to avoid long single-request timeouts. Bulk delete removes selected planned groups from Blog Core records/logs/social drafts only; it must not delete live source-site files.
 * Long-running generation must show persistent in-page progress, not only a toast. When a task reaches `DRAFT`, the dashboard must provide a `Preview draft` action that opens the generated HTML before publishing.
+* `DRAFT` planned/content tasks must also expose an explicit `Regenerate draft` action. Regeneration should overwrite the current draft/artifacts for the same task instead of requiring deletion and re-queueing.
 * Article/page draft generation must show visible progress while the request is running. Single-job generation should update both the in-page planned-publications progress area and the toast with elapsed time/stage text.
 * Article/page draft generation must not ask Gemini to return a large raw HTML fragment inside a JSON string. That pattern causes malformed JSON when HTML attributes, quotes, or long fragments are not escaped perfectly. Blog Core should request structured article fields through Gemini `responseSchema` and render the final HTML server-side.
 * Replaced/deprecated 2026-07-09: The previous malformed-JSON repair pass should not be the primary correctness mechanism for article/page generation. Generic JSON repair may remain as a fallback for non-article helpers, but article/page drafts should be correct by construction through structured schema output.
@@ -194,6 +195,7 @@ It must be updated after every meaningful task.
 * Do not show setup/bootstrap actions on imported live-site cards; scanning/building/installing is for new Blog Core sites, not already imported production blogs.
 * Do not generate imported legacy factory jobs with the generic Blog Core prompt. If the source factory rejects a draft, surface that error instead of keeping a weaker Blog Core-generated draft.
 * Do not remove article TOC, FAQ, body figures, tables, ordered lists, quotes, length validation, or real article image generation when changing the structured article schema/prompt.
+* Do not make operators delete a planned/content task just to fix a bad generated draft. Provide explicit regeneration for `DRAFT` tasks.
 
 ## 8. Decisions log
 

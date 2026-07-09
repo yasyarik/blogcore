@@ -2,6 +2,33 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Add explicit draft regeneration controls
+
+### Summary
+
+* Added an explicit `Regenerate draft` button for `DRAFT` tasks in Planned publications.
+* Added the same regeneration action for `DRAFT` rows shown in the Content inventory.
+* Renamed the bulk generation action to `Generate / regenerate selected` so selected `DRAFT` tasks can be corrected without deleting and re-queueing them.
+* Updated single-job progress text so regeneration shows `Regenerating draft` instead of the generic generation label.
+
+### Files changed
+
+* `app.py` — added `regenerate_draft_button`, wired it into DRAFT actions, and updated the generation JS label handling.
+* `docs/PROJECT_MEMORY.md` — recorded that DRAFT tasks must be explicitly regenerable.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* A bad draft should be corrected by regenerating the same task in place, not by deleting the planned task.
+
+### Checks run
+
+* Pending deploy checks in this task.
+
+### Risks / TODO
+
+* Regenerating a generic Blog Core draft now includes Gemini text plus 4 Gemini Image calls, so it can take noticeably longer than the old placeholder-only draft generation.
+
 ## 2026-07-09 — Restore full article draft blocks and validation
 
 ### Summary
