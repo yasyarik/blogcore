@@ -4732,15 +4732,18 @@ def _parse_json_text(text):
     return json.loads(raw)
 
 
-def _gemini_generate_text(prompt, temperature=0.55, timeout=180):
+def _gemini_generate_text(prompt, temperature=0.55, timeout=180, response_schema=None):
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
     model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    generation_config = {"responseMimeType": "application/json", "temperature": temperature}
+    if response_schema:
+        generation_config["responseSchema"] = response_schema
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"responseMimeType": "application/json", "temperature": temperature},
+        "generationConfig": generation_config,
     }
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -4765,11 +4768,13 @@ Malformed JSON:
     return _parse_json_text(repaired)
 
 
-def _gemini_text_json(prompt):
-    text = _gemini_generate_text(prompt, temperature=0.55, timeout=180)
+def _gemini_text_json(prompt, response_schema=None, temperature=0.55, timeout=180, repair=True):
+    text = _gemini_generate_text(prompt, temperature=temperature, timeout=timeout, response_schema=response_schema)
     try:
         return _parse_json_text(text)
     except json.JSONDecodeError as e:
+        if not repair:
+            raise
         try:
             return _repair_json_text(text, e)
         except Exception as repair_error:
@@ -4936,6 +4941,157 @@ def apply_site_topic_profile(site_id, profile, overwrite=False):
     return profile
 
 
+ARTICLE_DRAFT_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "slug": {"type": "STRING"},
+        "title": {"type": "STRING"},
+        "description": {"type": "STRING"},
+        "category": {"type": "STRING"},
+        "heroImage": {"type": "STRING"},
+        "lead": {"type": "STRING"},
+        "sections": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "heading": {"type": "STRING"},
+                    "paragraphs": {"type": "ARRAY", "items": {"type": "STRING"}},
+                    "bullets": {"type": "ARRAY", "items": {"type": "STRING"}},
+                },
+                "required": ["heading", "paragraphs"],
+            },
+        },
+        "table": {
+            "type": "OBJECT",
+            "properties": {
+                "headers": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "rows": {
+                    "type": "ARRAY",
+                    "items": {"type": "ARRAY", "items": {"type": "STRING"}},
+                },
+            },
+            "required": ["headers", "rows"],
+        },
+        "orderedListTitle": {"type": "STRING"},
+        "orderedList": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "quote": {"type": "STRING"},
+        "images": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "src": {"type": "STRING"},
+                    "alt": {"type": "STRING"},
+                    "caption": {"type": "STRING"},
+                },
+                "required": ["src", "alt", "caption"],
+            },
+        },
+        "faq": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "question": {"type": "STRING"},
+                    "answer": {"type": "STRING"},
+                },
+                "required": ["question", "answer"],
+            },
+        },
+    },
+    "required": ["slug", "title", "description", "category", "heroImage", "lead", "sections", "table", "orderedList", "quote", "images", "faq"],
+}
+
+
+def clean_image_filename(value, fallback):
+    name = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(value or "").strip())
+    name = name.strip("-._")
+    if not name:
+        name = fallback
+    if "/" in name or "\\" in name:
+        name = fallback
+    if not re.search(r"\.(?:jpg|jpeg|png|webp)$", name, re.I):
+        name = f"{name}.jpg"
+    return name
+
+
+def render_structured_article_html(draft, slug):
+    parts = []
+    lead = re.sub(r"\s+", " ", str(draft.get("lead") or "")).strip()
+    if lead:
+        parts.append(f"<p>{escape(lead)}</p>")
+    images = draft.get("images") if isinstance(draft.get("images"), list) else []
+    normalized_images = []
+    for index, image in enumerate(images[:3]):
+        if not isinstance(image, dict):
+            continue
+        src = clean_image_filename(image.get("src"), f"{slug}-image-{index + 1}.jpg")
+        alt = re.sub(r"\s+", " ", str(image.get("alt") or "")).strip() or f"{slug} image {index + 1}"
+        caption = re.sub(r"\s+", " ", str(image.get("caption") or "")).strip() or alt
+        normalized_images.append((src, alt, caption))
+    while len(normalized_images) < 3:
+        index = len(normalized_images) + 1
+        normalized_images.append((f"{slug}-image-{index}.jpg", f"{slug} image {index}", f"Illustration for {slug.replace('-', ' ')}"))
+
+    def image_html(image_tuple):
+        src, alt, caption = image_tuple
+        return f'<figure><img src="{escape(src, quote=True)}" alt="{escape(alt, quote=True)}" /><figcaption>{escape(caption)}</figcaption></figure>'
+
+    inserted_images = set()
+    if normalized_images:
+        parts.append(image_html(normalized_images[0]))
+        inserted_images.add(0)
+    sections = draft.get("sections") if isinstance(draft.get("sections"), list) else []
+    for index, section in enumerate(sections[:10]):
+        if not isinstance(section, dict):
+            continue
+        heading = re.sub(r"\s+", " ", str(section.get("heading") or "")).strip()
+        if heading:
+            parts.append(f"<h2>{escape(heading)}</h2>")
+        paragraphs = section.get("paragraphs") if isinstance(section.get("paragraphs"), list) else []
+        for paragraph in paragraphs[:4]:
+            text = re.sub(r"\s+", " ", str(paragraph or "")).strip()
+            if text:
+                parts.append(f"<p>{escape(text)}</p>")
+        bullets = section.get("bullets") if isinstance(section.get("bullets"), list) else []
+        clean_bullets = [re.sub(r"\s+", " ", str(item or "")).strip() for item in bullets[:8]]
+        clean_bullets = [item for item in clean_bullets if item]
+        if clean_bullets:
+            parts.append("<ul>" + "".join(f"<li>{escape(item)}</li>" for item in clean_bullets) + "</ul>")
+        if index == 1 and len(normalized_images) > 1:
+            parts.append(image_html(normalized_images[1]))
+            inserted_images.add(1)
+        if index == 3 and len(normalized_images) > 2:
+            parts.append(image_html(normalized_images[2]))
+            inserted_images.add(2)
+    for index, image in enumerate(normalized_images):
+        if index not in inserted_images:
+            parts.append(image_html(image))
+
+    table = draft.get("table") if isinstance(draft.get("table"), dict) else {}
+    headers = table.get("headers") if isinstance(table.get("headers"), list) else []
+    rows = table.get("rows") if isinstance(table.get("rows"), list) else []
+    if headers and rows:
+        head_html = "".join(f"<th>{escape(str(header))}</th>" for header in headers[:5])
+        row_html = []
+        for row in rows[:8]:
+            cells = row if isinstance(row, list) else []
+            row_html.append("<tr>" + "".join(f"<td>{escape(str(cell))}</td>" for cell in cells[:len(headers[:5])]) + "</tr>")
+        parts.append(f"<table><thead><tr>{head_html}</tr></thead><tbody>{''.join(row_html)}</tbody></table>")
+    ordered = draft.get("orderedList") if isinstance(draft.get("orderedList"), list) else []
+    clean_ordered = [re.sub(r"\s+", " ", str(item or "")).strip() for item in ordered[:10]]
+    clean_ordered = [item for item in clean_ordered if item]
+    if clean_ordered:
+        title = re.sub(r"\s+", " ", str(draft.get("orderedListTitle") or "Practical next steps")).strip()
+        parts.append(f"<h2>{escape(title)}</h2>")
+        parts.append("<ol>" + "".join(f"<li>{escape(item)}</li>" for item in clean_ordered) + "</ol>")
+    quote = re.sub(r"\s+", " ", str(draft.get("quote") or "")).strip()
+    if quote:
+        parts.append(f"<blockquote>{escape(quote)}</blockquote>")
+    return "\n".join(parts)
+
+
 def build_universal_article_prompt(site, job):
     brand = site["brand_name"] or site["domain"]
     context = site["content_context"] or ""
@@ -4965,30 +5121,17 @@ ARTICLE JOB:
 - source context: {source_context[:4000]}
 
 QUALITY RULES:
-- Output STRICT JSON only.
+- Output valid JSON matching the provided schema only.
 - Write like a specialist editor for this exact site, not a generic AI assistant.
-- Start contentHtml with a practical lead paragraph before the first H2.
-- Use 6-10 H2 sections; at least half should answer concrete buyer/reader questions.
-- Include at least one table, one ordered list, and one blockquote.
+- Put the opening paragraph in `lead`.
+- Use 6-10 section objects; at least half of the section headings should answer concrete buyer/reader questions.
+- Include at least one useful table object, one orderedList, and one quote.
 - Include 5-7 FAQ items.
-- Include exactly 3 image placeholders as <figure><img src="filename.jpg" alt="..." /><figcaption>...</figcaption></figure>.
-- Image src must be filename only, not absolute URL.
-- Include natural internal links only to URLs that are safe for this site: homepage, blog path, and existing canonical paths if provided in source context. Do not invent product claims.
-- No markdown. HTML fragment only in contentHtml.
+- Include exactly 3 image objects. Image src must be filename only, not absolute URL.
+- Do not write raw HTML. Blog Core will render HTML from your structured fields.
 - No em dash, no en dash, no asterisks, no smart quotes.
 - Avoid fluff and vague marketing language.
 - Make the article clearly connect the problem/question to why {brand} is useful, but do not turn every section into an ad.
-
-RETURN JSON SHAPE:
-{{
-  "slug": "lowercase-url-slug",
-  "title": "specific article title",
-  "description": "155-160 character meta description as a complete thought",
-  "category": "category",
-  "heroImage": "filename.jpg",
-  "contentHtml": "HTML fragment",
-  "faq": [{{"question":"...","answer":"..."}}]
-}}
 """.strip()
 
 
@@ -5005,9 +5148,10 @@ def generate_content_job(site_id, job_id):
         conn.execute("update content_jobs set status='GENERATING', error=NULL, updated_at=? where site_id=? and id=?", (now_iso(), site_id, job_id))
         conn.execute("insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "INFO", "generate", "Starting article draft generation"))
     try:
-        draft = _gemini_text_json(build_universal_article_prompt(site, job))
+        draft = _gemini_text_json(build_universal_article_prompt(site, job), response_schema=ARTICLE_DRAFT_SCHEMA, repair=False)
         slug = simple_slug(draft.get("slug") or draft.get("title") or job["topic"])
         faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
+        draft_html = render_structured_article_html(draft, slug)
         with db() as conn:
             conn.execute(
                 """
@@ -5019,8 +5163,8 @@ def generate_content_job(site_id, job_id):
                     draft.get("title") or job["topic"],
                     draft.get("description") or "",
                     draft.get("category") or job["category"] or "Article",
-                    draft.get("heroImage") or f"{slug}-hero.jpg",
-                    draft.get("contentHtml") or "",
+                    clean_image_filename(draft.get("heroImage"), f"{slug}-hero.jpg"),
+                    draft_html,
                     json.dumps(faq, ensure_ascii=False),
                     now_iso(),
                     site_id,

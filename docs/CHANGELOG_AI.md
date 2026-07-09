@@ -2,6 +2,40 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Generate article drafts as structured JSON
+
+### Summary
+
+* Removed the main cause of malformed article-generation JSON: asking Gemini to place a large `contentHtml` fragment inside a JSON string.
+* Added an article draft `responseSchema` for Gemini with structured fields: metadata, lead, sections, table, ordered list, quote, images, and FAQ.
+* Added server-side HTML rendering from structured article fields so Blog Core controls escaping, figures, tables, lists, and blockquotes.
+* Changed generic Blog Core article generation to use the schema with `repair=False`; the repair pass is no longer the primary path for article/page drafts.
+* Kept the generic JSON repair helper available for other JSON helpers, but article/page draft correctness now comes from schema plus server rendering.
+
+### Files changed
+
+* `app.py` — added `ARTICLE_DRAFT_SCHEMA`, `render_structured_article_html`, image filename cleanup, schema support in `_gemini_generate_text`, and schema-based article draft generation.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that article/page generation must use structured schema output and server-side HTML rendering instead of raw HTML inside JSON.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Article/page generation should be correct by construction: structured JSON from the model, HTML rendered by Blog Core.
+* Large HTML strings inside JSON are fragile and should not be used as the model contract for article drafts.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Verified `render_structured_article_html` produces 3 figures, a table, an ordered list, and a blockquote from a structured draft object.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+
+### Risks / TODO
+
+* A direct schema call could not be tested from the plain SSH shell because `GEMINI_API_KEY` is not exported there; PM2 may carry a different environment. Runtime article generation should be verified from the dashboard or a PM2-env-backed request.
+
 ## 2026-07-09 — Add article generation progress and JSON repair
 
 ### Summary
