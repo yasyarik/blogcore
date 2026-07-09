@@ -4252,15 +4252,107 @@ EDITORIAL_TUTORIAL_RE = re.compile(
 )
 
 
+QUERY_CLUSTER_DIRTY_RE = re.compile(
+    r"\b(20[0-9]{2}|best|top|review|reviews|comparison|compare|alternatives?|"
+    r"buyer'?s?\s+(?:guide|framework)|guide\s+to\s+(?:evaluat|choos|select)|"
+    r"evaluation\s+framework)\b",
+    re.I,
+)
+
+
+ARTICLE_IDEA_INTERNAL_DUPLICATE_THRESHOLD = 0.62
+
+
+def clean_article_query_phrase(text):
+    phrase = normalize_topic_text(text or "")
+    if not phrase:
+        return ""
+    phrase = re.sub(r"\b20[0-9]{2}\b", " ", phrase)
+    phrase = re.sub(r"\b(best|top|review|reviews|comparison|compare|alternatives?|buyer'?s?|guide|framework)\b", " ", phrase)
+    phrase = re.sub(r"\b(software|platforms?|tools?|apps?|solutions?)\b$", " ", phrase)
+    phrase = re.sub(r"\bfor\b", " ", phrase)
+    phrase = re.sub(r"\s+", " ", phrase).strip(" -:")
+    tokens = []
+    for token in phrase.split():
+        if token in {"the", "and", "or", "with", "from", "that", "this", "your"}:
+            continue
+        if token not in tokens:
+            tokens.append(token)
+    return " ".join(tokens[:7]).strip()
+
+
+def clean_article_query_cluster(raw_cluster, title="", source_title="", seed=""):
+    values = []
+    if isinstance(raw_cluster, list):
+        values.extend(str(item or "") for item in raw_cluster)
+    elif raw_cluster:
+        values.append(str(raw_cluster))
+    values.append(source_title or "")
+    fallback_values = [title or "", seed or ""]
+    cleaned = []
+    for value in values + fallback_values:
+        if len(cleaned) >= 2 and value in fallback_values:
+            continue
+        phrase = clean_article_query_phrase(value)
+        if len(phrase) < 4:
+            continue
+        if phrase not in cleaned:
+            cleaned.append(phrase)
+        if len(cleaned) >= 4:
+            break
+    return cleaned
+
+
+def article_idea_comparable_text(idea):
+    pieces = [
+        idea.get("title") or "",
+        idea.get("angle") or "",
+        idea.get("business_relevance") or "",
+        " ".join(idea.get("target_query_cluster") or []),
+    ]
+    text = normalize_topic_text(" ".join(pieces))
+    text = re.sub(
+        r"\b(ai|ecommerce|e-commerce|shopify|customer|customers|support|article|guide|store|stores|"
+        r"business|problem|problems|assistant|assistants|chatbot|chatbots)\b",
+        " ",
+        text,
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def find_similar_accepted_idea(idea, accepted_ideas):
+    title = idea.get("title") or ""
+    comparable = article_idea_comparable_text(idea)
+    best = None
+    for accepted in accepted_ideas:
+        score = max(
+            idea_similarity(title, accepted.get("title") or ""),
+            idea_similarity(comparable, article_idea_comparable_text(accepted)),
+        )
+        if best is None or score > best["score"]:
+            best = {"title": accepted.get("title") or "", "score": round(score, 3)}
+    if best and best["score"] >= ARTICLE_IDEA_INTERNAL_DUPLICATE_THRESHOLD:
+        return best
+    return None
+
+
 def editorial_policy_rejection_reason(idea, policy):
     title = idea.get("title") or ""
     angle = idea.get("angle") or ""
     rationale = idea.get("seo_rationale") or ""
-    text = " ".join([title, angle, rationale])
+    query_text = " ".join(idea.get("target_query_cluster") or [])
+    source_title = idea.get("source_title") or ""
+    text = " ".join([title, angle, rationale, query_text])
     current_year = int(policy.get("currentYear") or current_content_year())
     years = [int(year) for year in re.findall(r"\b20\d{2}\b", text)]
     if any(year < current_year for year in years):
         return "Rejected: outdated year in article idea"
+    if re.search(r"\b20\d{2}\b", source_title) and any(int(year) < current_year for year in re.findall(r"\b20\d{2}\b", source_title)):
+        return "Rejected: outdated year in source signal"
+    if QUERY_CLUSTER_DIRTY_RE.search(query_text):
+        return "Rejected: dirty SERP modifier in target query cluster"
+    if not policy.get("allowsComparisons") and QUERY_CLUSTER_DIRTY_RE.search(rationale):
+        return "Rejected: dirty SERP modifier in SEO rationale"
     if EDITORIAL_SERP_CLONE_RE.search(title) and not policy.get("allowsComparisons"):
         return "Rejected: generic review/comparison/listicle format is not allowed for this site"
     if EDITORIAL_TUTORIAL_RE.search(title) and not policy.get("allowsTutorials"):
@@ -4349,6 +4441,9 @@ Generation rules:
 - Do not stop at an arbitrary fixed count. If 3 ideas are genuinely valid, return 3; if 30 are genuinely valid, return 30.
 - Respect the technical safety cap of {ARTICLE_IDEA_SAFETY_CAP} ideas in one response.
 - Do not write local city/event/news/campaign topics.
+- `target_query_cluster` must contain normalized SEO clusters, not raw autocomplete strings. Remove obsolete years and modifiers like "best", "top", "review", "comparison", "alternatives", and "buyer framework" unless the site explicitly allows that format.
+- `seo_rationale` must explain durable SEO/business value without quoting dirty raw queries such as "best ... 2025".
+- Do not produce near-duplicate ideas across the same business problem. If several signals point to agentic AI, technical product support, human handoff, or conversational memory, consolidate each cluster into the strongest single article idea.
 - Cover different clusters from the selected signals instead of producing only one cluster.
 - If many signals are near-duplicates, consolidate them into one stronger idea and use other signals for separate ideas.
 - {'This is a second pass. Focus only on valid ideas missing from the accepted list above.' if second_pass else 'Prefer breadth across all selected signal clusters before depth inside one cluster.'}
@@ -4400,17 +4495,27 @@ def sanitize_article_idea(raw_idea, signals, policy=None):
     direct_copy = any(idea_similarity(title, signal.get("title") or "") > 0.9 for signal in signals)
     if direct_copy:
         return None
+    raw_source_title = source_title or (matched_signal or {}).get("title") or ""
+    cleaned_cluster = clean_article_query_cluster(
+        target_query_cluster,
+        title=title,
+        source_title=raw_source_title,
+    )
+    if not cleaned_cluster:
+        return None
+    source_display = cleaned_cluster[0]
     idea = {
         "title": title,
         "angle": angle,
         "seo_intent": seo_intent,
         "seo_rationale": seo_rationale,
-        "target_query_cluster": target_query_cluster if isinstance(target_query_cluster, list) else [],
+        "target_query_cluster": cleaned_cluster,
         "business_relevance": business_relevance,
         "unique_site_context": unique_site_context,
         "duplicate_check": duplicate_check,
         "source": raw_idea.get("source") or (matched_signal or {}).get("source") or "popular_search",
-        "source_title": source_title or (matched_signal or {}).get("title") or "",
+        "source_title": source_display,
+        "raw_source_title": raw_source_title,
         "source_url": (matched_signal or {}).get("url") or raw_idea.get("source_url") or "",
         "contentType": raw_idea.get("contentType") or "blog",
     }
@@ -4487,6 +4592,10 @@ def generate_article_ideas(site, signals, existing_index=None):
             if key in seen_titles:
                 rejected.append({"idea": idea, "similar": {"title": "Duplicate idea in this generation run", "score": 1}})
                 continue
+            similar_accepted = find_similar_accepted_idea(idea, ideas)
+            if similar_accepted:
+                rejected.append({"idea": idea, "similar": similar_accepted})
+                continue
             seen_titles.add(key)
             similar = find_similar_existing_topic(idea, existing_index)
             if similar:
@@ -4527,6 +4636,10 @@ def generate_article_ideas(site, signals, existing_index=None):
                 continue
             key = simple_slug(idea["title"])
             if key in seen_titles:
+                continue
+            similar_accepted = find_similar_accepted_idea(idea, ideas)
+            if similar_accepted:
+                rejected.append({"idea": idea, "similar": similar_accepted})
                 continue
             seen_titles.add(key)
             similar = find_similar_existing_topic(idea, existing_index)

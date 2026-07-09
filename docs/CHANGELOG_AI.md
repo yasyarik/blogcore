@@ -2,6 +2,41 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Normalize Discovery idea clusters and dedupe
+
+### Summary
+
+* Cleaned article idea `target_query_cluster` values so raw autocomplete modifiers such as `best`, `top`, `review`, `comparison`, and obsolete years do not leak into visible cards or downstream planning.
+* Changed the visible idea source line to use the normalized SEO cluster instead of dirty raw search strings such as `best ... 2025`.
+* Added validation for dirty SERP modifiers inside query clusters and SEO rationale.
+* Added semantic deduplication against already accepted ideas in the same generation response, not only exact title matching.
+* Tightened the journalist prompt to require normalized SEO clusters and consolidation of repeated business-problem clusters.
+
+### Files changed
+
+* `app.py` — added query-cluster cleanup, visible source normalization, dirty field validation, and same-response semantic deduplication.
+* `docs/PROJECT_MEMORY.md` — recorded normalized visible query/source lines and semantic dedupe rules.
+* `docs/INTEGRATIONS.md` — documented the updated article idea API behavior.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Dirty autocomplete strings may remain useful as raw signals internally, but they must not be displayed as article idea source/query lines or passed forward as SEO clusters.
+* Discovery should produce fewer but stronger ideas when many signals represent the same underlying audience problem.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `POST /api/sites/9/article-ideas` returns normalized source/query lines such as `ai sales assistant`, `ai chatbot technical support`, and `agentic ai customer service` without visible `best/top/2025` strings.
+
+### Risks / TODO
+
+* Semantic dedupe is heuristic; it may still allow adjacent ideas when they target distinct business angles inside the same product area.
+
 ## 2026-07-09 — Enforce Google-style editorial Discovery ideas
 
 ### Summary
