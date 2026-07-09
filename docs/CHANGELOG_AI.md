@@ -2484,3 +2484,29 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The recovery check is throttled in-process; multiple Gunicorn workers may still each perform occasional source-factory checks, which is acceptable for current low volume but can be centralized later if needed.
+
+## 2026-07-09 — Record AIREP24 duplicate comparison path fix
+
+### Summary
+
+* Recorded the user-confirmed production fix for `AiRep24 vs. Live Chat: Modern Business Comparison`: the old `/compare/airep24-vs-live-chat/` static page was synchronized with the canonical `/comparisons/airep24-vs-live-chat/` page.
+* Verified the old static file on the VPS now contains article structure markers for images, figures, TOC/navigation, and FAQ-related content.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — added AIREP24 production note and duplicate-path pitfall.
+* `docs/CHANGELOG_AI.md` — logged this memory update.
+
+### Decisions
+
+* Treat `/comparisons/...` as the canonical AIREP24 comparison path, while remembering that old `/compare/...` aliases can serve stale static HTML if not synchronized.
+
+### Checks run
+
+* Confirmed `/var/www/airep24.com/compare/airep24-vs-live-chat/index.html` exists.
+* Confirmed `/var/www/airep24-landing/compare/airep24-vs-live-chat/index.html` exists.
+* Grepped the old AIREP24 static page for `nav`, `img`, `figure`, and `toc` markers.
+
+### Risks / TODO
+
+* This records a production fix made outside Blog Core code. Future publishing should avoid leaving canonical and alias static paths out of sync.

@@ -133,6 +133,7 @@ It must be updated after every meaningful task.
 * Current production state: On 2026-07-03, `laycanmatch.com` site `id=8` was connected to Blog Core with `root_path=/var/www/laycanmatch.com` and `access_type=local_path`. Blog Core imported 6 existing English blog URLs directly from the local VPS webroot with `sources_json.webrootPath` pointing to `/var/www/laycanmatch.com/...`: 5 article pages plus the `/blog/` hub metadata record. The Content inventory hides the hub, so 5 imported live article records are visible.
 * Replaced/deprecated 2026-07-04: The initial `airep24.com` import moved only 16 English `/blog/` URLs from `/var/www/airep24.com`; that was not a complete factory migration.
 * Current production state: On 2026-07-04, `airep24.com` site `id=9` was connected to Blog Core with `root_path=/var/www/airep24.com` and `access_type=local_path`, then fully migrated from `/var/www/content-factory-airep24/factory.sqlite`. Blog Core now has 80 AIREP24 `content_jobs`: 24 `IMPORTED` inventory records and 56 legacy `QUEUED` planned rows. The imported inventory contains the original 16 English blog/webroot records plus 8 legacy published factory records: 4 localized home pages and 4 localized `features/automated-knowledge-base` SEO money pages. The planned queue contains 20 blog rows and 36 SEO money-page rows with EN/DE/ES/FR legacy variants preserved in `sources_json`; the dashboard collapses those rows into 14 canonical planned tasks. AIREP24's active site language is EN only (`sites.languages=["en"]`), so new generation should target EN unless the site's language setting is changed.
+* Current production state: On 2026-07-09, AIREP24 had duplicate comparison static paths for `airep24-vs-live-chat`: canonical `/comparisons/airep24-vs-live-chat/` and old `/compare/airep24-vs-live-chat/`. The old `/compare/...` page was manually synchronized with the canonical page in `/var/www/airep24.com/compare/airep24-vs-live-chat/index.html` and `/var/www/airep24-landing/compare/airep24-vs-live-chat/index.html` so it includes images, TOC, and FAQ.
 
 ## 5. SEO / content rules
 
@@ -206,6 +207,7 @@ It must be updated after every meaningful task.
 * Do not make operators delete a planned/content task just to fix a bad generated draft. Provide explicit regeneration for `DRAFT` tasks.
 * Do not represent active `GENERATING` tasks as only a static badge. Show motion/progress, latest log/status text, and auto-refresh when finished.
 * Do not rely only on in-memory daemon threads to finish legacy/source factory synchronization. PM2/Gunicorn restarts can kill those threads while the source factory continues and finishes; polling/status endpoints must be able to recover and sync the finished draft.
+* For AIREP24 comparison pages, watch for old `/compare/...` static paths alongside canonical `/comparisons/...` paths. A fixed Blog Core draft can still appear broken publicly if an old static alias is serving stale shortened HTML.
 * Do not invent Gemini Image aspect ratios. Check provider-supported values before changing image generation contracts.
 
 ## 8. Decisions log
