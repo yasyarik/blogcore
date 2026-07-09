@@ -4269,6 +4269,9 @@ def clean_article_query_phrase(text):
         return ""
     phrase = re.sub(r"\b20[0-9]{2}\b", " ", phrase)
     phrase = re.sub(r"\b(best|top|review|reviews|comparison|compare|alternatives?|buyer'?s?|guide|framework)\b", " ", phrase)
+    phrase = re.sub(r"\b(evaluating|evaluate|evaluation|choosing|choose|selecting|select|finding|find)\b", " ", phrase)
+    phrase = re.sub(r"\b(customer|shopper|buyer|user)\s+support\b", "customer support", phrase)
+    phrase = re.sub(r"\b(ecommerce|e-commerce)\b", "ecommerce", phrase)
     phrase = re.sub(r"\b(software|platforms?|tools?|apps?|solutions?)\b$", " ", phrase)
     phrase = re.sub(r"\bfor\b", " ", phrase)
     phrase = re.sub(r"\s+", " ", phrase).strip(" -:")
@@ -4303,8 +4306,60 @@ def clean_article_query_cluster(raw_cluster, title="", source_title="", seed="")
     return cleaned
 
 
+def normalize_editorial_axis(text):
+    raw = normalize_topic_text(text or "")
+    if not raw:
+        return ""
+    replacements = {
+        "cart recovery": "cart abandonment",
+        "abandoned cart": "cart abandonment",
+        "checkout friction": "cart abandonment",
+        "support tickets": "support cost",
+        "ticket deflection": "support cost",
+        "delayed support": "response latency",
+        "human escalation": "human handoff",
+        "live escalation": "human handoff",
+        "operator handoff": "human handoff",
+        "technical questions": "technical product questions",
+        "product questions": "technical product questions",
+        "product specification": "technical product questions",
+        "variant selection": "product fit",
+        "returns": "return reduction",
+        "return rates": "return reduction",
+        "conversational selling": "sales assistant",
+        "support as revenue": "sales assistant",
+        "support and sales": "sales assistant",
+        "customer memory": "conversational memory",
+        "shopper history": "conversational memory",
+        "live data": "live store data",
+        "data freshness": "live store data",
+        "static ai": "live store data",
+        "rule based": "generative understanding",
+        "scripted responses": "generative understanding",
+        "frustrated shoppers": "emotional escalation",
+        "angry customers": "emotional escalation",
+    }
+    for old, new in replacements.items():
+        raw = raw.replace(old, new)
+    raw = re.sub(
+        r"\b(ai|ecommerce|e-commerce|shopify|customer|customers|support|article|guide|store|stores|"
+        r"business|problem|problems|assistant|assistants|chatbot|chatbots|automation|automated|commerce)\b",
+        " ",
+        raw,
+    )
+    tokens = []
+    for token in raw.split():
+        if len(token) < 3:
+            continue
+        if token not in tokens:
+            tokens.append(token)
+    return " ".join(tokens[:7]).strip()
+
+
 def article_idea_comparable_text(idea):
     pieces = [
+        idea.get("topic_axis") or "",
+        idea.get("audience_problem") or "",
         idea.get("title") or "",
         idea.get("angle") or "",
         idea.get("business_relevance") or "",
@@ -4323,11 +4378,14 @@ def article_idea_comparable_text(idea):
 def find_similar_accepted_idea(idea, accepted_ideas):
     title = idea.get("title") or ""
     comparable = article_idea_comparable_text(idea)
+    axis = normalize_editorial_axis(idea.get("topic_axis") or idea.get("audience_problem") or title)
     best = None
     for accepted in accepted_ideas:
+        accepted_axis = normalize_editorial_axis(accepted.get("topic_axis") or accepted.get("audience_problem") or accepted.get("title") or "")
         score = max(
             idea_similarity(title, accepted.get("title") or ""),
             idea_similarity(comparable, article_idea_comparable_text(accepted)),
+            idea_similarity(axis, accepted_axis) if axis and accepted_axis else 0,
         )
         if best is None or score > best["score"]:
             best = {"title": accepted.get("title") or "", "score": round(score, 3)}
@@ -4435,6 +4493,7 @@ Generate article topics using this process:
 6. Preferred topic types for commercial/product sites: audience problem, business cost/risk, adoption blocker, decision context, product-category value, use-case scenario, objection handling, ROI/efficiency context, or misconception correction.
 7. Title rules: natural editorial titles, not keyword-stuffed titles; serious 2026 SEO style; no obsolete years; no copied autocomplete phrases; no hype; no generic SERP clone framing; no title starting with a number unless the site is explicitly a media/listicle publication.
 8. SEO value: every idea must explain search intent, target query cluster, site-specific business relevance, unique context the site can add, and why it is not a duplicate.
+9. Topic diversity: every idea must have a distinct `topic_axis` and `audience_problem`. Do not create several ideas that differ only by title but all solve the same problem, funnel stage, objection, or business outcome.
 
 Generation rules:
 - Generate every distinct article idea that is editorially justified by the selected signals and useful for this site.
@@ -4444,6 +4503,8 @@ Generation rules:
 - `target_query_cluster` must contain normalized SEO clusters, not raw autocomplete strings. Remove obsolete years and modifiers like "best", "top", "review", "comparison", "alternatives", and "buyer framework" unless the site explicitly allows that format.
 - `seo_rationale` must explain durable SEO/business value without quoting dirty raw queries such as "best ... 2025".
 - Do not produce near-duplicate ideas across the same business problem. If several signals point to agentic AI, technical product support, human handoff, or conversational memory, consolidate each cluster into the strongest single article idea.
+- For each idea, set `topic_axis` to a compact editorial axis such as `response latency`, `cart abandonment`, `technical product questions`, `return reduction`, `human handoff`, `conversational memory`, `live store data`, `emotional escalation`, or another site-appropriate axis.
+- Set `audience_problem` to the concrete user/business problem the page solves. Two ideas with the same audience problem should be merged unless they target clearly different funnel stages or outcomes.
 - Cover different clusters from the selected signals instead of producing only one cluster.
 - If many signals are near-duplicates, consolidate them into one stronger idea and use other signals for separate ideas.
 - {'This is a second pass. Focus only on valid ideas missing from the accepted list above.' if second_pass else 'Prefer breadth across all selected signal clusters before depth inside one cluster.'}
@@ -4459,6 +4520,8 @@ Generation rules:
       "business_relevance": "How this connects to this site's offer and audience",
       "unique_site_context": "What this website can credibly add that generic content cannot",
       "duplicate_check": "Why this is not already covered by the existing content list",
+      "topic_axis": "Compact distinct editorial axis",
+      "audience_problem": "Concrete audience/business problem this page solves",
       "source_title": "The audience signal that inspired the idea",
       "source": "popular_search|reddit",
       "contentType": "blog"
@@ -4479,6 +4542,8 @@ def sanitize_article_idea(raw_idea, signals, policy=None):
     business_relevance = re.sub(r"\s+", " ", str(raw_idea.get("business_relevance") or raw_idea.get("businessRelevance") or "")).strip()
     unique_site_context = re.sub(r"\s+", " ", str(raw_idea.get("unique_site_context") or raw_idea.get("uniqueSiteContext") or "")).strip()
     duplicate_check = re.sub(r"\s+", " ", str(raw_idea.get("duplicate_check") or raw_idea.get("duplicateCheck") or "")).strip()
+    topic_axis = re.sub(r"\s+", " ", str(raw_idea.get("topic_axis") or raw_idea.get("topicAxis") or "")).strip()
+    audience_problem = re.sub(r"\s+", " ", str(raw_idea.get("audience_problem") or raw_idea.get("audienceProblem") or "")).strip()
     if len(title) < 28 or len(angle) < 30 or len(seo_rationale) < 35:
         return None
     if seo_intent not in {"informational", "commercial", "comparison", "transactional"}:
@@ -4513,6 +4578,8 @@ def sanitize_article_idea(raw_idea, signals, policy=None):
         "business_relevance": business_relevance,
         "unique_site_context": unique_site_context,
         "duplicate_check": duplicate_check,
+        "topic_axis": topic_axis or title,
+        "audience_problem": audience_problem or angle,
         "source": raw_idea.get("source") or (matched_signal or {}).get("source") or "popular_search",
         "source_title": source_display,
         "raw_source_title": raw_source_title,
@@ -4557,6 +4624,8 @@ def article_idea_candidates_for_signal(signal, brand, seed):
             "business_relevance": f"The topic connects audience demand to {brand}'s category and commercial problem space.",
             "unique_site_context": f"{brand} can frame the topic through its own product/service context and existing expertise.",
             "duplicate_check": "Fallback candidate still requires duplicate and editorial validation before it can be shown.",
+            "topic_axis": clean_article_query_phrase(raw),
+            "audience_problem": clean,
             "source": signal.get("source"),
             "source_title": raw,
             "source_url": signal.get("url", ""),

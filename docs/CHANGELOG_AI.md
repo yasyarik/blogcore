@@ -2,6 +2,40 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Improve Discovery idea diversity
+
+### Summary
+
+* Added editorial diversity fields to generated article ideas: `topic_axis` and `audience_problem`.
+* Updated the journalist prompt to require distinct topic axes and concrete audience/business problems.
+* Improved same-response semantic deduplication by comparing editorial axes, audience problems, titles, angles, business relevance, and query clusters.
+* Improved query-cluster normalization by stripping weak decision modifiers such as `evaluating`, `choose`, and `select`.
+
+### Files changed
+
+* `app.py` — added editorial-axis normalization, diversity-aware same-response dedupe, prompt fields/rules, and cleaner query-cluster normalization.
+* `docs/PROJECT_MEMORY.md` — recorded the durable editorial diversity rule.
+* `docs/INTEGRATIONS.md` — documented the updated article idea API/dedupe behavior.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Universal article idea quality should be enforced by topic-axis and audience-problem diversity, not by per-site exceptions.
+* Similar signals can produce multiple ideas only when they target clearly different problems, outcomes, or funnel moments.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `POST /api/sites/9/article-ideas` returns a more diverse set of AIREP24 ideas across axes such as `technical product questions`, `response latency`, `conversational memory`, `returns prevention`, `post-purchase retention`, `conversational search`, and `human/mobile escalation`.
+
+### Risks / TODO
+
+* Axis normalization is heuristic and should be expanded only with generic cross-site patterns, not site-specific exceptions.
+
 ## 2026-07-09 — Add Discovery idea generation progress
 
 ### Summary
