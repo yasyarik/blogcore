@@ -4189,9 +4189,89 @@ ARTICLE_IDEA_SIGNAL_CAP = int(os.environ.get("ARTICLE_IDEA_SIGNAL_CAP", "40"))
 ARTICLE_IDEA_MAX_PASSES = int(os.environ.get("ARTICLE_IDEA_MAX_PASSES", "4"))
 
 
+def current_content_year():
+    return datetime.now(timezone.utc).year
+
+
+def site_editorial_policy(site):
+    policy_text = normalize_topic_text(site_topic_text(site))
+    comparison_terms = {
+        "comparison", "comparisons", "compare", "compares", "versus", "alternatives", "alternative",
+        "roundup", "roundups", "rankings", "ranking", "cost-benefit",
+    }
+    review_editorial_phrases = {
+        "review site", "comparison site", "reviews of", "reviewing", "ship reviews", "cruise reviews",
+        "product reviews", "software reviews", "platform reviews",
+    }
+    tutorial_terms = {
+        "tutorial", "tutorials", "developer", "developers", "technical education", "step-by-step",
+        "implementation guide", "platform-specific tutorials",
+    }
+    review_site_terms = {"review site", "comparison site", "reviews of", "reviewing"}
+    training_site_terms = {"academy", "training", "course", "courses", "lessons", "curriculum"}
+    allows_comparisons = any(re.search(r"\b" + re.escape(term).replace(r"\ ", r"\s+") + r"\b", policy_text) for term in comparison_terms)
+    allows_comparisons = allows_comparisons or any(phrase in policy_text for phrase in review_editorial_phrases)
+    allows_tutorials = any(phrase in policy_text for phrase in tutorial_terms | training_site_terms)
+    is_review_site = any(term in policy_text for term in review_site_terms)
+    is_training_site = any(term in policy_text for term in training_site_terms)
+    return {
+        "currentYear": current_content_year(),
+        "allowsComparisons": allows_comparisons,
+        "allowsTutorials": allows_tutorials,
+        "isReviewSite": is_review_site,
+        "isTrainingSite": is_training_site,
+        "preferredTopicShape": [
+            "audience problem",
+            "business impact",
+            "decision context",
+            "product category relevance",
+            "site-specific expertise",
+            "non-commodity useful page",
+        ],
+    }
+
+
+EDITORIAL_SERP_CLONE_RE = re.compile(
+    r"(^\s*\d+\b)|\b("
+    r"best|top|tools?|platforms?|generators?|apps?|roundups?|rank(?:ed|ing)?|reviews?|"
+    r"alternatives?|comparison|compare|versus|vs\.?|examples?|"
+    r"(?:buyer|merchant|customer)'?s?\s+(?:guide|framework)|"
+    r"guide\s+to\s+(?:evaluat|choos|select)|evaluation\s+framework"
+    r")\b",
+    re.I,
+)
+
+EDITORIAL_TUTORIAL_RE = re.compile(
+    r"\b("
+    r"how\s+to\s+(?:build|set\s*up|setup|configure|implement|create|make|develop|train|design)|"
+    r"building\s+the|blueprint|step[-\s]?by[-\s]?step|best\s+practices|"
+    r"configure|configuration|training|designing\s+(?:an?\s+)?(?:ai\s+)?(?:support\s+)?automation\s+workflow|"
+    r"workflows?|frameworks?"
+    r")\b",
+    re.I,
+)
+
+
+def editorial_policy_rejection_reason(idea, policy):
+    title = idea.get("title") or ""
+    angle = idea.get("angle") or ""
+    rationale = idea.get("seo_rationale") or ""
+    text = " ".join([title, angle, rationale])
+    current_year = int(policy.get("currentYear") or current_content_year())
+    years = [int(year) for year in re.findall(r"\b20\d{2}\b", text)]
+    if any(year < current_year for year in years):
+        return "Rejected: outdated year in article idea"
+    if EDITORIAL_SERP_CLONE_RE.search(title) and not policy.get("allowsComparisons"):
+        return "Rejected: generic review/comparison/listicle format is not allowed for this site"
+    if EDITORIAL_TUTORIAL_RE.search(title) and not policy.get("allowsTutorials"):
+        return "Rejected: build/setup/tutorial format is not allowed for this site"
+    return ""
+
+
 def build_journalist_article_ideas_prompt(site, signals, existing_index, accepted_titles=None, second_pass=False):
     brand = site["brand_name"] or site["domain"]
     topic_seed = site_topic_seed(site)
+    policy = site_editorial_policy(site)
     signal_rows = []
     for signal in signals[:ARTICLE_IDEA_SIGNAL_CAP]:
         if signal.get("disabled"):
@@ -4211,15 +4291,39 @@ def build_journalist_article_ideas_prompt(site, signals, existing_index, accepte
         }
         for item in existing_index[:160]
     ]
+    content_context = re.sub(r"\s+", " ", site["content_context"] or "").strip()
+    topic_strategy = re.sub(r"\s+", " ", site["topic_strategy"] or "").strip()
+    site_profile = re.sub(r"\s+", " ", site_topic_text(site)).strip()
+    content_summary = []
+    for doc in content_topic_documents(site, limit=24)[:16]:
+        compact = re.sub(r"\s+", " ", doc or "").strip()
+        if compact:
+            content_summary.append(compact[:260])
     return f"""
-You are an experienced commissioning editor and SEO strategist.
+You are a senior SEO editor and content strategist for a commercial website.
 
-Create article ideas for this website.
+Your task is to generate article topic ideas from trend/search-demand signals, but the final ideas must be based on the website's actual business, audience, expertise, existing content, and SEO opportunity.
+
+Follow Google Search Central 2026 guidance for generative AI search:
+- Create unique, valuable, non-commodity, people-first content.
+- Do not recycle generic SERP titles or copy trend/search signal wording directly.
+- Do not create pages only to target every keyword variation.
+- Build topics that provide useful context, original perspective, clear user value, and commercial relevance.
+- Each topic must make sense as a page this specific website is qualified to publish.
+- Each topic should help Google understand the site's topical authority and business context.
 
 Site:
 - Brand: {brand}
 - Domain: {site['domain']}
 - Topic seed: {topic_seed}
+- Business/product context: {content_context or 'Infer from site profile and existing content.'}
+- Topic/editorial strategy: {topic_strategy or 'Infer from site profile and existing content.'}
+- Full site profile: {site_profile[:1400]}
+- Current year: {policy['currentYear']}
+- Editorial policy: {json.dumps(policy, ensure_ascii=False)}
+
+Existing site content summary:
+{json.dumps(content_summary, ensure_ascii=False, indent=2)}
 
 Audience/search/discussion signals:
 {json.dumps(signal_rows, ensure_ascii=False, indent=2)}
@@ -4230,19 +4334,24 @@ Existing imported/published/planned content to avoid duplicating:
 Already accepted ideas in this generation run, also avoid duplicating:
 {json.dumps(accepted_titles or [], ensure_ascii=False, indent=2)}
 
-Rules:
+Generate article topics using this process:
+1. Understand the site first. Determine what this website actually does, who it serves, what problems it solves, and what type of expertise it can credibly provide.
+2. Interpret the signals. Treat search trends and Reddit/community discussions as audience-interest signals, not article titles. Cluster related signals into broader user needs, business problems, objections, decision moments, or product-use contexts.
+3. Create SEO-relevant editorial topics. For each topic, connect a real audience need, a relevant search-demand signal, the site's business/product context, a useful informational angle, and a reason this page should exist on this website.
+4. Avoid generic content. Do not generate generic "Best tools/platforms/software", "Top X", reviews, comparisons, or buyer frameworks unless the editorial policy explicitly allows comparisons. Do not generate build/setup/configuration/tutorial topics unless the editorial policy explicitly allows tutorials. Do not teach users how to replace the site's own product/service with a DIY alternative.
+5. For product/commercial sites that are not explicitly review or training sites, avoid numbered listicles, "examples" compilations, "guide to choosing/evaluating", "evaluation framework", "how to train/configure/build", and workflow/blueprint/tutorial framing. Instead, create pages about a concrete audience problem, decision moment, business risk, adoption blocker, buyer objection, product-category value, ROI/efficiency context, or misconception.
+6. Preferred topic types for commercial/product sites: audience problem, business cost/risk, adoption blocker, decision context, product-category value, use-case scenario, objection handling, ROI/efficiency context, or misconception correction.
+7. Title rules: natural editorial titles, not keyword-stuffed titles; serious 2026 SEO style; no obsolete years; no copied autocomplete phrases; no hype; no generic SERP clone framing; no title starting with a number unless the site is explicitly a media/listicle publication.
+8. SEO value: every idea must explain search intent, target query cluster, site-specific business relevance, unique context the site can add, and why it is not a duplicate.
+
+Generation rules:
 - Generate every distinct article idea that is editorially justified by the selected signals and useful for this site.
 - Do not stop at an arbitrary fixed count. If 3 ideas are genuinely valid, return 3; if 30 are genuinely valid, return 30.
 - Respect the technical safety cap of {ARTICLE_IDEA_SAFETY_CAP} ideas in one response.
-- Do not copy a signal title directly.
 - Do not write local city/event/news/campaign topics.
-- Turn audience interests into durable article concepts with a clear editorial angle.
-- Every idea must carry SEO value for this specific site, not generic traffic.
-- Avoid topics already covered by existing content.
 - Cover different clusters from the selected signals instead of producing only one cluster.
 - If many signals are near-duplicates, consolidate them into one stronger idea and use other signals for separate ideas.
 - {'This is a second pass. Focus only on valid ideas missing from the accepted list above.' if second_pass else 'Prefer breadth across all selected signal clusters before depth inside one cluster.'}
-- Prefer practical, specific titles that a real editor would approve.
 - Return only JSON with this shape:
 {{
   "ideas": [
@@ -4251,6 +4360,10 @@ Rules:
       "angle": "Editorial angle and why readers care",
       "seo_intent": "informational|commercial|comparison|transactional",
       "seo_rationale": "Why this can rank and why it supports the site",
+      "target_query_cluster": ["query 1", "query 2"],
+      "business_relevance": "How this connects to this site's offer and audience",
+      "unique_site_context": "What this website can credibly add that generic content cannot",
+      "duplicate_check": "Why this is not already covered by the existing content list",
       "source_title": "The audience signal that inspired the idea",
       "source": "popular_search|reddit",
       "contentType": "blog"
@@ -4260,13 +4373,17 @@ Rules:
 """.strip()
 
 
-def sanitize_article_idea(raw_idea, signals):
+def sanitize_article_idea(raw_idea, signals, policy=None):
     if not isinstance(raw_idea, dict):
         return None
     title = re.sub(r"\s+", " ", str(raw_idea.get("title") or "")).strip()
     angle = re.sub(r"\s+", " ", str(raw_idea.get("angle") or "")).strip()
     seo_intent = re.sub(r"\s+", " ", str(raw_idea.get("seo_intent") or raw_idea.get("seoIntent") or "")).strip().lower()
     seo_rationale = re.sub(r"\s+", " ", str(raw_idea.get("seo_rationale") or raw_idea.get("seoRationale") or "")).strip()
+    target_query_cluster = raw_idea.get("target_query_cluster") or raw_idea.get("targetQueryCluster") or []
+    business_relevance = re.sub(r"\s+", " ", str(raw_idea.get("business_relevance") or raw_idea.get("businessRelevance") or "")).strip()
+    unique_site_context = re.sub(r"\s+", " ", str(raw_idea.get("unique_site_context") or raw_idea.get("uniqueSiteContext") or "")).strip()
+    duplicate_check = re.sub(r"\s+", " ", str(raw_idea.get("duplicate_check") or raw_idea.get("duplicateCheck") or "")).strip()
     if len(title) < 28 or len(angle) < 30 or len(seo_rationale) < 35:
         return None
     if seo_intent not in {"informational", "commercial", "comparison", "transactional"}:
@@ -4283,16 +4400,23 @@ def sanitize_article_idea(raw_idea, signals):
     direct_copy = any(idea_similarity(title, signal.get("title") or "") > 0.9 for signal in signals)
     if direct_copy:
         return None
-    return {
+    idea = {
         "title": title,
         "angle": angle,
         "seo_intent": seo_intent,
         "seo_rationale": seo_rationale,
+        "target_query_cluster": target_query_cluster if isinstance(target_query_cluster, list) else [],
+        "business_relevance": business_relevance,
+        "unique_site_context": unique_site_context,
+        "duplicate_check": duplicate_check,
         "source": raw_idea.get("source") or (matched_signal or {}).get("source") or "popular_search",
         "source_title": source_title or (matched_signal or {}).get("title") or "",
         "source_url": (matched_signal or {}).get("url") or raw_idea.get("source_url") or "",
         "contentType": raw_idea.get("contentType") or "blog",
     }
+    if editorial_policy_rejection_reason(idea, policy or {"currentYear": current_content_year()}):
+        return None
+    return idea
 
 
 def article_idea_candidates_for_signal(signal, brand, seed):
@@ -4309,11 +4433,11 @@ def article_idea_candidates_for_signal(signal, brand, seed):
     if lower.startswith(("how to ", "what ", "why ", "is ", "are ")):
         candidates.append(base)
     else:
-        candidates.append(f"{base}: What to Know Before Booking")
-    if not lower.startswith("how to ") and len(idea_tokens(clean)) >= 2:
-        candidates.append(f"How to Choose {base}")
-    if "tips" not in lower and "guide" not in lower:
-        candidates.append(f"{base}: Costs, Safety, and Practical Tips")
+        candidates.append(f"Why {base} Matters for {brand}'s Audience")
+    if len(idea_tokens(clean)) >= 2:
+        candidates.append(f"When {base} Becomes a Business Problem")
+    if "risk" not in lower and "cost" not in lower:
+        candidates.append(f"The Hidden Cost of Ignoring {base}")
     ideas = []
     for title in candidates:
         title = re.sub(r"\s+", " ", title).strip()
@@ -4321,9 +4445,13 @@ def article_idea_candidates_for_signal(signal, brand, seed):
             continue
         ideas.append({
             "title": title,
-            "angle": f"Use the selected topic signal to answer a durable reader question, avoid a single city/event/news angle, and connect the article to {brand}'s offer, expertise, or editorial point of view around {seed}.",
+            "angle": f"Use the selected topic signal as an audience-interest clue, then explain the business problem, decision context, and practical value through {brand}'s offer, expertise, or editorial point of view around {seed}.",
             "seo_intent": "informational",
-            "seo_rationale": f"This topic can capture non-news search demand around {seed} and connect the reader's problem to {brand}'s expertise.",
+            "seo_rationale": f"This topic can capture non-news search demand around {seed} while adding site-specific context instead of copying the raw search phrase.",
+            "target_query_cluster": [raw],
+            "business_relevance": f"The topic connects audience demand to {brand}'s category and commercial problem space.",
+            "unique_site_context": f"{brand} can frame the topic through its own product/service context and existing expertise.",
+            "duplicate_check": "Fallback candidate still requires duplicate and editorial validation before it can be shown.",
             "source": signal.get("source"),
             "source_title": raw,
             "source_url": signal.get("url", ""),
@@ -4335,6 +4463,7 @@ def article_idea_candidates_for_signal(signal, brand, seed):
 def generate_article_ideas(site, signals, existing_index=None):
     seed = site_topic_seed(site)
     brand = site["brand_name"] or site["domain"]
+    policy = site_editorial_policy(site)
     ideas = []
     rejected = []
     seen_titles = set()
@@ -4350,7 +4479,7 @@ def generate_article_ideas(site, signals, existing_index=None):
             if len(ideas) >= ARTICLE_IDEA_SAFETY_CAP:
                 break
             generated_count += 1
-            idea = sanitize_article_idea(raw_idea, usable_signals)
+            idea = sanitize_article_idea(raw_idea, usable_signals, policy)
             if not idea:
                 rejected.append({"idea": {"title": str(raw_idea.get("title") or "Invalid idea")[:140]}, "similar": {"title": "Rejected by idea quality/SEO validation", "score": 0}})
                 continue
@@ -4388,9 +4517,12 @@ def generate_article_ideas(site, signals, existing_index=None):
     for signal in usable_signals:
         if signal.get("disabled"):
             continue
-        for idea in article_idea_candidates_for_signal(signal, brand, seed):
+        for raw_idea in article_idea_candidates_for_signal(signal, brand, seed):
             if len(ideas) >= ARTICLE_IDEA_SAFETY_CAP:
                 break
+            idea = sanitize_article_idea(raw_idea, usable_signals, policy)
+            if not idea:
+                continue
             if not idea.get("seo_rationale") or not idea.get("seo_intent"):
                 continue
             key = simple_slug(idea["title"])

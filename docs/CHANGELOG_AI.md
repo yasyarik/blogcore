@@ -2,6 +2,43 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Enforce Google-style editorial Discovery ideas
+
+### Summary
+
+* Rebuilt the Discovery article-idea prompt around Google Search Central 2026 generative-search guidance: unique, valuable, non-commodity, people-first pages grounded in the connected site's business and expertise.
+* Made search/Reddit items explicit audience-interest signals rather than article titles.
+* Added site editorial policy inference for whether comparison/review/listicle or tutorial/build/setup formats are allowed.
+* Added server-side idea validation that rejects obsolete years, copied signal titles, generic SERP-clone formats, and unsupported tutorial/review formats before ideas are shown.
+* Fixed editorial policy inference so bad existing/generated content cannot grant permission for future bad formats.
+
+### Files changed
+
+* `app.py` — added site editorial policy inference, Google-style journalist/SEO prompt, richer idea fields, stricter idea validation, and safer fallback idea templates.
+* `docs/PROJECT_MEMORY.md` — recorded durable Discovery editorial rules.
+* `docs/INTEGRATIONS.md` — documented the updated article idea prompt/validation contract.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Discovery fixes must be global and site-agnostic: the generator should understand each site's profile and strategy, then create editorial topics from audience demand.
+* Editorial-format permissions come from stable site profile/settings, not from already-generated content that may contain obsolete or low-quality patterns.
+* Product/commercial sites default to problem/business-impact/use-case/decision-context topics, not generic `best/top/review/how to build` SERP formats.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified site editorial policy for AIREP24 rejects comparison/tutorial formats by default.
+* Verified `POST /api/sites/9/article-ideas` now returns AIREP24 topics without obsolete `2025`, numbered listicles, `best/top` roundups, buyer/evaluation frameworks, or `how to train/configure/build` titles.
+
+### Risks / TODO
+
+* Gemini can still produce borderline phrasing; server-side validation now blocks the worst unsupported formats, but editorial tuning may continue as better universal quality criteria emerge.
+
 ## 2026-07-09 — Make Discovery topic selection content-informed
 
 ### Summary
