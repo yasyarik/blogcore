@@ -3335,6 +3335,21 @@ def regenerate_draft_button(job_id):
     return f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(job_id, quote=True)}', 'Regenerating draft')\">Regenerate draft</button>"
 
 
+def generating_progress_panel(job_id):
+    safe_id = escape(job_id, quote=True)
+    return f"""
+    <div class="generation-progress" data-generating-job-id="{safe_id}">
+      <div class="generation-progress-head">
+        <span class="generation-spinner" aria-hidden="true"></span>
+        <span class="generation-progress-title">Generating draft</span>
+        <span class="generation-progress-time" data-generation-elapsed>working...</span>
+      </div>
+      <div class="generation-progress-bar"><span></span></div>
+      <div class="generation-progress-note" data-generation-note>Source factory is generating this task. Keep this page open or come back later.</div>
+    </div>
+    """
+
+
 def render_social_credentials_setup(site_id):
     connections = get_social_connections(site_id)
     cards = []
@@ -3411,11 +3426,13 @@ def render_planned_publications(rows, site_languages=None):
         action = ""
         if status in {"QUEUED", "ERROR"}:
             action = f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}', 'Generating draft')\">Generate</button>"
+        elif status == "GENERATING":
+            action = generating_progress_panel(row["id"])
         elif status == "DRAFT":
             action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
         items.append(
             f"""
-            <div class="planned-row" data-group-id="{escape(group['id'], quote=True)}">
+            <div class="planned-row {status_class}" data-group-id="{escape(group['id'], quote=True)}" data-job-id="{escape(row['id'], quote=True)}" data-status="{status_class}">
               <label class="planned-check"><input type="checkbox" class="planned-select" value="{escape(group['id'], quote=True)}" data-job-id="{escape(row['id'], quote=True)}" aria-label="Select planned task"></label>
               <div><strong>{escape(title)}</strong><span>{escape(source)} · {escape(row['created_at'] or '')}{escape(duplicate_note)}</span><div class="planned-meta">{render_content_type_badge(row)}{meta}</div>{error_note}</div>
               <div class="actions"><b class="status {status_class}">{escape(status)}</b>{action}</div>
@@ -3444,6 +3461,10 @@ def render_content_jobs(content_page):
             status_label = status
             action = f"<button class='ghost' type='button' onclick=\"generateArticleJob('{escape(row['id'], quote=True)}', 'Generating draft')\">Generate draft</button>"
             descriptor = "New Blog Core task"
+        elif status == "GENERATING":
+            status_label = "GENERATING"
+            action = generating_progress_panel(row["id"])
+            descriptor = "Generation in progress"
         elif status == "DRAFT":
             status_label = "DRAFT"
             action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
@@ -6651,6 +6672,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 .bulk-progress{flex-basis:100%;border:1px solid rgba(139,92,246,.38);border-radius:12px;background:rgba(139,92,246,.14);color:#ddd6fe;padding:9px 11px;font-size:12px;font-weight:900}
 button[disabled]{opacity:.55;cursor:not-allowed}
 .planned-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px;margin-top:10px}
+.planned-row.generating,.production-job:has(.generation-progress){border-color:rgba(139,92,246,.55);box-shadow:0 0 0 1px rgba(139,92,246,.14),0 0 34px rgba(139,92,246,.1)}
 .planned-row strong{display:block;font-size:14px}
 .planned-row span{display:block;color:var(--muted);font-size:12px;margin-top:3px}
 .planned-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}
@@ -6659,6 +6681,19 @@ button[disabled]{opacity:.55;cursor:not-allowed}
 .planned-row .planned-target{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;text-transform:none;max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .planned-error{margin-top:8px;color:#fecaca;font-size:12px;line-height:1.35;max-width:820px}
 .mini-action{min-height:34px;padding:8px 11px;font-size:12px}
+.status.generating{background:rgba(139,92,246,.22);color:#ddd6fe;border:1px solid rgba(139,92,246,.45);animation:statusPulse 1.25s ease-in-out infinite}
+.generation-progress{grid-column:1 / -1;min-width:min(360px,80vw);border:1px solid rgba(139,92,246,.42);border-radius:14px;background:linear-gradient(180deg,rgba(139,92,246,.16),rgba(8,13,29,.58));padding:10px 12px;color:#ddd6fe}
+.generation-progress-head{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:900}
+.generation-progress-title{color:#fff}
+.generation-progress-time{margin-left:auto;color:#a7f3d0;font-size:11px}
+.generation-spinner{width:14px;height:14px;border-radius:999px;border:2px solid rgba(216,205,253,.32);border-top-color:#a78bfa;animation:spin 1s linear infinite;flex:0 0 auto}
+.generation-progress-bar{height:5px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;margin:9px 0 7px}
+.generation-progress-bar span{display:block;width:42%;height:100%;border-radius:999px;background:linear-gradient(90deg,#8b5cf6,#22c55e,#60a5fa);animation:progressSweep 1.45s ease-in-out infinite}
+.generation-progress-note{font-size:11px;line-height:1.35;color:var(--muted);max-width:540px}
+.planned-row .actions .generation-progress,.production-job .actions .generation-progress{margin-top:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes progressSweep{0%{transform:translateX(-110%)}50%{transform:translateX(70%)}100%{transform:translateX(260%)}}
+@keyframes statusPulse{0%,100%{box-shadow:0 0 0 rgba(139,92,246,0)}50%{box-shadow:0 0 18px rgba(139,92,246,.32)}}
 .planned-empty{margin-top:10px;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.28);color:var(--muted);font-size:13px;padding:12px}
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px;border-bottom:1px solid var(--line);padding-bottom:10px}
 .tab{background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:999px;color:#d8cdfd;min-height:38px;padding:9px 14px}
@@ -6806,6 +6841,11 @@ function draftProgressStep(elapsed){if(elapsed<8)return 'Preparing article conte
 function startDraftProgress(label){stopDraftProgress(false);draftProgressStartedAt=Date.now();const startMessage=(label||'Generating draft')+' · 0:00 · Preparing article context and source-site rules';setBulkProgress(startMessage);showToast(startMessage);draftProgressTimer=setInterval(()=>{const elapsed=Date.now()-draftProgressStartedAt;const message=(label||'Generating draft')+' · '+formatElapsed(elapsed)+' · '+draftProgressStep(Math.floor(elapsed/1000));setBulkProgress(message);showToast(message);},1000);}
 function stopDraftProgress(complete){if(draftProgressTimer){clearInterval(draftProgressTimer);draftProgressTimer=null;}if(complete){setBulkProgress('Finalizing draft status...', false);}}
 async function generateArticleJob(jobId,label){const progressLabel=label||'Generating draft';showToast(progressLabel+'...');startDraftProgress(progressLabel);try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);stopDraftProgress(true);if(data.status==='GENERATING'){showToast('Generation started in source factory. Refreshing status...');setBulkProgress('Generation started in source factory. Reloading status...', false);setTimeout(()=>location.reload(),1800);}else{showToast('Draft generated: '+(data.slug||jobId));setBulkProgress('Draft generated. Reloading...', false);setTimeout(()=>location.reload(),900);}}catch(e){stopDraftProgress(false);setBulkProgress('Generation failed: '+e.message, false);clearBulkProgress();showToast('Generation failed: '+e.message);}}
+function generationRuntimeLabel(startedAt){const started=startedAt?Date.parse(startedAt):NaN;if(!Number.isFinite(started))return 'working...';return formatElapsed(Date.now()-started);}
+function updateGenerationElapsed(panel){const elapsed=panel.querySelector('[data-generation-elapsed]');if(elapsed)elapsed.textContent=generationRuntimeLabel(panel.dataset.generationStartedAt);}
+function updateGenerationPanel(panel,data){const job=data.job||{};const logs=data.logs||[];const latest=logs.length?logs[logs.length-1]:null;const note=panel.querySelector('[data-generation-note]');panel.dataset.generationStartedAt=job.updated_at||job.created_at||panel.dataset.generationStartedAt||'';updateGenerationElapsed(panel);if(note&&latest)note.textContent=(latest.step?latest.step+': ':'')+(latest.message||'Generation is still running.');}
+async function pollGeneratingJob(panel){const jobId=panel.dataset.generatingJobId;if(!jobId)return;try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId));const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);updateGenerationPanel(panel,data);const status=String((data.job&&data.job.status)||'').toUpperCase();if(status&&status!=='GENERATING'){const message=status==='DRAFT'?'Draft is ready. Reloading...':('Generation finished with status '+status+'. Reloading...');setBulkProgress(message,false);showToast(message);setTimeout(()=>location.reload(),900);return;}}catch(e){const note=panel.querySelector('[data-generation-note]');if(note)note.textContent='Status check failed: '+e.message;}}
+function initGeneratingPollers(){const panels=[...document.querySelectorAll('[data-generating-job-id]')];if(!panels.length)return;panels.forEach(panel=>{pollGeneratingJob(panel);setInterval(()=>pollGeneratingJob(panel),5000);setInterval(()=>updateGenerationElapsed(panel),1000);});showToast(panels.length+' generation task'+(panels.length===1?' is':'s are')+' still running...');}
 function selectedPlannedTasks(){return [...document.querySelectorAll('.planned-select:checked')].map(input=>({groupId:input.value,jobId:input.dataset.jobId})).filter(item=>item.groupId);}
 function selectedPlannedGroupIds(){return selectedPlannedTasks().map(item=>item.groupId);}
 function togglePlannedSelection(checked){document.querySelectorAll('.planned-select').forEach(input=>{input.checked=checked;});}
@@ -6822,6 +6862,7 @@ function renderImportArticles(items,warnings){const box=document.getElementById(
 async function scanExistingBlog(){const box=document.getElementById('importBlogResult');box.className='loading';box.textContent='Scanning sitemap and /blog/ links...';try{const res=await fetch('/api/sites/'+SITE_ID+'/import-blog/scan',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);renderImportArticles(data.articles||[],data.warnings||[]);showToast('Found '+(data.articles||[]).length+' importable URLs');}catch(e){box.className='loading';box.textContent='Import scan failed: '+e.message;showToast('Import scan failed: '+e.message);}}
 async function importSelectedBlogArticles(){const selected=[...document.querySelectorAll('#importBlogResult input[type="checkbox"]:checked')].map(input=>currentImportArticles[Number(input.dataset.index)]?.url).filter(Boolean);if(!selected.length){showToast('Select at least one article URL');return;}if(!confirm('Import '+selected.length+' existing articles into Blog Core? Live files and URLs will not be changed.')) return;showToast('Importing existing articles...');try{const res=await fetch('/api/sites/'+SITE_ID+'/import-blog/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({urls:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Imported '+(data.imported||[]).length+' articles, skipped '+(data.skipped||[]).length+', errors '+(data.errors||[]).length);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Import failed: '+e.message);}}
 loadSignals('week');
+initGeneratingPollers();
 </script>
 </body>
 </html>"""

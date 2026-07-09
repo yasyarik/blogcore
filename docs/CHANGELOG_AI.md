@@ -2,6 +2,39 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Add persistent progress for generating tasks
+
+### Summary
+
+* Added an animated in-card progress panel for content/planned tasks whose status is `GENERATING`.
+* Added polling against the existing content-job API so the dashboard updates the latest generation log text and reloads when the task becomes `DRAFT` or `ERROR`.
+* Added elapsed-time updates and moving progress animation so async legacy/source factory generation no longer appears frozen after the first request returns.
+
+### Files changed
+
+* `app.py` — added `generating_progress_panel`, `GENERATING` card actions, progress CSS, and frontend polling functions.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that `GENERATING` tasks must show animated progress and poll until finished.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Reuse the existing `GET /api/sites/<site_id>/content-jobs/<job_id>` endpoint for generation polling instead of adding another status endpoint.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` and docs to `/var/www/blog.yas.ooo`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `/sites/9` HTML contains `generation-progress`, `data-generating-job-id`, `pollGeneratingJob`, and `initGeneratingPollers()`.
+* Verified the currently running AIREP24 task `AiRep24 vs. Live Chat` renders an in-card animated progress panel.
+* Verified `GET /api/sites/9/content-jobs/6fb2a84685c8450183d67eb7` returns `status=GENERATING` and generation logs for polling.
+
+### Risks / TODO
+
+* Polling reloads the page when a task leaves `GENERATING`; exact backend sub-step progress still depends on source factory logs.
+
 ## 2026-07-09 — Preserve source-site post-article blocks in previews
 
 ### Summary
