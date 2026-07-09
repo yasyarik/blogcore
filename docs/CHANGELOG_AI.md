@@ -2454,3 +2454,33 @@ This file is updated by Codex after every task.
 
 * Import currently stores referenced media URLs and article HTML but does not copy media into Blog Core storage yet. A later migration step should add optional media mirroring before switching a live site.
 * Hosted rendering supports imported jobs, but local static `/blog` install still writes only the sample shell until final publishing/export parity is completed.
+
+## 2026-07-09 — Recover stuck legacy factory generation status
+
+### Summary
+
+* Confirmed the AIREP24 source factory job `6fb2a84685c8450183d67eb7` had already reached `READY`, while Blog Core remained stuck in `GENERATING` after Gunicorn restarts killed the in-memory sync thread.
+* Added status-poll recovery so Blog Core re-checks legacy/source factories for `GENERATING` jobs, syncs ready drafts, surfaces legacy errors, and marks very stale legacy generation instead of leaving the UI stuck.
+* Triggered the content-job API for the affected AIREP24 task; it synced into Blog Core as `DRAFT` with the legacy factory HTML.
+
+### Files changed
+
+* `app.py` — extracted reusable legacy draft sync, added throttled legacy status recovery, and wired it into the content-job detail API used by frontend polling.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule that legacy factory synchronization must survive Blog Core restarts.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Treat the content-job detail/status endpoint as a recovery path for source-factory jobs, not just a passive DB read.
+* Keep source-factory generation authoritative for migrated jobs; Blog Core only syncs the completed draft/status.
+
+### Checks run
+
+* `python3 -m py_compile app.py`
+* `pm2 restart blog-yas-core --update-env`
+* `curl -fsS http://127.0.0.1:3299/health`
+* Checked `/api/sites/9/content-jobs/6fb2a84685c8450183d67eb7`; status changed from `GENERATING` to `DRAFT`, `draft_html` length is 26001, and a sync log was added.
+
+### Risks / TODO
+
+* The recovery check is throttled in-process; multiple Gunicorn workers may still each perform occasional source-factory checks, which is acceptable for current low volume but can be centralized later if needed.

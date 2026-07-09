@@ -64,6 +64,7 @@ It must be updated after every meaningful task.
 * Technical settings should stay compact on the site factory page; main workflow should focus on topic discovery and jobs.
 * Existing imported blogs and Blog Core-created blogs have different ownership models. For imported existing blogs, Blog Core should act as the control plane/dashboard and publish new/updated tasks back into the same original site locations and URL structure. It should not default to becoming a second public copy of that blog. For blogs created by Blog Core from scratch, Blog Core can be the full source of truth and public hosting/publishing layer.
 * For imported sites that have legacy/source factory jobs (`sources_json.migratedFrom` and `oldFactoryJobId`), Blog Core must not use its generic article generator. It must delegate generation to the source site's factory so validation, length rules, internal-link rules, image generation, SEO money-page contracts, and publishing requirements remain site-specific.
+* Legacy/source factory generation must be recoverable after Blog Core restarts. The content-job status API should re-check the source factory for `GENERATING` legacy jobs, sync `READY`/`PUBLISHED` drafts back into Blog Core, surface legacy `ERROR`, and mark stale long-running legacy jobs instead of leaving the dashboard stuck forever.
 * For imported existing blogs, primary dashboard open actions should point to the live source-site blog URL, not to generated Blog Core previews. Generated previews are only useful for new/from-scratch Blog Core blogs or technical design checks.
 * Dashboard site cards for imported live sites must not show new-site setup actions such as `Scan design`, `Build preview`, or `Install /blog`. Imported site cards should focus on `Manage`, live-site status, `Open live blog`, and safe dashboard removal.
 * The site manage page is organized by tabs: `Content` for import and article production queue, `Discovery` for topic signals, `Distribution` for autopublish/social settings, `Activity` for system/factory job logs, and `Setup` for webroot/CNAME/design settings.
@@ -204,6 +205,7 @@ It must be updated after every meaningful task.
 * Do not remove article TOC, FAQ, body figures, tables, ordered lists, quotes, length validation, or real article image generation when changing the structured article schema/prompt.
 * Do not make operators delete a planned/content task just to fix a bad generated draft. Provide explicit regeneration for `DRAFT` tasks.
 * Do not represent active `GENERATING` tasks as only a static badge. Show motion/progress, latest log/status text, and auto-refresh when finished.
+* Do not rely only on in-memory daemon threads to finish legacy/source factory synchronization. PM2/Gunicorn restarts can kill those threads while the source factory continues and finishes; polling/status endpoints must be able to recover and sync the finished draft.
 * Do not invent Gemini Image aspect ratios. Check provider-supported values before changing image generation contracts.
 
 ## 8. Decisions log
@@ -306,6 +308,14 @@ It must be updated after every meaningful task.
 * Reason: The project publishes Instagram through a separate server-side intermediary.
 * Files/areas affected: `app.py` Instagram social provider config, Setup credential labels, future publish route.
 * Replaced/deprecated: Direct Instagram Graph API publishing assumptions in Blog Core.
+
+
+### 2026-07-09 — Recover legacy factory drafts during status polling
+
+* Decision: `GET /api/sites/<site_id>/content-jobs/<job_id>` re-checks legacy/source factory jobs that are still `GENERATING` in Blog Core and syncs completed `READY`/`PUBLISHED` drafts back into Blog Core.
+* Reason: Legacy generation starts asynchronously; Blog Core PM2/Gunicorn restarts can kill the in-memory sync thread while the source factory continues and finishes successfully.
+* Files/areas affected: `app.py` legacy factory generation/status sync and planned-publications polling.
+* Replaced/deprecated: Assuming the original daemon thread is the only path that can move a legacy job from `GENERATING` to `DRAFT`.
 
 ## 9. Do not repeat
 

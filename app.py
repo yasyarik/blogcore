@@ -36,6 +36,7 @@ LEGACY_FACTORY_ENDPOINTS = {
     "content-factory-solocruz": os.environ.get("LEGACY_FACTORY_SOLOCRUZ_URL", "http://127.0.0.1:12838").rstrip("/"),
     "content-factory-laycanmatch": os.environ.get("LEGACY_FACTORY_LAYCANMATCH_URL", "http://127.0.0.1:13157").rstrip("/"),
 }
+LEGACY_STATUS_CHECKS = {}
 
 app = Flask(__name__)
 DATA_DIR.mkdir(exist_ok=True)
@@ -5552,6 +5553,122 @@ def legacy_job_payload(data):
     return data if isinstance(data, dict) else {}
 
 
+def iso_age_seconds(value):
+    if not value:
+        return 0
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return max(0, int((datetime.now(timezone.utc) - parsed).total_seconds()))
+    except Exception:
+        return 0
+
+
+def sync_ready_legacy_factory_job(site_id, job_id, factory_name, old_job_id, legacy):
+    draft_html = legacy.get("draftHtml") or legacy.get("draft_html") or ""
+    if not draft_html.strip():
+        raise RuntimeError(f"Legacy factory returned no draft HTML for {old_job_id}")
+    with db() as conn:
+        job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+    if not job:
+        raise RuntimeError(f"Blog Core job {job_id} no longer exists")
+    merged_sources = content_job_sources(job)
+    merged_sources["legacyFactoryResult"] = {
+        "factory": factory_name,
+        "jobId": old_job_id,
+        "status": legacy.get("status"),
+        "sources": legacy.get("sources"),
+        "queries": legacy.get("queries"),
+    }
+    faq = legacy.get("faq") or []
+    if isinstance(faq, str):
+        try:
+            faq = json.loads(faq)
+        except Exception:
+            faq = []
+    update_time = now_iso()
+    slug = legacy.get("slug") or job["slug"] or simple_slug(legacy.get("title") or job["topic"])
+    with db() as conn:
+        conn.execute(
+            """
+            update content_jobs set status='DRAFT', slug=?, title=?, description=?, category=?, hero_image=?,
+                draft_html=?, faq_json=?, sources_json=?, error=NULL, updated_at=? where site_id=? and id=?
+            """,
+            (
+                slug,
+                legacy.get("title") or job["title"] or job["topic"],
+                legacy.get("description") or job["description"] or "",
+                legacy.get("category") or job["category"] or "Article",
+                legacy.get("heroImage") or legacy.get("hero_image") or job["hero_image"] or "",
+                draft_html,
+                json.dumps(faq if isinstance(faq, list) else [], ensure_ascii=False),
+                json.dumps(merged_sources, ensure_ascii=False),
+                update_time,
+                site_id,
+                job["id"],
+            ),
+        )
+        conn.execute(
+            "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+            (site_id, job["id"], update_time, "INFO", "legacy-generate", f"Synced validated draft from {factory_name}"),
+        )
+    return True
+
+
+def maybe_sync_legacy_factory_status(site_id, job_id, force=False):
+    key = f"{int(site_id)}:{job_id}"
+    now_ts = time.time()
+    if not force and now_ts - LEGACY_STATUS_CHECKS.get(key, 0) < 12:
+        return False
+    LEGACY_STATUS_CHECKS[key] = now_ts
+    with db() as conn:
+        job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+    if not job or job["status"] != "GENERATING":
+        return False
+    sources = content_job_sources(job)
+    factory_name = str(sources.get("migratedFrom") or "").strip()
+    old_job_id = str(sources.get("oldFactoryJobId") or "").strip()
+    if not factory_name or not old_job_id:
+        return False
+    base_url = legacy_factory_url(factory_name)
+    if not base_url:
+        return False
+    try:
+        quoted_job_id = urllib.parse.quote(old_job_id)
+        detail = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}", timeout=30)
+        legacy = legacy_job_payload(detail)
+        legacy_status = str(legacy.get("status") or "").upper()
+        if legacy_status in {"READY", "PUBLISHED"}:
+            return sync_ready_legacy_factory_job(site_id, job_id, factory_name, old_job_id, legacy)
+        if legacy_status == "ERROR":
+            message = legacy.get("error") or f"Legacy factory job {old_job_id} failed"
+            with db() as conn:
+                conn.execute("update content_jobs set status='ERROR', error=?, updated_at=? where site_id=? and id=?", (message, now_iso(), site_id, job_id))
+                conn.execute(
+                    "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                    (site_id, job_id, now_iso(), "ERROR", "legacy-generate", message),
+                )
+            return True
+        if legacy_status == "GENERATING" and iso_age_seconds(job["updated_at"]) > 45 * 60:
+            message = f"Legacy factory job {old_job_id} is still GENERATING after more than 45 minutes; retry generation from Blog Core."
+            with db() as conn:
+                conn.execute("update content_jobs set status='ERROR', error=?, updated_at=? where site_id=? and id=?", (message, now_iso(), site_id, job_id))
+                conn.execute(
+                    "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                    (site_id, job_id, now_iso(), "ERROR", "legacy-generate", message),
+                )
+            return True
+    except Exception as e:
+        message = f"Legacy factory status check failed: {e}"
+        with db() as conn:
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (site_id, job_id, now_iso(), "WARNING", "legacy-status", message),
+            )
+    return False
+
+
 def generate_legacy_factory_content_job(site, job, sources):
     factory_name = str(sources.get("migratedFrom") or "").strip()
     old_job_id = str(sources.get("oldFactoryJobId") or "").strip()
@@ -5591,53 +5708,7 @@ def legacy_factory_generate_and_sync(site_id, job_id, factory_name, old_job_id, 
             time.sleep(5)
         else:
             raise RuntimeError(f"Legacy factory job {old_job_id} did not finish within 30 minutes")
-        draft_html = legacy.get("draftHtml") or legacy.get("draft_html") or ""
-        if not draft_html.strip():
-            raise RuntimeError(f"Legacy factory returned no draft HTML for {old_job_id}")
-        with db() as conn:
-            job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
-        if not job:
-            raise RuntimeError(f"Blog Core job {job_id} no longer exists")
-        merged_sources = content_job_sources(job)
-        merged_sources["legacyFactoryResult"] = {
-            "factory": factory_name,
-            "jobId": old_job_id,
-            "status": legacy.get("status"),
-            "sources": legacy.get("sources"),
-            "queries": legacy.get("queries"),
-        }
-        faq = legacy.get("faq") or []
-        if isinstance(faq, str):
-            try:
-                faq = json.loads(faq)
-            except Exception:
-                faq = []
-        update_time = now_iso()
-        slug = legacy.get("slug") or job["slug"] or simple_slug(legacy.get("title") or job["topic"])
-        with db() as conn:
-            conn.execute(
-                """
-                update content_jobs set status='DRAFT', slug=?, title=?, description=?, category=?, hero_image=?,
-                    draft_html=?, faq_json=?, sources_json=?, error=NULL, updated_at=? where site_id=? and id=?
-                """,
-                (
-                    slug,
-                    legacy.get("title") or job["title"] or job["topic"],
-                    legacy.get("description") or job["description"] or "",
-                    legacy.get("category") or job["category"] or "Article",
-                    legacy.get("heroImage") or legacy.get("hero_image") or job["hero_image"] or "",
-                    draft_html,
-                    json.dumps(faq if isinstance(faq, list) else [], ensure_ascii=False),
-                    json.dumps(merged_sources, ensure_ascii=False),
-                    update_time,
-                    site_id,
-                    job["id"],
-                ),
-            )
-            conn.execute(
-                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
-                (site_id, job["id"], update_time, "INFO", "legacy-generate", f"Synced validated draft from {factory_name}"),
-            )
+        sync_ready_legacy_factory_job(site_id, job_id, factory_name, old_job_id, legacy)
     except Exception as e:
         with db() as conn:
             conn.execute("update content_jobs set status='ERROR', error=?, updated_at=? where site_id=? and id=?", (str(e), now_iso(), site_id, job_id))
@@ -6160,6 +6231,7 @@ def list_content_jobs(site_id):
 
 @app.get("/api/sites/<int:site_id>/content-jobs/<job_id>")
 def get_content_job(site_id, job_id):
+    maybe_sync_legacy_factory_status(site_id, job_id)
     with db() as conn:
         row = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
         logs = conn.execute("select * from content_job_logs where site_id=? and job_id=? order by ts asc", (site_id, job_id)).fetchall()
