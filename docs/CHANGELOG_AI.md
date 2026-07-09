@@ -2,6 +2,47 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Make Discovery topic selection content-informed
+
+### Summary
+
+* Reworked Discovery topic query selection to use the connected site's full context instead of a single heading or first category tokens.
+* Added content-corpus extraction from existing `content_jobs` titles, descriptions, categories, slugs, and URLs.
+* Preferred English/canonical records for multilingual sites when enough English records exist.
+* Prioritized multiword product/editorial clusters over single generic words such as `ai`, `questions`, or `support`.
+* Removed hard-coded Shopify/product-photography drift for sites where the content does not support that cluster.
+* Added broader vertical-aware query candidates for customer support/ecommerce assistant, AI UGC, solo cruise, and maritime/shipbroking/logistics sites.
+* Added filters for career/vendor autocomplete noise and AI news/culture drift in Reddit.
+
+### Files changed
+
+* `app.py` — added content-informed topic corpus extraction, query candidate generation, English-preference for multilingual content, multiword cluster prioritization, vertical query candidates, and additional noise filters.
+* `docs/PROJECT_MEMORY.md` — recorded content-informed Discovery rules.
+* `docs/INTEGRATIONS.md` — documented the updated topic query candidate contract.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Discovery topic selection must be global and site-agnostic: it should infer each site's topic map from its full connected content and settings, not from per-site hard-coded exceptions.
+* Single high-frequency tokens are allowed as anchors but should not become the main query when multiword topic clusters exist.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified AIREP24 (`site_id=9`) now uses `ai customer support` and returns AI support/chatbot/platform signals instead of Shopify product photography.
+* Verified SoloCruz (`site_id=7`) now uses `solo cruise` and returns solo cruise/single supplement/cabin sharing signals.
+* Verified LaycanMatch (`site_id=8`) now uses maritime/software/shipping/freight matching signals instead of returning zero or career/developer results.
+* Verified My UGC Studio (`site_id=6`) still returns AI UGC/ecommerce creative signals.
+
+### Risks / TODO
+
+* Reddit RSS remains frequently rate-limited and sparse for niche B2B queries; it should be treated as a degraded source when `failedQueries` is high.
+* Autocomplete can still contain occasional vendor-market noise such as M&A; keep expanding generic noise filters when repeated patterns appear.
+
 ## 2026-07-08 — Remove fixed Discovery idea targets
 
 ### Summary

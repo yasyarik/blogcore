@@ -3506,7 +3506,81 @@ def normalize_topic_text(text):
     return clean.strip()
 
 
-def site_topic_seed(site):
+DISCOVERY_TOPIC_STOP_WORDS = {
+    "about", "after", "all", "also", "and", "are", "automated", "best", "blog", "boost", "brand", "brands",
+    "build", "buying", "category", "com", "complete", "content", "cost", "costs", "create", "customer",
+    "customers", "domain", "ecommerce", "for", "from", "generated", "guide", "guides", "help", "helps",
+    "hint", "how", "html", "imported", "into", "looking", "management", "online", "platform", "product", "products", "scale",
+    "service", "services", "shopify", "site", "smart", "solution", "solutions", "store", "stores", "that",
+    "the", "their", "this", "through", "tips", "tool", "tools", "topic", "topics", "using", "what", "when",
+    "with", "your", "cluster", "couvrez", "cruciales", "les", "pour", "taux", "croisi",
+}
+
+DISCOVERY_TOPIC_KEEP_WORDS = {
+    "ai", "ugc", "assistant", "assistants", "chat", "chatbot", "chatbots", "commerce", "conversion",
+    "conversions", "creative", "creatives", "cruise", "cruises", "cabin", "cabins", "chartering", "cargo",
+    "vessel", "vessels", "maritime", "shipbroking", "ship", "shipping", "logistics", "email", "emails",
+    "experience", "handoff", "handoffs", "knowledge", "marketing", "models", "optimization",
+    "personalization", "photography", "questions", "recommendation",
+    "recommendations", "sales", "search", "support", "upsell", "upsells", "video", "videos", "visual",
+    "voice", "solo", "supplement", "supplements", "budget", "female", "travel", "traveler", "travelers",
+    "reviews", "sharing",
+}
+
+
+def discovery_tokens(text):
+    tokens = []
+    for word in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{1,}", normalize_topic_text(text or "")):
+        if len(word) < 3 and word not in {"ai"}:
+            continue
+        if word in DISCOVERY_TOPIC_STOP_WORDS and word not in DISCOVERY_TOPIC_KEEP_WORDS:
+            continue
+        if word not in tokens:
+            tokens.append(word)
+    return tokens
+
+
+def content_topic_documents(site, limit=180):
+    docs = []
+    english_docs = []
+    if not site or "id" not in site.keys():
+        return docs
+    with db() as conn:
+        rows = conn.execute(
+            """
+            select title, topic, description, category, slug, published_url, sources_json, created_at
+            from content_jobs
+            where site_id=?
+            order by
+              case when status in ('IMPORTED','PUBLISHED','DRAFT','QUEUED') then 0 else 1 end,
+              created_at desc
+            limit ?
+            """,
+            (site["id"], limit),
+        ).fetchall()
+    for row in rows:
+        sources = parse_json_object(row["sources_json"])
+        path_text = " ".join(urllib.parse.urlsplit(row["published_url"] or "").path.replace("-", " ").replace("/", " ").split())
+        text = " ".join([
+            row["title"] or "",
+            row["topic"] or "",
+            row["description"] or "",
+            row["category"] or "",
+            row["slug"] or "",
+            sources.get("title") or "",
+            sources.get("description") or "",
+            sources.get("category") or "",
+            path_text,
+        ])
+        docs.append(text)
+        lang = str(sources.get("language") or sources.get("lang") or "").lower()
+        path = urllib.parse.urlsplit(row["published_url"] or "").path.lower()
+        if lang in {"", "en", "eng"} and not re.match(r"^/(ru|de|es|fr|it|pt)/", path):
+            english_docs.append(text)
+    return english_docs if len(english_docs) >= 6 else docs
+
+
+def site_topic_text(site):
     profile = get_profile(site["id"]) if site and "id" in site.keys() else None
     profile_text = ""
     if profile:
@@ -3518,9 +3592,58 @@ def site_topic_seed(site):
             discovery_text = " ".join([disc["category_hint"] or "", disc["direction"] or ""])
         except Exception:
             discovery_text = ""
+    return " ".join([
+        discovery_text,
+        site["topic_strategy"] or "",
+        site["content_context"] or "",
+        profile_text,
+        site["brand_name"] or "",
+        site["domain"] or "",
+    ])
+
+
+def content_topic_phrases(site):
+    docs = [(site_topic_text(site), 3)] + [(doc, 1) for doc in content_topic_documents(site)]
+    scores = {}
+    doc_hits = {}
+    for doc, weight in docs:
+        tokens = discovery_tokens(doc)
+        seen_in_doc = set()
+        for n in (2, 3):
+            for i in range(0, max(0, len(tokens) - n + 1)):
+                phrase_tokens = tokens[i:i + n]
+                if len(set(phrase_tokens)) < n:
+                    continue
+                phrase = " ".join(phrase_tokens)
+                if not any(token in DISCOVERY_TOPIC_KEEP_WORDS for token in phrase_tokens):
+                    continue
+                scores[phrase] = scores.get(phrase, 0) + weight * (6 if n == 2 else 7)
+                seen_in_doc.add(phrase)
+        for phrase in seen_in_doc:
+            doc_hits[phrase] = doc_hits.get(phrase, 0) + weight
+    for phrase, hits in doc_hits.items():
+        scores[phrase] = scores.get(phrase, 0) + min(hits, 8) * 3
+    ranked = sorted(scores.items(), key=lambda item: (item[1], len(item[0])), reverse=True)
+    phrases = []
+    for phrase, score in ranked:
+        if score < 6:
+            continue
+        if len(phrase.split()) < 2:
+            continue
+        if any(phrase != existing and phrase in existing for existing in phrases[:18]):
+            continue
+        phrases.append(phrase)
+        if len(phrases) >= 24:
+            break
+    return phrases
+
+
+def site_topic_seed(site):
+    content_phrases = content_topic_phrases(site)
+    if content_phrases:
+        return " ".join(content_phrases[:3])
     brand_tokens = set(re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}", ((site["brand_name"] or "") + " " + (site["domain"] or "")).lower()))
-    pieces = [discovery_text, site["topic_strategy"] or "", site["content_context"] or "", profile_text, site["brand_name"] or "", site["domain"] or ""]
-    full = normalize_topic_text(" ".join(pieces))
+    full = normalize_topic_text(site_topic_text(site))
     stop = {
         "www", "com", "https", "http", "blog", "site", "content", "topics", "brand", "brands", "with", "from",
         "that", "this", "and", "the", "for", "guide", "guides", "buying", "choose", "clear", "help", "helps",
@@ -3587,6 +3710,16 @@ SEARCH_NAVIGATION_SIGNAL_TERMS = {
     "amazon", "costco", "facebook", "instagram", "pinterest", "reddit", "tiktok", "wikipedia", "youtube",
 }
 
+CAREER_VENDOR_NOISE_TERMS = {
+    "agency", "agencies", "career", "careers", "companies", "company", "developer", "developers",
+    "development", "engineer", "engineering", "jobs", "salary", "salaries",
+}
+
+AI_NEWS_DRIFT_TERMS = {
+    "actor", "actors", "artist", "artists", "backlash", "construction", "copyright", "data center",
+    "hollywood", "movie", "pope", "power", "real artists", "teenagers", "water", "workers",
+}
+
 
 def timeframe_to_reddit(range_key):
     return {"week": "week", "month": "month", "3m": "year", "6m": "year"}.get(range_key, "week")
@@ -3607,6 +3740,8 @@ def signal_keywords(query):
 def topic_query_candidates(site):
     seed = site_topic_seed(site)
     keywords = signal_keywords(seed)
+    content_phrases = content_topic_phrases(site)
+    settings_tokens = discovery_tokens(site_topic_text(site))
     candidates = []
 
     def add(value):
@@ -3614,23 +3749,55 @@ def topic_query_candidates(site):
         if clean and clean not in candidates:
             candidates.append(clean)
 
-    add(" ".join(keywords[:4]) or seed)
-    if "ugc" in keywords:
+    if "ai" in settings_tokens and "support" in settings_tokens:
+        add("ai customer support")
+        add("ai support chatbot")
+    if "assistant" in settings_tokens or "assistants" in settings_tokens:
+        add("ai sales assistant")
+        add("ai shopping assistant")
+    if "conversion" in settings_tokens or "conversions" in settings_tokens:
+        add("ecommerce conversion optimization")
+    if "search" in settings_tokens:
+        add("ecommerce smart search")
+        add("ai product search")
+    if "upsell" in settings_tokens or "upsells" in settings_tokens:
+        add("ai upsell recommendations")
+    if "voice" in settings_tokens:
+        add("voice commerce")
+        add("voice product questions")
+    if "ugc" in settings_tokens or "ugc" in keywords:
         add("ugc ecommerce")
         add("ai ugc")
         add("ugc product photography")
         add("ugc ads ecommerce")
-    if "ecommerce" in keywords and "photography" in keywords:
+    if "ecommerce" in settings_tokens and "photography" in settings_tokens:
         add("ecommerce product photography")
         add("product images ecommerce")
-    if "shopify" in keywords:
-        add("shopify product photography")
+    if "shopify" in settings_tokens and "ugc" in settings_tokens:
         add("shopify ugc ads")
-    if "ai" in keywords and "visual" in keywords:
+    if "ai" in settings_tokens and "visual" in settings_tokens:
         add("ai visual content")
+    if "cruise" in settings_tokens or "cruises" in settings_tokens:
+        add("solo cruise")
+        add("cruise cabin sharing")
+        add("single supplement cruise")
+        add("solo cruise travel")
+    if "maritime" in settings_tokens or "cargo" in settings_tokens or "chartering" in settings_tokens:
+        add("maritime cargo matching")
+        add("maritime software")
+        add("cargo matching software")
+        add("shipbroking automation")
+        add("shipbroking software")
+        add("chartering email workflow")
+        add("chartering software")
+        add("ai email parsing shipping")
+        add("shipping workflow automation")
+    for phrase in content_phrases[:10]:
+        add(phrase)
+    add(" ".join(keywords[:4]) or seed)
     if len(keywords) >= 2:
         add(" ".join(keywords[:2]))
-    return candidates[:8]
+    return candidates[:12]
 
 
 def broad_topic_signal_query(site):
@@ -3659,6 +3826,8 @@ def is_global_topic_signal(title):
         return False, "local/event-specific"
     if any(term in text for term in PROMO_TRADE_SIGNAL_TERMS):
         return False, "promotion/trade-specific"
+    if any(re.search(rf"\b{re.escape(term)}\b", text) for term in CAREER_VENDOR_NOISE_TERMS):
+        return False, "career/vendor-specific"
     if any(re.search(rf"\b{re.escape(term)}\b", text) for term in SEARCH_NAVIGATION_SIGNAL_TERMS):
         return False, "navigation/source-specific"
     if any(re.search(rf"\b{re.escape(place)}\b", text) for place in LOCAL_SIGNAL_PLACE_TERMS):
@@ -3681,6 +3850,12 @@ def reddit_signal_is_relevant(title, query):
     matched_words = {word for word, _ in matches}
     strong_keywords = [word for word in keywords if word not in REDDIT_WEAK_MATCH_TERMS]
     anchor_terms = strong_keywords[:3] or keywords[:2]
+    text = (title or "").lower()
+
+    if "ai" in matched_words and any(term in text for term in AI_NEWS_DRIFT_TERMS):
+        creative_query = any(term in keywords for term in {"ugc", "creative", "creatives", "video", "visual", "photography"})
+        if not creative_query:
+            return False, 0, sorted(matched_words)
 
     if not matches or not anchor_terms:
         return False, 0, []
@@ -3695,6 +3870,8 @@ def reddit_signal_is_relevant(title, query):
     if not has_anchor:
         return False, 0, sorted(matched_words)
     if len(keywords) >= 3 and total_match_count < 2:
+        return False, 0, sorted(matched_words)
+    if "ai" in matched_words and total_match_count < 3 and any(term in keywords for term in {"customer", "support", "assistant", "chatbot", "sales", "shopping", "ecommerce"}):
         return False, 0, sorted(matched_words)
     if len(strong_keywords) >= 2 and strong_match_count < 1:
         return False, 0, sorted(matched_words)
