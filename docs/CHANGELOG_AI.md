@@ -2,6 +2,41 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Simplify Discovery signal selection UX
+
+### Summary
+
+* Removed the manual raw-topic selection step from the Discovery workflow.
+* Discovery now starts with a deep-analysis status and loader while topic signals are fetched and filtered.
+* All usable search/Reddit audience signals are selected automatically for article idea generation.
+* The `Generate SEO article ideas` button is disabled until signal analysis completes and at least one usable signal is available.
+* Replaced the visible raw signal card list with a compact analysis summary showing kept/raw/filtered counts.
+
+### Files changed
+
+* `app.py` — updated Discovery HTML/CSS/JS to hide raw signal cards, add analysis state/loading UI, disable/enable generation based on signal readiness, and always pass all usable signals to the idea generator.
+* `docs/PROJECT_MEMORY.md` — recorded the automatic-signal Discovery UX rule.
+* `docs/INTEGRATIONS.md` — documented UI behavior while preserving the topic-signal API contract.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Raw Discovery signals remain important inputs and diagnostics, but they should not be the primary operator workflow.
+* Operators should review/select final article ideas, not raw autocomplete/Reddit inputs.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Checked `/sites/9#discovery` HTML contains the deep-analysis state, disabled generation button, hidden signal container, and no Reddit period buttons.
+
+### Risks / TODO
+
+* Period-specific Reddit controls were removed from the main UI. The backend still supports ranges, but the simplified workflow currently defaults to the existing `week` range.
+
 ## 2026-07-09 — Normalize Discovery idea clusters and dedupe
 
 ### Summary
