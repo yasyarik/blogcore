@@ -1094,13 +1094,55 @@ def local_html_path_for_url_path(root_path, url_path):
     return None
 
 
+def find_sibling_article_template(root_path, target_path):
+    clean = urllib.parse.unquote((target_path or "/").split("?", 1)[0].split("#", 1)[0]).strip("/")
+    parts = [part for part in clean.split("/") if part]
+    if not parts:
+        return None
+    section_dir = (root_path / parts[0]).resolve()
+    try:
+        root_resolved = root_path.resolve()
+    except Exception:
+        return None
+    if not section_dir.exists() or not section_dir.is_dir() or root_resolved not in section_dir.parents:
+        return None
+    candidates = []
+    for file_path in sorted(section_dir.rglob("*.html")):
+        rel = file_path.relative_to(section_dir).as_posix()
+        if rel == "index.html" or rel.count("/") > 1:
+            continue
+        try:
+            text = file_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        if re.search(r"<section\b[^>]*class=[\"'][^\"']*\barticle-layout\b[^\"']*[\"']", text, flags=re.I):
+            tail = extract_source_post_article_sections(text)
+            score = 0
+            if re.search(r"\bfaq-grid\b|\bfaq-card\b", text, flags=re.I):
+                score += 2
+            if tail:
+                score += 3
+            if re.search(r"\brecommend(?:ed|ations?|s)?\b|\brelated\b|\bnext\b|\bnewsletter\b|\bsubscribe\b|\bwaitlist\b|\bupdates?\b", tail, flags=re.I):
+                score += 10
+            score += min(len(tail) // 1000, 5)
+            candidates.append((score, file_path))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (-item[0], item[1].as_posix()))
+    return candidates[0][1]
+
+
 def find_local_preview_template(site, job):
     root = (site["root_path"] or "").strip()
     if not root:
         return None
+    root_path = Path(root)
     target = local_html_path_for_url_path(root, content_job_target_path(job))
     if target and target.exists() and target.is_file():
         return target
+    sibling_template = find_sibling_article_template(root_path, content_job_target_path(job))
+    if sibling_template:
+        return sibling_template
     sources = content_job_sources(job)
     page_type = str(sources.get("pageType") or sources.get("contentType") or job["category"] or "").lower()
     fallbacks = []
@@ -1146,23 +1188,99 @@ def inject_preview_head_metadata(html, site, job):
     return html
 
 
-def prepare_local_draft_content(content):
+def find_matching_closing_tag(html, open_start, tag_name):
+    tag_pattern = re.compile(rf"</?{re.escape(tag_name)}\b[^>]*>", re.I)
+    depth = 0
+    for match in tag_pattern.finditer(html, open_start):
+        token = match.group(0)
+        if token.startswith("</"):
+            depth -= 1
+            if depth == 0:
+                return match.end()
+        elif not token.rstrip().endswith("/>"):
+            depth += 1
+    return None
+
+
+def extract_source_post_article_sections(html):
+    main_match = re.search(r"<main\b[^>]*>", html or "", flags=re.I)
+    if not main_match:
+        return ""
+    main_end_match = re.search(r"</main\s*>", html[main_match.end():], flags=re.I)
+    if not main_end_match:
+        return ""
+    main_end = main_match.end() + main_end_match.start()
+    content = html[main_match.end():main_end]
+    article_section = re.search(r"<section\b[^>]*class=[\"'][^\"']*\barticle-layout\b[^\"']*[\"'][^>]*>", content, flags=re.I)
+    if not article_section:
+        return ""
+    section_start = main_match.end() + article_section.start()
+    section_end = find_matching_closing_tag(html, section_start, "section")
+    if not section_end or section_end > main_end:
+        return ""
+    tail = html[section_end:main_end].strip()
+    return tail if re.search(r"<(?:section|aside|nav|div)\b", tail, flags=re.I) else ""
+
+
+def remove_source_faq_sections(html):
+    output = html or ""
+    for pattern in (
+        r'<section\b[^>]*(?:aria-labelledby=["\']faq-title["\']|class=["\'][^"\']*\bfaq\b[^"\']*["\'])[^>]*>.*?</section>',
+        r'<section\b(?=[^>]*>)(?:(?!</section>).)*\bfaq-grid\b.*?</section>',
+    ):
+        output = re.sub(pattern, "", output, flags=re.I | re.S)
+    return output.strip()
+
+
+def faq_items_from_article_faq(block):
+    items = []
+    for match in re.finditer(r"<details\b[^>]*>\s*<summary>(.*?)</summary>\s*<p>(.*?)</p>\s*</details>", block or "", flags=re.I | re.S):
+        question = re.sub(r"\s+", " ", match.group(1)).strip()
+        answer = re.sub(r"\s+", " ", match.group(2)).strip()
+        if question and answer:
+            items.append((question, answer))
+    return items
+
+
+def adapt_faq_to_source_template(content, template_html):
+    if not content or "article-faq" not in content:
+        return content
+    if "faq-grid" not in (template_html or "") or "faq-card" not in (template_html or ""):
+        return content
+
+    def replace_faq(match):
+        items = faq_items_from_article_faq(match.group(0))
+        if not items:
+            return match.group(0)
+        cards = "".join(
+            f'<details class="faq-card"><summary>{question}</summary><div class="faq-answer"><div class="faq-answer-inner"><p>{answer}</p></div></div></details>'
+            for question, answer in items
+        )
+        return f'<section class="section" aria-labelledby="faq-title"><p class="section-kicker">FAQ</p><h2 id="faq-title">Questions</h2><div class="faq-grid">{cards}</div></section>'
+
+    return re.sub(r'<section\b[^>]*class=["\'][^"\']*\barticle-faq\b[^"\']*["\'][^>]*>.*?</section>', replace_faq, content, flags=re.I | re.S)
+
+
+def prepare_local_draft_content(content, template_html=""):
     base = public_base_url().rstrip("/")
     current_url = request.base_url if request else ""
+    content = adapt_faq_to_source_template(content or "", template_html or "")
     content = re.sub(r'(<(?:img|source)\b[^>]*\s(?:src|srcset)=["\'])/sites/', rf'\1{base}/sites/', content or "", flags=re.I)
     content = re.sub(r'(<a\b[^>]*\shref=["\'])#([^"\']+)', rf'\1{escape(current_url, quote=True)}#\2', content, flags=re.I)
     return content
 
 
-def local_site_draft_body(site, job):
+def local_site_draft_body(site, job, template_html=""):
     title = escape(job["title"] or job["topic"] or site["brand_name"] or site["domain"])
     description = escape(job["description"] or "")
     category = escape(job["category"] or "Blog")
-    content = prepare_local_draft_content(job["draft_html"] or "")
+    content = prepare_local_draft_content(job["draft_html"] or "", template_html)
+    post_article_sections = prepare_local_draft_content(remove_source_faq_sections(extract_source_post_article_sections(template_html)), template_html)
     return f"""
 <section class="hero hero-no-media"><div class="hero-inner"><div><span class="eyebrow">{category}</span><h1>{title}</h1>{f'<p>{description}</p>' if description else ''}</div></div></section>
 <main class="site-main">
 <section class="section article-layout factory-article-layout"><div class="article-body blog-core-draft-body">{content}</div></section>
+{post_article_sections}
 </main>
 """
 
@@ -1192,7 +1310,7 @@ def render_local_site_draft_preview(site, job):
         return None
     html = template_path.read_text(encoding="utf-8", errors="ignore")
     html = inject_preview_head_metadata(html, site, job)
-    return replace_source_site_content(html, local_site_draft_body(site, job))
+    return replace_source_site_content(html, local_site_draft_body(site, job, html))
 
 
 def get_content_job_by_slug(site_id, slug):

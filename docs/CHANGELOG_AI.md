@@ -2,6 +2,42 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Preserve source-site post-article blocks in previews
+
+### Summary
+
+* Added generic extraction of post-article source template sections for local imported-site draft previews.
+* Local previews now preserve recognizable sections that follow the main article block, such as recommendations, related content, newsletter/signup, or updates blocks.
+* Added source-template FAQ adaptation so generic Blog Core FAQ markup can use a recognized `faq-grid`/`faq-card` pattern instead of raw generic `<details>` styling.
+* Kept the solution pattern-based and site-agnostic; no domain-specific logic was added for AIREP24.
+
+### Files changed
+
+* `app.py` — added source post-article extraction, FAQ pattern adaptation, and wired them into local draft preview rendering.
+* `docs/PROJECT_MEMORY.md` — recorded the durable generic rules for preserving source post-article blocks and adapting FAQ markup.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Preserve source-site UX blocks by recognizing template structure around the article, not by hardcoding site names or exact block titles.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified the AIREP24 draft preview returns HTTP 200.
+* Verified the local preview now selects a sibling article template with post-article blocks instead of the blog hub.
+* Verified preview contains source-style `faq-grid`/`faq-card` and no generic `article-faq`.
+* Verified preview contains `Recommended next`, `recommend-grid`, `Get updates`, and `waitlist-form`.
+* Verified preview still has 3 Blog Core article asset refs, 7 rewritten TOC refs, no `airep24.com/sites/...` asset refs, and no plain `href="#..."` TOC links.
+
+### Risks / TODO
+
+* Extraction intentionally targets the first source `section.article-layout` in the local template. Sites with very different article markup may need additional generic patterns later.
+
 ## 2026-07-09 — Fix local draft preview assets and TOC links
 
 ### Summary
