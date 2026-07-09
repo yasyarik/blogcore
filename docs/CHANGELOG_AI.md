@@ -2,6 +2,40 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Add article generation progress and JSON repair
+
+### Summary
+
+* Added visible single-job article/page generation progress with elapsed time and staged status text.
+* The generation progress updates both the in-page planned-publications progress area and the toast so it remains visible even outside the Distribution tab.
+* Added a Gemini JSON repair pass for malformed model JSON before failing a generic Blog Core article generation job.
+* Improved the JSON generation helper by splitting text generation, parsing, and repair into separate functions.
+
+### Files changed
+
+* `app.py` — added `_gemini_generate_text`, `_repair_json_text`, robust `_gemini_text_json` repair handling, and draft generation progress JS.
+* `docs/PROJECT_MEMORY.md` — recorded durable rules for article generation progress and malformed Gemini JSON repair.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* The current article generation endpoint remains synchronous, so UI progress is client-side staged progress with elapsed time.
+* Invalid Gemini JSON should get one repair attempt before the job is marked `ERROR`.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `/sites/9#distribution` HTML contains `startDraftProgress`, `draftProgressStep`, and toast progress updates.
+* Verified `_gemini_text_json` can recover from a mocked malformed JSON response when the repair pass returns valid JSON.
+
+### Risks / TODO
+
+* Exact server-side generation progress would require converting single article generation into a job/polling or streaming workflow. Current progress shows active waiting and elapsed time but not exact backend sub-step completion.
+
 ## 2026-07-09 — Improve Discovery idea diversity
 
 ### Summary

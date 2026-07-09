@@ -4732,7 +4732,7 @@ def _parse_json_text(text):
     return json.loads(raw)
 
 
-def _gemini_text_json(prompt):
+def _gemini_generate_text(prompt, temperature=0.55, timeout=180):
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
@@ -4740,16 +4740,40 @@ def _gemini_text_json(prompt):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"responseMimeType": "application/json", "temperature": 0.55},
+        "generationConfig": {"responseMimeType": "application/json", "temperature": temperature},
     }
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=180) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     try:
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        return data["candidates"][0]["content"]["parts"][0]["text"]
     except Exception:
         raise RuntimeError(f"Unexpected Gemini response: {data}")
-    return _parse_json_text(text)
+
+
+def _repair_json_text(text, error):
+    repair_prompt = f"""
+Return valid JSON only. Repair the malformed JSON below without changing the data model or adding commentary.
+
+Original parser error:
+{str(error)}
+
+Malformed JSON:
+{(text or '')[:50000]}
+""".strip()
+    repaired = _gemini_generate_text(repair_prompt, temperature=0, timeout=180)
+    return _parse_json_text(repaired)
+
+
+def _gemini_text_json(prompt):
+    text = _gemini_generate_text(prompt, temperature=0.55, timeout=180)
+    try:
+        return _parse_json_text(text)
+    except json.JSONDecodeError as e:
+        try:
+            return _repair_json_text(text, e)
+        except Exception as repair_error:
+            raise RuntimeError(f"Model returned invalid JSON and repair failed: {repair_error}") from e
 
 
 def _extract_interaction_image_b64(data):
@@ -6267,7 +6291,7 @@ button[disabled]{opacity:.55;cursor:not-allowed}
 </main>
 <div id="toast" class="toast"></div>
 <script>
-const SITE_ID=__SITE_ID__;let currentSignals=[];let currentIdeas=[];let currentRange='week';let ideaProgressTimer=null;let ideaProgressStartedAt=0;
+const SITE_ID=__SITE_ID__;let currentSignals=[];let currentIdeas=[];let currentRange='week';let ideaProgressTimer=null;let ideaProgressStartedAt=0;let draftProgressTimer=null;let draftProgressStartedAt=0;
 function showToast(text){const toast=document.getElementById('toast');toast.textContent=text;toast.className='toast show';}
 function escapeHtml(text){return String(text||'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
 function toggleSettings(){const panel=document.getElementById('settingsPanel');panel.hidden=!panel.hidden;}
@@ -6293,7 +6317,10 @@ function startIdeaProgress(signalCount){stopIdeaProgress(false);ideaProgressStar
 function stopIdeaProgress(complete){if(ideaProgressTimer){clearInterval(ideaProgressTimer);ideaProgressTimer=null;}if(complete){const fill=document.getElementById('ideaProgressFill');const step=document.getElementById('ideaProgressStep');if(fill)fill.style.width='100%';if(step)step.textContent='Finalizing accepted ideas...';}}
 async function createIdeasFromSignals(){const selected=currentSignals.slice();if(!selected.length){showToast('Deep analysis is not ready yet');return;}setGenerateIdeasEnabled(false);startIdeaProgress(selected.length);showToast('Generating article ideas...');try{const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);stopIdeaProgress(true);renderArticleIdeas(data.ideas||[],data.rejectedSimilar||[],data.counts||{});showToast('Article ideas ready: '+((data.ideas||[]).length)+' valid ideas');}catch(e){stopIdeaProgress(false);const box=document.getElementById('articleIdeaResult');box.className='loading idea-stage';box.textContent='Article ideas failed: '+e.message;showToast('Article ideas failed: '+e.message);}finally{setGenerateIdeasEnabled(currentSignals.length>0);}}
 async function queueSelectedArticleIdeas(){const selected=[...document.querySelectorAll('#articleIdeaResult input[type="checkbox"]:checked')].map(input=>currentIdeas[Number(input.dataset.index)]).filter(Boolean);if(!selected.length){showToast('Select at least one article idea');return;}showToast('Adding selected ideas to queue...');try{const signalSelection=currentSignals.slice();const res=await fetch('/api/sites/'+SITE_ID+'/article-ideas/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({range:currentRange,signals:signalSelection,ideas:selected})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const rejected=(data.rejectedSimilar||[]).length;showToast('Queued '+(data.jobs||[]).length+' article ideas'+(rejected?' · skipped '+rejected+' similar':'')+'. Reloading...');setTimeout(()=>{location.hash='#distribution';location.reload();},1200);}catch(e){showToast('Queue failed: '+e.message);}}
-async function generateArticleJob(jobId){showToast('Generating draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);if(data.status==='GENERATING'){showToast('Generation started in source factory. Refreshing status...');setTimeout(()=>location.reload(),1800);}else{showToast('Draft generated: '+(data.slug||jobId));setTimeout(()=>location.reload(),900);}}catch(e){showToast('Generation failed: '+e.message);}}
+function draftProgressStep(elapsed){if(elapsed<8)return 'Preparing article context and source-site rules';if(elapsed<24)return 'Generating the draft body and metadata';if(elapsed<55)return 'Validating HTML, FAQ, images, and SEO fields';if(elapsed<95)return 'Still working: long articles and legacy factories can take a bit';return 'Still running. Keep this tab open while the factory finishes.';}
+function startDraftProgress(label){stopDraftProgress(false);draftProgressStartedAt=Date.now();const startMessage=(label||'Generating draft')+' · 0:00 · Preparing article context and source-site rules';setBulkProgress(startMessage);showToast(startMessage);draftProgressTimer=setInterval(()=>{const elapsed=Date.now()-draftProgressStartedAt;const message=(label||'Generating draft')+' · '+formatElapsed(elapsed)+' · '+draftProgressStep(Math.floor(elapsed/1000));setBulkProgress(message);showToast(message);},1000);}
+function stopDraftProgress(complete){if(draftProgressTimer){clearInterval(draftProgressTimer);draftProgressTimer=null;}if(complete){setBulkProgress('Finalizing draft status...', false);}}
+async function generateArticleJob(jobId){showToast('Generating draft...');startDraftProgress('Generating selected draft');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);stopDraftProgress(true);if(data.status==='GENERATING'){showToast('Generation started in source factory. Refreshing status...');setBulkProgress('Generation started in source factory. Reloading status...', false);setTimeout(()=>location.reload(),1800);}else{showToast('Draft generated: '+(data.slug||jobId));setBulkProgress('Draft generated. Reloading...', false);setTimeout(()=>location.reload(),900);}}catch(e){stopDraftProgress(false);setBulkProgress('Generation failed: '+e.message, false);clearBulkProgress();showToast('Generation failed: '+e.message);}}
 function selectedPlannedTasks(){return [...document.querySelectorAll('.planned-select:checked')].map(input=>({groupId:input.value,jobId:input.dataset.jobId})).filter(item=>item.groupId);}
 function selectedPlannedGroupIds(){return selectedPlannedTasks().map(item=>item.groupId);}
 function togglePlannedSelection(checked){document.querySelectorAll('.planned-select').forEach(input=>{input.checked=checked;});}
