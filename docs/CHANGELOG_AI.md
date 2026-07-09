@@ -2,6 +2,41 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Fix local draft preview assets and TOC links
+
+### Summary
+
+* Fixed local source-site draft previews where the source template's `<base href="https://source-site/">` caused Blog Core article image URLs to resolve on the source domain.
+* Fixed TOC links in the same previews so fragment links target the current Blog Core preview URL instead of resolving through the source template base URL.
+* The fix is applied at preview render time, so existing regenerated drafts do not need another regeneration just to repair asset and TOC links.
+
+### Files changed
+
+* `app.py` — added `prepare_local_draft_content` and wired it into local draft preview body rendering.
+* `docs/PROJECT_MEMORY.md` — recorded the durable `<base>`/preview URL rule for local imported-site previews.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Keep the source site's `<base>` behavior for source assets, but rewrite Blog Core-only draft body links to absolute Blog Core preview URLs.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Deployed `app.py` and docs to `/var/www/blog.yas.ooo`.
+* Ran `python3 -m py_compile app.py` on the VPS.
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified the AIREP24 preview returns HTTP 200.
+* Verified preview HTML rewrites 3 article image refs to `https://blog.yas.ooo/sites/9/article-assets/...`.
+* Verified preview HTML rewrites 7 TOC links to the current preview URL plus anchor.
+* Verified no `airep24.com/sites/...`, root-relative asset URLs, or plain `href="#..."` TOC links remain in the preview HTML.
+* Verified an article image asset URL returns HTTP 200.
+
+### Risks / TODO
+
+* Existing drafts do not need regeneration for this fix because link rewriting happens at preview render time.
+
 ## 2026-07-09 — Fix article image aspect ratio
 
 ### Summary

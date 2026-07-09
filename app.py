@@ -1146,11 +1146,19 @@ def inject_preview_head_metadata(html, site, job):
     return html
 
 
+def prepare_local_draft_content(content):
+    base = public_base_url().rstrip("/")
+    current_url = request.base_url if request else ""
+    content = re.sub(r'(<(?:img|source)\b[^>]*\s(?:src|srcset)=["\'])/sites/', rf'\1{base}/sites/', content or "", flags=re.I)
+    content = re.sub(r'(<a\b[^>]*\shref=["\'])#([^"\']+)', rf'\1{escape(current_url, quote=True)}#\2', content, flags=re.I)
+    return content
+
+
 def local_site_draft_body(site, job):
     title = escape(job["title"] or job["topic"] or site["brand_name"] or site["domain"])
     description = escape(job["description"] or "")
     category = escape(job["category"] or "Blog")
-    content = job["draft_html"] or ""
+    content = prepare_local_draft_content(job["draft_html"] or "")
     return f"""
 <section class="hero hero-no-media"><div class="hero-inner"><div><span class="eyebrow">{category}</span><h1>{title}</h1>{f'<p>{description}</p>' if description else ''}</div></div></section>
 <main class="site-main">
