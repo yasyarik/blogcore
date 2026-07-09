@@ -42,6 +42,8 @@ DATA_DIR.mkdir(exist_ok=True)
 PREVIEW_DIR.mkdir(exist_ok=True)
 SOCIAL_ASSET_DIR = DATA_DIR / "social_assets"
 SOCIAL_ASSET_DIR.mkdir(exist_ok=True)
+ARTICLE_ASSET_DIR = DATA_DIR / "article_assets"
+ARTICLE_ASSET_DIR.mkdir(exist_ok=True)
 
 
 def now_iso():
@@ -1152,7 +1154,7 @@ def local_site_draft_body(site, job):
     return f"""
 <section class="hero hero-no-media"><div class="hero-inner"><div><span class="eyebrow">{category}</span><h1>{title}</h1>{f'<p>{description}</p>' if description else ''}</div></div></section>
 <main class="site-main">
-<section class="section article-layout factory-article-layout"><div class="article-head"><div><p class="section-kicker">{category}</p><h2>{title}</h2>{f'<p class="lead">{description}</p>' if description else ''}</div></div><div class="article-body blog-core-draft-body">{content}</div></section>
+<section class="section article-layout factory-article-layout"><div class="article-body blog-core-draft-body">{content}</div></section>
 </main>
 """
 
@@ -5016,11 +5018,11 @@ def clean_image_filename(value, fallback):
     return name
 
 
-def render_structured_article_html(draft, slug):
+def render_structured_article_html(draft, slug, asset_prefix=""):
     parts = []
     lead = re.sub(r"\s+", " ", str(draft.get("lead") or "")).strip()
     if lead:
-        parts.append(f"<p>{escape(lead)}</p>")
+        parts.append(f'<p class="article-lead">{escape(lead)}</p>')
     images = draft.get("images") if isinstance(draft.get("images"), list) else []
     normalized_images = []
     for index, image in enumerate(images[:3]):
@@ -5036,19 +5038,46 @@ def render_structured_article_html(draft, slug):
 
     def image_html(image_tuple):
         src, alt, caption = image_tuple
-        return f'<figure><img src="{escape(src, quote=True)}" alt="{escape(alt, quote=True)}" /><figcaption>{escape(caption)}</figcaption></figure>'
+        if asset_prefix and not re.match(r"^(?:https?:)?/", src):
+            src = f"{asset_prefix.rstrip('/')}/{src}"
+        return f'<figure class="article-figure"><img src="{escape(src, quote=True)}" alt="{escape(alt, quote=True)}" /><figcaption>{escape(caption)}</figcaption></figure>'
 
     inserted_images = set()
+    sections = draft.get("sections") if isinstance(draft.get("sections"), list) else []
+    used_anchors = set()
+    toc_items = []
+    section_anchors = {}
+    for index, section in enumerate(sections[:10]):
+        if not isinstance(section, dict):
+            continue
+        heading = re.sub(r"\s+", " ", str(section.get("heading") or "")).strip()
+        if not heading:
+            continue
+        base = simple_slug(heading)[:80] or f"section-{index + 1}"
+        anchor = base
+        suffix = 2
+        while anchor in used_anchors:
+            anchor = f"{base}-{suffix}"
+            suffix += 1
+        used_anchors.add(anchor)
+        section_anchors[index] = anchor
+        toc_items.append((anchor, heading))
+    if len(toc_items) >= 3:
+        toc_html = "".join(
+            f'<li><a href="#{escape(anchor, quote=True)}">{escape(heading)}</a></li>'
+            for anchor, heading in toc_items[:10]
+        )
+        parts.append(f'<nav class="article-toc" aria-label="Contents"><h2>Contents</h2><ol>{toc_html}</ol></nav>')
     if normalized_images:
         parts.append(image_html(normalized_images[0]))
         inserted_images.add(0)
-    sections = draft.get("sections") if isinstance(draft.get("sections"), list) else []
     for index, section in enumerate(sections[:10]):
         if not isinstance(section, dict):
             continue
         heading = re.sub(r"\s+", " ", str(section.get("heading") or "")).strip()
         if heading:
-            parts.append(f"<h2>{escape(heading)}</h2>")
+            anchor_attr = f' id="{escape(section_anchors[index], quote=True)}"' if index in section_anchors else ""
+            parts.append(f"<h2{anchor_attr}>{escape(heading)}</h2>")
         paragraphs = section.get("paragraphs") if isinstance(section.get("paragraphs"), list) else []
         for paragraph in paragraphs[:4]:
             text = re.sub(r"\s+", " ", str(paragraph or "")).strip()
@@ -5078,7 +5107,7 @@ def render_structured_article_html(draft, slug):
         for row in rows[:8]:
             cells = row if isinstance(row, list) else []
             row_html.append("<tr>" + "".join(f"<td>{escape(str(cell))}</td>" for cell in cells[:len(headers[:5])]) + "</tr>")
-        parts.append(f"<table><thead><tr>{head_html}</tr></thead><tbody>{''.join(row_html)}</tbody></table>")
+        parts.append(f'<table class="article-table"><thead><tr>{head_html}</tr></thead><tbody>{"".join(row_html)}</tbody></table>')
     ordered = draft.get("orderedList") if isinstance(draft.get("orderedList"), list) else []
     clean_ordered = [re.sub(r"\s+", " ", str(item or "")).strip() for item in ordered[:10]]
     clean_ordered = [item for item in clean_ordered if item]
@@ -5088,8 +5117,163 @@ def render_structured_article_html(draft, slug):
         parts.append("<ol>" + "".join(f"<li>{escape(item)}</li>" for item in clean_ordered) + "</ol>")
     quote = re.sub(r"\s+", " ", str(draft.get("quote") or "")).strip()
     if quote:
-        parts.append(f"<blockquote>{escape(quote)}</blockquote>")
+        parts.append(f'<blockquote class="article-quote">{escape(quote)}</blockquote>')
+    faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
+    faq_items = []
+    for item in faq[:7]:
+        if not isinstance(item, dict):
+            continue
+        question = re.sub(r"\s+", " ", str(item.get("question") or "")).strip()
+        answer = re.sub(r"\s+", " ", str(item.get("answer") or "")).strip()
+        if question and answer:
+            faq_items.append((question, answer))
+    if faq_items:
+        details = "".join(
+            f"<details><summary>{escape(question)}</summary><p>{escape(answer)}</p></details>"
+            for question, answer in faq_items
+        )
+        parts.append(f'<section class="article-faq"><h2>FAQ</h2>{details}</section>')
     return "\n".join(parts)
+
+
+def structured_article_plain_text(draft):
+    chunks = [
+        draft.get("title"),
+        draft.get("description"),
+        draft.get("lead"),
+        draft.get("quote"),
+        draft.get("orderedListTitle"),
+    ]
+    sections = draft.get("sections") if isinstance(draft.get("sections"), list) else []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        chunks.append(section.get("heading"))
+        chunks.extend(section.get("paragraphs") if isinstance(section.get("paragraphs"), list) else [])
+        chunks.extend(section.get("bullets") if isinstance(section.get("bullets"), list) else [])
+    table = draft.get("table") if isinstance(draft.get("table"), dict) else {}
+    chunks.extend(table.get("headers") if isinstance(table.get("headers"), list) else [])
+    for row in table.get("rows") if isinstance(table.get("rows"), list) else []:
+        chunks.extend(row if isinstance(row, list) else [])
+    chunks.extend(draft.get("orderedList") if isinstance(draft.get("orderedList"), list) else [])
+    for item in draft.get("faq") if isinstance(draft.get("faq"), list) else []:
+        if isinstance(item, dict):
+            chunks.append(item.get("question"))
+            chunks.append(item.get("answer"))
+    return " ".join(re.sub(r"\s+", " ", str(chunk or "")).strip() for chunk in chunks if str(chunk or "").strip())
+
+
+def validate_structured_article_draft(draft):
+    errors = []
+    title = re.sub(r"\s+", " ", str(draft.get("title") or "")).strip()
+    description = re.sub(r"\s+", " ", str(draft.get("description") or "")).strip()
+    lead = re.sub(r"\s+", " ", str(draft.get("lead") or "")).strip()
+    sections = draft.get("sections") if isinstance(draft.get("sections"), list) else []
+    usable_sections = [
+        section for section in sections
+        if isinstance(section, dict)
+        and re.sub(r"\s+", " ", str(section.get("heading") or "")).strip()
+        and len([p for p in (section.get("paragraphs") if isinstance(section.get("paragraphs"), list) else []) if str(p or "").strip()]) >= 1
+    ]
+    images = [image for image in (draft.get("images") if isinstance(draft.get("images"), list) else []) if isinstance(image, dict)]
+    faq = [
+        item for item in (draft.get("faq") if isinstance(draft.get("faq"), list) else [])
+        if isinstance(item, dict) and str(item.get("question") or "").strip() and str(item.get("answer") or "").strip()
+    ]
+    table = draft.get("table") if isinstance(draft.get("table"), dict) else {}
+    table_rows = table.get("rows") if isinstance(table.get("rows"), list) else []
+    ordered = [item for item in (draft.get("orderedList") if isinstance(draft.get("orderedList"), list) else []) if str(item or "").strip()]
+    word_count = len(re.findall(r"\b[\w'-]+\b", structured_article_plain_text(draft)))
+    if len(title) < 18:
+        errors.append("title is too short")
+    if description and lead and normalize_topic_text(description) == normalize_topic_text(lead):
+        errors.append("description duplicates lead")
+    if title and lead and normalize_topic_text(title) in normalize_topic_text(lead[:180]):
+        errors.append("lead repeats the title")
+    if len(usable_sections) < 6:
+        errors.append("draft must include at least 6 usable sections")
+    if len(images) != 3:
+        errors.append("draft must include exactly 3 image specs")
+    if len(faq) < 5:
+        errors.append("draft must include at least 5 FAQ items")
+    if not table.get("headers") or len(table_rows) < 3:
+        errors.append("draft must include a useful table")
+    if len(ordered) < 5:
+        errors.append("draft must include at least 5 ordered-list items")
+    if word_count < 1200:
+        errors.append(f"draft is too short: {word_count} words, expected at least 1200")
+    if errors:
+        raise ValueError("Article draft failed validation: " + "; ".join(errors))
+    return {"word_count": word_count, "sections": len(usable_sections), "images": len(images), "faq": len(faq)}
+
+
+def article_asset_job_dir(site_id, job_id):
+    safe_job = re.sub(r"[^A-Za-z0-9_.-]", "_", str(job_id))
+    return ARTICLE_ASSET_DIR / str(int(site_id)) / safe_job
+
+
+def article_asset_url(site_id, job_id, filename):
+    return f"/sites/{int(site_id)}/article-assets/{urllib.parse.quote(str(job_id), safe='')}/{urllib.parse.quote(filename, safe='')}"
+
+
+def build_article_image_prompt(site, job, draft, image, role):
+    brand = site["brand_name"] or site["domain"]
+    title = draft.get("title") or job["topic"] or "Article"
+    description = draft.get("description") or job["description"] or ""
+    alt = image.get("alt") if isinstance(image, dict) else ""
+    caption = image.get("caption") if isinstance(image, dict) else ""
+    source_text = structured_article_plain_text(draft)[:2500]
+    return f"""
+Create one editorial raster JPEG image for a business article.
+
+FORMAT:
+- Real JPEG image, 16:10 aspect ratio.
+- Editorial/photo-realistic or polished editorial illustration, suitable for a serious website article.
+- No text overlay, no headline, no logo, no watermark, no UI screenshot, no readable text.
+- If screens, documents, labels, dashboards, packaging, or phones appear, keep them blank, blurred, turned away, or too out-of-focus to read.
+- Do not create a social media ad, poster, infographic, meme, collage, or slide.
+
+SITE AND ARTICLE:
+- brand: {brand}
+- domain: {site['domain']}
+- article title: {title}
+- article description: {description}
+- image role: {role}
+- requested alt text: {alt}
+- requested caption: {caption}
+- article context: {source_text}
+
+VISUAL DIRECTION:
+- Make the image specific to the article's business problem and audience.
+- Prefer believable environments, people, products, workflows, or abstracted business scenes that support the article.
+- Keep it premium, natural, and non-generic.
+""".strip()
+
+
+def generate_article_image_assets(site_id, job_id, site, job, draft, slug):
+    target_dir = article_asset_job_dir(site_id, job_id)
+    shutil.rmtree(target_dir, ignore_errors=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    hero_filename = clean_image_filename(draft.get("heroImage"), f"{slug}-hero.jpg")
+    image_specs = draft.get("images") if isinstance(draft.get("images"), list) else []
+    assets_to_generate = [("hero", hero_filename, {"alt": draft.get("title") or job["topic"], "caption": draft.get("description") or ""})]
+    normalized_images = []
+    for index, image in enumerate(image_specs[:3]):
+        if not isinstance(image, dict):
+            continue
+        filename = clean_image_filename(image.get("src"), f"{slug}-image-{index + 1}.jpg")
+        normalized = {**image, "src": filename}
+        normalized_images.append(normalized)
+        assets_to_generate.append((f"body image {index + 1}", filename, normalized))
+    draft["images"] = normalized_images
+    draft["heroImage"] = hero_filename
+    for role, filename, image in assets_to_generate:
+        prompt = build_article_image_prompt(site, job, draft, image, role)
+        image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="16:10")
+        if not image_bytes.startswith(b"\xff\xd8"):
+            raise RuntimeError(f"Gemini image for article {role} was not JPEG")
+        (target_dir / filename).write_bytes(image_bytes)
+    return article_asset_url(site_id, job_id, hero_filename), f"/sites/{int(site_id)}/article-assets/{urllib.parse.quote(str(job_id), safe='')}"
 
 
 def build_universal_article_prompt(site, job):
@@ -5123,12 +5307,17 @@ ARTICLE JOB:
 QUALITY RULES:
 - Output valid JSON matching the provided schema only.
 - Write like a specialist editor for this exact site, not a generic AI assistant.
-- Put the opening paragraph in `lead`.
-- Use 6-10 section objects; at least half of the section headings should answer concrete buyer/reader questions.
-- Include at least one useful table object, one orderedList, and one quote.
-- Include 5-7 FAQ items.
+- The article must be a complete long-form page, not a short summary. Target 1400-2200 words across the structured fields.
+- Do not repeat `title` inside `lead`, `description`, section headings, or FAQ questions.
+- `description` is SEO meta copy. `lead` is the first article paragraph. They must be different.
+- Put only the opening article paragraph in `lead`; Blog Core renders the page title separately.
+- Use 7-10 section objects; headings must be useful TOC entries and each section must contain 2-4 substantial paragraphs.
+- Include at least one useful table object with 3-5 columns and 4-8 rows.
+- Include one orderedList with at least 5 practical items and one concise quote.
+- Include 5-7 FAQ items with direct answers.
 - Include exactly 3 image objects. Image src must be filename only, not absolute URL.
-- Do not write raw HTML. Blog Core will render HTML from your structured fields.
+- Image `alt` and `caption` must describe article-specific editorial visuals. Do not leave generic placeholders.
+- Do not write raw HTML. Blog Core will render HTML from your structured fields, including the page title, TOC, figures, table, ordered list, quote, and FAQ.
 - No em dash, no en dash, no asterisks, no smart quotes.
 - Avoid fluff and vague marketing language.
 - Make the article clearly connect the problem/question to why {brand} is useful, but do not turn every section into an ad.
@@ -5149,9 +5338,11 @@ def generate_content_job(site_id, job_id):
         conn.execute("insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "INFO", "generate", "Starting article draft generation"))
     try:
         draft = _gemini_text_json(build_universal_article_prompt(site, job), response_schema=ARTICLE_DRAFT_SCHEMA, repair=False)
+        validation = validate_structured_article_draft(draft)
         slug = simple_slug(draft.get("slug") or draft.get("title") or job["topic"])
         faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
-        draft_html = render_structured_article_html(draft, slug)
+        hero_image_url, article_asset_prefix = generate_article_image_assets(site_id, job_id, site, job, draft, slug)
+        draft_html = render_structured_article_html(draft, slug, asset_prefix=article_asset_prefix)
         with db() as conn:
             conn.execute(
                 """
@@ -5163,7 +5354,7 @@ def generate_content_job(site_id, job_id):
                     draft.get("title") or job["topic"],
                     draft.get("description") or "",
                     draft.get("category") or job["category"] or "Article",
-                    clean_image_filename(draft.get("heroImage"), f"{slug}-hero.jpg"),
+                    hero_image_url,
                     draft_html,
                     json.dumps(faq, ensure_ascii=False),
                     now_iso(),
@@ -5171,7 +5362,17 @@ def generate_content_job(site_id, job_id):
                     job_id,
                 ),
             )
-            conn.execute("insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "INFO", "generate", "Draft generated"))
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (
+                    site_id,
+                    job_id,
+                    now_iso(),
+                    "INFO",
+                    "generate",
+                    f"Draft generated and validated: {validation['word_count']} words, {validation['sections']} sections, {validation['images']} images, {validation['faq']} FAQ items, 4 article images",
+                ),
+            )
         return {"ok": True, "jobId": job_id, "status": "DRAFT", "slug": slug}
     except Exception as e:
         with db() as conn:
@@ -5895,6 +6096,16 @@ def serve_social_asset(site_id, job_id, channel, filename):
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", filename or ""):
         abort(404)
     directory = social_asset_job_dir(site_id, job_id, channel)
+    if not (directory / filename).is_file():
+        abort(404)
+    return send_from_directory(directory, filename)
+
+
+@app.get("/sites/<int:site_id>/article-assets/<job_id>/<filename>")
+def serve_article_asset(site_id, job_id, filename):
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", filename or ""):
+        abort(404)
+    directory = article_asset_job_dir(site_id, job_id)
     if not (directory / filename).is_file():
         abort(404)
     return send_from_directory(directory, filename)

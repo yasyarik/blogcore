@@ -2,6 +2,38 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-09 — Restore full article draft blocks and validation
+
+### Summary
+
+* Restored the structured article renderer so generated drafts include TOC, 3 body figures, a useful table, an ordered list, quote, and FAQ.
+* Removed duplicate title/subtitle rendering from local source-site draft previews: the title is rendered once in the source-site hero and no longer repeated again inside the article body.
+* Added server-side validation before a generic Blog Core article can become `DRAFT`, including minimum length, section count, exactly 3 image specs, FAQ, table, ordered list, and duplicate lead/description checks.
+* Added real JPEG article asset generation for generic Blog Core drafts: one hero image plus 3 body images through Gemini Image, stored under ignored `data/article_assets/...` and served by a Blog Core asset route.
+
+### Files changed
+
+* `app.py` — restored full structured article HTML rendering, added article draft validation, added article image asset generation/routes, and removed duplicated heading blocks from local draft preview bodies.
+* `docs/PROJECT_MEMORY.md` — recorded durable rules for the full article block contract, validation, and real article JPEG assets.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Structured article JSON remains the right model contract, but Blog Core must render and validate the complete article page, not a shortened subset.
+* Generic Blog Core drafts must fail clearly if required blocks or minimum length are missing; they must not be saved as ready drafts.
+* Generic Blog Core article photos are generated assets, not filename placeholders.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-work/app.py`
+* Copied patched `app.py` to `/tmp/blogcore-app.py` on the VPS and ran `python3 -m py_compile /tmp/blogcore-app.py`.
+* Verified `render_structured_article_html` outputs 3 figures, TOC, FAQ, table, ordered list, no body `<h1>`, no title duplication, and article asset URLs.
+* Verified `validate_structured_article_draft` rejects short/incomplete drafts with explicit errors.
+
+### Risks / TODO
+
+* Full runtime generation with Gemini text plus 4 Gemini Image calls was not run from the dashboard in this patch. It should be checked on a real queued generic Blog Core task after deploy because SSH shell environment may not expose the same API keys as PM2.
+
 ## 2026-07-09 — Generate article drafts as structured JSON
 
 ### Summary
