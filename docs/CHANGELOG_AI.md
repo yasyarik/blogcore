@@ -2783,3 +2783,26 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * Semantic binding currently uses common source-template markers (`.hero`, `.article-toc`, `.article-body`, `.faq-grid`). A source factory whose public template does not expose equivalent semantic markers must provide an adapter before its drafts are previewed.
+
+## 2026-07-10 — Remove unwanted preview breadcrumbs and restore inline draft images
+
+### Summary
+
+* Removed breadcrumbs from the AIREP24 draft preview as requested.
+* Located the three generated draft images already present in the AIREP24 webroot and inserted them between article sections through the site's existing `article-inline-figure` component.
+* Uses absolute source-site image URLs and eager loading for preview-only inserted images.
+
+### Files changed
+
+* `/var/www/content-factory-airep24/app.py` — source-template preview image discovery/insertion and breadcrumb removal.
+* `docs/PROJECT_MEMORY.md` — recorded the preview media/breadcrumb rule.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Checks run
+
+* Compiled and restarted `content-factory-airep24`.
+* Verified preview output has zero `page-breadcrumbs`, three `article-inline-figure` blocks, and absolute URLs for all three `telegram-operator-handoff` draft images.
+
+### Risks / TODO
+
+* A draft whose images are not available in its source webroot must publish/stage its assets through that factory before preview can include them.
