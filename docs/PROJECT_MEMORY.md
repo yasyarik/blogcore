@@ -208,6 +208,7 @@ It must be updated after every meaningful task.
 * Do not represent active `GENERATING` tasks as only a static badge. Show motion/progress, latest log/status text, and auto-refresh when finished.
 * Do not rely only on in-memory daemon threads to finish legacy/source factory synchronization. PM2/Gunicorn restarts can kill those threads while the source factory continues and finishes; polling/status endpoints must be able to recover and sync the finished draft.
 * For AIREP24 comparison pages, watch for old `/compare/...` static paths alongside canonical `/comparisons/...` paths. A fixed Blog Core draft can still appear broken publicly if an old static alias is serving stale shortened HTML.
+* Factory v3 article pages must not render a second article intro (`article-head` with the same title/description) immediately after the hero. The hero is the page title/subtitle; article body should begin with TOC and section content, with media placed inline.
 * Do not invent Gemini Image aspect ratios. Check provider-supported values before changing image generation contracts.
 
 ## 8. Decisions log
