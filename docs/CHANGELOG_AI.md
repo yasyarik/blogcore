@@ -2545,3 +2545,38 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * `/var/www/template-core-v3` still has unrelated pre-existing modified/untracked files; only the renderer change was committed for this task.
+
+## 2026-07-10 — Restore AIREP24 article layout while removing only duplicate copy
+
+### Summary
+
+* Corrected the previous AIREP24 v3 renderer change: restored the original article-head/media placement and removed only the duplicated title/subtitle text after the hero.
+* Rebuilt and published the AIREP24 v3 site, then resynchronized the old `/compare/airep24-vs-live-chat/` alias and `/var/www/airep24-landing` copies.
+* Confirmed the public canonical and alias pages keep the top article image, TOC, and FAQ, while the second duplicated `<h2>` and lead paragraph are absent.
+
+### Files changed
+
+* `/var/www/template-core-v3/factory_v3/renderers/site.py` — restored factory article media placement and removed only duplicated heading/lead copy.
+* `/var/www/airep24.com/comparisons/airep24-vs-live-chat/index.html` — rebuilt public canonical page.
+* `/var/www/airep24.com/compare/airep24-vs-live-chat/index.html` — resynced old alias.
+* `/var/www/airep24-landing/comparisons/airep24-vs-live-chat/index.html` — resynced landing copy.
+* `/var/www/airep24-landing/compare/airep24-vs-live-chat/index.html` — resynced old landing alias.
+* `docs/PROJECT_MEMORY.md` — corrected the durable factory v3 intro rule.
+* `docs/CHANGELOG_AI.md` — logged this corrective task.
+
+### Decisions
+
+* The right fix is not to redesign the article body. The hero owns title/subtitle; the original article media layout stays, and only the repeated title/lead copy is suppressed.
+
+### Checks run
+
+* `python3 -m py_compile factory_v3/renderers/site.py`
+* `python3 -m factory_v3.cli build-preview --site sites/airep24/site.yaml --language en`
+* `python3 -m factory_v3.cli publish-preview --site sites/airep24/site.yaml`
+* `python3 -m factory_v3.cli publish-live-bundle --site sites/airep24/site.yaml`
+* `python3 -m factory_v3.cli publish-live-target --site sites/airep24/site.yaml`
+* Public HTTP checks for `https://airep24.com/comparisons/airep24-vs-live-chat/` and `https://airep24.com/compare/airep24-vs-live-chat/`: both return `200`, keep `article-head` with `article-figure`, have no duplicate `<h2>AiRep24 vs. Live Chat</h2>` and no duplicate lead paragraph, and still include TOC and FAQ.
+
+### Risks / TODO
+
+* `/var/www/template-core-v3` still has unrelated pre-existing dirty files in CLI/preview/CSS and untracked site/build artifacts; they were not committed for this task.
