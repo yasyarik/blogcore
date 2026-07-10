@@ -2639,3 +2639,35 @@ This file is updated by Codex after every task.
 
 * Browser cache may need a hard refresh if the previously loaded broken stylesheet is still cached in an open tab.
 
+## 2026-07-10 — Redirect source-authoritative previews to live source pages
+
+### Summary
+
+* Fixed imported legacy/source-authoritative content job previews so Blog Core no longer renders them through the generic Blog Core draft shell.
+* Preview requests for source-authoritative jobs now redirect to the recorded source-site URL, preserving the original site's design and avoiding misleading Blog Core-styled previews.
+* Confirmed the AIREP24 `AiRep24 vs. Live Chat` preview redirects to the live AIREP24 comparison URL instead of returning Blog Core wrapper HTML.
+
+### Files changed
+
+* `app.py` — added source-authoritative job detection and source URL resolution, then short-circuited the preview route before generic/local draft rendering.
+* `docs/PROJECT_MEMORY.md` — recorded that source-authoritative imported previews must not use the Blog Core renderer.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Blog Core is the control plane for imported/source-factory jobs. If native source-factory preview is unavailable, Blog Core must not fake a preview with its own renderer; it should open the authoritative source-site URL or report that native preview is unavailable.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* `python3 -m py_compile app.py`
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `https://blog.yas.ooo/sites/9/content-jobs/6fb2a84685c8450183d67eb7/preview` returns `302` to `https://airep24.com/comparisons/airep24-vs-live-chat/`.
+* Verified following the redirect returns `200`, uses AIREP24 `site.min.css`, contains AIREP24 navigation, has no `blog-core-draft-body`, and has no duplicate `<h2>AiRep24 vs. Live Chat</h2>`.
+
+### Risks / TODO
+
+* This fixes misleading previews by opening the source-site page. A true unpublished-draft preview still needs native source-factory preview support for v3Page jobs; Blog Core should delegate that to the source factory rather than rendering it itself.
+

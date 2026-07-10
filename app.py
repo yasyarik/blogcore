@@ -1081,6 +1081,22 @@ def content_job_target_path(row):
     return target_path or "/blog/"
 
 
+def source_authoritative_content_job(row):
+    sources = content_job_sources(row)
+    return bool(sources.get("migratedFrom") and sources.get("oldFactoryJobId") and sources.get("ownership") == "source_site_authoritative")
+
+
+def content_job_source_url(site, row):
+    sources = content_job_sources(row)
+    raw = str(sources.get("sourcePublishedUrl") or row["published_url"] or content_job_target_path(row) or "").strip()
+    if not raw:
+        return ""
+    parsed = urllib.parse.urlsplit(raw)
+    if parsed.scheme and parsed.netloc:
+        return raw
+    return urllib.parse.urljoin(public_site_base_url(site), raw.lstrip("/"))
+
+
 def local_html_path_for_url_path(root_path, url_path):
     root = Path(root_path).resolve()
     clean = urllib.parse.unquote((url_path or "/").split("?", 1)[0].split("#", 1)[0]).strip("/")
@@ -6257,6 +6273,15 @@ def preview_content_job(site_id, job_id):
         return Response("Draft not found.", status=404, mimetype="text/plain")
     if job["status"] not in {"DRAFT", "PUBLISHED", "IMPORTED"} or not (job["draft_html"] or "").strip():
         return Response("Draft is not generated yet.", status=409, mimetype="text/plain")
+    if source_authoritative_content_job(job):
+        source_url = content_job_source_url(site, job)
+        if source_url:
+            return redirect(source_url, code=302)
+        return Response(
+            "Native source-factory preview is not available for this imported job, and no source-site URL is recorded.",
+            status=502,
+            mimetype="text/plain",
+        )
     if (site["access_type"] or "") == "local_path" and (site["root_path"] or "").strip():
         html = render_local_site_draft_preview(site, job)
         if html:
