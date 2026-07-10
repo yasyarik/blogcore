@@ -6359,9 +6359,9 @@ def preview_content_job(site_id, job_id):
                 if source_url:
                     parsed = urllib.parse.urlsplit(source_url)
                     asset_base = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/", "", ""))
-                    if not re.search(r"<base\\b", draft_html, flags=re.IGNORECASE):
+                    if not re.search(r"<base\b", draft_html, flags=re.IGNORECASE):
                         draft_html = re.sub(
-                            r"<head(\\s[^>]*)?>",
+                            r"<head(\s[^>]*)?>",
                             lambda m: m.group(0) + f'<base href="{escape(asset_base, quote=True)}">',
                             draft_html,
                             count=1,

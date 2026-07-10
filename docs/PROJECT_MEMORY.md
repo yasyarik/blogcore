@@ -328,10 +328,10 @@ It must be updated after every meaningful task.
 
 ### 2026-07-10 — Preview source-factory drafts natively
 
-* Decision: For a source-authoritative `DRAFT` with a v3 payload, Blog Core proxies a native preview built by the original factory. The factory temporarily stages the payload, runs only `factory_v3.cli build-preview`, reads the preview HTML, then restores the v3 source files. Blog Core adds the source origin as `<base>` so CSS and asset URLs resolve to the real site.
-* Reason: A generic Blog Core renderer shows the wrong design and can hide or distort source-specific blocks such as TOC, FAQ, recommendations, newsletter, and images. Redirecting a draft to the live URL is also misleading because it does not show the unpublished content.
+* Decision: For a source-authoritative `DRAFT` with a v3 payload, Blog Core proxies a native preview built by the original factory. The factory temporarily stages the payload, runs only `factory_v3.cli build-preview`, then merges its draft content into the actual current source-page shell from the local webroot before restoring the v3 source files. Blog Core adds the source origin as `<base>` so CSS and asset URLs resolve to the real site.
+* Reason: A generic Blog Core renderer and a stale v3 shell can both show the wrong design and hide or distort source-specific blocks such as current navigation, breadcrumbs, TOC, FAQ, recommendations, newsletter, and images. Redirecting a draft to the live URL is also misleading because it does not show the unpublished content.
 * Files/areas affected: `Blog Core app.py` source-factory preview proxy; `content-factory-airep24/app.py` native v3 preview builder.
-* Replaced/deprecated: Redirecting every source-authoritative draft preview to the live source URL, or rendering it with the generic Blog Core/local-template preview shell.
+* Replaced/deprecated: Redirecting every source-authoritative draft preview to the live source URL, rendering it with the generic Blog Core/local-template preview shell, or using a stale factory v3 shell instead of the current source-site page shell.
 
 ## 9. Do not repeat
 
@@ -345,3 +345,4 @@ It must be updated after every meaningful task.
 * Do not present raw Discovery signals as finished article topics. They are inputs for the journalist/SEO article idea generator.
 * Do not let existing bad/generated content grant permission for future generic review/tutorial/listicle topics. Site editorial policy is inferred from stable site profile/settings, while existing content is used for context and duplicate checks.
 * Do not fake a source-authoritative draft preview with Blog Core HTML, and do not run any `publish-*` v3 command merely to preview it. Build the source factory preview only, keep it `noindex`, and preserve the live webroot unchanged until the operator explicitly publishes.
+* A source-factory preview must preserve the actual current source-page shell from that site's webroot, including head/CSS, header, footer, breadcrumbs, and current navigation/CTA links. Do not assume the factory's v3 shell is visually current.

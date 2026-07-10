@@ -2735,3 +2735,27 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The native preview endpoint is currently implemented for AIREP24 v3 payload jobs. Other imported factories need the same explicit native-preview capability before Blog Core can render their unpublished source-authoritative drafts.
+
+## 2026-07-10 — Match draft preview to the current source-site shell
+
+### Summary
+
+* Corrected the first native preview implementation: it used the factory's v3 shell, which was visually stale compared with the live AIREP24 page.
+* Preview now preserves the actual source page's document head, stylesheet links, header, footer, breadcrumb, navigation, and CTA links from `/var/www/airep24.com`; only the unpublished draft content is inserted between the source header and footer.
+
+### Files changed
+
+* `/var/www/content-factory-airep24/app.py` — added generic live-shell composition for v3 draft previews.
+* `app.py` — corrected preview HTML base-tag detection/injection in the Blog Core proxy.
+* `docs/PROJECT_MEMORY.md` — refined the source-authoritative preview contract.
+* `docs/CHANGELOG_AI.md` — logged this correction.
+
+### Checks run
+
+* Compiled both applications and restarted `content-factory-airep24` and `blog-yas-core`.
+* Browser-verified `https://blog.yas.ooo/sites/9/content-jobs/b32afeff73e644f5badde7d7/preview`.
+* Verified the preview has AIREP24's current `page-breadcrumbs`, `web.airep24.com` header CTA, the generated draft body, and noindex metadata.
+
+### Risks / TODO
+
+* The generic shell merge requires a local source webroot. A remote-only source factory needs its own preview-shell retrieval strategy.
