@@ -326,6 +326,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `app.py` legacy factory generation/status sync and planned-publications polling.
 * Replaced/deprecated: Assuming the original daemon thread is the only path that can move a legacy job from `GENERATING` to `DRAFT`.
 
+### 2026-07-10 — Preview source-factory drafts natively
+
+* Decision: For a source-authoritative `DRAFT` with a v3 payload, Blog Core proxies a native preview built by the original factory. The factory temporarily stages the payload, runs only `factory_v3.cli build-preview`, reads the preview HTML, then restores the v3 source files. Blog Core adds the source origin as `<base>` so CSS and asset URLs resolve to the real site.
+* Reason: A generic Blog Core renderer shows the wrong design and can hide or distort source-specific blocks such as TOC, FAQ, recommendations, newsletter, and images. Redirecting a draft to the live URL is also misleading because it does not show the unpublished content.
+* Files/areas affected: `Blog Core app.py` source-factory preview proxy; `content-factory-airep24/app.py` native v3 preview builder.
+* Replaced/deprecated: Redirecting every source-authoritative draft preview to the live source URL, or rendering it with the generic Blog Core/local-template preview shell.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
@@ -337,3 +344,4 @@ It must be updated after every meaningful task.
 * Do not design imported-blog workflows as public mirrors by default. Preserve the source site's URLs and publish back in place unless the user explicitly asks for a cutover.
 * Do not present raw Discovery signals as finished article topics. They are inputs for the journalist/SEO article idea generator.
 * Do not let existing bad/generated content grant permission for future generic review/tutorial/listicle topics. Site editorial policy is inferred from stable site profile/settings, while existing content is used for context and duplicate checks.
+* Do not fake a source-authoritative draft preview with Blog Core HTML, and do not run any `publish-*` v3 command merely to preview it. Build the source factory preview only, keep it `noindex`, and preserve the live webroot unchanged until the operator explicitly publishes.

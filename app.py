@@ -5567,6 +5567,12 @@ def legacy_factory_request_json(url, method="GET", timeout=900):
         return json.loads(resp.read().decode("utf-8", errors="replace"))
 
 
+def legacy_factory_request_html(url, timeout=240):
+    req = urllib.request.Request(url, headers={"accept": "text/html"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8", errors="replace")
+
+
 def legacy_job_payload(data):
     if isinstance(data, dict) and isinstance(data.get("job"), dict):
         return data["job"]
@@ -6338,11 +6344,39 @@ def preview_content_job(site_id, job_id):
         return Response("Draft is not generated yet.", status=409, mimetype="text/plain")
     if source_authoritative_content_job(job):
         source_url = content_job_source_url(site, job)
-        if source_url:
+        if job["status"] in {"PUBLISHED", "IMPORTED"} and source_url:
             return redirect(source_url, code=302)
+        sources = content_job_sources(job)
+        factory_name = str(sources.get("migratedFrom") or "").strip()
+        old_job_id = str(sources.get("oldFactoryJobId") or "").strip()
+        base_url = legacy_factory_url(factory_name)
+        if factory_name and old_job_id and base_url:
+            try:
+                draft_html = legacy_factory_request_html(
+                    f"{base_url}/preview/{urllib.parse.quote(old_job_id)}",
+                    timeout=240,
+                )
+                if source_url:
+                    parsed = urllib.parse.urlsplit(source_url)
+                    asset_base = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/", "", ""))
+                    if not re.search(r"<base\\b", draft_html, flags=re.IGNORECASE):
+                        draft_html = re.sub(
+                            r"<head(\\s[^>]*)?>",
+                            lambda m: m.group(0) + f'<base href="{escape(asset_base, quote=True)}">',
+                            draft_html,
+                            count=1,
+                            flags=re.IGNORECASE,
+                        )
+                return Response(draft_html, mimetype="text/html")
+            except Exception as e:
+                return Response(
+                    f"Native source-factory draft preview is unavailable: {e}",
+                    status=502,
+                    mimetype="text/plain",
+                )
         return Response(
-            "Native source-factory preview is not available for this imported job, and no source-site URL is recorded.",
-            status=502,
+            "Native source-factory draft preview is unavailable because this imported task has no connected source factory.",
+            status=409,
             mimetype="text/plain",
         )
     if (site["access_type"] or "") == "local_path" and (site["root_path"] or "").strip():

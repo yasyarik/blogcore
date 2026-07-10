@@ -2704,3 +2704,34 @@ This file is updated by Codex after every task.
 
 * I did not click/test live publish because it writes to the production source site. The first real publish may still surface source-factory errors if that factory's native publish path is broken.
 
+## 2026-07-10 — Native preview for source-authoritative AIREP24 drafts
+
+### Summary
+
+* Replaced the unavailable/fake Blog Core draft preview path with an AIREP24 factory-native v3 preview.
+* Preview now builds the pending v3 payload only in the factory preview tree and returns the rendered source-site HTML through Blog Core.
+* The returned document is `noindex`; its asset base is `https://airep24.com/`, so it uses AIREP24's own CSS, images, header, footer, TOC, FAQ, and recommendation sections.
+
+### Files changed
+
+* `app.py` — proxies source-authoritative `DRAFT` previews from the original factory instead of using the generic Blog Core renderer or redirecting to the live page.
+* `docs/PROJECT_MEMORY.md` — recorded the native-preview contract and safety rule.
+* `docs/CHANGELOG_AI.md` — logged this task.
+* `/var/www/content-factory-airep24/app.py` — added a v3 preview-only builder; this is maintained in the AIREP24 factory repository, not in Blog Core.
+
+### Decisions
+
+* A draft preview is neither a generic dashboard rendering nor an implicit publication. It must be rendered by the same source factory that will publish it.
+* Native preview may temporarily stage its content in the source factory workspace but must restore it after rendering and must never execute `publish-preview`, `publish-live-bundle`, or `publish-live-target`.
+
+### Checks run
+
+* `python3 -m py_compile` succeeded for Blog Core and the AIREP24 factory.
+* Restarted `blog-yas-core` and `content-factory-airep24`; Blog Core health endpoint returned `ok`.
+* Requested the AIREP24 factory preview and the final Blog Core preview for job `b32afeff73e644f5badde7d7`: both returned `200`.
+* Verified final preview contains `<base href="https://airep24.com/">`, `noindex,nofollow`, `article-toc`, `Recommended next`, native images, and AIREP24 stylesheet links.
+* Confirmed the preview build did not change `/var/www/airep24.com/features/telegram-operator-handoff/index.html` and restored the temporary v3 source files.
+
+### Risks / TODO
+
+* The native preview endpoint is currently implemented for AIREP24 v3 payload jobs. Other imported factories need the same explicit native-preview capability before Blog Core can render their unpublished source-authoritative drafts.
