@@ -2580,3 +2580,62 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * `/var/www/template-core-v3` still has unrelated pre-existing dirty files in CLI/preview/CSS and untracked site/build artifacts; they were not committed for this task.
+
+## 2026-07-10 — Restore AIREP24 live CSS after duplicate-copy fix
+
+### Summary
+
+* Restored the AIREP24 live stylesheet after the previous publish accidentally carried unrelated dirty `template-core-v3` article TOC style changes.
+* Kept the HTML-only fix that removes the duplicated title/subtitle after the hero.
+* Restored the `template-core-v3` working copy CSS to the clean Git version so future publishes do not reapply the unintended style change.
+
+### Files changed
+
+* `/var/www/airep24.com/assets/css/site.css` — restored from clean `template-core-v3` Git stylesheet.
+* `/var/www/template-core-v3/factory_v3/static/assets/css/site.css` — restored working copy to clean Git state.
+* `docs/CHANGELOG_AI.md` — logged this corrective task.
+
+### Decisions
+
+* Do not change AIREP24 visual styling while fixing duplicate generated copy. The fix scope is only the repeated article heading/lead block.
+
+### Checks run
+
+* Verified public `https://airep24.com/assets/css/site.css` uses the old `.article-toc` styles: `var(--line)` border, white/blue gradient background, old link background/hover.
+* Verified `https://airep24.com/comparisons/airep24-vs-live-chat/` still has the top article image and no duplicated title/lead block.
+
+### Risks / TODO
+
+* `/var/www/template-core-v3` still has unrelated pre-existing dirty files in CLI/preview and untracked site/build artifacts; they were not changed for this corrective task.
+
+## 2026-07-10 — Restore AIREP24 static page source and original stylesheet
+
+### Summary
+
+* Restored the public AIREP24 `AiRep24 vs. Live Chat` pages from the tracked `airep24-landing` static source instead of publishing through factory v3 again.
+* Restored the original AIREP24 `site.css` and `site.min.css` files to the public webroot.
+* Removed only the second duplicated article title/lead block from the canonical comparison page.
+
+### Files changed
+
+* `/var/www/airep24-landing/comparisons/airep24-vs-live-chat/index.html` — restored original static markup and removed only the duplicate intro block.
+* `/var/www/airep24.com/comparisons/airep24-vs-live-chat/index.html` — synced public canonical page from the restored static source.
+* `/var/www/airep24.com/compare/airep24-vs-live-chat/index.html` — restored public legacy alias from the tracked static source.
+* `/var/www/airep24.com/assets/css/site.css` — restored original AIREP24 stylesheet from `airep24-landing` Git HEAD.
+* `/var/www/airep24.com/assets/css/site.min.css` — restored original AIREP24 minified stylesheet from `airep24-landing` Git HEAD.
+* `docs/CHANGELOG_AI.md` — logged the corrective rollback.
+* `docs/PROJECT_MEMORY.md` — recorded the static-source rollback rule for imported site fixes.
+
+### Decisions
+
+* For imported/static site pages, do not republish through a generic template pipeline when the user asks for a surgical fix. Restore from the site's own tracked static source and change only the requested duplicate content.
+
+### Checks run
+
+* Public HTTP checks for `https://airep24.com/comparisons/airep24-vs-live-chat/`, `https://airep24.com/compare/airep24-vs-live-chat/`, and `https://airep24.com/assets/css/site.min.css?v=20260630-pagespeed-1`: all return `200`; CSS returns `text/css`.
+* Confirmed canonical page links to `/assets/css/site.min.css?v=20260630-pagespeed-1`, has no `laycanmatch.com` metadata, has no duplicate `<h2>AiRep24 vs. Live Chat</h2>`, and keeps TOC/FAQ.
+
+### Risks / TODO
+
+* Browser cache may need a hard refresh if the previously loaded broken stylesheet is still cached in an open tab.
+

@@ -170,6 +170,8 @@ It must be updated after every meaningful task.
 * Never store secrets or raw `.env` values in memory files.
 
 ## 7. Known pitfalls
+* Imported/static site fixes must preserve the site's own tracked static source and stylesheet. For AIREP24-style static pages, do not republish through a generic factory/template pipeline for a surgical copy fix; restore from the site repo/webroot source first, then change only the requested markup.
+
 
 * `data/blog_core.sqlite3` is ignored; Git commits do not preserve connected sites/jobs/theme profiles.
 * `previews/` is ignored and regenerated.
