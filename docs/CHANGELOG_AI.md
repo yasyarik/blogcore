@@ -2759,3 +2759,27 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The generic shell merge requires a local source webroot. A remote-only source factory needs its own preview-shell retrieval strategy.
+
+## 2026-07-10 — Bind draft values to the actual source-page template
+
+### Summary
+
+* Replaced the interim shell merge, which still inserted foreign v3 layout markup, with semantic binding into the real source page template.
+* The preview now retains AIREP24's own `hero`, `article-layout`, `article-toc`, `article-body`, FAQ, recommendation, breadcrumb, update, header, and footer markup. It replaces only title, lead, TOC entries, article sections, and FAQ content from the draft payload.
+* If a draft references an image that is not present in the source webroot, preview retains the existing source-template image rather than rendering an empty image slot.
+
+### Files changed
+
+* `/var/www/content-factory-airep24/app.py` — added source-template semantic binding for v3 draft previews and safe image fallback.
+* `docs/PROJECT_MEMORY.md` — clarified that source page internal template markup must be preserved.
+* `docs/CHANGELOG_AI.md` — logged this correction.
+
+### Checks run
+
+* `python3 -m py_compile /var/www/content-factory-airep24/app.py`.
+* Restarted `content-factory-airep24`.
+* Browser-verified the Blog Core preview: current AIREP24 header CTA, breadcrumb, native `hero` and `article-block` classes, TOC, generated draft text, and source-template hero image are present; `page-hero` factory markup is absent.
+
+### Risks / TODO
+
+* Semantic binding currently uses common source-template markers (`.hero`, `.article-toc`, `.article-body`, `.faq-grid`). A source factory whose public template does not expose equivalent semantic markers must provide an adapter before its drafts are previewed.
