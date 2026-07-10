@@ -2671,3 +2671,36 @@ This file is updated by Codex after every task.
 
 * This fixes misleading previews by opening the source-site page. A true unpublished-draft preview still needs native source-factory preview support for v3Page jobs; Blog Core should delegate that to the source factory rather than rendering it itself.
 
+## 2026-07-10 — Add explicit Publish action for source-factory drafts
+
+### Summary
+
+* Added an explicit `Publish` action for `DRAFT` content jobs in planned/content task cards.
+* Added a Blog Core publish API route that delegates source-authoritative imported jobs to their original factory via `/api/jobs/<oldFactoryJobId>/publish`.
+* Kept generation and publication separate: generating a draft does not publish it automatically.
+
+### Files changed
+
+* `app.py` — added `publish_content_job`, `POST /api/sites/<site_id>/content-jobs/<job_id>/publish`, `Publish` task button, and frontend `publishArticleJob` handler.
+* `docs/PROJECT_MEMORY.md` — recorded the durable generate/preview/publish separation for source-authoritative jobs.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Blog Core must not silently publish immediately after generation. `Generate/regenerate`, `Preview`, and `Publish` are separate operator actions.
+* For imported/source-authoritative jobs, Blog Core publishes through the source factory, not by editing the source site's HTML/CSS directly.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-app.py`
+* Deployed `app.py` to `/var/www/blog.yas.ooo/app.py`.
+* `python3 -m py_compile app.py`
+* Restarted PM2 process `blog-yas-core`.
+* Checked `http://127.0.0.1:3299/health`.
+* Verified `/sites/9` HTML includes the `Publish` button and `publishArticleJob` handler for job `6fb2a84685c8450183d67eb7`.
+* Verified Flask registered `POST /api/sites/<site_id>/content-jobs/<job_id>/publish`.
+
+### Risks / TODO
+
+* I did not click/test live publish because it writes to the production source site. The first real publish may still surface source-factory errors if that factory's native publish path is broken.
+

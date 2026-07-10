@@ -3352,6 +3352,10 @@ def regenerate_draft_button(job_id):
     return f"<button class='ghost mini-action' type='button' onclick=\"generateArticleJob('{escape(job_id, quote=True)}', 'Regenerating draft')\">Regenerate draft</button>"
 
 
+def publish_draft_button(job_id):
+    return f"<button class='ghost mini-action publish-action' type='button' onclick=\"publishArticleJob('{escape(job_id, quote=True)}')\">Publish</button>"
+
+
 def generating_progress_panel(job_id):
     safe_id = escape(job_id, quote=True)
     return f"""
@@ -3446,7 +3450,7 @@ def render_planned_publications(rows, site_languages=None):
         elif status == "GENERATING":
             action = generating_progress_panel(row["id"])
         elif status == "DRAFT":
-            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
+            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
         items.append(
             f"""
             <div class="planned-row {status_class}" data-group-id="{escape(group['id'], quote=True)}" data-job-id="{escape(row['id'], quote=True)}" data-status="{status_class}">
@@ -3484,7 +3488,7 @@ def render_content_jobs(content_page):
             descriptor = "Generation in progress"
         elif status == "DRAFT":
             status_label = "DRAFT"
-            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
+            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
             descriptor = "Draft ready for review"
         elif status == "PUBLISHED":
             status_label = "PUBLISHED"
@@ -5734,6 +5738,65 @@ def legacy_factory_generate_and_sync(site_id, job_id, factory_name, old_job_id, 
             )
 
 
+def publish_content_job(site_id, job_id):
+    with db() as conn:
+        site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
+        job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+    if not site or not job:
+        raise KeyError("job not found")
+    if job["status"] not in {"DRAFT", "PUBLISHED"}:
+        raise ValueError(f"Job status must be DRAFT or PUBLISHED before publish, got {job['status']}")
+    sources = content_job_sources(job)
+    factory_name = str(sources.get("migratedFrom") or "").strip()
+    old_job_id = str(sources.get("oldFactoryJobId") or "").strip()
+    if not factory_name or not old_job_id or sources.get("ownership") != "source_site_authoritative":
+        raise ValueError("Publish is currently available only for source-authoritative imported factory jobs")
+    base_url = legacy_factory_url(factory_name)
+    if not base_url:
+        raise RuntimeError(f"No legacy factory endpoint configured for {factory_name}")
+    quoted_job_id = urllib.parse.quote(old_job_id)
+    now = now_iso()
+    with db() as conn:
+        conn.execute(
+            "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+            (site_id, job_id, now, "INFO", "legacy-publish", f"Publishing via {factory_name} job {old_job_id}"),
+        )
+    try:
+        result = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}/publish", method="POST", timeout=900)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")[:1000]
+        raise RuntimeError(f"Legacy factory publish failed: HTTP {e.code}: {body}") from e
+    if isinstance(result, dict) and result.get("success") is False:
+        raise RuntimeError(result.get("error") or json.dumps(result, ensure_ascii=False)[:1000])
+    try:
+        detail = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}", timeout=30)
+        legacy = legacy_job_payload(detail)
+    except Exception:
+        legacy = {}
+    source_url = result.get("url") if isinstance(result, dict) else ""
+    path = result.get("path") if isinstance(result, dict) else ""
+    published_url = source_url or legacy.get("publishedUrl") or legacy.get("published_url") or path or content_job_source_url(site, job)
+    if published_url and not urllib.parse.urlsplit(str(published_url)).scheme:
+        published_url = urllib.parse.urljoin(public_site_base_url(site), str(published_url).lstrip("/"))
+    merged_sources = content_job_sources(job)
+    merged_sources["legacyFactoryResult"] = {
+        "factory": factory_name,
+        "jobId": old_job_id,
+        "status": legacy.get("status") or "PUBLISHED",
+        "publishResult": result,
+    }
+    with db() as conn:
+        conn.execute(
+            "update content_jobs set status='PUBLISHED', published_url=?, sources_json=?, error=NULL, updated_at=? where site_id=? and id=?",
+            (published_url, json.dumps(merged_sources, ensure_ascii=False), now_iso(), site_id, job_id),
+        )
+        conn.execute(
+            "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+            (site_id, job_id, now_iso(), "INFO", "legacy-publish", f"Published via {factory_name}: {published_url}"),
+        )
+    return {"ok": True, "jobId": job_id, "status": "PUBLISHED", "publishedUrl": published_url, "legacyFactory": factory_name, "legacyJobId": old_job_id, "result": result}
+
+
 def get_site_by_custom_host(host):
     host = clean_host(host)
     if not host:
@@ -6317,6 +6380,18 @@ def generate_content_job_route(site_id, job_id):
         return jsonify(generate_content_job(site_id, job_id))
     except KeyError:
         return jsonify({"error": "job not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/publish")
+def publish_content_job_route(site_id, job_id):
+    try:
+        return jsonify(publish_content_job(site_id, job_id))
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -6938,6 +7013,7 @@ function draftProgressStep(elapsed){if(elapsed<8)return 'Preparing article conte
 function startDraftProgress(label){stopDraftProgress(false);draftProgressStartedAt=Date.now();const startMessage=(label||'Generating draft')+' · 0:00 · Preparing article context and source-site rules';setBulkProgress(startMessage);showToast(startMessage);draftProgressTimer=setInterval(()=>{const elapsed=Date.now()-draftProgressStartedAt;const message=(label||'Generating draft')+' · '+formatElapsed(elapsed)+' · '+draftProgressStep(Math.floor(elapsed/1000));setBulkProgress(message);showToast(message);},1000);}
 function stopDraftProgress(complete){if(draftProgressTimer){clearInterval(draftProgressTimer);draftProgressTimer=null;}if(complete){setBulkProgress('Finalizing draft status...', false);}}
 async function generateArticleJob(jobId,label){const progressLabel=label||'Generating draft';showToast(progressLabel+'...');startDraftProgress(progressLabel);try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);stopDraftProgress(true);if(data.status==='GENERATING'){showToast('Generation started in source factory. Refreshing status...');setBulkProgress('Generation started in source factory. Reloading status...', false);setTimeout(()=>location.reload(),1800);}else{showToast('Draft generated: '+(data.slug||jobId));setBulkProgress('Draft generated. Reloading...', false);setTimeout(()=>location.reload(),900);}}catch(e){stopDraftProgress(false);setBulkProgress('Generation failed: '+e.message, false);clearBulkProgress();showToast('Generation failed: '+e.message);}}
+async function publishArticleJob(jobId){if(!confirm('Publish this draft to the source site now?'))return;showToast('Publishing to source site...');setBulkProgress('Publishing to source site...', true);try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/publish',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);setBulkProgress('Published. Reloading...', false);showToast('Published: '+(data.publishedUrl||jobId));setTimeout(()=>location.reload(),1200);}catch(e){setBulkProgress('Publish failed: '+e.message, false);clearBulkProgress();showToast('Publish failed: '+e.message);}}
 function generationRuntimeLabel(startedAt){const started=startedAt?Date.parse(startedAt):NaN;if(!Number.isFinite(started))return 'working...';return formatElapsed(Date.now()-started);}
 function updateGenerationElapsed(panel){const elapsed=panel.querySelector('[data-generation-elapsed]');if(elapsed)elapsed.textContent=generationRuntimeLabel(panel.dataset.generationStartedAt);}
 function updateGenerationPanel(panel,data){const job=data.job||{};const logs=data.logs||[];const latest=logs.length?logs[logs.length-1]:null;const note=panel.querySelector('[data-generation-note]');panel.dataset.generationStartedAt=job.updated_at||job.created_at||panel.dataset.generationStartedAt||'';updateGenerationElapsed(panel);if(note&&latest)note.textContent=(latest.step?latest.step+': ':'')+(latest.message||'Generation is still running.');}

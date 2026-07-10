@@ -43,6 +43,8 @@ It must be updated after every meaningful task.
   - `docs/` — durable project memory.
 
 ## 3. Business rules
+* Generate/regenerate, Preview, and Publish are separate operator actions. Generating a draft must not automatically publish it. `DRAFT` tasks need an explicit Publish action. For imported/source-authoritative jobs, Publish delegates to the original source factory rather than editing source-site files directly from Blog Core.
+
 
 * Blog Core must support arbitrary external sites, not just sites hosted on this VPS.
 * External sites should normally use hosted CNAME blog routing instead of requiring SSH/SFTP/Git/CMS access.
