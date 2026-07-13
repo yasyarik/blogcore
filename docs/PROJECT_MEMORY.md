@@ -419,6 +419,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: server-only `.env` (ignored), `app.py` OAuth start/callback routes and LinkedIn Setup card.
 * Replaced/deprecated: Pasting a manually obtained LinkedIn access token and personal URN into the Setup form.
 
+### 2026-07-13 — Podcast production is a separate reviewable content workflow
+
+* Decision: Blog Core creates podcast episodes from existing article content through a per-site workflow: script generation, Gemini TTS audio generation, review, then explicit publication to a stable Blog Core episode URL and RSS feed.
+* Reason: Audio generation must not implicitly publish an episode or overwrite an imported site's native design. Podcast assets and publication state need the same traceability as article and social work.
+* Files/areas affected: `podcast_settings`, `podcast_episodes`, ignored `data/podcast_assets/`, Podcast dashboard tab, podcast API/routes and RSS feed.
+* Replaced/deprecated: Treating an article narration as an untracked one-off asset or automatic source-site publication.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
@@ -436,3 +443,5 @@ It must be updated after every meaningful task.
 * Draft previews must not show breadcrumb navigation unless it is explicitly part of the required public page view. When the source template has reusable inline-media components, bind real generated draft image files to those components using source-site absolute URLs; do not show empty image frames or generic image markup.
 * Do not replace a user-authored source-site page design during integration. Extend its native data list/components and reuse its visual system for published and previewed factory content.
 * Do not cross-post an article summary unchanged. Select the social format from the article's evidence, audience intent, and the target channel's native behaviour, then validate its channel-specific constraints before storing or sending it.
+* Do not imply Gemini TTS prebuilt voices are voice cloning. A selected Gemini voice and per-site direction are supported; true custom/clone voice requires a separate Google Cloud Custom Voice arrangement and adapter.
+* Do not auto-publish podcast audio after generation. A ready episode must be reviewed and explicitly published. Native embedding on an imported source site must use that source factory's adapter rather than Blog Core changing its public template.

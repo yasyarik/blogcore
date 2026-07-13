@@ -3055,3 +3055,37 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * A draft whose images are not available in its source webroot must publish/stage its assets through that factory before preview can include them.
+
+## 2026-07-13 — Add Gemini podcast production and Blog Core publishing
+
+### Summary
+
+* Added a site-scoped Podcast workflow: choose a finished/imported article, generate a spoken script, synthesize Gemini TTS audio, review it in the dashboard, then explicitly publish it.
+* Published episodes receive a stable Blog Core episode page and are included in a per-site podcast RSS feed. Generation never publishes automatically.
+* Added per-site host name, Gemini voice, voice direction, and target-duration settings. Generated audio is WAV in ignored `data/podcast_assets/`.
+
+### Files changed
+
+* `app.py` — podcast SQLite schema/migration, Gemini TTS client, script and chunked-audio generation, audio/episode/RSS routes, API, and Podcast dashboard tab.
+* `docs/PROJECT_MEMORY.md` — durable podcast ownership, review, and custom-voice boundary.
+* `docs/INTEGRATIONS.md` — Gemini TTS integration contract and public routes.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Gemini prebuilt voices plus a per-site voice direction are supported now. True voice cloning is not represented as a Gemini TTS feature because Google documents it as a separate Cloud Custom Voice product/access path.
+* Blog Core publishes the audio to its own episode URL/feed. Imported source sites require their own explicit factory adapter for native embedding or source-site publication.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed before and after deployment.
+* Restarted `blog-yas-core`; `curl -fsS http://127.0.0.1:3299/health` returned `ok`.
+* Verified the site management page renders the new Podcast tab and production panel.
+* Verified an empty per-site RSS endpoint returns valid `application/rss+xml`.
+* Verified the create-episode API rejects an empty source article request without creating audio.
+
+### Risks / TODO
+
+* Gemini TTS is Preview and longer audio is generated in chunks to reduce quality drift; real content generation needs a selected article and incurs model usage.
+* WAV is reliable and avoids a new transcoding dependency. Add MP3/AAC transcode only when a distribution host requires it.
+* Native podcast pages/players on imported source sites are intentionally not changed by this implementation.

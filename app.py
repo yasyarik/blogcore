@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import wave
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from base64 import b64decode, b64encode
@@ -48,6 +49,8 @@ SOCIAL_ASSET_DIR = DATA_DIR / "social_assets"
 SOCIAL_ASSET_DIR.mkdir(exist_ok=True)
 ARTICLE_ASSET_DIR = DATA_DIR / "article_assets"
 ARTICLE_ASSET_DIR.mkdir(exist_ok=True)
+PODCAST_ASSET_DIR = DATA_DIR / "podcast_assets"
+PODCAST_ASSET_DIR.mkdir(exist_ok=True)
 
 
 def now_iso():
@@ -303,6 +306,37 @@ def init_db():
                 foreign key(site_id) references sites(id) on delete cascade
             );
             create index if not exists topic_discovery_runs_site_started_idx on topic_discovery_runs(site_id,started_at);
+            create table if not exists podcast_settings (
+                site_id integer primary key,
+                enabled integer not null default 0,
+                host_name text,
+                voice_name text not null default 'Kore',
+                voice_direction text,
+                target_minutes integer not null default 8,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create table if not exists podcast_episodes (
+                id text primary key,
+                site_id integer not null,
+                job_id text not null,
+                status text not null default 'DRAFT',
+                title text not null,
+                description text,
+                language text not null default 'en',
+                script_text text,
+                audio_filename text,
+                duration_seconds integer,
+                published_url text,
+                error text,
+                created_at text not null,
+                updated_at text not null,
+                published_at text,
+                foreign key(site_id) references sites(id) on delete cascade,
+                foreign key(job_id) references content_jobs(id) on delete cascade
+            );
+            create index if not exists podcast_episodes_site_created_idx on podcast_episodes(site_id,created_at desc);
+            create index if not exists podcast_episodes_site_job_idx on podcast_episodes(site_id,job_id);
             """
         )
         for statement in (
@@ -354,6 +388,11 @@ def init_db():
                 on conflict(site_id) do nothing
                 """,
                 (sid, sid, now_iso()),
+            )
+            conn.execute(
+                """insert into podcast_settings(site_id, host_name, updated_at) values(?,?,?)
+                   on conflict(site_id) do nothing""",
+                (sid, "", now_iso()),
             )
 
 
@@ -4077,6 +4116,90 @@ def render_distribution_settings(site_id):
     """
 
 
+PODCAST_VOICES = ("Kore", "Puck", "Aoede", "Charon", "Fenrir", "Leda", "Orus", "Zephyr")
+
+
+def get_podcast_settings(site_id):
+    with db() as conn:
+        row = conn.execute("select * from podcast_settings where site_id=?", (site_id,)).fetchone()
+    return row
+
+
+def podcast_asset_dir(site_id, episode_id):
+    return PODCAST_ASSET_DIR / str(int(site_id)) / re.sub(r"[^A-Za-z0-9_.-]", "_", str(episode_id))
+
+
+def podcast_audio_url(site_id, episode_id, filename):
+    return f"/sites/{int(site_id)}/podcasts/{urllib.parse.quote(str(episode_id), safe='')}/audio/{urllib.parse.quote(str(filename), safe='')}"
+
+
+def podcast_public_url(site_id, episode_id):
+    return f"{BLOG_CORE_PUBLIC_URL}/podcasts/{int(site_id)}/{urllib.parse.quote(str(episode_id), safe='')}"
+
+
+def podcast_rss_url(site_id):
+    return f"{BLOG_CORE_PUBLIC_URL}/podcasts/{int(site_id)}/feed.xml"
+
+
+def render_podcast_panel(site_id):
+    settings = get_podcast_settings(site_id)
+    enabled = "checked" if settings and int(settings["enabled"] or 0) else ""
+    voice = (settings["voice_name"] if settings else "Kore") or "Kore"
+    voice_options = "".join(f"<option value='{name}' {'selected' if name == voice else ''}>{name}</option>" for name in PODCAST_VOICES)
+    with db() as conn:
+        episodes = conn.execute(
+            """select pe.*, cj.title as article_title from podcast_episodes pe
+               left join content_jobs cj on cj.id=pe.job_id and cj.site_id=pe.site_id
+               where pe.site_id=? order by pe.created_at desc limit 40""",
+            (site_id,),
+        ).fetchall()
+        source_jobs = conn.execute(
+            """select id, title, topic, status from content_jobs
+               where site_id=? and status in ('DRAFT','PUBLISHED','IMPORTED')
+               order by updated_at desc limit 100""",
+            (site_id,),
+        ).fetchall()
+    source_options = "".join(
+        f"<option value='{escape(row['id'], quote=True)}'>{escape(row['title'] or row['topic'] or row['id'])} · {escape(row['status'])}</option>"
+        for row in source_jobs
+    ) or "<option value=''>No generated or imported articles available</option>"
+    rows = []
+    for episode in episodes:
+        audio = podcast_audio_url(site_id, episode["id"], episode["audio_filename"]) if episode["audio_filename"] else ""
+        review = f"<audio controls preload='none' src='{escape(audio, quote=True)}'></audio>" if audio else "<span class='muted'>Audio not ready</span>"
+        publish = ""
+        if episode["status"] == "READY":
+            publish = f"<button class='ghost mini-action' type='button' onclick=\"publishPodcast('{escape(episode['id'], quote=True)}')\">Publish episode</button>"
+        public = f"<a class='ghost mini-action' target='_blank' href='{escape(episode['published_url'], quote=True)}'>Open episode</a>" if episode["published_url"] else ""
+        error = f"<div class='planned-error'>{escape(episode['error'])}</div>" if episode["error"] else ""
+        rows.append(f"""
+        <article class='podcast-row'>
+          <div><strong>{escape(episode['title'])}</strong><span>{escape(episode['article_title'] or 'Source article unavailable')} · {escape(episode['language'])} · {escape(episode['status'])}</span>{error}</div>
+          <div class='podcast-actions'>{review}{publish}{public}</div>
+        </article>""")
+    episode_list = "".join(rows) or "<div class='planned-empty'>No podcast episodes yet. Select an article to create the first reviewable episode.</div>"
+    return f"""
+    <section class='panel production-panel podcast-panel'>
+      <div class='panel-title-row'><div><h2>Podcast production</h2><div class='muted'>Turn a finished article into a narrated episode. Script, audio, review, and publishing remain separate actions.</div></div></div>
+      <form id='podcastSettingsForm' class='form-grid' onsubmit='savePodcastSettings(event)'>
+        <label class='check full'><input type='checkbox' name='enabled' {enabled}> Enable podcasts for this site</label>
+        <div class='field'><label>Host name</label><input name='host_name' value='{escape((settings['host_name'] if settings else '') or '', quote=True)}' placeholder='Brand podcast host'></div>
+        <div class='field'><label>Gemini voice</label><select name='voice_name'>{voice_options}</select><div class='hint'>A per-site Gemini voice profile. This is a supported Gemini voice, not voice cloning.</div></div>
+        <div class='field'><label>Target minutes</label><input name='target_minutes' type='number' min='3' max='20' value='{int(settings['target_minutes'] if settings else 8)}'></div>
+        <div class='field'><label>Voice direction</label><input name='voice_direction' value='{escape((settings['voice_direction'] if settings else '') or '', quote=True)}' placeholder='Warm, confident, deliberate, conversational'></div>
+        <div class='actions full'><button type='submit'>Save podcast settings</button></div>
+      </form>
+      <div class='podcast-create'>
+        <div class='field'><label>Source article</label><select id='podcastSourceJob'>{source_options}</select></div>
+        <div class='actions'><button type='button' onclick='generatePodcast()'>Generate podcast episode</button></div>
+        <div id='podcastProgress' class='podcast-progress' hidden></div>
+      </div>
+      <div class='podcast-list'>{episode_list}</div>
+      <div class='hint'>Published episodes are hosted by Blog Core at stable episode URLs and included in <a target='_blank' href='{escape(podcast_rss_url(site_id), quote=True)}'>the podcast RSS feed</a>. Native source-site embedding requires that site's own factory adapter.</div>
+    </section>
+    """
+
+
 def render_site_switcher(current_site_id):
     with db() as conn:
         rows = conn.execute("select id, domain, brand_name from sites order by updated_at desc").fetchall()
@@ -4127,6 +4250,7 @@ def render_manage_site_page(site):
     content_jobs = render_content_jobs(content_page)
     distribution_settings = render_distribution_settings(site["id"])
     social_credentials_setup = render_social_credentials_setup(site["id"])
+    podcast_panel = render_podcast_panel(site["id"])
     preview = render_primary_site_link(site)
     colors = []
     fonts = []
@@ -4170,6 +4294,7 @@ def render_manage_site_page(site):
         .replace("__CONTENT_JOBS__", content_jobs)
         .replace("__DISTRIBUTION_SETTINGS__", distribution_settings)
         .replace("__SOCIAL_CREDENTIALS_SETUP__", social_credentials_setup)
+        .replace("__PODCAST_PANEL__", podcast_panel)
         .replace("__SITE_SWITCHER__", render_site_switcher(site["id"]))
     )
 
@@ -5513,6 +5638,174 @@ def _gemini_image_jpeg(prompt, aspect_ratio="4:5"):
         detail = e.read(1000).decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
         raise RuntimeError(f"Gemini image HTTP {e.code}: {detail[:900]}")
     return b64decode(_extract_interaction_image_b64(data))
+
+
+def _gemini_tts_pcm(transcript, voice_name, timeout=240):
+    """Generate mono 24 kHz PCM through Gemini TTS and return raw frames."""
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+    model = os.environ.get("GEMINI_TTS_MODEL") or "gemini-3.1-flash-tts-preview"
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": transcript}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice_name}}},
+        },
+    }
+    req = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(api_key, safe='')}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        inline = data["candidates"][0]["content"]["parts"][0].get("inlineData") or {}
+        raw = inline.get("data")
+        if not raw:
+            raise RuntimeError(f"Gemini TTS response did not include audio: {str(data)[:500]}")
+        return b64decode(raw)
+    except urllib.error.HTTPError as e:
+        detail = e.read(1200).decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
+        raise RuntimeError(f"Gemini TTS HTTP {e.code}: {detail[:1000]}")
+
+
+PODCAST_SCRIPT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "script": {"type": "string"},
+    },
+    "required": ["title", "description", "script"],
+}
+
+
+def podcast_transcript_chunks(script, limit=5200):
+    paragraphs = [re.sub(r"\s+", " ", item).strip() for item in re.split(r"\n\s*\n", script or "") if item.strip()]
+    chunks, current = [], ""
+    for paragraph in paragraphs:
+        candidate = f"{current}\n\n{paragraph}".strip()
+        if current and len(candidate) > limit:
+            chunks.append(current)
+            current = paragraph
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def build_podcast_script_prompt(site, job, settings):
+    article_text = strip_html_text(job["draft_html"] or "", 30000)
+    language = content_job_language(job, site)
+    minutes = max(3, min(20, int(settings["target_minutes"] or 8)))
+    host = (settings["host_name"] or site["brand_name"] or site["domain"]).strip()
+    return f"""
+Create a single-host podcast script from a finished website article.
+
+The script will be synthesized directly to audio. Return JSON only, following the supplied schema.
+
+Podcast settings:
+- site: {site['brand_name'] or site['domain']}
+- host: {host}
+- language: {LANGUAGE_NAMES.get(language, language)}
+- target duration: about {minutes} minutes
+- voice direction: {(settings['voice_direction'] or 'warm, clear, confident, conversational').strip()}
+
+Editorial rules:
+- Build a self-contained episode, not a reading of the article and not a promotional ad.
+- Start with a specific listener problem or surprising observation. Explain why it matters, provide the useful reasoning from the article, and end with a calm invitation to explore the original article.
+- Preserve facts from the source. Do not invent statistics, customer stories, or claims.
+- Use short spoken paragraphs and natural transitions. Avoid headings, bullets, markdown, URLs, citations, stage directions, and voice tags in the spoken script.
+- Do not read the title twice. Do not mention that this was generated by AI.
+- Keep the final script within roughly {minutes * 115 - 120} to {minutes * 145} words.
+
+Source article title: {job['title'] or job['topic']}
+Source article description: {job['description'] or ''}
+Source article:
+{article_text}
+""".strip()
+
+
+def generate_podcast_episode(site_id, job_id):
+    with db() as conn:
+        site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
+        job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+        settings = conn.execute("select * from podcast_settings where site_id=?", (site_id,)).fetchone()
+    if not site or not job:
+        raise KeyError("article not found")
+    if not settings or not int(settings["enabled"] or 0):
+        raise ValueError("Enable podcasts for this site before generating an episode")
+    if not (job["draft_html"] or "").strip():
+        raise ValueError("The selected article has no readable draft content")
+    episode_id = secrets.token_hex(12)
+    created = now_iso()
+    with db() as conn:
+        conn.execute(
+            """insert into podcast_episodes(id,site_id,job_id,status,title,language,created_at,updated_at)
+               values(?,?,?,?,?,?,?,?)""",
+            (episode_id, site_id, job_id, "GENERATING", job["title"] or job["topic"] or "Podcast episode", content_job_language(job, site), created, created),
+        )
+    try:
+        script_data = _gemini_text_json(build_podcast_script_prompt(site, job, settings), response_schema=PODCAST_SCRIPT_SCHEMA, temperature=0.45, repair=False)
+        script = re.sub(r"\s+", " ", str(script_data.get("script") or "")).strip()
+        words = len(re.findall(r"\b[\w'-]+\b", script))
+        if words < 300:
+            raise ValueError("Podcast script is too short")
+        if words > 3200:
+            raise ValueError("Podcast script is too long")
+        chunks = podcast_transcript_chunks(script)
+        if not chunks:
+            raise ValueError("Podcast script is empty")
+        pcm_parts = []
+        voice_name = settings["voice_name"] if settings["voice_name"] in PODCAST_VOICES else "Kore"
+        for index, chunk in enumerate(chunks):
+            prompt = f"Synthesize the following podcast transcript naturally. Do not read this instruction aloud.\n\nSpoken transcript:\n{chunk}"
+            try:
+                pcm_parts.append(_gemini_tts_pcm(prompt, voice_name))
+            except RuntimeError:
+                # Gemini TTS preview can sporadically return a transient 500. Retry once per chunk.
+                if index < len(chunks):
+                    pcm_parts.append(_gemini_tts_pcm(prompt, voice_name))
+                else:
+                    raise
+        pcm = b"".join(pcm_parts)
+        asset_dir = podcast_asset_dir(site_id, episode_id)
+        asset_dir.mkdir(parents=True, exist_ok=True)
+        filename = "episode.wav"
+        with wave.open(str(asset_dir / filename), "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(24000)
+            output.writeframes(pcm)
+        duration_seconds = max(1, len(pcm) // (24000 * 2))
+        with db() as conn:
+            conn.execute(
+                """update podcast_episodes set status='READY',title=?,description=?,script_text=?,audio_filename=?,duration_seconds=?,error=NULL,updated_at=?
+                   where id=? and site_id=?""",
+                (str(script_data.get("title") or job["title"] or job["topic"]), str(script_data.get("description") or ""), script, filename, duration_seconds, now_iso(), episode_id, site_id),
+            )
+        return {"ok": True, "episodeId": episode_id, "status": "READY", "durationSeconds": duration_seconds}
+    except Exception as e:
+        with db() as conn:
+            conn.execute("update podcast_episodes set status='ERROR',error=?,updated_at=? where id=? and site_id=?", (str(e), now_iso(), episode_id, site_id))
+        raise
+
+
+def publish_podcast_episode(site_id, episode_id):
+    with db() as conn:
+        episode = conn.execute("select * from podcast_episodes where id=? and site_id=?", (episode_id, site_id)).fetchone()
+    if not episode:
+        raise KeyError("episode not found")
+    if episode["status"] not in {"READY", "PUBLISHED"} or not episode["audio_filename"]:
+        raise ValueError("Generate a ready audio episode before publishing")
+    url = podcast_public_url(site_id, episode_id)
+    with db() as conn:
+        conn.execute("update podcast_episodes set status='PUBLISHED',published_url=?,published_at=?,updated_at=? where id=? and site_id=?", (url, now_iso(), now_iso(), episode_id, site_id))
+    return {"ok": True, "episodeId": episode_id, "status": "PUBLISHED", "publishedUrl": url}
 
 
 def build_site_topic_profile_prompt(site, theme):
@@ -6932,6 +7225,56 @@ def list_content_jobs(site_id):
     })
 
 
+@app.put("/api/sites/<int:site_id>/podcast-settings")
+def update_podcast_settings(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    voice_name = str(payload.get("voiceName") or "Kore").strip()
+    if voice_name not in PODCAST_VOICES:
+        return jsonify({"error": "unsupported Gemini voice"}), 400
+    try:
+        target_minutes = max(3, min(20, int(payload.get("targetMinutes") or 8)))
+    except (TypeError, ValueError):
+        return jsonify({"error": "target minutes must be a number"}), 400
+    with db() as conn:
+        conn.execute(
+            """insert into podcast_settings(site_id,enabled,host_name,voice_name,voice_direction,target_minutes,updated_at)
+               values(?,?,?,?,?,?,?)
+               on conflict(site_id) do update set enabled=excluded.enabled,host_name=excluded.host_name,
+                 voice_name=excluded.voice_name,voice_direction=excluded.voice_direction,target_minutes=excluded.target_minutes,
+                 updated_at=excluded.updated_at""",
+            (site_id, 1 if payload.get("enabled") else 0, str(payload.get("hostName") or "").strip(), voice_name,
+             str(payload.get("voiceDirection") or "").strip(), target_minutes, now_iso()),
+        )
+    return jsonify({"ok": True})
+
+
+@app.post("/api/sites/<int:site_id>/podcast-episodes")
+def create_podcast_episode(site_id):
+    payload = request.get_json(silent=True) or {}
+    try:
+        return jsonify(generate_podcast_episode(site_id, str(payload.get("jobId") or "").strip()))
+    except KeyError:
+        return jsonify({"error": "article not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/sites/<int:site_id>/podcast-episodes/<episode_id>/publish")
+def publish_podcast_episode_route(site_id, episode_id):
+    try:
+        return jsonify(publish_podcast_episode(site_id, episode_id))
+    except KeyError:
+        return jsonify({"error": "episode not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.get("/api/sites/<int:site_id>/content-jobs/<job_id>")
 def get_content_job(site_id, job_id):
     maybe_sync_legacy_factory_status(site_id, job_id)
@@ -7107,6 +7450,48 @@ def serve_article_asset(site_id, job_id, filename):
     if not (directory / filename).is_file():
         abort(404)
     return send_from_directory(directory, filename)
+
+
+@app.get("/sites/<int:site_id>/podcasts/<episode_id>/audio/<filename>")
+def serve_podcast_audio(site_id, episode_id, filename):
+    if filename != "episode.wav" or not re.fullmatch(r"[A-Za-z0-9_.-]+", episode_id or ""):
+        abort(404)
+    directory = podcast_asset_dir(site_id, episode_id)
+    if not (directory / filename).is_file():
+        abort(404)
+    return send_from_directory(directory, filename, mimetype="audio/wav", as_attachment=False)
+
+
+@app.get("/podcasts/<int:site_id>/<episode_id>")
+def public_podcast_episode(site_id, episode_id):
+    with db() as conn:
+        episode = conn.execute(
+            """select pe.*, s.brand_name, s.domain from podcast_episodes pe join sites s on s.id=pe.site_id
+               where pe.site_id=? and pe.id=? and pe.status='PUBLISHED'""",
+            (site_id, episode_id),
+        ).fetchone()
+    if not episode:
+        abort(404)
+    audio = podcast_audio_url(site_id, episode_id, episode["audio_filename"])
+    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{escape(episode['title'])}</title><meta name=\"description\" content=\"{escape(episode['description'] or '', quote=True)}\"><style>body{{margin:0;background:#0b1020;color:#f8fafc;font:17px/1.6 Inter,system-ui,sans-serif}}main{{max-width:760px;margin:auto;padding:52px 20px}}a{{color:#a7f3d0}}.eyebrow{{color:#a7f3d0;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.08em}}h1{{font-size:clamp(34px,7vw,64px);line-height:1;letter-spacing:-.04em}}p{{color:#cbd5e1}}audio{{width:100%;margin:24px 0}}.note{{margin-top:32px;padding-top:18px;border-top:1px solid #334155;font-size:13px}}</style></head><body><main><div class=\"eyebrow\">{escape(episode['brand_name'] or episode['domain'])} podcast</div><h1>{escape(episode['title'])}</h1><p>{escape(episode['description'] or '')}</p><audio controls preload=\"metadata\" src=\"{escape(audio, quote=True)}\"></audio><p class=\"note\">Generated episode. <a href=\"{escape(podcast_rss_url(site_id), quote=True)}\">Podcast RSS feed</a></p></main></body></html>"""
+    return Response(html, mimetype="text/html")
+
+
+@app.get("/podcasts/<int:site_id>/feed.xml")
+def public_podcast_feed(site_id):
+    with db() as conn:
+        site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
+        episodes = conn.execute("select * from podcast_episodes where site_id=? and status='PUBLISHED' order by published_at desc", (site_id,)).fetchall()
+    if not site:
+        abort(404)
+    channel_title = (site["brand_name"] or site["domain"]) + " Podcast"
+    items = []
+    for episode in episodes:
+        audio = urllib.parse.urljoin(BLOG_CORE_PUBLIC_URL + "/", podcast_audio_url(site_id, episode["id"], episode["audio_filename"]).lstrip("/"))
+        page = episode["published_url"] or podcast_public_url(site_id, episode["id"])
+        items.append(f"<item><title>{escape(episode['title'])}</title><description>{escape(episode['description'] or '')}</description><guid>{escape(page)}</guid><link>{escape(page)}</link><pubDate>{escape(episode['published_at'] or episode['updated_at'])}</pubDate><enclosure url=\"{escape(audio, quote=True)}\" type=\"audio/wav\" length=\"0\"/></item>")
+    xml = f"<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\"><channel><title>{escape(channel_title)}</title><link>{escape(BLOG_CORE_PUBLIC_URL)}</link><description>{escape(channel_title)}</description>{''.join(items)}</channel></rss>"
+    return Response(xml, mimetype="application/rss+xml")
 
 
 @app.get("/sites/<int:site_id>/social-posts/<int:post_id>")
@@ -7669,7 +8054,8 @@ button[disabled]{opacity:.55;cursor:not-allowed}
 .tab-panel[hidden]{display:none}
 .tab-panel{display:grid;gap:18px}
 .tab-panel>.panel:first-child{margin-top:0}
-@media(max-width:900px){.content-toolbar{justify-content:flex-start;align-items:flex-start}.type-switcher{justify-content:flex-start}.content-pagination{flex-wrap:wrap}.social-credentials-grid,.social-credential-fields{grid-template-columns:1fr}}
+.podcast-create{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end;margin:20px 0 16px;padding-top:18px;border-top:1px solid var(--line)}.podcast-progress{grid-column:1 / -1;border:1px solid rgba(139,92,246,.42);border-radius:14px;background:rgba(139,92,246,.14);color:#ddd6fe;padding:10px 12px;font-size:13px;font-weight:800}.podcast-list{display:grid;gap:10px}.podcast-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px}.podcast-row strong{display:block;font-size:14px}.podcast-row span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.podcast-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.podcast-actions audio{height:34px;max-width:260px}
+@media(max-width:900px){.content-toolbar{justify-content:flex-start;align-items:flex-start}.type-switcher{justify-content:flex-start}.content-pagination{flex-wrap:wrap}.social-credentials-grid,.social-credential-fields,.podcast-create{grid-template-columns:1fr}.podcast-row{grid-template-columns:1fr}.podcast-actions{justify-content:flex-start}}
 </style>
 </head>
 <body>
@@ -7687,6 +8073,7 @@ button[disabled]{opacity:.55;cursor:not-allowed}
     <button class="tab active" type="button" role="tab" aria-selected="true" data-tab="content">Content</button>
     <button class="tab" type="button" role="tab" aria-selected="false" data-tab="discovery">Discovery</button>
     <button class="tab" type="button" role="tab" aria-selected="false" data-tab="distribution">Distribution</button>
+    <button class="tab" type="button" role="tab" aria-selected="false" data-tab="podcasts">Podcasts</button>
     <button class="tab" type="button" role="tab" aria-selected="false" data-tab="activity">Activity</button>
     <button class="tab" type="button" role="tab" aria-selected="false" data-tab="setup">Setup</button>
   </nav>
@@ -7754,6 +8141,10 @@ button[disabled]{opacity:.55;cursor:not-allowed}
 
   <div class="tab-panel" data-panel="distribution" hidden>
   __DISTRIBUTION_SETTINGS__
+  </div>
+
+  <div class="tab-panel" data-panel="podcasts" hidden>
+  __PODCAST_PANEL__
   </div>
 
   <div class="tab-panel" data-panel="discovery" hidden>
@@ -7828,6 +8219,10 @@ function socialCredentialsFromForm(form){const fd=new FormData(form);const crede
 async function saveSocialCredentials(event,provider){event.preventDefault();const form=event.currentTarget;const credentials=socialCredentialsFromForm(form);showToast('Saving '+provider+' credentials...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(provider+' credentials saved: '+data.status);setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 async function testSocialConnection(provider){const form=document.querySelector('.social-credentials-card[data-provider="'+provider+'"]');const credentials=form?socialCredentialsFromForm(form):{};showToast('Testing '+provider+' connection...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider)+'/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.message||data.error||res.statusText);showToast(data.message||provider+' connected');setTimeout(()=>location.reload(),900);}catch(e){showToast('Connection test failed: '+e.message);}}
 async function connectLinkedIn(siteId){showToast('Opening LinkedIn authorization...');try{const res=await fetch('/api/sites/'+siteId+'/social-connections/linkedin/connect',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);window.location.assign(data.authUrl);}catch(e){showToast('LinkedIn connection failed: '+e.message);}}
+function setPodcastProgress(text){const box=document.getElementById('podcastProgress');if(!box)return;box.hidden=false;box.textContent=text;}
+async function savePodcastSettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const body={enabled:fd.has('enabled'),hostName:fd.get('host_name')||'',voiceName:fd.get('voice_name')||'Kore',voiceDirection:fd.get('voice_direction')||'',targetMinutes:Number(fd.get('target_minutes')||8)};showToast('Saving podcast settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/podcast-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Podcast settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Podcast settings failed: '+e.message);}}
+async function generatePodcast(){const jobId=document.getElementById('podcastSourceJob')?.value||'';if(!jobId){showToast('Select an article first');return;}if(!confirm('Generate a podcast script and Gemini audio for this article? It will remain unpublished for review.'))return;let seconds=0;setPodcastProgress('Generating podcast script and audio. This can take several minutes. 0:00');const timer=setInterval(()=>{seconds++;setPodcastProgress('Generating podcast script and audio. Long episodes are synthesized in reliable audio chunks. '+Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0'));},1000);showToast('Generating podcast episode...');try{const res=await fetch('/api/sites/'+SITE_ID+'/podcast-episodes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);setPodcastProgress('Episode ready for review. Reloading...');showToast('Podcast episode ready');setTimeout(()=>location.reload(),900);}catch(e){setPodcastProgress('Podcast generation failed: '+e.message);showToast('Podcast generation failed: '+e.message);}finally{clearInterval(timer);}}
+async function publishPodcast(episodeId){if(!confirm('Publish this reviewed podcast episode to the Blog Core podcast feed now?'))return;showToast('Publishing podcast episode...');try{const res=await fetch('/api/sites/'+SITE_ID+'/podcast-episodes/'+encodeURIComponent(episodeId)+'/publish',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Podcast published');setTimeout(()=>location.reload(),800);}catch(e){showToast('Podcast publishing failed: '+e.message);}}
 let currentImportArticles=[];
 function renderImportArticles(items,warnings){const box=document.getElementById('importBlogResult');currentImportArticles=items||[];const note=(warnings&&warnings.length)?'<div class="hint">Notes: '+warnings.map(w=>String(w)).join(' · ')+'</div>':'';if(!currentImportArticles.length){box.className='loading';box.innerHTML='No importable article URLs found.'+note;return;}box.className='import-list';box.innerHTML='<div class="muted">Found '+currentImportArticles.length+' article URLs. Review and import only the ones that should remain live.</div>'+note+currentImportArticles.map((item,index)=>`<label class="import-row"><input type="checkbox" data-index="${index}" checked><div><strong>${item.slug||item.url}</strong><span>${item.url}</span></div></label>`).join('');}
 async function scanExistingBlog(){const box=document.getElementById('importBlogResult');box.className='loading';box.textContent='Scanning sitemap and /blog/ links...';try{const res=await fetch('/api/sites/'+SITE_ID+'/import-blog/scan',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);renderImportArticles(data.articles||[],data.warnings||[]);showToast('Found '+(data.articles||[]).length+' importable URLs');}catch(e){box.className='loading';box.textContent='Import scan failed: '+e.message;showToast('Import scan failed: '+e.message);}}

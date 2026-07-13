@@ -86,6 +86,15 @@ Pending parity work after the initial backbone:
 * Port autopublish runner and scheduled topic discovery runner.
 * Port final publish renderer/localization/sitemap/GSC behavior into the hosted/local Blog Core publishing model.
 
+## Gemini podcast TTS
+
+* Podcast production is configured per site in `podcast_settings`: enabled state, host label, Gemini voice name, voice direction, and target duration. No credential is stored in this table; Gemini uses the server-side `GEMINI_API_KEY` or `GOOGLE_API_KEY` already used by the factory.
+* `POST /api/sites/{site_id}/podcast-episodes` creates a reviewable episode from a selected article. Blog Core first produces a spoken script with the text model, then sends chunked transcript text to Gemini TTS and assembles mono 24 kHz WAV audio under ignored `data/podcast_assets/{site_id}/{episode_id}/`.
+* The default TTS model is `gemini-3.1-flash-tts-preview`; `GEMINI_TTS_MODEL` can override it. Gemini TTS is preview software and can occasionally fail transiently, so chunk-level retry is implemented. Do not store API keys or generated audio in Git.
+* Supported selected voice names are Gemini prebuilt voices. They are site-specific voice profiles combined with direction such as pace/tone; they are not custom voice cloning. Google Cloud Custom Voice is a separate product/access path and requires a dedicated future adapter if enabled.
+* Audio review is available in the Podcast tab through `/sites/{site_id}/podcasts/{episode_id}/audio/episode.wav`. Explicit publication creates the Blog Core URL `/podcasts/{site_id}/{episode_id}` and includes it in `/podcasts/{site_id}/feed.xml`.
+* Blog Core-hosted podcast publication does not alter an imported source site's design or template. Publishing/embed back into an imported source site needs an explicit native source-factory adapter.
+
 ## Existing blog import
 
 * Per-site import endpoints scan existing public `/blog/` URLs from `sitemap_index.xml`, `sitemap.xml`, `sitemap-blog.xml`, `/blog/sitemap.xml`, and `/blog/` links for external sites.
