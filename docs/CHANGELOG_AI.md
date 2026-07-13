@@ -2,6 +2,31 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-13 — Add LinkedIn personal OAuth connection
+
+### Summary
+
+* Added `Connect LinkedIn` to the per-site Setup card when server OAuth credentials are configured.
+* Added a state-protected OAuth authorization-code start/callback flow that stores the issued personal access token and derived `urn:li:person:<id>` only after LinkedIn authorization completes.
+* Stored the provided LinkedIn application credentials in the ignored server `.env` with restricted file permissions; they were not committed or rendered.
+
+### Files changed
+
+* `app.py` — LinkedIn OAuth helpers, start/callback routes, and Setup action.
+* Server-only `.env` — LinkedIn OAuth application settings; ignored and not committed.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — document the durable connection contract without secrets.
+
+### Checks run
+
+* `python3 -m py_compile app.py`.
+* Restarted `blog-yas-core`; `/health` returns `ok`.
+* Verified the OAuth start route returns LinkedIn authorization URL with the configured callback, a state value, and `openid profile w_member_social` scopes.
+* Verified the `Connect LinkedIn` button appears on the YAS site Setup screen.
+
+### Risks / TODO
+
+* This flow connects the personal profile because the LinkedIn app currently exposes `w_member_social`. Company-page publishing needs the relevant organization scope and organization role/URN.
+
 ## 2026-07-13 — Make social drafts native and route five networks through Zernio
 
 ### Summary

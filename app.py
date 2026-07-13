@@ -39,6 +39,7 @@ LEGACY_FACTORY_ENDPOINTS = {
     "content-factory-laycanmatch": os.environ.get("LEGACY_FACTORY_LAYCANMATCH_URL", "http://127.0.0.1:13157").rstrip("/"),
 }
 LEGACY_STATUS_CHECKS = {}
+LINKEDIN_OAUTH_STATES = {}
 
 app = Flask(__name__)
 DATA_DIR.mkdir(exist_ok=True)
@@ -593,6 +594,30 @@ def fetch_json_request(url, headers=None, data=None, method="GET", timeout=25):
         except Exception:
             parsed = {"raw": raw[:500]}
         return parsed, resp.status
+
+
+def fetch_form_json_request(url, fields, headers=None, timeout=25):
+    body = urllib.parse.urlencode(fields).encode("utf-8")
+    request_headers = {
+        "User-Agent": "YASBlogCore/0.1 (+https://blog.yas.ooo)",
+        "Content-Type": "application/x-www-form-urlencoded",
+        **(headers or {}),
+    }
+    req = urllib.request.Request(url, data=body, headers=request_headers, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read(300000).decode("utf-8", errors="replace")
+        try:
+            return json.loads(raw), resp.status
+        except Exception:
+            return {"raw": raw[:500]}, resp.status
+
+
+def linkedin_oauth_configured():
+    return bool(os.environ.get("LINKEDIN_CLIENT_ID") and os.environ.get("LINKEDIN_CLIENT_SECRET"))
+
+
+def linkedin_oauth_redirect_uri():
+    return os.environ.get("LINKEDIN_OAUTH_REDIRECT_URI", "https://blog.yas.ooo/oauth/linkedin/callback").strip()
 
 
 def oauth1_header(method, url, consumer_key, consumer_secret, token, token_secret, params=None):
@@ -3875,12 +3900,15 @@ def render_social_credentials_setup(site_id):
                 """
             )
         meta = f" · {escape(display_name)}" if display_name else ""
+        connect_action = ""
+        if provider == "linkedin" and linkedin_oauth_configured():
+            connect_action = f"<button class='ghost mini-action' type='button' onclick=\"connectLinkedIn({int(site_id)})\">Connect LinkedIn</button>"
         cards.append(
             f"""
             <form class="social-credentials-card" data-provider="{escape(provider)}" onsubmit="saveSocialCredentials(event, '{escape(provider)}')">
               <div class="channel-head">
                 <div><strong>{escape(config['label'])}</strong><span class="channel-state {status_class}">{escape(status)}{meta}</span></div>
-                <button class="ghost mini-action" type="button" onclick="testSocialConnection('{escape(provider)}')">Test connect</button>
+                {connect_action}<button class="ghost mini-action" type="button" onclick="testSocialConnection('{escape(provider)}')">Test connect</button>
               </div>
               <div class="social-credential-fields">{''.join(fields)}</div>
               <div class="actions">
@@ -6553,6 +6581,73 @@ def test_social_connection_route(site_id, provider):
     return jsonify({"ok": bool(result.get("ok")), "provider": provider, "status": result["status"], "message": result.get("message", "")}), code
 
 
+@app.post("/api/sites/<int:site_id>/social-connections/linkedin/connect")
+def linkedin_connect_route(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    if not linkedin_oauth_configured():
+        return jsonify({"error": "LinkedIn OAuth is not configured on this server."}), 503
+    state = secrets.token_urlsafe(32)
+    now = time.time()
+    for key, value in list(LINKEDIN_OAUTH_STATES.items()):
+        if value.get("expiresAt", 0) < now:
+            LINKEDIN_OAUTH_STATES.pop(key, None)
+    LINKEDIN_OAUTH_STATES[state] = {"siteId": site_id, "expiresAt": now + 600}
+    query = urllib.parse.urlencode({
+        "response_type": "code",
+        "client_id": os.environ["LINKEDIN_CLIENT_ID"],
+        "redirect_uri": linkedin_oauth_redirect_uri(),
+        "state": state,
+        "scope": "openid profile w_member_social",
+    })
+    return jsonify({"ok": True, "authUrl": f"https://www.linkedin.com/oauth/v2/authorization?{query}"})
+
+
+@app.get("/oauth/linkedin/callback")
+def linkedin_oauth_callback():
+    error = request.args.get("error")
+    state = request.args.get("state") or ""
+    record = LINKEDIN_OAUTH_STATES.pop(state, None)
+    if error:
+        return Response(f"LinkedIn authorization was not completed: {escape(error)}", status=400, mimetype="text/html")
+    if not record or record.get("expiresAt", 0) < time.time():
+        return Response("LinkedIn authorization expired. Start Connect LinkedIn again.", status=400, mimetype="text/html")
+    code = request.args.get("code") or ""
+    if not code or not linkedin_oauth_configured():
+        return Response("LinkedIn authorization is missing a code or server configuration.", status=400, mimetype="text/html")
+    try:
+        token_data, _ = fetch_form_json_request(
+            "https://www.linkedin.com/oauth/v2/accessToken",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": linkedin_oauth_redirect_uri(),
+                "client_id": os.environ["LINKEDIN_CLIENT_ID"],
+                "client_secret": os.environ["LINKEDIN_CLIENT_SECRET"],
+            },
+        )
+        access_token = str(token_data.get("access_token") or "").strip()
+        if not access_token:
+            raise ValueError(token_data.get("error_description") or token_data.get("error") or "LinkedIn did not return an access token.")
+        user, _ = fetch_json_request("https://api.linkedin.com/v2/userinfo", headers={"Authorization": f"Bearer {access_token}"})
+        person_id = str(user.get("sub") or "").strip()
+        if not person_id:
+            raise ValueError(user.get("message") or "LinkedIn did not return the personal profile id.")
+        site_id = int(record["siteId"])
+        display_name = str(user.get("name") or "LinkedIn member").strip()
+        upsert_social_connection(
+            site_id,
+            "linkedin",
+            {"access_token": access_token, "author_urn": f"urn:li:person:{person_id}"},
+            status="connected",
+            display_name=display_name,
+            settings={"oauthConnectedAt": now_iso(), "authorType": "person"},
+        )
+        return redirect(f"/sites/{site_id}#setup", code=302)
+    except Exception as exc:
+        return Response(f"LinkedIn connection failed: {escape(str(exc))}", status=502, mimetype="text/html")
+
+
 @app.get("/api/sites/<int:site_id>/topic-signals")
 def topic_signals(site_id):
     site = get_site(site_id)
@@ -7732,6 +7827,7 @@ async function saveFactorySettings(event){event.preventDefault();const form=even
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}
 async function saveSocialCredentials(event,provider){event.preventDefault();const form=event.currentTarget;const credentials=socialCredentialsFromForm(form);showToast('Saving '+provider+' credentials...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(provider+' credentials saved: '+data.status);setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 async function testSocialConnection(provider){const form=document.querySelector('.social-credentials-card[data-provider="'+provider+'"]');const credentials=form?socialCredentialsFromForm(form):{};showToast('Testing '+provider+' connection...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider)+'/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.message||data.error||res.statusText);showToast(data.message||provider+' connected');setTimeout(()=>location.reload(),900);}catch(e){showToast('Connection test failed: '+e.message);}}
+async function connectLinkedIn(siteId){showToast('Opening LinkedIn authorization...');try{const res=await fetch('/api/sites/'+siteId+'/social-connections/linkedin/connect',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);window.location.assign(data.authUrl);}catch(e){showToast('LinkedIn connection failed: '+e.message);}}
 let currentImportArticles=[];
 function renderImportArticles(items,warnings){const box=document.getElementById('importBlogResult');currentImportArticles=items||[];const note=(warnings&&warnings.length)?'<div class="hint">Notes: '+warnings.map(w=>String(w)).join(' · ')+'</div>':'';if(!currentImportArticles.length){box.className='loading';box.innerHTML='No importable article URLs found.'+note;return;}box.className='import-list';box.innerHTML='<div class="muted">Found '+currentImportArticles.length+' article URLs. Review and import only the ones that should remain live.</div>'+note+currentImportArticles.map((item,index)=>`<label class="import-row"><input type="checkbox" data-index="${index}" checked><div><strong>${item.slug||item.url}</strong><span>${item.url}</span></div></label>`).join('');}
 async function scanExistingBlog(){const box=document.getElementById('importBlogResult');box.className='loading';box.textContent='Scanning sitemap and /blog/ links...';try{const res=await fetch('/api/sites/'+SITE_ID+'/import-blog/scan',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);renderImportArticles(data.articles||[],data.warnings||[]);showToast('Found '+(data.articles||[]).length+' importable URLs');}catch(e){box.className='loading';box.textContent='Import scan failed: '+e.message;showToast('Import scan failed: '+e.message);}}

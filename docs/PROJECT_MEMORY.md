@@ -412,6 +412,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `app.py` social prompt builders, validators, asset generation, social review routes.
 * Replaced/deprecated: One generic text-only social prompt for all providers.
 
+### 2026-07-13 — LinkedIn personal-profile OAuth connection
+
+* Decision: Blog Core provides a server-side OAuth authorization-code flow for LinkedIn personal-profile publishing. The configured callback is `https://blog.yas.ooo/oauth/linkedin/callback`; successful authorization stores only the issued access token and `urn:li:person:<id>` for the selected site.
+* Reason: Client ID/secret are application credentials, not a publish token or author identity. Operators should not copy temporary access tokens or URNs manually.
+* Files/areas affected: server-only `.env` (ignored), `app.py` OAuth start/callback routes and LinkedIn Setup card.
+* Replaced/deprecated: Pasting a manually obtained LinkedIn access token and personal URN into the Setup form.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
