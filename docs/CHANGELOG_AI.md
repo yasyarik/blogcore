@@ -2,6 +2,30 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-13 — Integrate Blog Core into the new YAS use-cases design
+
+### Summary
+
+* Preserved the user-authored `/use-cases/` cinematic page without replacing its hero, existing cards, imagery, navigation, or CSS.
+* Added published factory use cases after the existing four entries in the same alternating operating-case layout.
+* Added a native dark use-case detail/preview renderer so factory-generated money pages do not fall back to the generic article template.
+
+### Files changed
+
+* `/opt/yas-ooo/src/app/use-cases/page.tsx` — reads published use-case records and appends them to the existing design.
+* `/opt/yas-ooo/src/components/ManagedUseCasePage.tsx`, `/opt/yas-ooo/src/app/use-cases/[slug]/page.tsx`, `/opt/yas-ooo/src/app/content-preview/[jobId]/page.tsx`, and `use-cases.module.css` — render managed use-case details and previews in the source visual system.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — record the source-design preservation rule.
+
+### Checks run
+
+* `npm run build` in `/opt/yas-ooo`.
+* Restarted `yas-ooo.service`.
+* Added and removed a temporary managed use-case record: it appeared in the index after the four existing cases; its detail response contained `useCasesFilm`, `YAS / IMPLEMENTATION USE CASE`, and `IMPLEMENTATION BRIEF`.
+
+### Risks / TODO
+
+* No permanent content record was created by the integration test.
+
 ## 2026-07-13 — Make native YAS sitemap publication-driven
 
 ### Summary

@@ -375,6 +375,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `/opt/yas-ooo/src/app/sitemap.ts`.
 * Replaced/deprecated: Build-time-only sitemap output for native published content.
 
+### 2026-07-13 — Preserve the YAS use-cases visual system for factory output
+
+* Decision: The user-owned YAS `/use-cases/` cinematic design is the authoritative template. Published factory use cases append to its existing operating-case list, and their detail/preview pages use the same dark `useCasesFilm` visual system.
+* Reason: Blog Core is the content factory/control plane, not a replacement for the source site's design. A use-case publication must not fall back to the generic light article template.
+* Files/areas affected: YAS `use-cases/page.tsx`, `use-cases/[slug]/page.tsx`, `use-cases.module.css`, `ManagedUseCasePage`, and `content-preview/[jobId]/page.tsx`.
+* Replaced/deprecated: Rendering managed use-case detail and preview pages through `ManagedArticlePage`.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
@@ -390,3 +397,4 @@ It must be updated after every meaningful task.
 * A source-factory preview must preserve the actual current source-page shell from that site's webroot, including head/CSS, header, footer, breadcrumbs, and current navigation/CTA links. Do not assume the factory's v3 shell is visually current.
 * Preserve the source page's internal template classes and blocks too. Bind draft values to the existing hero/article/TOC/FAQ/recommendation slots rather than replacing a live page's content area with a different factory layout. If a new draft image has not been deployed to the source site, retain the existing template image instead of showing an empty media block.
 * Draft previews must not show breadcrumb navigation unless it is explicitly part of the required public page view. When the source template has reusable inline-media components, bind real generated draft image files to those components using source-site absolute URLs; do not show empty image frames or generic image markup.
+* Do not replace a user-authored source-site page design during integration. Extend its native data list/components and reuse its visual system for published and previewed factory content.
