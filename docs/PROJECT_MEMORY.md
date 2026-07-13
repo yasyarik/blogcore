@@ -349,7 +349,7 @@ It must be updated after every meaningful task.
 
 ### 2026-07-13 — Native Next content-store publisher contract
 
-* Decision: For a local Next site marked with `publicationMode=native_next_content_store` (the current YAS compatibility value `native_yas_publisher` is also supported), Blog Core saves generated drafts as JSON under `<root>/data/blog-core/drafts/<job>.json`. Preview redirects to `/content-preview/<job>` on the source site; explicit Publish atomically writes `<root>/data/blog-core/published/<slug>.json` and marks the Blog Core job `PUBLISHED`.
+* Decision: For a local Next site marked with `publicationMode=native_next_content_store` (the former YAS compatibility value `native_yas_publisher` remains supported), Blog Core saves generated drafts as JSON under `<root>/data/blog-core/drafts/<job>.json`. Preview redirects to `/content-preview/<job>` on the source site; explicit Publish atomically writes `<root>/data/blog-core/published/<slug>.json` and marks the Blog Core job `PUBLISHED`.
 * Reason: The source site retains its own components and visual system. Content changes do not require reauthoring TypeScript arrays, rebuilding the website, or using the generic Blog Core static installer.
 * Files/areas affected: `app.py` publication and preview routes; YAS `src/lib/managed-content.ts`, `ManagedArticle`, dynamic `/blog`, `/blog/[slug]`, `/content-preview/[jobId]`, homepage insights, and sitemap.
 * Replaced/deprecated: Generic local HTML preview/install for YAS-generated content.

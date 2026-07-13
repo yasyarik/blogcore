@@ -34,6 +34,7 @@ This file is updated by Codex after every task.
 * `python3 -m py_compile /var/www/blog.yas.ooo/app.py`
 * Restarted `blog-yas-core` with PM2 and confirmed `http://127.0.0.1:3299/health` returns `ok`.
 * Queried the live database: 12 `QUEUED` YAS jobs exist and every `targetPath` matches its existing `/blog/<slug>/` route.
+* Normalized all 12 YAS jobs to `pageType=blog`, `contentType=blog`, `publicationMode=native_next_content_store`, and an explicit `/opt/yas-ooo` native project root; the dashboard API now reports `types: ['blog']`.
 * Ran `npm run build` in `/opt/yas-ooo`, restarted `yas-ooo.service`, and confirmed `/`, `/blog`, and an existing article return HTTP `200`.
 * Created and removed an isolated private smoke-test job. Blog Core preview redirected to `https://yas.ooo/content-preview/<job>` and YAS rendered the draft in its native UI; the test JSON and DB record were removed afterwards.
 
