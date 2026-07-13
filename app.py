@@ -30,6 +30,8 @@ PORT = int(os.environ.get("PORT", "3299"))
 ADMIN_HOSTS = {h.strip().lower() for h in os.environ.get("ADMIN_HOSTS", "blog.yas.ooo,127.0.0.1,localhost").split(",") if h.strip()}
 CNAME_TARGET = os.environ.get("CNAME_TARGET", "blog.yas.ooo").strip().lower()
 EXPECTED_HOSTED_IPS = {ip.strip() for ip in os.environ.get("HOSTED_BLOG_IPS", "72.61.1.109").split(",") if ip.strip()}
+ZERNIO_API_BASE = os.environ.get("ZERNIO_API_BASE", "https://zernio.com/api/v1").rstrip("/")
+BLOG_CORE_PUBLIC_URL = os.environ.get("BLOG_CORE_PUBLIC_URL", "https://blog.yas.ooo").rstrip("/")
 LEGACY_FACTORY_ENDPOINTS = {
     "content-factory-airep24": os.environ.get("LEGACY_FACTORY_AIREP24_URL", "http://127.0.0.1:12631").rstrip("/"),
     "content-factory-yaswine": os.environ.get("LEGACY_FACTORY_YASWINE_URL", "http://127.0.0.1:3199").rstrip("/"),
@@ -174,6 +176,10 @@ def init_db():
                 threads_post_url text,
                 threads_posted_at text,
                 threads_error text,
+                reddit_status text,
+                reddit_post_url text,
+                reddit_posted_at text,
+                reddit_error text,
                 created_at text not null,
                 updated_at text not null,
                 foreign key(site_id) references sites(id) on delete cascade
@@ -235,7 +241,7 @@ def init_db():
                 site_id integer primary key,
                 enabled integer not null default 0,
                 times_per_day integer not null default 3,
-                channels_json text not null default '["linkedin","telegram","twitter","tumblr","pinterest","instagram","threads"]',
+                channels_json text not null default '["linkedin","telegram","twitter","tumblr","pinterest","instagram","threads","reddit"]',
                 timezone text not null default 'UTC',
                 start_hour integer not null default 9,
                 end_hour integer not null default 21,
@@ -246,6 +252,7 @@ def init_db():
                 pinterest_include_link integer not null default 0,
                 instagram_include_link integer not null default 0,
                 threads_include_link integer not null default 0,
+                reddit_include_link integer not null default 0,
                 last_slot_key text,
                 last_run_at text,
                 updated_at text not null,
@@ -316,9 +323,14 @@ def init_db():
             "alter table content_jobs add column threads_post_url text",
             "alter table content_jobs add column threads_posted_at text",
             "alter table content_jobs add column threads_error text",
+            "alter table content_jobs add column reddit_status text",
+            "alter table content_jobs add column reddit_post_url text",
+            "alter table content_jobs add column reddit_posted_at text",
+            "alter table content_jobs add column reddit_error text",
             "alter table autopublish_settings add column pinterest_include_link integer not null default 0",
             "alter table autopublish_settings add column instagram_include_link integer not null default 0",
             "alter table autopublish_settings add column threads_include_link integer not null default 0",
+            "alter table autopublish_settings add column reddit_include_link integer not null default 0",
         ):
             try:
                 conn.execute(statement)
@@ -613,6 +625,23 @@ def test_social_connection(provider, credentials):
     if not social_credentials_complete(provider, credentials):
         return {"ok": False, "status": "disconnected", "message": "Missing required credentials."}
     try:
+        if provider == "zernio":
+            api_key = str(credentials.get("api_key") or os.environ.get("ZERNIO_API_KEY") or "").strip()
+            data, _ = fetch_json_request(
+                f"{ZERNIO_API_BASE}/accounts",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            accounts = data.get("accounts") if isinstance(data, dict) else None
+            if not isinstance(accounts, list):
+                return {"ok": False, "status": "failed", "message": data.get("message") or data.get("error") or "Zernio account lookup failed."}
+            configured = [channel for channel in ZERNIO_SOCIAL_CHANNELS if credentials.get(f"{channel}_account_id")]
+            return {
+                "ok": True,
+                "status": "connected",
+                "displayName": f"Zernio: {len(accounts)} connected account(s)",
+                "message": f"Zernio connected. {len(accounts)} account(s) available; mapped channels: {', '.join(sorted(configured)) or 'none'}.",
+            }
+
         if provider == "telegram":
             token = credentials["bot_token"]
             chat_id = credentials["chat_id"]
@@ -1676,7 +1705,7 @@ def get_topic_discovery_settings(site_id):
 
 
 def get_social_connections(site_id):
-    providers = ["linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads"]
+    providers = ["zernio", "linkedin", "telegram", "tumblr", "twitter", "pinterest", "instagram", "threads", "reddit"]
     with db() as conn:
         rows = {r["provider"]: r for r in conn.execute("select * from social_connections where site_id=?", (site_id,)).fetchall()}
     return {provider: rows.get(provider) for provider in providers}
@@ -1691,8 +1720,15 @@ def active_social_channels(site_id, requested_channels=None):
     if requested_channels is not None:
         selected &= {channel for channel in requested_channels if channel in SOCIAL_CHANNEL_LIMITS}
     connections = get_social_connections(site_id)
+    zernio = connections.get("zernio")
+    zernio_credentials = get_social_credentials(zernio)
+    zernio_ready = bool(zernio and zernio["status"] in {"configured", "connected"} and social_credentials_complete("zernio", zernio_credentials))
     active = []
     for channel in SOCIAL_CHANNEL_LIMITS:
+        if channel in ZERNIO_SOCIAL_CHANNELS:
+            if channel in selected and zernio_ready and zernio_credentials.get(f"{channel}_account_id"):
+                active.append(channel)
+            continue
         row = connections.get(channel)
         status = row["status"] if row else "disconnected"
         if channel in selected and status in {"configured", "connected"}:
@@ -1700,7 +1736,34 @@ def active_social_channels(site_id, requested_channels=None):
     return active
 
 
+def social_channel_connection_state(site_id, channel, connections=None):
+    connections = connections or get_social_connections(site_id)
+    if channel in ZERNIO_SOCIAL_CHANNELS:
+        zernio = connections.get("zernio")
+        credentials = get_social_credentials(zernio)
+        ready = bool(zernio and zernio["status"] in {"configured", "connected"} and credentials.get(f"{channel}_account_id"))
+        return ("connected" if ready else "disconnected", "Zernio" if ready else "Configure Zernio in Setup")
+    row = connections.get(channel)
+    status = row["status"] if row else "disconnected"
+    return status, ("Connected" if status == "connected" else ("Ready to test" if status == "configured" else "Configure in Setup"))
+
+
 SOCIAL_PROVIDER_CONFIG = {
+    "zernio": {
+        "label": "Zernio publishing transport",
+        "fields": [
+            ("api_key", "Zernio API key", "password", "Uses server default when blank"),
+            ("profile_id", "Zernio profile ID", "text", "Optional profile id"),
+            ("twitter_account_id", "X account ID", "text", "acc_..."),
+            ("pinterest_account_id", "Pinterest account ID", "text", "acc_..."),
+            ("instagram_account_id", "Instagram account ID", "text", "acc_..."),
+            ("threads_account_id", "Threads account ID", "text", "acc_..."),
+            ("reddit_account_id", "Reddit account ID", "text", "acc_..."),
+            ("pinterest_board_id", "Pinterest board ID", "text", "Required for Pin publication"),
+            ("reddit_subreddit", "Default subreddit", "text", "Without r/ prefix"),
+            ("reddit_rules", "Subreddit tone and rules", "text", "Optional: e.g. no links in title; disclose affiliation"),
+        ],
+    },
     "linkedin": {
         "label": "LinkedIn",
         "fields": [
@@ -1764,10 +1827,24 @@ SOCIAL_CHANNEL_LIMITS = {
     "pinterest": 500,
     "instagram": 2200,
     "threads": 500,
+    "reddit": 40000,
+}
+
+ZERNIO_SOCIAL_CHANNELS = {"twitter", "pinterest", "instagram", "threads", "reddit"}
+SOCIAL_CHANNEL_LABELS = {
+    "linkedin": "LinkedIn", "telegram": "Telegram", "twitter": "X / Twitter", "tumblr": "Tumblr",
+    "pinterest": "Pinterest", "instagram": "Instagram", "threads": "Threads", "reddit": "Reddit",
 }
 
 SOCIAL_CHANNEL_TARGET_CHARS = {
     "instagram": 700,
+    "linkedin": 1200,
+    "telegram": 900,
+    "twitter": 240,
+    "tumblr": 700,
+    "pinterest": 320,
+    "threads": 360,
+    "reddit": 1800,
 }
 
 SOCIAL_CHANNEL_STYLE = {
@@ -1778,7 +1855,20 @@ SOCIAL_CHANNEL_STYLE = {
     "pinterest": "native Pinterest pin description with a visual hook, useful caption, and no clickbait",
     "instagram": "native Instagram carousel caption with concise context, no clickbait, and a clear save/share cue",
     "threads": "native Threads post: conversational, opinionated or question-led, not promotional copy, at most one hashtag",
+    "reddit": "community-first Reddit post that asks or answers a concrete problem without marketing language or a generic CTA",
 }
+
+
+def social_channel_editorial_rules(channel):
+    rules = {
+        "linkedin": "Use 4 to 7 short paragraphs: a specific work situation, one contrarian or useful insight, a practical framework, and a genuine question. Do not use empty thought-leadership language, engagement bait, or more than 3 hashtags.",
+        "telegram": "Write a channel-native post: one strong lead line, then 3 to 5 compact practical points. Keep it scannable. End with one calm reason to open the article, never a loud sales CTA.",
+        "twitter": "Choose one format that fits the article: sharp observation, contrarian take, micro-framework, or concise question. One post only. No thread, no generic summary, no more than 2 hashtags.",
+        "tumblr": "Write an editorial micro-post with a personal but brand-safe voice. It should stand on its own as a small blog note, with a natural transition to the full article.",
+        "pinterest": "Use evergreen search language and a clear practical result. The first sentence must state what the reader will get. Avoid time-sensitive promotions, prices, and empty inspiration language.",
+        "reddit": "Write as a helpful community member. Lead with the concrete problem or answer, disclose the product/article connection only when relevant, never use sales language, and include a link only when it genuinely answers the question. Do not imitate a subreddit unless its rules are explicitly configured.",
+    }
+    return rules.get(channel, "Write a concise native post that adds value before asking for attention.")
 
 LANGUAGE_NAMES = {
     "en": "English",
@@ -1814,6 +1904,8 @@ def social_credentials_complete(provider, credentials):
         required = ["bot_token", "chat_id"]
     if provider == "linkedin":
         required = ["access_token"]
+    if provider == "zernio":
+        return bool(str(credentials.get("api_key") or os.environ.get("ZERNIO_API_KEY") or "").strip())
     if provider == "twitter":
         required = ["bearer_token"]
     if provider == "tumblr":
@@ -1995,6 +2087,7 @@ CHANNEL:
 - channel: {social_provider_label(channel)}
 - style: {SOCIAL_CHANNEL_STYLE.get(channel, 'concise social post')}
 - hard maximum length: {max_chars} characters, including spaces, punctuation, line breaks, and URL if present
+- preferred working length: {SOCIAL_CHANNEL_TARGET_CHARS.get(channel, max_chars)} characters or less when possible
 - article URL: {article_url or 'none'}
 - link rule: {link_rule}
 
@@ -2016,6 +2109,7 @@ RULES:
 - No markdown headings.
 - No invented claims, prices, guarantees, statistics, or hashtags unless the article explicitly supports them.
 - No em dash or en dash.
+- Channel editorial contract: {social_channel_editorial_rules(channel)}
 
 RETURN JSON SHAPE:
 {{"text":"final social post text"}}
@@ -2064,8 +2158,9 @@ ARTICLE:
 - link rule: {link_rule}
 
 THREADS STYLE:
+- Choose one conversationFormat: question, observation, contrarian, micro_story, or objection_answer. Pick the one that best fits the article; do not default to a question.
 - Hard limit: {max_bytes} UTF-8 bytes.
-- Start with a question, tension, or conversational observation.
+- Start with the chosen format's strongest natural opening.
 - Make it feel like a human thought that invites replies.
 - Use 1 to 3 short sentences.
 - Do not list benefits.
@@ -2075,7 +2170,7 @@ THREADS STYLE:
 - No markdown. No variants.
 
 RETURN STRICT JSON ONLY:
-{{"text":"final Threads post text"}}
+{{"text":"final Threads post text","conversationFormat":"observation"}}
 """.strip()
 
 
@@ -2160,7 +2255,133 @@ def generate_threads_post_draft(site_id, job_id, site, job, language, include_li
     if not validation["ok"]:
         raise ValueError("Threads post exceeds 500 UTF-8 bytes")
     media = generate_threads_media_image(site_id, job_id, site, job, language, text)
-    return text, validation, {"threads": media}
+    conversation_format = str(data.get("conversationFormat") or "observation").strip().lower().replace("-", "_") if isinstance(data, dict) else "observation"
+    if conversation_format not in {"question", "observation", "contrarian", "micro_story", "objection_answer"}:
+        conversation_format = "observation"
+    return text, validation, {"threads": {**media, "conversationFormat": conversation_format}}
+
+
+def generate_reddit_post_draft(site, job, language, include_link, article_url, subreddit_rules=""):
+    language_name = LANGUAGE_NAMES.get(language, language.upper())
+    source_text = social_source_text(job, limit=6000)
+    prompt = f"""
+You are preparing a useful Reddit post based on an article for {site['brand_name'] or site['domain']}.
+
+LANGUAGE: {language_name}
+ARTICLE: {job['title'] or job['topic']}
+DESCRIPTION: {job['description'] or ''}
+EXCERPT: {source_text}
+URL: {article_url or 'none'}
+SITE-SPECIFIC SUBREDDIT RULES: {subreddit_rules or 'No additional rules configured. Do not invent any.'}
+
+RULES:
+- Write for a community, not as a brand announcement.
+- The title must state a real problem or useful question, not promote the company.
+- The body must give a self-contained answer, framework, or experience in 3 to 7 short paragraphs.
+- Do not use hype, sales language, fake neutrality, or generic "read more" wording.
+- Mention the article/source relationship transparently only if it adds context.
+- Include the URL at most once, at the end, only when it materially helps.
+- Do not invent subreddit rules, statistics, or personal experience.
+- Title <= 300 characters. Body <= 8000 characters.
+- Return strict JSON only.
+
+{{"title":"...","body":"...","format":"discussion|question|guide"}}
+""".strip()
+    try:
+        data = _gemini_text_json(prompt)
+    except Exception:
+        data = {}
+    title = social_shorten_to_limit(social_normalize_text(data.get("title") or job["title"] or job["topic"] or "Discussion"), 300)
+    body = social_normalize_text(data.get("body") or job["description"] or social_source_text(job, limit=1200))
+    body = social_text_with_optional_link(body, article_url, include_link, 8000)
+    validation = {
+        "ok": len(title) <= 300 and len(body) <= 8000,
+        "title": {"charCount": len(title), "maxChars": 300},
+        "body": {"charCount": len(body), "maxChars": 8000},
+    }
+    if not validation["ok"]:
+        raise ValueError("Reddit draft exceeds title or body limits")
+    return body, validation, {"reddit": {"title": title, "body": body, "format": social_shorten_to_limit(data.get("format") or "discussion", 32)}}
+
+
+def generate_twitter_post_draft(site, job, language, include_link, article_url):
+    language_name = LANGUAGE_NAMES.get(language, language.upper())
+    source_text = social_source_text(job, limit=4500)
+    prompt = f"""
+Create a native X post from this article for {site['brand_name'] or site['domain']} in {language_name}.
+
+ARTICLE: {job['title'] or job['topic']}
+DESCRIPTION: {job['description'] or ''}
+EXCERPT: {source_text}
+URL: {article_url or 'none'}
+
+Choose one format: sharp_insight, contrarian_take, micro_framework, statistic_observation, or thread.
+- Use statistic_observation only when the article itself provides the exact statistic and source context.
+- Use thread only when the article contains a genuinely sequential framework; otherwise one post.
+- Each post must be <= 280 characters including any URL.
+- No generic summary, no engagement bait, no more than 2 hashtags, and no invented claim.
+- Link, when requested, belongs only in the final post.
+- Return strict JSON only.
+
+{{"format":"sharp_insight","posts":["..."]}}
+""".strip()
+    try:
+        data = _gemini_text_json(prompt)
+    except Exception:
+        data = {}
+    fmt = str(data.get("format") or "sharp_insight").strip().lower().replace("-", "_") if isinstance(data, dict) else "sharp_insight"
+    if fmt not in {"sharp_insight", "contrarian_take", "micro_framework", "statistic_observation", "thread"}:
+        fmt = "sharp_insight"
+    raw_posts = data.get("posts") if isinstance(data, dict) and isinstance(data.get("posts"), list) else []
+    posts = [social_normalize_text(item) for item in raw_posts if social_normalize_text(item)][:5]
+    if not posts:
+        fallback, _ = generate_social_post_text(site, job, "twitter", language, SOCIAL_CHANNEL_LIMITS["twitter"], include_link, article_url)
+        posts = [fallback]
+    if fmt != "thread":
+        posts = posts[:1]
+    if len(posts) < 2:
+        fmt = "sharp_insight" if fmt == "thread" else fmt
+    normalized = []
+    for index, text in enumerate(posts):
+        final_link = include_link and index == len(posts) - 1
+        normalized.append(social_text_with_optional_link(text, article_url, final_link, SOCIAL_CHANNEL_LIMITS["twitter"]))
+    validation = {"ok": all(len(item) <= 280 for item in normalized), "posts": [{"charCount": len(item), "maxChars": 280} for item in normalized], "format": fmt}
+    if not validation["ok"]:
+        raise ValueError("X draft exceeds 280 characters")
+    return normalized[0], validation, {"twitter": {"format": fmt, "threadItems": normalized}}
+
+
+def generate_editorial_social_image(site_id, job_id, site, job, channel, aspect_ratio, visual_rule):
+    target_dir = social_asset_job_dir(site_id, job_id, channel)
+    shutil.rmtree(target_dir, ignore_errors=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    filename = "image-01.jpg"
+    prompt = f"""
+Create one finished raster JPEG for a {channel} post.
+FORMAT: {aspect_ratio}. {visual_rule}
+BRAND: {site['brand_name'] or site['domain']}
+ARTICLE: {job['title'] or job['topic']}
+DESCRIPTION: {job['description'] or ''}
+RULES: Native editorial image, not a generic ad. No logo, fake UI, unreadable microtext, invented statistics, awards, or promotional badges.
+""".strip()
+    image_bytes = _gemini_image_jpeg(prompt, aspect_ratio=aspect_ratio)
+    if not image_bytes.startswith(b"\xff\xd8"):
+        raise RuntimeError(f"Gemini image for {channel} was not JPEG")
+    (target_dir / filename).write_bytes(image_bytes)
+    return {"mediaUrls": [social_asset_url(site_id, job_id, channel, filename)], "mediaMimeType": "image/jpeg", "generatedAt": now_iso()}
+
+
+def generate_telegram_post_draft(site_id, job_id, site, job, language, include_link, article_url):
+    text, validation = generate_social_post_text(site, job, "telegram", language, SOCIAL_CHANNEL_LIMITS["telegram"], include_link, article_url)
+    media = generate_editorial_social_image(site_id, job_id, site, job, "telegram", "16:9", "Use a clear editorial scene with no text overlay.")
+    return text, validation, {"telegram": {**media, "button": {"label": "Open article", "url": article_url} if include_link and article_url else None}}
+
+
+def generate_tumblr_post_draft(site_id, job_id, site, job, language, include_link, article_url):
+    text, validation = generate_social_post_text(site, job, "tumblr", language, SOCIAL_CHANNEL_LIMITS["tumblr"], include_link, article_url)
+    tags = [tag for tag in re.findall(r"[a-z0-9]+", (job["category"] or job["title"] or "").lower()) if len(tag) > 2][:5]
+    media = generate_editorial_social_image(site_id, job_id, site, job, "tumblr", "4:5", "Use an expressive editorial/lifestyle visual that feels like an independent blog post, with no text overlay.")
+    return text, validation, {"tumblr": {**media, "tags": tags}}
 
 
 def generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url):
@@ -2296,6 +2517,37 @@ def generate_pinterest_pin_draft(site, job, language, include_link, article_url)
     return pin["description"], validation, {"pin": pin}
 
 
+def generate_pinterest_pin_image(site_id, job_id, site, job, pin):
+    target_dir = social_asset_job_dir(site_id, job_id, "pinterest")
+    shutil.rmtree(target_dir, ignore_errors=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    filename = "pin-01.jpg"
+    prompt = f"""
+Create one finished Pinterest image as a real raster JPEG.
+
+FORMAT:
+- Vertical 2:3, 1000x1500 composition.
+- Editorial, useful and evergreen, not a generic ad.
+- Use clear high-contrast typography with safe margins.
+- Include this exact short overlay text once: {pin['overlayText']}
+- Do not add other readable text, fake UI, unsupported claims, prices, badges, logos, or clutter.
+
+ARTICLE CONTEXT:
+- brand: {site['brand_name'] or site['domain']}
+- article: {job['title'] or job['topic']}
+- visual brief: {pin['imagePrompt']}
+""".strip()
+    image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="2:3")
+    if not image_bytes.startswith(b"\xff\xd8"):
+        raise RuntimeError("Gemini image for Pinterest pin was not JPEG")
+    (target_dir / filename).write_bytes(image_bytes)
+    return {
+        "imageUrl": social_asset_url(site_id, job_id, "pinterest", filename),
+        "imageMimeType": "image/jpeg",
+        "generatedAt": now_iso(),
+    }
+
+
 def fallback_instagram_carousel(site, job, language, include_link, article_url):
     brand = site["brand_name"] or site["domain"]
     title = social_shorten_to_limit(job["title"] or job["topic"] or "New article", 90)
@@ -2364,10 +2616,15 @@ ARTICLE:
 - link rule: {link_rule}
 
 CAROUSEL RULES:
+- Choose exactly one carouselType: checklist, myth_reality, framework, before_after, mistakes, or decision_guide.
 - Use 4:5 portrait format, recommended 1080x1350.
 - Make 5 to 8 slides, never more than 10.
 - Slide 1 must be a cover.
+- Slide 1 must state a specific tension, outcome, or decision. It cannot merely repeat the article title.
+- Each following slide must carry one distinct claim. Do not restate the cover or another slide.
+- Order slides so the reader gets increasing value: context, insight/framework, application, then CTA.
 - Last slide must be a soft CTA or save/share cue.
+- The final CTA must not repeat the caption wording.
 - Every slide headline <= 70 characters.
 - Every slide subtext <= 140 characters.
 - Every slide imagePrompt <= 700 characters and must describe the visual background/scene for that slide.
@@ -2382,6 +2639,7 @@ CAROUSEL RULES:
 RETURN STRICT JSON ONLY:
 {{
   "caption":"...",
+  "carouselType":"checklist",
   "visualSpec":{{"aspectRatio":"4:5","recommendedSize":"1080x1350","maxSlides":10}},
   "destinationUrl":"{article_url if include_link and article_url else ''}",
   "slides":[
@@ -2425,6 +2683,7 @@ def normalize_instagram_carousel(carousel, site, job, language, include_link, ar
                 break
     return {
         "caption": caption,
+        "carouselType": str(carousel.get("carouselType") or "framework").strip().lower().replace("-", "_")[:32],
         "slides": slides[:10],
         "visualSpec": {"aspectRatio": "4:5", "recommendedSize": "1080x1350", "maxSlides": 10},
         "destinationUrl": article_url if include_link and article_url else "",
@@ -2442,10 +2701,26 @@ def validate_instagram_carousel(carousel):
         "slides": [],
         "slideCount": len(carousel.get("slides") or []),
         "maxSlides": 10,
+        "carouselType": carousel.get("carouselType") or "",
     }
     if result["caption"]["charCount"] > SOCIAL_CHANNEL_LIMITS["instagram"]:
         result["ok"] = False
     if result["slideCount"] < 2 or result["slideCount"] > 10:
+        result["ok"] = False
+    if result["carouselType"] not in {"checklist", "myth_reality", "framework", "before_after", "mistakes", "decision_guide"}:
+        result["ok"] = False
+    slides = carousel.get("slides") or []
+    if slides and str(slides[0].get("role") or "").lower() != "cover":
+        result["ok"] = False
+    if slides and str(slides[-1].get("role") or "").lower() not in {"cta", "save", "share"}:
+        result["ok"] = False
+    normalized_claims = []
+    for slide in slides:
+        claim = re.sub(r"[^a-z0-9]+", " ", (slide.get("headline") or "").lower()).strip()
+        if claim and claim in normalized_claims:
+            result["ok"] = False
+        normalized_claims.append(claim)
+    if slides and re.sub(r"\W+", "", slides[-1].get("headline") or "").lower() in re.sub(r"\W+", "", carousel.get("caption") or "").lower():
         result["ok"] = False
     for slide in carousel.get("slides") or []:
         row = {
@@ -2576,6 +2851,7 @@ def generate_social_drafts(site_id, job_id, channels=None):
             extra_payload = {}
             if channel == "pinterest":
                 text, validation, extra_payload = generate_pinterest_pin_draft(site, job, language, include_link, article_url)
+                extra_payload["pin"].update(generate_pinterest_pin_image(site_id, job_id, site, job, extra_payload["pin"]))
                 char_count = validation["fields"]["description"]["charCount"]
             elif channel == "instagram":
                 text, validation, extra_payload = generate_instagram_carousel_draft(site, job, language, include_link, article_url)
@@ -2591,6 +2867,19 @@ def generate_social_drafts(site_id, job_id, channels=None):
             elif channel == "threads":
                 text, validation, extra_payload = generate_threads_post_draft(site_id, job_id, site, job, language, include_link, article_url)
                 char_count = validation["byteCount"]
+            elif channel == "reddit":
+                zernio_credentials = get_social_credentials(get_social_connections(site_id).get("zernio"))
+                text, validation, extra_payload = generate_reddit_post_draft(site, job, language, include_link, article_url, zernio_credentials.get("reddit_rules") or "")
+                char_count = validation["body"]["charCount"]
+            elif channel == "twitter":
+                text, validation, extra_payload = generate_twitter_post_draft(site, job, language, include_link, article_url)
+                char_count = validation["posts"][0]["charCount"]
+            elif channel == "telegram":
+                text, validation, extra_payload = generate_telegram_post_draft(site_id, job_id, site, job, language, include_link, article_url)
+                char_count = validation["charCount"]
+            elif channel == "tumblr":
+                text, validation, extra_payload = generate_tumblr_post_draft(site_id, job_id, site, job, language, include_link, article_url)
+                char_count = validation["charCount"]
             else:
                 text, validation = generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
                 char_count = validation["charCount"]
@@ -2649,6 +2938,110 @@ def generate_social_drafts(site_id, job_id, channels=None):
                 (site_id, job_id, now, "INFO", "social-drafts", f"Prepared social drafts for {', '.join(allowed_channels)}"),
             )
     return {"ok": True, "jobId": job_id, "language": language, "drafts": results}
+
+
+def absolute_social_asset_url(value):
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    return value if value.startswith(("https://", "http://")) else f"{BLOG_CORE_PUBLIC_URL}{value}"
+
+
+def zernio_media_items(channel, payload):
+    if channel == "instagram":
+        carousel = payload.get("instagramCarousel") or {}
+        return [{"type": "image", "url": absolute_social_asset_url(slide.get("imageUrl"))} for slide in carousel.get("slides") or [] if slide.get("imageUrl")]
+    if channel == "threads":
+        return [{"type": "image", "url": absolute_social_asset_url(url)} for url in ((payload.get("threads") or {}).get("mediaUrls") or []) if url]
+    if channel == "pinterest":
+        image_url = (payload.get("pin") or {}).get("imageUrl")
+        return [{"type": "image", "url": absolute_social_asset_url(image_url)}] if image_url else []
+    return []
+
+
+def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None):
+    connections = get_social_connections(site_id)
+    zernio = connections.get("zernio")
+    credentials = get_social_credentials(zernio)
+    if not zernio or zernio["status"] not in {"configured", "connected"} or not social_credentials_complete("zernio", credentials):
+        raise ValueError("Configure and test Zernio in Setup before publishing these channels.")
+    api_key = str(credentials.get("api_key") or os.environ.get("ZERNIO_API_KEY") or "").strip()
+    with db() as conn:
+        rows = conn.execute(
+            """select * from social_posts where site_id=? and job_id=? and status='DRAFT'
+               and channel in ('twitter','pinterest','instagram','threads','reddit') order by id asc""",
+            (site_id, job_id),
+        ).fetchall()
+    if not rows:
+        raise ValueError("No unpublished Zernio social drafts are ready for this content task.")
+    results = []
+    for row in rows:
+        channel = row["channel"]
+        account_id = str(credentials.get(f"{channel}_account_id") or "").strip()
+        if not account_id:
+            results.append({"channel": channel, "ok": False, "error": "Missing Zernio account mapping."})
+            continue
+        payload = parse_json_object(row["content_json"])
+        platform = {"channel": channel, "accountId": account_id}
+        if channel == "twitter":
+            thread_items = ((payload.get("twitter") or {}).get("threadItems") or [])
+            if len(thread_items) > 1:
+                platform["platformSpecificData"] = {"threadItems": [{"content": item} for item in thread_items]}
+        if channel == "pinterest" and credentials.get("pinterest_board_id"):
+            platform["platformSpecificData"] = {"boardId": credentials["pinterest_board_id"]}
+        if channel == "reddit":
+            subreddit = str(credentials.get("reddit_subreddit") or "").strip().removeprefix("r/")
+            if not subreddit:
+                results.append({"channel": channel, "ok": False, "error": "Missing default subreddit."})
+                continue
+            platform["platformSpecificData"] = {
+                "subreddit": subreddit,
+                "title": ((payload.get("reddit") or {}).get("title") or row["content_text"] or "Discussion")[:300],
+            }
+        request_payload = {
+            "content": row["content_text"] or "",
+            "platforms": [platform],
+            "publishNow": not bool(scheduled_for),
+        }
+        if scheduled_for:
+            request_payload["scheduledFor"] = scheduled_for
+        media_items = zernio_media_items(channel, payload)
+        if media_items:
+            request_payload["mediaItems"] = media_items
+        try:
+            response, _ = fetch_json_request(
+                f"{ZERNIO_API_BASE}/posts",
+                headers={"Authorization": f"Bearer {api_key}"},
+                data=request_payload,
+                method="POST",
+                timeout=60,
+            )
+            post = response.get("post") if isinstance(response, dict) else {}
+            remote_url = str((post or {}).get("url") or (post or {}).get("permalink") or "")
+            remote_id = str((post or {}).get("_id") or (post or {}).get("id") or "")
+            if not remote_id and isinstance(response, dict) and response.get("error"):
+                raise RuntimeError(str(response.get("error")))
+            status = "SCHEDULED" if scheduled_for else "SENT"
+            with db() as conn:
+                conn.execute("update social_posts set status=?, remote_url=?, updated_at=? where id=?", (status, remote_url or remote_id, now_iso(), row["id"]))
+            results.append({"channel": channel, "ok": True, "status": status, "remoteUrl": remote_url or remote_id})
+        except Exception as e:
+            with db() as conn:
+                conn.execute("update social_posts set status='ERROR', updated_at=? where id=?", (now_iso(), row["id"]))
+            results.append({"channel": channel, "ok": False, "error": str(e)[:300]})
+    successful = [item for item in results if item.get("ok")]
+    with db() as conn:
+        for item in successful:
+            channel = item["channel"]
+            conn.execute(
+                f"update content_jobs set {channel}_status=?, {channel}_post_url=?, {channel}_posted_at=?, updated_at=? where site_id=? and id=?",
+                (item["status"].lower(), item.get("remoteUrl") or "", now_iso(), now_iso(), site_id, job_id),
+            )
+        conn.execute(
+            "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+            (site_id, job_id, now_iso(), "INFO" if successful else "ERROR", "zernio-publish", f"Zernio sent/scheduled {len(successful)} of {len(results)} social drafts"),
+        )
+    return {"ok": bool(successful), "jobId": job_id, "results": results}
 
 
 def upsert_social_connection(site_id, provider, credentials=None, status=None, display_name=None, settings=None):
@@ -3248,6 +3641,7 @@ def social_icon_label(channel):
         "pinterest": "P",
         "instagram": "ig",
         "threads": "th",
+        "reddit": "rd",
     }.get(channel, channel[:2])
 
 
@@ -3264,7 +3658,7 @@ def social_status_class(status):
 
 def render_social_statuses(row):
     items = []
-    for channel in ("linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads"):
+    for channel in ("linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads", "reddit"):
         status = row[f"{channel}_status"] or "not queued"
         status_class = social_status_class(status)
         label = social_icon_label(channel)
@@ -3387,6 +3781,27 @@ def social_draft_button(site_id, job_id):
     return f"<button class='ghost mini-action social-draft-action' type='button' onclick=\"generateSocialDrafts('{escape(job_id, quote=True)}')\" title='Prepare social posts for configured channels'>Social drafts</button>"
 
 
+def zernio_publish_button(site_id, job_id):
+    with db() as conn:
+        row = conn.execute(
+            """select 1 from social_posts where site_id=? and job_id=? and status='DRAFT'
+               and channel in ('twitter','pinterest','instagram','threads','reddit') limit 1""",
+            (site_id, job_id),
+        ).fetchone()
+    if not row:
+        return ""
+    return f"<button class='ghost mini-action publish-action' type='button' onclick=\"publishZernioSocial('{escape(job_id, quote=True)}')\" title='Publish ready social drafts through Zernio'>Publish social</button>"
+
+
+def social_review_button(site_id, job_id):
+    with db() as conn:
+        row = conn.execute(
+            "select id from social_posts where site_id=? and job_id=? order by id desc limit 1",
+            (site_id, job_id),
+        ).fetchone()
+    return f"<a class='ghost mini-action social-preview-action' target='_blank' href='/sites/{int(site_id)}/social-posts/{int(row['id'])}'>Social review</a>" if row else ""
+
+
 def instagram_carousel_preview_button(site_id, job_id):
     with db() as conn:
         row = conn.execute(
@@ -3439,7 +3854,8 @@ def generating_progress_panel(job_id):
 def render_social_credentials_setup(site_id):
     connections = get_social_connections(site_id)
     cards = []
-    for provider, config in SOCIAL_PROVIDER_CONFIG.items():
+    for provider in ("zernio", "linkedin", "telegram", "tumblr"):
+        config = SOCIAL_PROVIDER_CONFIG[provider]
         row = connections.get(provider)
         credentials = get_social_credentials(row)
         status = row["status"] if row else "disconnected"
@@ -3476,7 +3892,7 @@ def render_social_credentials_setup(site_id):
     return f"""
     <section class="stat social-credentials-panel">
       <h2>Social channel credentials</h2>
-      <div class="muted">Per-site publishing credentials. Secrets are stored in the local Blog Core SQLite database and are never rendered back into the page.</div>
+      <div class="muted">Zernio connects X, Pinterest, Instagram, Threads, and Reddit. LinkedIn, Telegram, and Tumblr remain separate direct connections. Secrets are stored locally and never rendered back into the page.</div>
       <div class="social-credentials-grid">{''.join(cards)}</div>
     </section>
     """
@@ -3515,7 +3931,7 @@ def render_planned_publications(rows, site_languages=None):
         elif status == "GENERATING":
             action = generating_progress_panel(row["id"])
         elif status == "DRAFT":
-            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
+            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"])
         items.append(
             f"""
             <div class="planned-row {status_class}" data-group-id="{escape(group['id'], quote=True)}" data-job-id="{escape(row['id'], quote=True)}" data-status="{status_class}">
@@ -3553,7 +3969,7 @@ def render_content_jobs(content_page):
             descriptor = "Generation in progress"
         elif status == "DRAFT":
             status_label = "DRAFT"
-            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"])
+            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"])
             descriptor = "Draft ready for review"
         elif status == "PUBLISHED":
             status_label = "PUBLISHED"
@@ -3588,15 +4004,13 @@ def render_distribution_settings(site_id):
     except Exception:
         selected = {"linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads"}
     channel_cards = []
-    for provider, config in SOCIAL_PROVIDER_CONFIG.items():
-        label = config["label"]
-        row = connections.get(provider)
-        status = row["status"] if row else "disconnected"
+    for provider in SOCIAL_CHANNEL_LIMITS:
+        label = SOCIAL_CHANNEL_LABELS.get(provider, provider)
+        status, setup_label = social_channel_connection_state(site_id, provider, connections)
         checked = "checked" if provider in selected else ""
         include_field = f"{provider}_include_link"
         include_checked = "checked" if int(auto[include_field] or 0) else ""
         status_class = "connected" if status == "connected" else ("configured" if status == "configured" else "disconnected")
-        setup_label = "Connected" if status == "connected" else ("Ready to test" if status == "configured" else "Configure in Setup")
         channel_cards.append(
             f"""
             <div class="channel-card unified-channel">
@@ -6299,11 +6713,20 @@ def get_factory_settings(site_id):
     auto = get_autopublish_settings(site_id)
     disc = get_topic_discovery_settings(site_id)
     social = get_social_connections(site_id)
+    safe_social = {}
+    for provider, row in social.items():
+        if not row:
+            safe_social[provider] = {"provider": provider, "status": "disconnected", "configured": False}
+            continue
+        item = dict(row)
+        item.pop("credentials_json", None)
+        item["configured"] = social_credentials_complete(provider, get_social_credentials(row))
+        safe_social[provider] = item
     return jsonify({
         "ok": True,
         "autopublish": dict(auto),
         "topicDiscovery": dict(disc),
-        "social": {k: (dict(v) if v else {"provider": k, "status": "disconnected"}) for k, v in social.items()},
+        "social": safe_social,
     })
 
 
@@ -6354,8 +6777,8 @@ def update_factory_settings(site_id):
             insert into autopublish_settings(
                 site_id, enabled, times_per_day, channels_json, timezone, start_hour, end_hour,
                 linkedin_include_link, telegram_include_link, twitter_include_link, tumblr_include_link,
-                pinterest_include_link, instagram_include_link, threads_include_link, updated_at
-            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                pinterest_include_link, instagram_include_link, threads_include_link, reddit_include_link, updated_at
+            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             on conflict(site_id) do update set
                 enabled=excluded.enabled, times_per_day=excluded.times_per_day, channels_json=excluded.channels_json,
                 timezone=excluded.timezone, start_hour=excluded.start_hour, end_hour=excluded.end_hour,
@@ -6364,13 +6787,14 @@ def update_factory_settings(site_id):
                 pinterest_include_link=excluded.pinterest_include_link,
                 instagram_include_link=excluded.instagram_include_link,
                 threads_include_link=excluded.threads_include_link,
+                reddit_include_link=excluded.reddit_include_link,
                 updated_at=excluded.updated_at
             """,
             (
                 site_id,
                 1 if auto.get("enabled") else 0,
                 int(auto.get("timesPerDay") or 3),
-                json.dumps(allowed_channels or ["linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads"]),
+                json.dumps(allowed_channels or ["linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads", "reddit"]),
                 auto.get("timezone") or "UTC",
                 int(auto.get("startHour") or 9),
                 int(auto.get("endHour") or 21),
@@ -6381,6 +6805,7 @@ def update_factory_settings(site_id):
                 1 if auto.get("pinterestIncludeLink") else 0,
                 1 if auto.get("instagramIncludeLink") else 0,
                 1 if auto.get("threadsIncludeLink") else 0,
+                1 if auto.get("redditIncludeLink") else 0,
                 now,
             ),
         )
@@ -6552,6 +6977,21 @@ def generate_social_drafts_route(site_id, job_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/social-publish/zernio")
+def publish_zernio_social_drafts_route(site_id, job_id):
+    payload = request.get_json(silent=True) or {}
+    scheduled_for = str(payload.get("scheduledFor") or "").strip() or None
+    try:
+        result = publish_zernio_social_drafts(site_id, job_id, scheduled_for=scheduled_for)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.get("/sites/<int:site_id>/social-assets/<job_id>/<channel>/<filename>")
 def serve_social_asset(site_id, job_id, channel, filename):
     if channel not in SOCIAL_CHANNEL_LIMITS:
@@ -6572,6 +7012,33 @@ def serve_article_asset(site_id, job_id, filename):
     if not (directory / filename).is_file():
         abort(404)
     return send_from_directory(directory, filename)
+
+
+@app.get("/sites/<int:site_id>/social-posts/<int:post_id>")
+def social_post_review(site_id, post_id):
+    with db() as conn:
+        post = conn.execute(
+            """select sp.*, cj.title, cj.topic, s.domain, s.brand_name
+               from social_posts sp join content_jobs cj on cj.id=sp.job_id and cj.site_id=sp.site_id
+               join sites s on s.id=sp.site_id where sp.site_id=? and sp.id=?""",
+            (site_id, post_id),
+        ).fetchone()
+    if not post:
+        abort(404)
+    payload = parse_json_object(post["content_json"])
+    pin = payload.get("pin") if isinstance(payload.get("pin"), dict) else {}
+    reddit = payload.get("reddit") if isinstance(payload.get("reddit"), dict) else {}
+    image_url = pin.get("imageUrl") or ""
+    media = f'<img src="{escape(image_url, quote=True)}" alt="{escape(pin.get("altText") or "Pinterest draft", quote=True)}">' if image_url else ""
+    title = reddit.get("title") or pin.get("pinTitle") or post["title"] or post["topic"] or "Social draft"
+    details = ""
+    if pin:
+        details = f"<dl><dt>Overlay</dt><dd>{escape(pin.get('overlayText') or '')}</dd><dt>Destination</dt><dd>{escape(pin.get('destinationUrl') or 'none')}</dd></dl>"
+    if reddit:
+        details = f"<dl><dt>Reddit title</dt><dd>{escape(reddit.get('title') or '')}</dd><dt>Format</dt><dd>{escape(reddit.get('format') or 'discussion')}</dd></dl>"
+    validation = parse_json_object(post["validation_json"])
+    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex,nofollow\"><title>{escape(post['channel'])} social review</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#f8fafc;font:16px/1.55 Inter,system-ui,sans-serif}}main{{max-width:760px;margin:auto;padding:32px 18px 70px}}a{{color:#c4b5fd}}article{{margin-top:18px;padding:22px;border:1px solid #334155;border-radius:16px;background:#111827}}h1{{line-height:1.1}}pre{{white-space:pre-wrap;font:inherit;margin:0}}img{{width:min(100%,460px);display:block;margin:18px auto;border-radius:12px}}dl{{display:grid;grid-template-columns:120px 1fr;gap:8px;margin:18px 0 0}}dt{{color:#94a3b8}}dd{{margin:0}}</style></head><body><main><a href=\"/sites/{int(site_id)}#content\">Back to dashboard</a><h1>{escape(str(post['channel']).title())} review</h1><p>{escape(post['brand_name'] or post['domain'])} · {escape(post['language'] or '')} · {escape(post['status'])}</p><article><h2>{escape(title)}</h2>{media}<pre>{escape(post['content_text'] or '')}</pre>{details}<p>Validation: {escape(json.dumps(validation, ensure_ascii=False))}</p></article></main></body></html>"""
+    return Response(html, mimetype="text/html")
 
 
 @app.get("/sites/<int:site_id>/social-posts/<int:post_id>/instagram-carousel")
@@ -7260,7 +7727,8 @@ function setBulkProgress(text, active=true){const box=document.getElementById('b
 function clearBulkProgress(){document.querySelectorAll('.planned-bulkbar button,.planned-select,.planned-select-all input').forEach(el=>{el.disabled=false;});}
 async function bulkPlannedAction(action){const tasks=selectedPlannedTasks();const groupIds=tasks.map(item=>item.groupId);if(!groupIds.length){showToast('Select at least one planned task');return;}if(action==='generate'){if(!confirm('Generate '+tasks.length+' selected planned task groups now?')) return;let ok=0;let failed=0;for(let i=0;i<tasks.length;i++){const task=tasks[i];setBulkProgress('Generating '+(i+1)+'/'+tasks.length+'. Keep this tab open.');showToast('Generating '+(i+1)+'/'+tasks.length+'...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(task.jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);ok++;}catch(e){failed++;}}setBulkProgress('Bulk generation finished: '+ok+' ok, '+failed+' failed. Reloading...', false);showToast('Bulk generation finished: '+ok+' ok, '+failed+' failed');setTimeout(()=>location.reload(),1800);return;}if(action==='delete'&&!confirm('Delete '+groupIds.length+' selected planned task groups from Blog Core? This does not delete live site files.')) return;setBulkProgress('Deleting '+groupIds.length+' planned task groups...');showToast('Deleting '+groupIds.length+' planned task groups...');try{const res=await fetch('/api/sites/'+SITE_ID+'/planned-groups/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,groupIds})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);setBulkProgress('Deleted '+(data.deletedJobs||0)+' job rows. Reloading...', false);showToast('Deleted '+(data.deletedJobs||0)+' job rows in '+(data.groups||groupIds.length)+' groups');setTimeout(()=>location.reload(),1200);}catch(e){clearBulkProgress();showToast('Bulk delete failed: '+e.message);}}
 async function generateSocialDrafts(jobId){showToast('Preparing social drafts...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const summary=(data.drafts||[]).map(d=>d.channel+': '+d.charCount+'/'+d.maxChars).join(' · ');showToast('Social drafts ready: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Social drafts failed: '+e.message);}}
-async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link'),threadsIncludeLink:fd.has('threads_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
+async function publishZernioSocial(jobId){if(!confirm('Publish ready X, Pinterest, Instagram, Threads, and Reddit drafts now through Zernio?'))return;showToast('Sending social drafts through Zernio...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-publish/zernio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);const summary=(data.results||[]).map(item=>item.channel+': '+(item.ok?item.status:'failed')).join(' · ');showToast('Zernio result: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Zernio publish failed: '+e.message);}}
+async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link'),threadsIncludeLink:fd.has('threads_include_link'),redditIncludeLink:fd.has('reddit_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}
 async function saveSocialCredentials(event,provider){event.preventDefault();const form=event.currentTarget;const credentials=socialCredentialsFromForm(form);showToast('Saving '+provider+' credentials...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(provider+' credentials saved: '+data.status);setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 async function testSocialConnection(provider){const form=document.querySelector('.social-credentials-card[data-provider="'+provider+'"]');const credentials=form?socialCredentialsFromForm(form):{};showToast('Testing '+provider+' connection...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider)+'/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.message||data.error||res.statusText);showToast(data.message||provider+' connected');setTimeout(()=>location.reload(),900);}catch(e){showToast('Connection test failed: '+e.message);}}

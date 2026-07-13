@@ -2,6 +2,36 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-13 — Make social drafts native and route five networks through Zernio
+
+### Summary
+
+* Replaced the mixed direct-provider setup for X/Twitter, Pinterest, Instagram, Threads, and Reddit with one per-site Zernio connection and explicit account mappings.
+* Added Reddit as a first-class channel, including community-first title/body drafts, subreddit rules, review, status fields, and Zernio delivery metadata.
+* Strengthened native content contracts: validated Instagram carousel types/roles/deduplication, Threads conversation formats, X post/thread formats, actual Pinterest JPEG Pin generation, and separate Telegram/Tumblr editorial media metadata.
+* Added a generic social review route and an explicit Zernio publish action for ready drafts. No social posts were published during this task.
+* Removed raw `credentials_json` from the factory-settings API response.
+
+### Files changed
+
+* `app.py` — Zernio connection/publish adapter, channel models, prompt contracts, validators, assets, reviews, Reddit persistence, and API credential redaction.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — record the durable social architecture and contracts.
+
+### Checks run
+
+* `python3 -m py_compile app.py` before and after deployment.
+* Restarted `blog-yas-core`; `/health` returns `ok`.
+* Zernio connection test succeeded using the configured server default; it found one connected account and published nothing.
+* Confirmed SQLite migrations for Reddit social status and distribution settings.
+* Confirmed the setup page includes Zernio, Reddit, Pinterest/Reddit mapping fields, and subreddit rules.
+* Unit-checked Instagram validation: a correctly structured carousel passes and invalid type/final role fails.
+* Confirmed factory-settings API does not return `credentials_json`.
+
+### Risks / TODO
+
+* The tested Zernio profile currently has no per-channel account mappings in Blog Core, so Zernio channels remain intentionally inactive until those IDs are saved in Setup.
+* Direct final-publish adapters for LinkedIn, Telegram, and Tumblr, and a UI for scheduling a specific Zernio datetime, remain separate follow-up work.
+
 ## 2026-07-13 — Accept selected YAS Studio drafts in Blog Core
 
 ### Summary

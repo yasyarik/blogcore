@@ -398,6 +398,20 @@ It must be updated after every meaningful task.
 * Files/areas affected: `source_scanner_drafts`, `content_jobs`, native YAS draft store, source-scanner integration API.
 * Replaced/deprecated: The old scanner-brief-only handoff does not represent an authored Studio article and is not used for this workflow.
 
+### 2026-07-13 — Per-site Zernio transport for social publishing
+
+* Decision: X/Twitter, Pinterest, Instagram, Threads, and Reddit use one per-site Zernio connection with explicit connected-account mappings. Blog Core owns per-channel draft generation, native assets, validation, review, and explicit submission; Zernio owns OAuth accounts and delivery.
+* Reason: The same five networks must not be configured or published through unrelated direct integrations. Per-site account mappings prevent content from being sent to the wrong brand account.
+* Files/areas affected: `app.py` social connections, drafts, Zernio publish route, Setup/Distribution UI, ignored social assets and social post records.
+* Replaced/deprecated: Direct per-network connection forms for X, Pinterest, Instagram, and Threads. Existing legacy credentials remain stored but are not considered active for these channels.
+
+### 2026-07-13 — Native social editorial contracts
+
+* Decision: Social drafts must select a channel-native editorial format rather than produce a generic article summary. Instagram carousels carry a validated type/slide structure; Threads carries a conversation format; X can carry a validated thread sequence; Pinterest produces a finished 2:3 JPEG Pin; Telegram and Tumblr drafts include their own editorial image metadata; Reddit carries a community-first title/body and site-configured subreddit rules.
+* Reason: Character limits alone do not produce content that fits a network or earns meaningful engagement.
+* Files/areas affected: `app.py` social prompt builders, validators, asset generation, social review routes.
+* Replaced/deprecated: One generic text-only social prompt for all providers.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
@@ -414,3 +428,4 @@ It must be updated after every meaningful task.
 * Preserve the source page's internal template classes and blocks too. Bind draft values to the existing hero/article/TOC/FAQ/recommendation slots rather than replacing a live page's content area with a different factory layout. If a new draft image has not been deployed to the source site, retain the existing template image instead of showing an empty media block.
 * Draft previews must not show breadcrumb navigation unless it is explicitly part of the required public page view. When the source template has reusable inline-media components, bind real generated draft image files to those components using source-site absolute URLs; do not show empty image frames or generic image markup.
 * Do not replace a user-authored source-site page design during integration. Extend its native data list/components and reuse its visual system for published and previewed factory content.
+* Do not cross-post an article summary unchanged. Select the social format from the article's evidence, audience intent, and the target channel's native behaviour, then validate its channel-specific constraints before storing or sending it.
