@@ -2,6 +2,27 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-13 — Make native YAS sitemap publication-driven
+
+### Summary
+
+* Fixed the YAS sitemap so it reads the native Blog Core published store at request time rather than only during a Next build.
+
+### Files changed
+
+* `/opt/yas-ooo/src/app/sitemap.ts` — marks the sitemap route dynamic.
+* `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — record the indexing contract.
+
+### Checks run
+
+* `npm run build` in `/opt/yas-ooo`; the route is confirmed dynamic in Next build output.
+* Restarted `yas-ooo.service`.
+* Added and removed an isolated published-store record; its `/blog/<slug>` URL appeared in `http://127.0.0.1:3200/sitemap.xml` immediately.
+
+### Risks / TODO
+
+* No permanent test content was left in the native store.
+
 ## 2026-07-13 — Route Discovery money-page tasks to native use cases
 
 ### Summary

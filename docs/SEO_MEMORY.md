@@ -20,6 +20,7 @@
 * `airep24.com` legacy factory migration keeps SEO money-page work in Blog Core as first-class content jobs. As of 2026-07-04, AIREP24 has 4 imported live SEO money pages and 36 queued SEO money-page jobs across EN/DE/ES/FR, with intended publish paths stored in `sources_json.targetPath`.
 * `yas.ooo` now has an indexable `/use-cases/` hub with canonical use-case URLs for Shopify conversion/performance recovery, AI support and sales operations, founder MVP/operator delivery, and technical advisory. The native Next content-store maps `use_case`/SEO-money-page jobs to that section rather than adding them to `/blog/`; both blog and use-case publications are included in the source sitemap.
 * Discovery now routes only explicitly classified, service-aligned `seo_money_page` ideas to `/use-cases/<slug>/`; all other editorial ideas use `/blog/<slug>/`. This is enforced when jobs are queued, not inferred later from their title.
+* YAS native `sitemap.xml` is dynamic. It reads Blog Core's published content store on request, so an explicit Publish action exposes the new canonical blog/use-case route without requiring a Next build.
 
 ## Known SEO gaps
 

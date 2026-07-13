@@ -368,6 +368,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `app.py` Discovery prompt, idea sanitizer, and article-idea queue route.
 * Replaced/deprecated: Defaulting all Discovery output to blog paths after the model had classified a page as a money page.
 
+### 2026-07-13 — Native YAS sitemap is publication-driven
+
+* Decision: The YAS `sitemap.xml` route is dynamic and reads the native content store at request time.
+* Reason: A Blog Core Publish action must expose its new canonical blog/use-case URL to crawlers immediately without a Next rebuild.
+* Files/areas affected: `/opt/yas-ooo/src/app/sitemap.ts`.
+* Replaced/deprecated: Build-time-only sitemap output for native published content.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
