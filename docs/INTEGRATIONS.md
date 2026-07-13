@@ -50,6 +50,14 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * Current job kinds include `install-blog`, `topic-plan`, and `article-ideas`.
 * `article-ideas` stores selected signals, selected idea drafts, and duplicate-filter results as JSON in `message` after ideas are queued.
 
+## YAS Source Scanner draft ingestion
+
+* `POST /api/integrations/source-scanner/sites/{site_id}/drafts` accepts a finished Studio article for `yas.ooo` only.
+* It requires `X-Source-Scanner-Token`, matching the server-side shared secret. Do not log or document the value.
+* The caller provides a stable scanner article ID, finished HTML, source attribution, optional hero/FAQ metadata and English language metadata. Scanner media URLs are public `scan.yas.ooo` URLs so the native YAS preview can render them.
+* The first request creates a Blog Core `DRAFT`; repeat requests update the same unpublished task using `source_scanner_drafts` idempotency mapping. It never invokes generation, publication or social distribution.
+* A request that would overwrite a `PUBLISHED` task is rejected; create a new Studio draft for a new live revision.
+
 ## YAS Wine factory parity target
 
 Blog Core is being adapted toward feature parity with `/var/www/content-factory-yaswine`:

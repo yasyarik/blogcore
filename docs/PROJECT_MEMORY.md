@@ -23,7 +23,7 @@ It must be updated after every meaningful task.
 * Backend: Python Flask app in `app.py` served by Gunicorn.
 * Database: SQLite at `data/blog_core.sqlite3`; `data/` is ignored and must not be committed.
 * Hosting: VPS path `/var/www/blog.yas.ooo`; PM2 process `blog-yas-core` runs `run.sh`.
-* Auth: No application-level auth is implemented in the MVP.
+* Auth: No application-level dashboard auth is implemented in the MVP. The private YAS Source Scanner draft-ingestion endpoint uses a shared secret header and must never expose or log its value.
 * Payments: None.
 * Main external services:
   - Public site HTML/CSS fetched via `urllib.request` for design scanning.
@@ -44,6 +44,7 @@ It must be updated after every meaningful task.
 
 ## 3. Business rules
 * Generate/regenerate, Preview, and Publish are separate operator actions. Generating a draft must not automatically publish it. `DRAFT` tasks need an explicit Publish action. For imported/source-authoritative jobs, Publish delegates to the original source factory rather than editing source-site files directly from Blog Core.
+* Finished YAS Source Scanner drafts can be inserted into the `yas.ooo` task queue only through the authenticated source-scanner endpoint. They arrive as `DRAFT` tasks with their authored HTML, source attribution, FAQ and scanner-hosted media; Blog Core must not regenerate or auto-publish them. Re-sending an unpublished scanner draft updates the same task. A published task cannot be replaced through this integration.
 
 
 * Blog Core must support arbitrary external sites, not just sites hosted on this VPS.
@@ -178,6 +179,7 @@ It must be updated after every meaningful task.
 
 
 * `data/blog_core.sqlite3` is ignored; Git commits do not preserve connected sites/jobs/theme profiles.
+* The scanner handoff idempotency mapping is stored in the ignored `source_scanner_drafts` SQLite table; do not reconstruct it by title matching.
 * `previews/` is ignored and regenerated.
 * The live catchall nginx config is important for CNAME routing but is not currently represented in `deploy/nginx-blog.yas.ooo.conf`.
 * HTTPS for arbitrary CNAME domains is not production-complete until certificate automation is added.
@@ -388,6 +390,13 @@ It must be updated after every meaningful task.
 * Reason: The queue must reflect the active positioning of the site rather than preserve historical topic inventory by default.
 * Files/areas affected: Ignored live `data/blog_core.sqlite3` YAS planned content jobs.
 * Replaced/deprecated: The initial Shopify-oriented subset of the YAS legacy rewrite queue.
+
+### 2026-07-13 — Receive finished YAS Studio drafts as Blog Core tasks
+
+* Decision: Accept explicitly selected YAS Source Scanner drafts through an authenticated endpoint and store them as native `yas.ooo` `DRAFT` jobs.
+* Reason: Studio is the authoring desk; Blog Core already owns the native YAS review, publication and distribution controls.
+* Files/areas affected: `source_scanner_drafts`, `content_jobs`, native YAS draft store, source-scanner integration API.
+* Replaced/deprecated: The old scanner-brief-only handoff does not represent an authored Studio article and is not used for this workflow.
 
 ## 9. Do not repeat
 

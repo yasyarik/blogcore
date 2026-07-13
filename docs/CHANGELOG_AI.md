@@ -2,6 +2,32 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-13 — Accept selected YAS Studio drafts in Blog Core
+
+### Summary
+
+* Added an authenticated source-scanner endpoint that creates or updates an authored YAS Studio article as a native `yas.ooo` Blog Core `DRAFT` task.
+* Stored a scanner-article-to-Blog-Core-job mapping for idempotent resends and protected published tasks from replacement.
+
+### Files changed
+
+* `app.py` — source-scanner mapping schema, authentication, safe draft upsert and native YAS draft-store preparation.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — recorded the integration contract and operating rule.
+
+### Decisions
+
+* Receiving a Studio draft is not article generation or publishing; publication and social distribution remain explicit Blog Core actions.
+
+### Checks run
+
+* Ran `python3 -m py_compile app.py` before deployment.
+* Restarted `blog-yas-core` and confirmed local `/health` returns `200`.
+* Confirmed the endpoint rejects an unauthenticated request (`401`) and accepts the configured Scanner shared secret before correctly rejecting an empty payload (`400` for missing article ID). No content task was created during the check.
+
+### Risks / TODO
+
+* A published task intentionally cannot be overwritten through the scanner integration.
+
 ## 2026-07-13 — Remove Shopify tasks from the YAS queue
 
 ### Summary
