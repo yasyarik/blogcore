@@ -333,6 +333,20 @@ It must be updated after every meaningful task.
 * Files/areas affected: `Blog Core app.py` source-factory preview proxy; `content-factory-airep24/app.py` native v3 preview builder.
 * Replaced/deprecated: Redirecting every source-authoritative draft preview to the live source URL, rendering it with the generic Blog Core/local-template preview shell, using a stale factory v3 shell, or injecting foreign v3 layout markup into the current source-site shell.
 
+### 2026-07-13 — Preserve canonical paths when rewriting legacy content
+
+* Decision: A queued content job can set `sources_json.preserveSlug=true` to lock its existing slug. Generic Blog Core generation may rewrite the title and body but must retain that canonical slug.
+* Reason: Rewriting legacy content should improve the page without breaking its established URL, inbound links, or search history.
+* Files/areas affected: `app.py` generic draft generation; `content_jobs.sources_json` migration metadata.
+* Replaced/deprecated: Allowing a model-proposed slug to replace a preassigned canonical legacy path.
+
+### 2026-07-13 — YAS legacy blog rewrite queue
+
+* Decision: `yas.ooo` is connected in Blog Core as a local site rooted at `/opt/yas-ooo`. Its 12 existing English `/blog/<slug>/` topics are queued for full rewrites, not imported as duplicate public content.
+* Reason: Blog Core should become the control plane and factory for future YAS content while preserving existing URLs. Draft generation and publishing remain separate actions until the native YAS publisher is complete.
+* Files/areas affected: ignored live `data/blog_core.sqlite3` site/job records; future YAS native publisher adapter.
+* Replaced/deprecated: Treating legacy YAS articles as a separate migration/copy target.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.

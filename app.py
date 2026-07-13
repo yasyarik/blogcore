@@ -5511,7 +5511,10 @@ def generate_content_job(site_id, job_id):
     try:
         draft = _gemini_text_json(build_universal_article_prompt(site, job), response_schema=ARTICLE_DRAFT_SCHEMA, repair=False)
         validation = validate_structured_article_draft(draft)
-        slug = simple_slug(draft.get("slug") or draft.get("title") or job["topic"])
+        # Imported/migrated URL paths can carry existing search value. A queued job
+        # may lock that canonical slug while still allowing its title and draft to be rewritten.
+        preserved_slug = str(job["slug"] or "").strip() if sources.get("preserveSlug") else ""
+        slug = preserved_slug or simple_slug(draft.get("slug") or draft.get("title") or job["topic"])
         faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
         hero_image_url, article_asset_prefix = generate_article_image_assets(site_id, job_id, site, job, draft, slug)
         draft_html = render_structured_article_html(draft, slug, asset_prefix=article_asset_prefix)

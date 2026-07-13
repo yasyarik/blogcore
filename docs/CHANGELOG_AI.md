@@ -2,6 +2,38 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-13 — Queue YAS legacy blog rewrites with locked URLs
+
+### Summary
+
+* Connected `yas.ooo` to Blog Core as a local site using `/opt/yas-ooo`.
+* Added all 12 existing English blog topics as `QUEUED` rewrite tasks, retaining their current `/blog/<slug>/` paths.
+* Added a generic `preserveSlug` contract: jobs explicitly marked with it keep their preassigned canonical slug when a draft is generated.
+* Did not generate, publish, alter, or remove any public YAS page.
+
+### Files changed
+
+* `app.py` — honors `sources_json.preserveSlug` during generic draft generation.
+* `data/blog_core.sqlite3` — live ignored database now has the YAS site and its 12 queued rewrite jobs.
+* `docs/PROJECT_MEMORY.md` — recorded canonical-slug and YAS queue decisions.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Existing URLs remain canonical while their content is rewritten.
+* Publishing stays an explicit later action and will use the native YAS publisher adapter rather than the generic static installer.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-app.py`
+* `python3 -m py_compile /var/www/blog.yas.ooo/app.py`
+* Restarted `blog-yas-core` with PM2 and confirmed `http://127.0.0.1:3299/health` returns `ok`.
+* Queried the live database: 12 `QUEUED` YAS jobs exist and every `targetPath` matches its existing `/blog/<slug>/` route.
+
+### Risks / TODO
+
+* The native YAS publisher/preview adapter is not built yet. Do not publish these tasks through the generic local installer.
+
 ## 2026-07-09 — Add persistent progress for generating tasks
 
 ### Summary
