@@ -354,6 +354,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `app.py` publication and preview routes; YAS `src/lib/managed-content.ts`, `ManagedArticle`, dynamic `/blog`, `/blog/[slug]`, `/content-preview/[jobId]`, homepage insights, and sitemap.
 * Replaced/deprecated: Generic local HTML preview/install for YAS-generated content.
 
+### 2026-07-13 — Native SEO use-case content type for YAS
+
+* Decision: YAS has an indexable `/use-cases/` hub and four initial decision-oriented money pages. The Next content store recognizes `use_case`, `seo_money_page`, and `seo-money-page` publication types as managed `use_case` content, separate from the blog feed.
+* Reason: Commercial intent pages need their own information architecture, service linkage, canonical routes, and sitemap entries; they should not be mixed into editorial blog output.
+* Files/areas affected: YAS `src/content/use-cases.ts`, `/use-cases` routes, header navigation, dynamic sitemap, and the Blog Core native content-store payload.
+* Replaced/deprecated: Treating every generated content task as a blog article regardless of its target page type.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.

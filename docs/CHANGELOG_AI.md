@@ -2,6 +2,40 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-13 — Add YAS SEO use-case architecture
+
+### Summary
+
+* Added a native YAS `/use-cases/` hub and four initial decision-oriented SEO money pages.
+* Added `Use Cases` to the primary navigation.
+* Extended the native Blog Core content-store contract so `use_case` and SEO-money-page jobs publish into `/use-cases/<slug>/`, remain separate from the blog feed, and enter the YAS sitemap.
+
+### Files changed
+
+* `app.py` — adds `contentType` to native content-store payloads and maps use-case/SEO-money-page task types separately from blog content.
+* `/opt/yas-ooo/src/content/use-cases.ts` — defines initial commercial use-case content.
+* `/opt/yas-ooo/src/app/use-cases/page.tsx` and `/opt/yas-ooo/src/app/use-cases/[slug]/page.tsx` — render the hub and canonical detail pages, including managed published replacements.
+* `/opt/yas-ooo/src/lib/managed-content.ts`, `src/app/sitemap.ts`, and `src/components/Header.tsx` — add managed content typing, sitemap coverage, and primary navigation.
+* `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — record the durable SEO and architecture decision.
+
+### Decisions
+
+* Use cases are first-class SEO money pages, not blog category pages.
+* Blog Core content can replace or extend a use case through the native content store without editing the YAS route implementation.
+
+### Checks run
+
+* `python3 -m py_compile /var/www/blog.yas.ooo/app.py`
+* `npm run build` in `/opt/yas-ooo`
+* Restarted `blog-yas-core` and `yas-ooo.service`.
+* Confirmed `/use-cases`, `/use-cases/shopify-storefront-performance`, and all four use-case URLs return HTTP `200`.
+* Confirmed all use-case routes are present in `https://yas.ooo/sitemap.xml` and the `Use Cases` navigation link renders.
+* Browser-tested desktop and 390px mobile layouts with Playwright screenshots; mobile navigation collapses to `Menu`, cards become one column, and text remains contained.
+
+### Risks / TODO
+
+* `/opt/yas-ooo` still has no Git repository or configured remote, so the live YAS source changes cannot yet be committed/pushed.
+
 ## 2026-07-13 — Queue YAS legacy blog rewrites with locked URLs
 
 ### Summary

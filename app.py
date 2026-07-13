@@ -1101,11 +1101,14 @@ def native_content_store_root(site, row):
 
 
 def native_content_store_payload(site, row, published=False):
+    sources = content_job_sources(row)
     try:
         faq = json.loads(row["faq_json"] or "[]")
     except Exception:
         faq = []
     word_count = len(strip_html_text(row["draft_html"] or "").split())
+    raw_content_type = str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower()
+    content_type = "use_case" if raw_content_type in {"use_case", "use-cases", "seo_money_page", "seo-money-page"} else "blog"
     return {
         "id": row["id"],
         "slug": row["slug"],
@@ -1117,6 +1120,7 @@ def native_content_store_payload(site, row, published=False):
         "faq": faq if isinstance(faq, list) else [],
         "readMinutes": max(1, math.ceil(word_count / 220)),
         "targetPath": content_job_target_path(row),
+        "contentType": content_type,
         "updatedAt": now_iso(),
         "publishedAt": now_iso() if published else None,
     }
