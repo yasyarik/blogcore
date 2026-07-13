@@ -361,6 +361,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: YAS `src/content/use-cases.ts`, `/use-cases` routes, header navigation, dynamic sitemap, and the Blog Core native content-store payload.
 * Replaced/deprecated: Treating every generated content task as a blog article regardless of its target page type.
 
+### 2026-07-13 — Discovery routes SEO money pages by content type
+
+* Decision: The universal Discovery journalist prompt may return `contentType=seo_money_page` only for a durable, service-aligned use case. Queueing normalizes this to a canonical `/use-cases/<slug>/` target with `pageType=seo_money_page`; editorial ideas retain `/blog/<slug>/`.
+* Reason: Content type must drive destination and publication behavior. A commercial intent signal alone is not enough to make a money page.
+* Files/areas affected: `app.py` Discovery prompt, idea sanitizer, and article-idea queue route.
+* Replaced/deprecated: Defaulting all Discovery output to blog paths after the model had classified a page as a money page.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.

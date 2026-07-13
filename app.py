@@ -4723,6 +4723,7 @@ Generate article topics using this process:
 7. Title rules: natural editorial titles, not keyword-stuffed titles; serious 2026 SEO style; no obsolete years; no copied autocomplete phrases; no hype; no generic SERP clone framing; no title starting with a number unless the site is explicitly a media/listicle publication.
 8. SEO value: every idea must explain search intent, target query cluster, site-specific business relevance, unique context the site can add, and why it is not a duplicate.
 9. Topic diversity: every idea must have a distinct `topic_axis` and `audience_problem`. Do not create several ideas that differ only by title but all solve the same problem, funnel stage, objection, or business outcome.
+10. Choose `contentType` deliberately: use `blog` for editorial information pages. Use `seo_money_page` only for a durable, commercially relevant use-case or solution page that maps directly to the site's own service/product and deserves a canonical landing page. Do not create a money page merely because a keyword is commercial, and do not duplicate an existing service page.
 
 Generation rules:
 - Generate every distinct article idea that is editorially justified by the selected signals and useful for this site.
@@ -4753,7 +4754,7 @@ Generation rules:
       "audience_problem": "Concrete audience/business problem this page solves",
       "source_title": "The audience signal that inspired the idea",
       "source": "popular_search|reddit",
-      "contentType": "blog"
+      "contentType": "blog|seo_money_page"
     }}
   ]
 }}
@@ -4773,6 +4774,8 @@ def sanitize_article_idea(raw_idea, signals, policy=None):
     duplicate_check = re.sub(r"\s+", " ", str(raw_idea.get("duplicate_check") or raw_idea.get("duplicateCheck") or "")).strip()
     topic_axis = re.sub(r"\s+", " ", str(raw_idea.get("topic_axis") or raw_idea.get("topicAxis") or "")).strip()
     audience_problem = re.sub(r"\s+", " ", str(raw_idea.get("audience_problem") or raw_idea.get("audienceProblem") or "")).strip()
+    requested_content_type = str(raw_idea.get("contentType") or "blog").strip().lower()
+    content_type = "seo_money_page" if requested_content_type in {"use_case", "use-cases", "seo_money_page", "seo-money-page"} else "blog"
     if len(title) < 28 or len(angle) < 30 or len(seo_rationale) < 35:
         return None
     if seo_intent not in {"informational", "commercial", "comparison", "transactional"}:
@@ -4813,7 +4816,7 @@ def sanitize_article_idea(raw_idea, signals, policy=None):
         "source_title": source_display,
         "raw_source_title": raw_source_title,
         "source_url": (matched_signal or {}).get("url") or raw_idea.get("source_url") or "",
-        "contentType": raw_idea.get("contentType") or "blog",
+        "contentType": content_type,
     }
     if editorial_policy_rejection_reason(idea, policy or {"currentYear": current_content_year()}):
         return None
@@ -6219,7 +6222,7 @@ def queue_article_ideas(site_id):
             "source": idea.get("source") or "discovery",
             "source_title": idea.get("source_title") or "",
             "source_url": idea.get("source_url") or "",
-            "contentType": idea.get("contentType") or "blog",
+            "contentType": "seo_money_page" if str(idea.get("contentType") or "").lower() in {"use_case", "use-cases", "seo_money_page", "seo-money-page"} else "blog",
         }
         similar = find_similar_existing_topic(clean, existing_index)
         if similar:
@@ -6240,6 +6243,15 @@ def queue_article_ideas(site_id):
             job_id = secrets.token_hex(12)
             slug = simple_slug(title)
             now = now_iso()
+            is_money_page = idea.get("contentType") == "seo_money_page"
+            target_path = f"/use-cases/{slug}/" if is_money_page else f"/blog/{slug}/"
+            sources = {
+                **idea,
+                "contentType": "seo_money_page" if is_money_page else "blog",
+                "pageType": "seo_money_page" if is_money_page else "blog",
+                "targetPath": target_path,
+                "canonicalGroup": target_path,
+            }
             conn.execute(
                 """
                 insert into content_jobs(
@@ -6255,8 +6267,8 @@ def queue_article_ideas(site_id):
                     "QUEUED",
                     title,
                     idea.get("angle") or "",
-                    "Article Ideas",
-                    json.dumps(idea, ensure_ascii=False),
+                    "SEO Money Page" if is_money_page else "Article Ideas",
+                    json.dumps(sources, ensure_ascii=False),
                     "public",
                     now,
                     now,

@@ -2,6 +2,33 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-13 — Route Discovery money-page tasks to native use cases
+
+### Summary
+
+* Extended the universal Discovery prompt and queue contract with an explicit `seo_money_page` type.
+* Service-aligned use-case ideas now queue with `pageType=seo_money_page` and `/use-cases/<slug>/`; editorial ideas retain their `/blog/<slug>/` path.
+* Verified the behavior with an isolated task, then removed the test task and its logs.
+
+### Files changed
+
+* `app.py` — adds deliberate money-page classification guidance, normalizes content types, and assigns canonical targets at queue time.
+* `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — recorded the durable routing rule.
+
+### Decisions
+
+* A money page is created only when it is a durable use case directly aligned to a site's service/product; commercial keywords alone do not qualify.
+
+### Checks run
+
+* `python3 -m py_compile /tmp/blogcore-discovery-content-type.py`
+* Deployed `app.py`, restarted `blog-yas-core`, and checked `/health`.
+* Queued a temporary `seo_money_page` idea for YAS and verified its `category=SEO Money Page`, `contentType=seo_money_page`, and `targetPath=/use-cases/shopify-architecture-recovery-for-app-heavy-stores/`; removed the test job and logs immediately afterwards.
+
+### Risks / TODO
+
+* No public content was generated or published by this routing test.
+
 ## 2026-07-13 — Add YAS SEO use-case architecture
 
 ### Summary
