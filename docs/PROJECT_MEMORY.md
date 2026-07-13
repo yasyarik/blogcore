@@ -382,6 +382,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: YAS `use-cases/page.tsx`, `use-cases/[slug]/page.tsx`, `use-cases.module.css`, `ManagedUseCasePage`, and `content-preview/[jobId]/page.tsx`.
 * Replaced/deprecated: Rendering managed use-case detail and preview pages through `ManagedArticlePage`.
 
+### 2026-07-13 — YAS content queue focus excludes Shopify
+
+* Decision: Remove the queued YAS rewrite tasks whose subject is Shopify. The current YAS editorial focus is not Shopify.
+* Reason: The queue must reflect the active positioning of the site rather than preserve historical topic inventory by default.
+* Files/areas affected: Ignored live `data/blog_core.sqlite3` YAS planned content jobs.
+* Replaced/deprecated: The initial Shopify-oriented subset of the YAS legacy rewrite queue.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.

@@ -2,6 +2,28 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-13 — Remove Shopify tasks from the YAS queue
+
+### Summary
+
+* Removed the four queued YAS Blog Core rewrite tasks whose title, topic, or slug contained `Shopify`.
+* No generation or publication was started; existing public YAS pages and their design were not changed.
+
+### Files changed
+
+* `data/blog_core.sqlite3` — removed four ignored live queue records and their associated Blog Core logs/social-draft records.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — record the current YAS content focus and this operation.
+
+### Checks run
+
+* Confirmed the four matched tasks before deletion.
+* Confirmed eight planned YAS jobs remain and zero queued YAS jobs contain `Shopify`.
+* Checked `http://127.0.0.1:3299/health`.
+
+### Risks / TODO
+
+* The removed jobs can be recreated later only through a deliberate new queue action.
+
 ## 2026-07-13 — Integrate Blog Core into the new YAS use-cases design
 
 ### Summary
