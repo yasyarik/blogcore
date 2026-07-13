@@ -2,6 +2,26 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-13 — Generalise Scanner Studio draft ingestion by site
+
+### Summary
+
+* Changed the authenticated Source Scanner Studio endpoint from YAS-only to site-aware so each Scanner editorial project can place finished drafts in its connected Blog Core site queue.
+* Preserved the native YAS content-store draft preview only for `yas.ooo`; other sites receive a reviewable `DRAFT` without an unsafe publishing assumption.
+
+### Files changed
+
+* `app.py` — project metadata intake, generic site acceptance and conditional native preview preparation.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — documented the generic contract and YAS-specific adapter boundary.
+
+### Checks run
+
+* Ran `python3 -m py_compile app.py`, restarted `blog-yas-core`, and confirmed `/health` returns `ok`.
+
+### Risks / TODO
+
+* A non-YAS site still needs its own explicit publication adapter before a Blog Core draft can become a live page.
+
 ## 2026-07-13 — Add LinkedIn personal OAuth connection
 
 ### Summary

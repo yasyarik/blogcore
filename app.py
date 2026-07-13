@@ -7793,7 +7793,7 @@ def source_scanner_unique_slug(conn, site_id, title, scanner_article_id, current
 
 @app.post("/api/integrations/source-scanner/sites/<int:site_id>/drafts")
 def receive_source_scanner_draft(site_id):
-    """Receive a finished YAS Studio article as a reviewable Blog Core draft, never as a publication."""
+    """Receive a finished project Studio article as a reviewable Blog Core draft, never as a publication."""
     if not source_scanner_request_authorized():
         return jsonify({"error": "unauthorized source scanner handoff"}), 401
     payload = request.get_json(silent=True) or {}
@@ -7810,25 +7810,24 @@ def receive_source_scanner_draft(site_id):
         site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
         if not site:
             return jsonify({"error": "site not found"}), 404
-        if str(site["domain"] or "").lower().strip("/") != "yas.ooo":
-            return jsonify({"error": "source scanner drafts are only accepted for yas.ooo"}), 403
         mapping = conn.execute("select * from source_scanner_drafts where scanner_article_id=?", (scanner_article_id,)).fetchone()
         now = now_iso()
         faq = payload.get("faq") if isinstance(payload.get("faq"), list) else []
         faq = faq[:12]
         sources = {
-            "origin": "yas_source_scanner",
+            "origin": "source_scanner_studio",
             "scannerArticleId": scanner_article_id,
+            "scannerProjectId": str(payload.get("scannerProjectId") or "")[:80],
             "scannerBriefId": str(payload.get("scannerBriefId") or "")[:80],
             "sourceUrl": str(payload.get("sourceUrl") or "")[:2000],
             "sourceName": str(payload.get("sourceName") or "")[:240],
             "sourceNotes": str(payload.get("sourceNotes") or "")[:4000],
-            "language": "en",
+            "language": str(payload.get("language") or "en")[:12],
             "contentType": "blog",
             "pageType": "blog",
-            "publicationMode": "native_next_content_store",
-            "nativeProjectRoot": site["root_path"] or "",
         }
+        if str(site["domain"] or "").lower().strip("/") == "yas.ooo":
+            sources.update({"publicationMode": "native_next_content_store", "nativeProjectRoot": site["root_path"] or ""})
         created = mapping is None
         if mapping:
             if int(mapping["site_id"]) != site_id:
@@ -7846,7 +7845,7 @@ def receive_source_scanner_draft(site_id):
                 (title, slug, title, str(payload.get("subtitle") or "")[:360], "YAS Editorial Studio", str(payload.get("heroImage") or "")[:2000], content_html, json.dumps(faq, ensure_ascii=False), json.dumps(sources, ensure_ascii=False), now, job_id, site_id),
             )
             conn.execute("update source_scanner_drafts set updated_at=? where scanner_article_id=?", (now, scanner_article_id))
-            log_message = "Updated draft from YAS Source Scanner"
+            log_message = "Updated draft from Source Scanner Studio"
         else:
             job_id = secrets.token_hex(12)
             slug = source_scanner_unique_slug(conn, site_id, title, scanner_article_id)
@@ -7856,13 +7855,14 @@ def receive_source_scanner_draft(site_id):
                 (job_id, site_id, title, slug, "DRAFT", title, str(payload.get("subtitle") or "")[:360], "YAS Editorial Studio", str(payload.get("heroImage") or "")[:2000], content_html, json.dumps(faq, ensure_ascii=False), json.dumps(sources, ensure_ascii=False), "public", now, now),
             )
             conn.execute("insert into source_scanner_drafts(scanner_article_id,site_id,job_id,received_at,updated_at) values(?,?,?,?,?)", (scanner_article_id, site_id, job_id, now, now))
-            log_message = "Received finished draft from YAS Source Scanner"
+            log_message = "Received finished draft from Source Scanner Studio"
         conn.execute("insert into content_job_logs(site_id,job_id,ts,level,step,message) values(?,?,?,?,?,?)", (site_id, job_id, now, "INFO", "source-scanner", log_message))
         job = conn.execute("select * from content_jobs where id=?", (job_id,)).fetchone()
-    try:
-        write_native_content_store(site, job, "drafts")
-    except Exception as error:
-        return jsonify({"error": f"Draft was queued but native preview could not be prepared: {error}", "job": {"id": job_id}}), 502
+    if str(site["domain"] or "").lower().strip("/") == "yas.ooo":
+        try:
+            write_native_content_store(site, job, "drafts")
+        except Exception as error:
+            return jsonify({"error": f"Draft was queued but native preview could not be prepared: {error}", "job": {"id": job_id}}), 502
     return jsonify({"ok": True, "created": created, "updated": not created, "job": {"id": job_id, "siteId": site_id, "status": "DRAFT", "slug": slug}})
 
 

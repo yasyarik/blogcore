@@ -44,7 +44,7 @@ It must be updated after every meaningful task.
 
 ## 3. Business rules
 * Generate/regenerate, Preview, and Publish are separate operator actions. Generating a draft must not automatically publish it. `DRAFT` tasks need an explicit Publish action. For imported/source-authoritative jobs, Publish delegates to the original source factory rather than editing source-site files directly from Blog Core.
-* Finished YAS Source Scanner drafts can be inserted into the `yas.ooo` task queue only through the authenticated source-scanner endpoint. They arrive as `DRAFT` tasks with their authored HTML, source attribution, FAQ and scanner-hosted media; Blog Core must not regenerate or auto-publish them. Re-sending an unpublished scanner draft updates the same task. A published task cannot be replaced through this integration.
+* Finished Source Scanner Studio drafts can be inserted into the target site's task queue only through the authenticated source-scanner endpoint. They arrive as `DRAFT` tasks with their authored HTML, source attribution, FAQ and scanner-hosted media; Blog Core must not regenerate or auto-publish them. Re-sending an unpublished scanner draft updates the same task. A published task cannot be replaced through this integration. Native YAS draft-store preparation remains specific to `yas.ooo`; other sites are queued without assuming a publication adapter.
 
 
 * Blog Core must support arbitrary external sites, not just sites hosted on this VPS.

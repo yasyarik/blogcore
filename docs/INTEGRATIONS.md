@@ -52,11 +52,12 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 
 ## YAS Source Scanner draft ingestion
 
-* `POST /api/integrations/source-scanner/sites/{site_id}/drafts` accepts a finished Studio article for `yas.ooo` only.
+* `POST /api/integrations/source-scanner/sites/{site_id}/drafts` accepts a finished Studio article for the Scanner editorial project connected to that Blog Core site.
 * It requires `X-Source-Scanner-Token`, matching the server-side shared secret. Do not log or document the value.
-* The caller provides a stable scanner article ID, finished HTML, source attribution, optional hero/FAQ metadata and English language metadata. Scanner media URLs are public `scan.yas.ooo` URLs so the native YAS preview can render them.
+* The caller provides stable scanner article and project IDs, finished HTML, source attribution, optional hero/FAQ metadata and language metadata. Scanner media URLs are public `scan.yas.ooo` URLs so native previews can render them where supported.
 * The first request creates a Blog Core `DRAFT`; repeat requests update the same unpublished task using `source_scanner_drafts` idempotency mapping. It never invokes generation, publication or social distribution.
 * A request that would overwrite a `PUBLISHED` task is rejected; create a new Studio draft for a new live revision.
+* `yas.ooo` retains its native YAS content-store preview preparation. Other sites receive a safe Blog Core `DRAFT` without assuming their publishing adapter or local filesystem contract.
 
 ## YAS Wine factory parity target
 
