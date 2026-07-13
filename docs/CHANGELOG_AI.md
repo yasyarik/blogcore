@@ -9,11 +9,16 @@ This file is updated by Codex after every task.
 * Connected `yas.ooo` to Blog Core as a local site using `/opt/yas-ooo`.
 * Added all 12 existing English blog topics as `QUEUED` rewrite tasks, retaining their current `/blog/<slug>/` paths.
 * Added a generic `preserveSlug` contract: jobs explicitly marked with it keep their preassigned canonical slug when a draft is generated.
-* Did not generate, publish, alter, or remove any public YAS page.
+* Added the native Next content-store publisher for YAS: draft records go to `data/blog-core/drafts`, Preview redirects to a noindex YAS-native route, and explicit Publish moves a record to `data/blog-core/published` without changing page templates or source arrays.
+* Updated the YAS blog, article route, homepage insight section, and sitemap so a published managed article takes priority on its existing slug and appears automatically in the native site feed.
+* Did not generate, publish, alter, or remove any public legacy YAS article.
 
 ### Files changed
 
-* `app.py` — honors `sources_json.preserveSlug` during generic draft generation.
+* `app.py` — honors `sources_json.preserveSlug` and provides the native content-store preview/publish contract.
+* `/opt/yas-ooo/src/lib/managed-content.ts` — reads managed draft/published records at runtime.
+* `/opt/yas-ooo/src/components/ManagedArticle.tsx` and `/opt/yas-ooo/src/app/content-preview/[jobId]/page.tsx` — render noindex draft previews in the native YAS UI.
+* `/opt/yas-ooo/src/app/blog/page.tsx`, `/opt/yas-ooo/src/app/blog/[slug]/page.tsx`, `/opt/yas-ooo/src/app/page.tsx`, `/opt/yas-ooo/src/app/sitemap.ts` — give published managed content priority in the blog, homepage feed, and sitemap while retaining legacy fallback content.
 * `data/blog_core.sqlite3` — live ignored database now has the YAS site and its 12 queued rewrite jobs.
 * `docs/PROJECT_MEMORY.md` — recorded canonical-slug and YAS queue decisions.
 * `docs/CHANGELOG_AI.md` — logged this task.
@@ -21,7 +26,7 @@ This file is updated by Codex after every task.
 ### Decisions
 
 * Existing URLs remain canonical while their content is rewritten.
-* Publishing stays an explicit later action and will use the native YAS publisher adapter rather than the generic static installer.
+* Publishing stays an explicit action and uses the native YAS content-store publisher rather than the generic static installer.
 
 ### Checks run
 
@@ -29,10 +34,12 @@ This file is updated by Codex after every task.
 * `python3 -m py_compile /var/www/blog.yas.ooo/app.py`
 * Restarted `blog-yas-core` with PM2 and confirmed `http://127.0.0.1:3299/health` returns `ok`.
 * Queried the live database: 12 `QUEUED` YAS jobs exist and every `targetPath` matches its existing `/blog/<slug>/` route.
+* Ran `npm run build` in `/opt/yas-ooo`, restarted `yas-ooo.service`, and confirmed `/`, `/blog`, and an existing article return HTTP `200`.
+* Created and removed an isolated private smoke-test job. Blog Core preview redirected to `https://yas.ooo/content-preview/<job>` and YAS rendered the draft in its native UI; the test JSON and DB record were removed afterwards.
 
 ### Risks / TODO
 
-* The native YAS publisher/preview adapter is not built yet. Do not publish these tasks through the generic local installer.
+* `/opt/yas-ooo` has no Git repository or configured remote. Its code is deployed and build-tested, but cannot be committed/pushed until its canonical repository is identified or created.
 
 ## 2026-07-09 — Add persistent progress for generating tasks
 

@@ -1086,6 +1086,57 @@ def source_authoritative_content_job(row):
     return bool(sources.get("migratedFrom") and sources.get("oldFactoryJobId") and sources.get("ownership") == "source_site_authoritative")
 
 
+def native_content_store_job(row):
+    """A site-owned Next content store accepts generated drafts and publishes them natively."""
+    mode = str(content_job_sources(row).get("publicationMode") or "").strip().lower()
+    return mode in {"native_next_content_store", "native_yas_publisher"}
+
+
+def native_content_store_root(site, row):
+    sources = content_job_sources(row)
+    root = Path(str(sources.get("nativeProjectRoot") or site["root_path"] or "")).resolve()
+    if not root.is_dir():
+        raise RuntimeError("Native content store requires an existing local project root")
+    return root / "data" / "blog-core"
+
+
+def native_content_store_payload(site, row, published=False):
+    try:
+        faq = json.loads(row["faq_json"] or "[]")
+    except Exception:
+        faq = []
+    word_count = len(strip_html_text(row["draft_html"] or "").split())
+    return {
+        "id": row["id"],
+        "slug": row["slug"],
+        "title": row["title"] or row["topic"],
+        "description": row["description"] or "",
+        "category": row["category"] or "Insights",
+        "heroImage": row["hero_image"] or "",
+        "draftHtml": row["draft_html"] or "",
+        "faq": faq if isinstance(faq, list) else [],
+        "readMinutes": max(1, math.ceil(word_count / 220)),
+        "targetPath": content_job_target_path(row),
+        "updatedAt": now_iso(),
+        "publishedAt": now_iso() if published else None,
+    }
+
+
+def write_native_content_store(site, row, state):
+    if state not in {"drafts", "published"}:
+        raise ValueError("Native content store state must be drafts or published")
+    if not (row["draft_html"] or "").strip():
+        raise ValueError("A native content record requires a generated draft")
+    directory = native_content_store_root(site, row) / state
+    directory.mkdir(parents=True, exist_ok=True)
+    filename = f"{row['id']}.json" if state == "drafts" else f"{row['slug']}.json"
+    target = directory / filename
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(native_content_store_payload(site, row, published=state == "published"), ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(target)
+    return target
+
+
 def content_job_source_url(site, row):
     sources = content_job_sources(row)
     raw = str(sources.get("sourcePublishedUrl") or row["published_url"] or content_job_target_path(row) or "").strip()
@@ -5548,6 +5599,10 @@ def generate_content_job(site_id, job_id):
                     f"Draft generated and validated: {validation['word_count']} words, {validation['sections']} sections, {validation['images']} images, {validation['faq']} FAQ items, 4 article images",
                 ),
             )
+        if native_content_store_job(job):
+            with db() as conn:
+                generated_job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+            write_native_content_store(site, generated_job, "drafts")
         return {"ok": True, "jobId": job_id, "status": "DRAFT", "slug": slug}
     except Exception as e:
         with db() as conn:
@@ -5756,6 +5811,20 @@ def publish_content_job(site_id, job_id):
     if job["status"] not in {"DRAFT", "PUBLISHED"}:
         raise ValueError(f"Job status must be DRAFT or PUBLISHED before publish, got {job['status']}")
     sources = content_job_sources(job)
+    if native_content_store_job(job):
+        published_path = write_native_content_store(site, job, "published")
+        published_url = content_job_source_url(site, job)
+        now = now_iso()
+        with db() as conn:
+            conn.execute(
+                "update content_jobs set status='PUBLISHED', published_url=?, error=NULL, updated_at=? where site_id=? and id=?",
+                (published_url, now, site_id, job_id),
+            )
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (site_id, job_id, now, "INFO", "native-publish", f"Published native content record: {published_path}"),
+            )
+        return {"ok": True, "jobId": job_id, "status": "PUBLISHED", "publishedUrl": published_url, "publisher": "native-content-store"}
     factory_name = str(sources.get("migratedFrom") or "").strip()
     old_job_id = str(sources.get("oldFactoryJobId") or "").strip()
     if not factory_name or not old_job_id or sources.get("ownership") != "source_site_authoritative":
@@ -6345,6 +6414,14 @@ def preview_content_job(site_id, job_id):
         return Response("Draft not found.", status=404, mimetype="text/plain")
     if job["status"] not in {"DRAFT", "PUBLISHED", "IMPORTED"} or not (job["draft_html"] or "").strip():
         return Response("Draft is not generated yet.", status=409, mimetype="text/plain")
+    if native_content_store_job(job):
+        if job["status"] == "PUBLISHED":
+            return redirect(content_job_source_url(site, job), code=302)
+        try:
+            write_native_content_store(site, job, "drafts")
+            return redirect(urllib.parse.urljoin(public_site_base_url(site), f"content-preview/{job_id}"), code=302)
+        except Exception as e:
+            return Response(f"Native content preview is unavailable: {e}", status=502, mimetype="text/plain")
     if source_authoritative_content_job(job):
         source_url = content_job_source_url(site, job)
         if job["status"] in {"PUBLISHED", "IMPORTED"} and source_url:

@@ -342,10 +342,17 @@ It must be updated after every meaningful task.
 
 ### 2026-07-13 — YAS legacy blog rewrite queue
 
-* Decision: `yas.ooo` is connected in Blog Core as a local site rooted at `/opt/yas-ooo`. Its 12 existing English `/blog/<slug>/` topics are queued for full rewrites, not imported as duplicate public content.
-* Reason: Blog Core should become the control plane and factory for future YAS content while preserving existing URLs. Draft generation and publishing remain separate actions until the native YAS publisher is complete.
-* Files/areas affected: ignored live `data/blog_core.sqlite3` site/job records; future YAS native publisher adapter.
+* Decision: `yas.ooo` is connected in Blog Core as a local site rooted at `/opt/yas-ooo`. Its 12 existing English `/blog/<slug>/` topics are queued for full rewrites, not imported as duplicate public content. Its Next app reads Blog Core-managed JSON records from `data/blog-core/drafts` and `data/blog-core/published`.
+* Reason: Blog Core should become the control plane and factory for future YAS content while preserving existing URLs. Draft generation and publishing remain separate actions; Preview writes only a noindex draft record, while Publish atomically writes the public record.
+* Files/areas affected: ignored live `data/blog_core.sqlite3` site/job records; Blog Core `native-content-store` adapter; `/opt/yas-ooo` dynamic blog/home/sitemap content readers and preview route.
 * Replaced/deprecated: Treating legacy YAS articles as a separate migration/copy target.
+
+### 2026-07-13 — Native Next content-store publisher contract
+
+* Decision: For a local Next site marked with `publicationMode=native_next_content_store` (the current YAS compatibility value `native_yas_publisher` is also supported), Blog Core saves generated drafts as JSON under `<root>/data/blog-core/drafts/<job>.json`. Preview redirects to `/content-preview/<job>` on the source site; explicit Publish atomically writes `<root>/data/blog-core/published/<slug>.json` and marks the Blog Core job `PUBLISHED`.
+* Reason: The source site retains its own components and visual system. Content changes do not require reauthoring TypeScript arrays, rebuilding the website, or using the generic Blog Core static installer.
+* Files/areas affected: `app.py` publication and preview routes; YAS `src/lib/managed-content.ts`, `ManagedArticle`, dynamic `/blog`, `/blog/[slug]`, `/content-preview/[jobId]`, homepage insights, and sitemap.
+* Replaced/deprecated: Generic local HTML preview/install for YAS-generated content.
 
 ## 9. Do not repeat
 
