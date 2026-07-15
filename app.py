@@ -38,6 +38,7 @@ LEGACY_FACTORY_ENDPOINTS = {
     "content-factory-yaswine": os.environ.get("LEGACY_FACTORY_YASWINE_URL", "http://127.0.0.1:3199").rstrip("/"),
     "content-factory-solocruz": os.environ.get("LEGACY_FACTORY_SOLOCRUZ_URL", "http://127.0.0.1:12838").rstrip("/"),
     "content-factory-laycanmatch": os.environ.get("LEGACY_FACTORY_LAYCANMATCH_URL", "http://127.0.0.1:13157").rstrip("/"),
+    "content-factory-pipsalerts": os.environ.get("LEGACY_FACTORY_PIPSALERTS_URL", "http://127.0.0.1:13095").rstrip("/"),
 }
 LEGACY_STATUS_CHECKS = {}
 LINKEDIN_OAUTH_STATES = {}
@@ -337,6 +338,16 @@ def init_db():
             );
             create index if not exists podcast_episodes_site_created_idx on podcast_episodes(site_id,created_at desc);
             create index if not exists podcast_episodes_site_job_idx on podcast_episodes(site_id,job_id);
+            create table if not exists site_factory_bindings (
+                site_id integer primary key,
+                factory_name text not null,
+                base_url text,
+                publish_path_prefix text,
+                ownership text not null default 'source_site_authoritative',
+                created_at text not null,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
             """
         )
         for statement in (
@@ -6308,6 +6319,9 @@ def generate_content_job(site_id, job_id):
         sources = content_job_sources(job)
     if sources.get("migratedFrom") and sources.get("oldFactoryJobId"):
         return generate_legacy_factory_content_job(site, job, sources)
+    binding = get_site_factory_binding(site_id)
+    if binding and binding["ownership"] == "source_site_authoritative":
+        return delegate_new_content_job_to_source_factory(site, job, binding)
     with db() as conn:
         conn.execute("update content_jobs set status='GENERATING', error=NULL, updated_at=? where site_id=? and id=?", (now_iso(), site_id, job_id))
         conn.execute("insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "INFO", "generate", "Starting article draft generation"))
@@ -6369,6 +6383,67 @@ def legacy_factory_url(factory_name):
     if explicit:
         return explicit.rstrip("/")
     return LEGACY_FACTORY_ENDPOINTS.get(factory_name)
+
+
+def get_site_factory_binding(site_id):
+    with db() as conn:
+        return conn.execute("select * from site_factory_bindings where site_id=?", (site_id,)).fetchone()
+
+
+def source_factory_base_url(binding):
+    return (binding["base_url"] or legacy_factory_url(binding["factory_name"]) or "").rstrip("/")
+
+
+def source_factory_target_path(site_id, slug, fallback_path):
+    binding = get_site_factory_binding(site_id)
+    prefix = (binding["publish_path_prefix"] or "").strip() if binding else ""
+    if prefix:
+        return "/" + prefix.strip("/") + "/" + slug.strip("/") + "/"
+    return fallback_path
+
+
+def delegate_new_content_job_to_source_factory(site, job, binding):
+    """Create the source-factory job first, then reuse the normal delegated lifecycle."""
+    factory_name = str(binding["factory_name"] or "").strip()
+    base_url = source_factory_base_url(binding)
+    if not factory_name or not base_url:
+        raise RuntimeError("Source factory binding has no reachable factory endpoint")
+    payload = {
+        "topic": job["topic"],
+        "slug": job["slug"] or "",
+        "category": job["category"] or "",
+        "visibility": job["visibility"] or "public",
+        "productMode": bool(job["product_mode"] or 0),
+        "engagementMode": bool(job["engagement_mode"] or 0),
+        "leadMagnetMode": bool(job["lead_magnet_mode"] or 0),
+    }
+    try:
+        created, _ = fetch_json_request(f"{base_url}/api/jobs", data=payload, method="POST", timeout=60)
+    except urllib.error.HTTPError as e:
+        body = e.read(1000).decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
+        raise RuntimeError(f"Source factory job creation failed: HTTP {e.code}: {body}") from e
+    old_job_id = str(created.get("id") or created.get("jobId") or "").strip() if isinstance(created, dict) else ""
+    if not old_job_id or (isinstance(created, dict) and created.get("success") is False):
+        raise RuntimeError((created.get("error") if isinstance(created, dict) else "") or "Source factory did not return a job ID")
+    sources = content_job_sources(job)
+    sources.update({
+        "migratedFrom": factory_name,
+        "oldFactoryJobId": old_job_id,
+        "ownership": "source_site_authoritative",
+        "delegatedFromBlogCore": True,
+    })
+    now = now_iso()
+    with db() as conn:
+        conn.execute(
+            "update content_jobs set sources_json=?, status='QUEUED', error=NULL, updated_at=? where site_id=? and id=?",
+            (json.dumps(sources, ensure_ascii=False), now, site["id"], job["id"]),
+        )
+        conn.execute(
+            "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+            (site["id"], job["id"], now, "INFO", "legacy-create", f"Created source-factory job {old_job_id} via {factory_name}"),
+        )
+        delegated_job = conn.execute("select * from content_jobs where site_id=? and id=?", (site["id"], job["id"])).fetchone()
+    return generate_legacy_factory_content_job(site, delegated_job, sources)
 
 
 def legacy_factory_request_json(url, method="GET", timeout=900):
@@ -7056,7 +7131,8 @@ def queue_article_ideas(site_id):
             slug = simple_slug(title)
             now = now_iso()
             is_money_page = idea.get("contentType") == "seo_money_page"
-            target_path = f"/use-cases/{slug}/" if is_money_page else f"/blog/{slug}/"
+            fallback_target_path = f"/use-cases/{slug}/" if is_money_page else f"/blog/{slug}/"
+            target_path = source_factory_target_path(site_id, slug, fallback_target_path)
             sources = {
                 **idea,
                 "contentType": "seo_money_page" if is_money_page else "blog",

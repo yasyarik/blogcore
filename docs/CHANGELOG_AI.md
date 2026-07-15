@@ -2,6 +2,35 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-15 — Import PipsAlerts into the source-factory control plane
+
+### Summary
+
+* Added a generic source-factory binding layer so a new Blog Core task for an imported site can be created, generated, previewed, and explicitly published by that site's native factory.
+* Connected `pipsalerts.com` to its existing `content-factory-pipsalerts` service and imported its guide inventory without changing the PipsAlerts website or guide files.
+* Preserved each guide's native `/guides/{slug}/` URL and source factory job ID. Imported 61 live guides and 2 source-factory error tasks for recovery in the dashboard.
+
+### Files changed
+
+* `app.py` — source-factory binding schema, PipsAlerts endpoint registry, native target-path selection, and delegation of newly queued work to the source factory.
+* `data/blog_core.sqlite3` — ignored live site/binding/job records for PipsAlerts; not committed.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — durable source-authoritative integration contract and PipsAlerts operating details.
+
+### Decisions
+
+* PipsAlerts remains source-authoritative. Blog Core is its control plane and must not build a second public blog, overwrite the Next template, or publish generic static files into its webroot.
+
+### Checks run
+
+* Confirmed the native PipsAlerts factory API responds on `127.0.0.1:13095`.
+* Confirmed the Blog Core database contains site ID 13, its source-factory binding, 61 `IMPORTED` jobs, and 2 `ERROR` jobs.
+* Ran `python3 -m py_compile app.py`, checked `http://127.0.0.1:3299/health`, and verified the PipsAlerts site-management page returns HTTP 200.
+
+### Risks / TODO
+
+* The two imported source errors are preserved for operator recovery; no generation or publication was triggered during import.
+* Existing source-factory social statuses are displayed after import, but any source-specific social execution API needs an explicit adapter before it can be controlled from Blog Core.
+
 ## 2026-07-13 — Generalise Scanner Studio draft ingestion by site
 
 ### Summary

@@ -50,6 +50,13 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * Current job kinds include `install-blog`, `topic-plan`, and `article-ideas`.
 * `article-ideas` stores selected signals, selected idea drafts, and duplicate-filter results as JSON in `message` after ideas are queued.
 
+## Source-authoritative factory bindings
+
+* `site_factory_bindings` connects a Blog Core site to a compatible local source factory. A binding includes the factory name, loopback base URL, native publishing-path prefix, and `source_site_authoritative` ownership mode.
+* For a bound site, a new Blog Core queue item remains the dashboard record, but `Generate` first creates its corresponding source job through `POST /api/jobs`; its native job ID is saved in `sources_json.oldFactoryJobId`.
+* Blog Core then uses the source factory's job detail, preview, generate, and publish endpoints. It synchronizes result/status data but never publishes generic files into the source webroot or replaces the source template.
+* PipsAlerts binding: `content-factory-pipsalerts` at `http://127.0.0.1:13095`, with native guide routes at `/guides/{slug}/`. The factory and Next site live on the same VPS at `/var/www/content-factory-pipsalerts` and `/var/www/pipsalerts`; do not store credentials in this document.
+
 ## YAS Source Scanner draft ingestion
 
 * `POST /api/integrations/source-scanner/sites/{site_id}/drafts` accepts a finished Studio article for the Scanner editorial project connected to that Blog Core site.
