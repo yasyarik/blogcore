@@ -6408,6 +6408,12 @@ def delegate_new_content_job_to_source_factory(site, job, binding):
     base_url = source_factory_base_url(binding)
     if not factory_name or not base_url:
         raise RuntimeError("Source factory binding has no reachable factory endpoint")
+    sources = content_job_sources(job)
+    content_type = str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower()
+    page_kind = "money" if content_type in {"seo_money_page", "seo-money-page", "use_case", "use-cases"} else "blog"
+    target_path = str(sources.get("targetPath") or source_factory_target_path(site["id"], job["slug"] or simple_slug(job["topic"]), f"/blog/{job['slug'] or simple_slug(job['topic'])}/")).strip()
+    canonical_group = str(sources.get("canonicalGroup") or target_path).strip()
+    locale = str(sources.get("language") or "en").strip().lower() or "en"
     payload = {
         "topic": job["topic"],
         "slug": job["slug"] or "",
@@ -6416,6 +6422,11 @@ def delegate_new_content_job_to_source_factory(site, job, binding):
         "productMode": bool(job["product_mode"] or 0),
         "engagementMode": bool(job["engagement_mode"] or 0),
         "leadMagnetMode": bool(job["lead_magnet_mode"] or 0),
+        "contentType": content_type,
+        "pageKind": page_kind,
+        "targetPath": target_path,
+        "canonicalGroup": canonical_group,
+        "locale": locale,
     }
     try:
         created, _ = fetch_json_request(f"{base_url}/api/jobs", data=payload, method="POST", timeout=60)
@@ -6425,12 +6436,16 @@ def delegate_new_content_job_to_source_factory(site, job, binding):
     old_job_id = str(created.get("id") or created.get("jobId") or "").strip() if isinstance(created, dict) else ""
     if not old_job_id or (isinstance(created, dict) and created.get("success") is False):
         raise RuntimeError((created.get("error") if isinstance(created, dict) else "") or "Source factory did not return a job ID")
-    sources = content_job_sources(job)
     sources.update({
         "migratedFrom": factory_name,
         "oldFactoryJobId": old_job_id,
         "ownership": "source_site_authoritative",
         "delegatedFromBlogCore": True,
+        "contentType": content_type,
+        "pageType": content_type,
+        "targetPath": target_path,
+        "canonicalGroup": canonical_group,
+        "language": locale,
     })
     now = now_iso()
     with db() as conn:

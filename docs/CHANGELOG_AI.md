@@ -2,6 +2,37 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-16 — Bind SoloCruz to its native content factory
+
+### Summary
+
+* Bound `solocruz.com` to `content-factory-solocruz` so Blog Core is now the control plane for new source-factory work instead of only displaying its imported inventory.
+* Extended the generic source-factory creation contract with `contentType`, page kind, native target path, canonical group, and locale. This applies to every compatible source-factory binding, not only SoloCruz.
+* Repaired the non-secret SoloCruz factory configuration that still had placeholder webroot/domain values, and aligned source-factory preview rendering with the same `seo_waitlist` renderer used by its Publish path.
+
+### Files changed
+
+* `app.py` — forwards the complete canonical page contract when creating a source-factory job.
+* `/var/www/content-factory-solocruz/app.py`, server-only `.env` — native preview branch and non-secret site configuration; not part of Blog Core Git.
+* `data/blog_core.sqlite3` — ignored source-authoritative binding for site ID 7; not committed.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — durable integration and delegation rules.
+
+### Decisions
+
+* SoloCruz keeps ownership of public page rendering, multilingual output, assets, and publication. Blog Core must not write a generic mirror or replace the source site's pages.
+
+### Checks run
+
+* Compiled Blog Core and the SoloCruz factory Python applications.
+* Restarted `content-factory-solocruz` and `blog-yas-core`.
+* Confirmed both health/API endpoints respond, the site ID 7 binding points to `127.0.0.1:12838`, and the SoloCruz management page returns HTTP 200.
+* No source job was created, generated, or published during integration.
+
+### Risks / TODO
+
+* The existing 75 SoloCruz pages remain imported inventory records because the source factory currently has no historical job rows. New work will be source-factory-backed from creation onward.
+* Social posting routes remain source-factory-specific and need an explicit adapter before Blog Core can trigger them directly.
+
 ## 2026-07-15 — Import PipsAlerts into the source-factory control plane
 
 ### Summary

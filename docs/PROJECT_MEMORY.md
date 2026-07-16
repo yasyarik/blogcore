@@ -440,6 +440,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: PipsAlerts site record, `site_factory_bindings`, and imported `content_jobs` in ignored Blog Core SQLite data.
 * Replaced/deprecated: Treating the PipsAlerts guide collection as a new generic `/blog/` installation.
 
+### 2026-07-16 — SoloCruz source factory bound to Blog Core
+
+* Decision: `solocruz.com` is managed through `content-factory-solocruz` as a source-authoritative factory. Blog Core passes the complete native page contract when it creates a source job: content type, page kind, locale, target path, and canonical group.
+* Reason: A source factory needs more than a topic and slug to preserve a site's path structure and multilingual publication model. This lets Blog Core manage a single canonical task while the source factory creates its own localized public pages.
+* Files/areas affected: `app.py` delegation payload; ignored Blog Core binding data; `/var/www/content-factory-solocruz` server-only factory configuration and preview implementation.
+* Replaced/deprecated: The unbound SoloCruz inventory-only integration and the factory's placeholder webroot/domain configuration.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
@@ -460,3 +467,4 @@ It must be updated after every meaningful task.
 * Do not imply Gemini TTS prebuilt voices are voice cloning. A selected Gemini voice and per-site direction are supported; true custom/clone voice requires a separate Google Cloud Custom Voice arrangement and adapter.
 * Do not auto-publish podcast audio after generation. A ready episode must be reviewed and explicitly published. Native embedding on an imported source site must use that source factory's adapter rather than Blog Core changing its public template.
 * Do not bypass a configured source-factory binding for a new imported-site task. Create, generate, preview, and publish through the native source factory so the public URL, design, assets, and validations remain authoritative.
+* Do not delegate only a title and slug to a source factory. Preserve the planned task's native path, canonical group, type, and language in the source job payload.
