@@ -6618,7 +6618,10 @@ def legacy_factory_generate_and_sync(site_id, job_id, factory_name, old_job_id, 
         quoted_job_id = urllib.parse.quote(old_job_id)
         detail = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}")
         legacy = legacy_job_payload(detail)
-        if str(legacy.get("status") or "").upper() not in {"GENERATING", "READY", "PUBLISHED"}:
+        # An explicit Blog Core regenerate must invoke the source factory even when
+        # the last native result was READY or PUBLISHED. Only an already-running
+        # source job is polled instead of being started twice.
+        if str(legacy.get("status") or "").upper() != "GENERATING":
             result = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}/generate", method="POST")
             if result.get("success") is False:
                 raise RuntimeError(result.get("error") or json.dumps(result, ensure_ascii=False)[:500])

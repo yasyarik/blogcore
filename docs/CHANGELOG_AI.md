@@ -2,6 +2,39 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-18 — Make YAS Wine a fully managed source factory
+
+### Summary
+
+* Bound `yas.wine` to `content-factory-yaswine` so Blog Core now delegates new work, generation, native preview, explicit publishing, and regeneration to the source factory rather than acting only as imported inventory.
+* Linked 176 unique current factory jobs, including 88 SEO money-page records, to Blog Core. The factory has three older published duplicate jobs for the same URLs; the newer source job remains the authoritative control record for each of those pages.
+* Corrected the generic explicit Regenerate flow so it calls a source factory even after a previous draft/publication; an already-running job is only polled.
+* Restored the YAS Wine factory's required article template as a private factory asset outside `/var/www/yaswine`, so native Preview and future Publish work again without exposing `/blog/template.html`.
+
+### Files changed
+
+* `app.py` — source-factory regenerate behavior.
+* `data/blog_core.sqlite3` — ignored YAS Wine source-factory binding and linked job state; not committed.
+* `/var/www/content-factory-yaswine/factory/landing.py`, private template asset, server-only `.env` — source preview/template configuration, committed separately to `yasyarik/factory` as `8491d9b`.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — durable source-factory state and preview contract.
+
+### Decisions
+
+* Primary `jobs` status is authoritative for the YAS Wine source-factory API. The auxiliary `seo_jobs` table classifies money pages but must not overwrite executable job status in Blog Core.
+
+### Checks run
+
+* Confirmed the factory API serves 179 records and Blog Core site ID 5 has a source-authoritative binding to `127.0.0.1:3199`.
+* Confirmed Blog Core has 176 linked factory jobs: 15 queued, 1 draft, 12 errors, and 148 live/imported; 88 are marked SEO money pages.
+* Compiled and restarted Blog Core and the YAS Wine factory.
+* Verified native source Preview and Blog Core proxy Preview both return HTTP 200 with noindex and the YAS Wine theme; public `/blog/template.html` returns 404.
+* No factory generation or publication was triggered.
+
+### Risks / TODO
+
+* The 821-page webroot inventory contains pages that never had an original factory job. They remain live inventory; creating a rewrite task for one will create a new native source-factory job rather than silently altering its existing page.
+* Source-factory social execution remains provider-specific; direct Blog Core social actions need explicit source adapters where no shared integration exists.
+
 ## 2026-07-16 — Bind SoloCruz to its native content factory
 
 ### Summary

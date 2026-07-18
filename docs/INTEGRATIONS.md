@@ -57,6 +57,7 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * Blog Core then uses the source factory's job detail, preview, generate, and publish endpoints. It synchronizes result/status data but never publishes generic files into the source webroot or replaces the source template.
 * PipsAlerts binding: `content-factory-pipsalerts` at `http://127.0.0.1:13095`, with native guide routes at `/guides/{slug}/`. The factory and Next site live on the same VPS at `/var/www/content-factory-pipsalerts` and `/var/www/pipsalerts`; do not store credentials in this document.
 * SoloCruz binding: `content-factory-solocruz` at `http://127.0.0.1:12838`, with native public blog routes under `/blog/{slug}/` and localized counterparts. Its local webroot is `/var/www/solocruz.com`. The source factory uses server-only `SITE_MODE=seo_waitlist` and site configuration to render preview/publish in its existing public-page system; do not record credentials from its `.env`.
+* YAS Wine binding: `content-factory-yaswine` at `http://127.0.0.1:3199`, with native article and SEO-section publication in `/var/www/yaswine`. Blog Core links the factory's primary `jobs` records; entries also present in `seo_jobs` are identified as `seo_money_page` but continue to use the same native job API. The factory's article template is kept at a private path outside the public webroot via `FACTORY_ARTICLE_TEMPLATE_PATH`; `/blog/template.html` must remain unavailable publicly.
 
 ## YAS Source Scanner draft ingestion
 

@@ -447,6 +447,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `app.py` delegation payload; ignored Blog Core binding data; `/var/www/content-factory-solocruz` server-only factory configuration and preview implementation.
 * Replaced/deprecated: The unbound SoloCruz inventory-only integration and the factory's placeholder webroot/domain configuration.
 
+### 2026-07-18 — YAS Wine factory bound as the source-authoritative publisher
+
+* Decision: `yas.wine` is bound to `content-factory-yaswine` at `127.0.0.1:3199`. Blog Core manages its native job queue and delegates Generate, Preview, Regenerate, and explicit Publish to that factory; the factory remains authoritative for the live wine blog and SEO section pages.
+* Reason: The original local factory owns multilingual output, images, validation, source template, static page writes, indexes, and sitemaps. Blog Core must be the dashboard without replacing these site-specific publication contracts.
+* Files/areas affected: `site_factory_bindings`, linked YAS Wine `content_jobs` in ignored SQLite data, Blog Core legacy regeneration behavior, and the private template configuration in `/var/www/content-factory-yaswine`.
+* Replaced/deprecated: Inventory-only YAS Wine import without source job linkage.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
@@ -468,3 +475,4 @@ It must be updated after every meaningful task.
 * Do not auto-publish podcast audio after generation. A ready episode must be reviewed and explicitly published. Native embedding on an imported source site must use that source factory's adapter rather than Blog Core changing its public template.
 * Do not bypass a configured source-factory binding for a new imported-site task. Create, generate, preview, and publish through the native source factory so the public URL, design, assets, and validations remain authoritative.
 * Do not delegate only a title and slug to a source factory. Preserve the planned task's native path, canonical group, type, and language in the source job payload.
+* An explicit Regenerate action for a source-authoritative task must call the source factory even when the previous result is `READY` or `PUBLISHED`; merely re-syncing an old result is not regeneration.
