@@ -458,7 +458,7 @@ It must be updated after every meaningful task.
 
 * Decision: Every connected site with a compatible local content factory is bound through `site_factory_bindings`, and its historical source jobs are linked into Blog Core by a rerunnable inventory synchronization. `yas.ooo` remains a native content-store integration rather than a source-factory binding.
 * Reason: The dashboard must operate the original factory for all imported sites without re-rendering, relocating, or publishing generic Blog Core pages into those sites.
-* Files/areas affected: `app.py` source endpoint resolver and inventory-sync API; ignored Blog Core SQLite bindings and source-job mappings; `docs/INTEGRATIONS.md`.
+* Files/areas affected: `app.py` source endpoint resolver plus inventory-sync/backfill APIs; ignored Blog Core SQLite bindings and source-job mappings; `docs/INTEGRATIONS.md`.
 * Replaced/deprecated: Factory-name endpoint defaults as the primary routing mechanism. They remain only for legacy records that predate a binding.
 
 ## 9. Do not repeat

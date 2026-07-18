@@ -6551,6 +6551,95 @@ def sync_source_factory_inventory(site_id):
     return {"ok": True, "factory": factory_name, "linked": linked, "created": created, "skipped": skipped, "sourceJobs": len(source_jobs)}
 
 
+def backfill_source_factory_jobs(site_id):
+    """Create source-factory drafts for imported records that predate a binding.
+
+    This is deliberately non-destructive: it creates only NEW source jobs and
+    stores their IDs in Blog Core.  It never starts generation or publication.
+    """
+    with db() as conn:
+        site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
+    if not site:
+        raise KeyError("site not found")
+    binding = get_site_factory_binding(site_id)
+    if not binding or binding["ownership"] != "source_site_authoritative":
+        raise ValueError("This site has no source-authoritative factory binding")
+    factory_name = str(binding["factory_name"] or "").strip()
+    base_url = source_factory_base_url(binding)
+    if not factory_name or not base_url:
+        raise RuntimeError("Source factory binding has no reachable factory endpoint")
+    with db() as conn:
+        rows = conn.execute(
+            "select * from content_jobs where site_id=? and status in ('IMPORTED','DRAFT','PUBLISHED','QUEUED','ERROR') order by created_at asc",
+            (site_id,),
+        ).fetchall()
+
+    linked = created = skipped = failed = 0
+    for row in rows:
+        sources = content_job_sources(row)
+        if sources.get("oldFactoryJobId") and sources.get("migratedFrom"):
+            skipped += 1
+            continue
+        raw_type = str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower()
+        page_kind = "money" if raw_type in {"seo_money_page", "seo-money-page", "use_case", "use-cases", "feature", "industry", "comparison", "cluster"} else "blog"
+        target_path = content_job_target_path(row)
+        payload = {
+            "topic": row["topic"] or row["title"],
+            "slug": row["slug"] or "",
+            "category": row["category"] or "",
+            "visibility": row["visibility"] or "public",
+            "productMode": bool(row["product_mode"] or 0),
+            "engagementMode": bool(row["engagement_mode"] or 0),
+            "leadMagnetMode": bool(row["lead_magnet_mode"] or 0),
+            "contentType": raw_type,
+            "pageKind": page_kind,
+            "targetPath": target_path,
+            "canonicalGroup": str(sources.get("canonicalGroup") or target_path),
+            "locale": str(sources.get("language") or "en").strip().lower() or "en",
+        }
+        try:
+            result, _ = fetch_json_request(f"{base_url}/api/jobs", data=payload, method="POST", timeout=60)
+            old_job_id = str(result.get("id") or result.get("jobId") or "").strip() if isinstance(result, dict) else ""
+            if not old_job_id or (isinstance(result, dict) and result.get("success") is False):
+                raise RuntimeError((result.get("error") if isinstance(result, dict) else "") or "Source factory did not return a job ID")
+            sources.update({
+                "migratedFrom": factory_name,
+                "oldFactoryJobId": old_job_id,
+                "ownership": "source_site_authoritative",
+                "delegatedFromBlogCore": True,
+                "sourcePublishedUrl": content_job_source_url(site, row),
+                "targetPath": target_path,
+                "canonicalGroup": payload["canonicalGroup"],
+                "contentType": raw_type,
+                "pageType": raw_type,
+                "language": payload["locale"],
+            })
+            with db() as conn:
+                conn.execute(
+                    "update content_jobs set sources_json=?, error=null, updated_at=? where site_id=? and id=?",
+                    (json.dumps(sources, ensure_ascii=False), now_iso(), site_id, row["id"]),
+                )
+                conn.execute(
+                    "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                    (site_id, row["id"], now_iso(), "INFO", "source-backfill", f"Created source-factory draft {old_job_id} via {factory_name}"),
+                )
+            created += 1
+            linked += 1
+        except Exception as e:
+            with db() as conn:
+                conn.execute(
+                    "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                    (site_id, row["id"], now_iso(), "WARNING", "source-backfill", f"Could not create source-factory draft: {e}"),
+                )
+            failed += 1
+    with db() as conn:
+        conn.execute(
+            "insert into publish_jobs(site_id,kind,status,message,created_at) values(?,?,?,?,?)",
+            (site_id, "source-factory-backfill", "completed" if not failed else "completed_with_warnings", json.dumps({"factory": factory_name, "created": created, "skipped": skipped, "failed": failed}), now_iso()),
+        )
+    return {"ok": True, "factory": factory_name, "linked": linked, "created": created, "skipped": skipped, "failed": failed}
+
+
 def delegate_new_content_job_to_source_factory(site, job, binding):
     """Create the source-factory job first, then reuse the normal delegated lifecycle."""
     factory_name = str(binding["factory_name"] or "").strip()
@@ -7533,6 +7622,18 @@ def get_content_job(site_id, job_id):
 def sync_source_factory_inventory_route(site_id):
     try:
         return jsonify(sync_source_factory_inventory(site_id))
+    except KeyError:
+        return jsonify({"error": "site not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.post("/api/sites/<int:site_id>/source-factory/backfill")
+def backfill_source_factory_jobs_route(site_id):
+    try:
+        return jsonify(backfill_source_factory_jobs(site_id))
     except KeyError:
         return jsonify({"error": "site not found"}), 404
     except ValueError as e:

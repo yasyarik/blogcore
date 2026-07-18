@@ -62,6 +62,7 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * LaycanMatch binding: `content-factory-laycanmatch` at `http://127.0.0.1:13157`. Existing native routes include `/resources/`, `/features/`, `/use-cases/`, and `/comparisons/`; Blog Core preserves an existing job's native `targetPath` instead of moving it under a generic blog route.
 * AIREP24 binding: `content-factory-airep24` at `http://127.0.0.1:12631`, with native product, feature, use-case, comparison, and blog route support. Its source-template preview adapter remains the authority for draft preview rendering.
 * `POST /api/sites/{site_id}/source-factory/sync` synchronizes a bound source factory's inventory into Blog Core without generating, publishing, changing a source page, or creating a public mirror. Matching is by existing source job ID, canonical URL path, then slug. It can safely be rerun.
+* `POST /api/sites/{site_id}/source-factory/backfill` is the inverse one-time migration for imported records that predate their source factory: it creates only `NEW` source jobs with the preserved type, locale, canonical group, and target path, then stores the source IDs in Blog Core. It never generates or publishes and is safe to rerun because already linked records are skipped.
 * Source-factory lifecycle requests resolve the endpoint from `site_factory_bindings` first. The old factory-name endpoint map is only a fallback for records created before bindings existed.
 
 ## YAS Source Scanner draft ingestion

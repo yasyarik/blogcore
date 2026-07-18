@@ -7,7 +7,7 @@ This file is updated by Codex after every task.
 ### Summary
 
 * Added a binding-first source endpoint resolver so every lifecycle action for a source-authoritative task uses that site's configured factory endpoint.
-* Added a rerunnable source-factory inventory synchronization API. It links existing factory jobs by source ID, canonical path, or slug; it never generates, publishes, rewrites, or mirrors source pages.
+* Added rerunnable source-factory inventory synchronization and safe backfill APIs. Sync links existing factory jobs by source ID, canonical path, or slug; backfill creates only source `NEW` jobs for imported records that predate a factory. Neither operation generates, publishes, rewrites, or mirrors source pages.
 * Bound and synchronized My UGC Studio, LaycanMatch, and AIREP24 alongside the existing YAS Wine, SoloCruz, and PipsAlerts bindings. `yas.ooo` continues to publish through its native content-store adapter.
 
 ### Files changed
