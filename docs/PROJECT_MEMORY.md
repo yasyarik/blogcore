@@ -454,6 +454,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `site_factory_bindings`, linked YAS Wine `content_jobs` in ignored SQLite data, Blog Core legacy regeneration behavior, and the private template configuration in `/var/www/content-factory-yaswine`.
 * Replaced/deprecated: Inventory-only YAS Wine import without source job linkage.
 
+### 2026-07-18 — Complete connected-site source-factory control plane
+
+* Decision: Every connected site with a compatible local content factory is bound through `site_factory_bindings`, and its historical source jobs are linked into Blog Core by a rerunnable inventory synchronization. `yas.ooo` remains a native content-store integration rather than a source-factory binding.
+* Reason: The dashboard must operate the original factory for all imported sites without re-rendering, relocating, or publishing generic Blog Core pages into those sites.
+* Files/areas affected: `app.py` source endpoint resolver and inventory-sync API; ignored Blog Core SQLite bindings and source-job mappings; `docs/INTEGRATIONS.md`.
+* Replaced/deprecated: Factory-name endpoint defaults as the primary routing mechanism. They remain only for legacy records that predate a binding.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.

@@ -6394,12 +6394,161 @@ def source_factory_base_url(binding):
     return (binding["base_url"] or legacy_factory_url(binding["factory_name"]) or "").rstrip("/")
 
 
+def source_factory_url_for_site(site_id, factory_name):
+    """Resolve a source endpoint from the site's binding before legacy defaults.
+
+    The binding is the control-plane contract.  The legacy name map is retained
+    only for records created before bindings were introduced.
+    """
+    binding = get_site_factory_binding(site_id)
+    if binding and str(binding["factory_name"] or "").strip() == str(factory_name or "").strip():
+        return source_factory_base_url(binding)
+    return legacy_factory_url(factory_name)
+
+
 def source_factory_target_path(site_id, slug, fallback_path):
     binding = get_site_factory_binding(site_id)
     prefix = (binding["publish_path_prefix"] or "").strip() if binding else ""
     if prefix:
         return "/" + prefix.strip("/") + "/" + slug.strip("/") + "/"
     return fallback_path
+
+
+def source_factory_inventory_status(legacy):
+    status = str(legacy.get("status") or "").upper()
+    if status == "PUBLISHED":
+        return "IMPORTED"
+    if status == "READY":
+        return "DRAFT"
+    if status == "GENERATING":
+        return "GENERATING"
+    if status == "ERROR":
+        return "ERROR"
+    return "QUEUED"
+
+
+def source_factory_inventory_path(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urllib.parse.urlsplit(raw)
+    path = parsed.path or raw
+    if not path.startswith("/"):
+        path = "/" + path
+    if path.endswith("/index.html"):
+        path = path[:-11] or "/"
+    elif path.endswith(".html"):
+        path = path[:-5] or "/"
+    return path
+
+
+def sync_source_factory_inventory(site_id):
+    """Link a site's existing source-factory jobs without publishing or rewriting pages."""
+    with db() as conn:
+        site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
+    if not site:
+        raise KeyError("site not found")
+    binding = get_site_factory_binding(site_id)
+    if not binding or binding["ownership"] != "source_site_authoritative":
+        raise ValueError("This site has no source-authoritative factory binding")
+    factory_name = str(binding["factory_name"] or "").strip()
+    base_url = source_factory_base_url(binding)
+    publish_path_prefix = str(binding["publish_path_prefix"] or "").strip().strip("/")
+    if not factory_name or not base_url:
+        raise RuntimeError("Source factory binding has no reachable factory endpoint")
+    payload = legacy_factory_request_json(f"{base_url}/api/jobs", timeout=60)
+    source_jobs = payload.get("jobs") if isinstance(payload, dict) else None
+    if not isinstance(source_jobs, list):
+        raise RuntimeError("Source factory returned an invalid jobs inventory")
+
+    with db() as conn:
+        existing = conn.execute("select * from content_jobs where site_id=?", (site_id,)).fetchall()
+        by_source_id = {}
+        by_path = {}
+        by_slug = {}
+        for row in existing:
+            sources = content_job_sources(row)
+            old_id = str(sources.get("oldFactoryJobId") or "").strip()
+            if old_id:
+                by_source_id[old_id] = row
+            path = source_factory_inventory_path(sources.get("sourcePublishedUrl") or row["published_url"])
+            if path:
+                by_path[path.rstrip("/") or "/"] = row
+            if row["slug"]:
+                by_slug[str(row["slug"])] = row
+
+        linked = created = skipped = 0
+        for legacy in source_jobs:
+            if not isinstance(legacy, dict):
+                skipped += 1
+                continue
+            old_job_id = str(legacy.get("id") or legacy.get("jobId") or "").strip()
+            slug = str(legacy.get("slug") or "").strip()
+            raw_url = str(legacy.get("publishedUrl") or legacy.get("published_url") or "").strip()
+            target_path = source_factory_inventory_path(raw_url)
+            if not old_job_id:
+                skipped += 1
+                continue
+            if not target_path:
+                fallback_slug = slug or simple_slug(legacy.get("title") or legacy.get("topic") or old_job_id)
+                target_path = f"/{publish_path_prefix}/{fallback_slug}/" if publish_path_prefix else f"/blog/{fallback_slug}/"
+            source_url = raw_url or urllib.parse.urljoin(public_site_base_url(site), target_path.lstrip("/"))
+            match = by_source_id.get(old_job_id) or by_path.get(target_path.rstrip("/") or "/") or (by_slug.get(slug) if slug else None)
+            content_type = str(legacy.get("contentType") or legacy.get("content_type") or legacy.get("pageKind") or "").strip().lower()
+            if not content_type:
+                content_type = "home" if target_path == "/" else "blog"
+            sources_update = {
+                "migratedFrom": factory_name,
+                "oldFactoryJobId": old_job_id,
+                "ownership": "source_site_authoritative",
+                "sourcePublishedUrl": source_url,
+                "targetPath": target_path,
+                "canonicalGroup": str(legacy.get("canonicalGroup") or legacy.get("canonical_group") or target_path),
+                "contentType": content_type,
+                "pageType": content_type,
+                "language": str(legacy.get("locale") or legacy.get("language") or "en").strip().lower() or "en",
+            }
+            if match:
+                merged = content_job_sources(match)
+                merged.update(sources_update)
+                conn.execute(
+                    "update content_jobs set sources_json=?, published_url=coalesce(nullif(published_url, ''), ?), updated_at=? where id=? and site_id=?",
+                    (json.dumps(merged, ensure_ascii=False), source_url, now_iso(), match["id"], site_id),
+                )
+                conn.execute(
+                    "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                    (site_id, match["id"], now_iso(), "INFO", "source-sync", f"Linked existing source-factory job {old_job_id} via {factory_name}"),
+                )
+                by_source_id[old_job_id] = match
+                linked += 1
+                continue
+            job_id = secrets.token_hex(12)
+            title = str(legacy.get("title") or legacy.get("topic") or slug or "Source factory page").strip()
+            status = source_factory_inventory_status(legacy)
+            conn.execute(
+                """
+                insert into content_jobs(id,site_id,topic,slug,status,title,description,category,hero_image,
+                    sources_json,visibility,published_url,error,created_at,updated_at)
+                values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    job_id, site_id, str(legacy.get("topic") or title), slug or simple_slug(title), status, title,
+                    str(legacy.get("description") or ""), str(legacy.get("category") or "Article"),
+                    str(legacy.get("heroImage") or legacy.get("hero_image") or ""), json.dumps(sources_update, ensure_ascii=False),
+                    str(legacy.get("visibility") or "public"), source_url,
+                    str(legacy.get("error") or "") if status == "ERROR" else None, now_iso(), now_iso(),
+                ),
+            )
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (site_id, job_id, now_iso(), "INFO", "source-sync", f"Imported source-factory inventory job {old_job_id} via {factory_name}"),
+            )
+            created += 1
+        conn.execute(
+            "insert into publish_jobs(site_id,kind,status,message,created_at) values(?,?,?,?,?)",
+            (site_id, "source-factory-sync", "completed", json.dumps({"factory": factory_name, "linked": linked, "created": created, "skipped": skipped}), now_iso()),
+        )
+    return {"ok": True, "factory": factory_name, "linked": linked, "created": created, "skipped": skipped, "sourceJobs": len(source_jobs)}
 
 
 def delegate_new_content_job_to_source_factory(site, job, binding):
@@ -6557,7 +6706,7 @@ def maybe_sync_legacy_factory_status(site_id, job_id, force=False):
     old_job_id = str(sources.get("oldFactoryJobId") or "").strip()
     if not factory_name or not old_job_id:
         return False
-    base_url = legacy_factory_url(factory_name)
+    base_url = source_factory_url_for_site(site_id, factory_name)
     if not base_url:
         return False
     try:
@@ -6598,7 +6747,7 @@ def maybe_sync_legacy_factory_status(site_id, job_id, force=False):
 def generate_legacy_factory_content_job(site, job, sources):
     factory_name = str(sources.get("migratedFrom") or "").strip()
     old_job_id = str(sources.get("oldFactoryJobId") or "").strip()
-    base_url = legacy_factory_url(factory_name)
+    base_url = source_factory_url_for_site(site["id"], factory_name)
     if not base_url:
         raise RuntimeError(f"No legacy factory endpoint configured for {factory_name}")
     now = now_iso()
@@ -6674,7 +6823,7 @@ def publish_content_job(site_id, job_id):
     old_job_id = str(sources.get("oldFactoryJobId") or "").strip()
     if not factory_name or not old_job_id or sources.get("ownership") != "source_site_authoritative":
         raise ValueError("Publish is currently available only for source-authoritative imported factory jobs")
-    base_url = legacy_factory_url(factory_name)
+    base_url = source_factory_url_for_site(site_id, factory_name)
     if not base_url:
         raise RuntimeError(f"No legacy factory endpoint configured for {factory_name}")
     quoted_job_id = urllib.parse.quote(old_job_id)
@@ -7380,6 +7529,18 @@ def get_content_job(site_id, job_id):
     return jsonify({"ok": True, "job": dict(row), "logs": [dict(r) for r in logs]})
 
 
+@app.post("/api/sites/<int:site_id>/source-factory/sync")
+def sync_source_factory_inventory_route(site_id):
+    try:
+        return jsonify(sync_source_factory_inventory(site_id))
+    except KeyError:
+        return jsonify({"error": "site not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
 @app.get("/sites/<int:site_id>/blog-core.css")
 def site_blog_core_css(site_id):
     profile = get_profile(site_id)
@@ -7412,7 +7573,7 @@ def preview_content_job(site_id, job_id):
         sources = content_job_sources(job)
         factory_name = str(sources.get("migratedFrom") or "").strip()
         old_job_id = str(sources.get("oldFactoryJobId") or "").strip()
-        base_url = legacy_factory_url(factory_name)
+        base_url = source_factory_url_for_site(site_id, factory_name)
         if factory_name and old_job_id and base_url:
             try:
                 draft_html = legacy_factory_request_html(

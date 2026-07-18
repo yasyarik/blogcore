@@ -2,6 +2,31 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-18 — Complete source-factory control for connected sites
+
+### Summary
+
+* Added a binding-first source endpoint resolver so every lifecycle action for a source-authoritative task uses that site's configured factory endpoint.
+* Added a rerunnable source-factory inventory synchronization API. It links existing factory jobs by source ID, canonical path, or slug; it never generates, publishes, rewrites, or mirrors source pages.
+* Bound and synchronized My UGC Studio, LaycanMatch, and AIREP24 alongside the existing YAS Wine, SoloCruz, and PipsAlerts bindings. `yas.ooo` continues to publish through its native content-store adapter.
+
+### Files changed
+
+* `app.py` — binding-first lifecycle resolution and source-factory inventory synchronization endpoint.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — durable source-control contract and site bindings.
+
+### Decisions
+
+* A source factory remains the publisher and template authority. Blog Core is the control plane and synchronizes job state only.
+
+### Checks run
+
+* Python compilation, factory API contract probes, source inventory synchronization, and Blog Core health check.
+
+### Risks / TODO
+
+* The inventory synchronization is intentionally explicit rather than background polling. Direct source-factory changes can be imported by rerunning the sync endpoint.
+
 ## 2026-07-18 — Make YAS Wine a fully managed source factory
 
 ### Summary
