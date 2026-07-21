@@ -11,6 +11,7 @@ This file is updated by Codex after every task.
 * Aligned SoloCruz source-factory blog generation and validation after the first job exposed a contradictory H3 requirement and an impossible non-blog link requirement.
 * Fixed SoloCruz native SEO-page asset resolution: generated media is preserved in `/blog/` and published HTML now uses absolute asset URLs instead of nested relative paths.
 * Replaced the factory's shortened header/footer on SoloCruz native pages with chrome extracted from the published source site, including its own CSS and interaction script.
+* Audited published source-factory samples across YAS Wine, My UGC Studio, SoloCruz, LaycanMatch, AIREP24, and PipsAlerts. No equivalent header/footer or media-path defect was found outside SoloCruz; recorded the separate stale AIREP24 French URL for a deliberate future migration.
 
 ### Files changed
 

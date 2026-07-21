@@ -250,6 +250,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `/var/www/content-factory-solocruz/factory/seo_waitlist.py`.
 * Replaced/deprecated: Default factory navigation/footer on pages for sites that already provide native chrome.
 
+### 2026-07-21 — Source-factory publishing adapter audit
+
+* Decision: Keep each source factory's native rendering adapter where it already preserves site chrome and asset behavior; do not force a single SoloCruz renderer onto unrelated sites.
+* Reason: Published URL and media contracts differ by site. The SoloCruz nested-route asset fix is not evidence that YAS Wine, My UGC Studio, LaycanMatch, PipsAlerts, or AIREP24 use the same path model.
+* Files/areas affected: source-factory audit across YAS Wine, My UGC Studio, SoloCruz, LaycanMatch, AIREP24, and PipsAlerts.
+* Known issue: An old AIREP24 French job is marked published at a now-missing URL. It must be repaired through an explicit locale/path migration, not automated republishing.
+
 ### 2026-07-01 — Store durable project memory in repo
 
 * Decision: Add `AGENTS.md` and `docs/` memory files requiring Codex to read memory before non-trivial work and update changelog after each task.
