@@ -2,6 +2,35 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-21 — Recreate SoloCruz article in all native languages
+
+### Summary
+
+* Recreated the SoloCruz cruise-community article through `content-factory-solocruz`, not through Blog Core's generic renderer.
+* Generated and published a canonical native set in EN, RU, ES, DE, and FR. Each page retains the source site's route structure and the same article slug.
+* Re-published all variants after the set was complete so their native language selector and hreflang links point to the matching translated article rather than a homepage.
+* Synchronized the source factory inventory back to Blog Core without generating or changing any additional pages.
+
+### Files changed
+
+* `/var/www/content-factory-solocruz/factory.sqlite` — five native source-factory job records and publication state; server data, not Blog Core Git.
+* `/var/www/solocruz.com/{,ru/,es/,de/,fr/}blog/how-to-choose-a-cruise-community-before-you-book-group-cabin-share-or-fully-solo/index.html` — native factory output; source-site repository output, not Blog Core Git.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — multilingual native-publication rule and task log.
+
+### Decisions
+
+* A single English source job is not considered a multilingual publication. The native factory must have a published counterpart for each intended locale before the language switch is shown.
+
+### Checks run
+
+* Confirmed all five native URLs return HTTP 200.
+* Confirmed EN language switch links to this article's EN/RU/ES/DE/FR URLs.
+* Ran `POST /api/sites/7/source-factory/sync`, `python3 -m py_compile app.py`, and the Blog Core health check.
+
+### Risks / TODO
+
+* Future Blog Core delegation should fan out a multilingual planned task into its configured native locale set automatically; this recreation created the required source-factory locale jobs explicitly.
+
 ## 2026-07-21 — Schedule native SoloCruz publications
 
 ### Summary

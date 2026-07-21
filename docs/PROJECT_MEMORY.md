@@ -257,6 +257,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `/var/www/content-factory-solocruz/factory/seo_waitlist.py`.
 * Replaced/deprecated: Reusing source-homepage language URLs verbatim on article pages and dropping source favicon assets from generated page heads.
 
+### 2026-07-21 — SoloCruz article locale set
+
+* Decision: A multilingual SoloCruz article is a canonical group of native source-factory jobs, one per published locale and native route. Publish the complete set, then re-publish each member so hreflang and the native language switch see every real counterpart.
+* Reason: A single EN job cannot provide translations; copying a homepage switch is not an acceptable substitute for article-localized routes.
+* Files/areas affected: source-factory job records and `/var/www/content-factory-solocruz/factory/seo_waitlist.py` publication behavior.
+* Replaced/deprecated: Treating a single source job as a completed multilingual article.
+
 ### 2026-07-21 — Source-factory publishing adapter audit
 
 * Decision: Keep each source factory's native rendering adapter where it already preserves site chrome and asset behavior; do not force a single SoloCruz renderer onto unrelated sites.
