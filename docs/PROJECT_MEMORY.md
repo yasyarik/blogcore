@@ -23,6 +23,7 @@ It must be updated after every meaningful task.
 * Backend: Python Flask app in `app.py` served by Gunicorn.
 * Database: SQLite at `data/blog_core.sqlite3`; `data/` is ignored and must not be committed.
 * Hosting: VPS path `/var/www/blog.yas.ooo`; PM2 process `blog-yas-core` runs `run.sh`.
+* Scheduled page publishing: PM2 process `blog-yas-core-scheduler` runs `run-scheduler.sh` once per minute. It advances only explicitly scheduled `content_jobs` through the native factory lifecycle and does not distribute social posts.
 * Auth: No application-level dashboard auth is implemented in the MVP. The private YAS Source Scanner draft-ingestion endpoint uses a shared secret header and must never expose or log its value.
 * Payments: None.
 * Main external services:
@@ -220,6 +221,20 @@ It must be updated after every meaningful task.
 * Do not invent Gemini Image aspect ratios. Check provider-supported values before changing image generation contracts.
 
 ## 8. Decisions log
+
+### 2026-07-21 — Explicit native publication scheduling
+
+* Decision: Use a separate single PM2 worker and a per-job UTC `scheduled_for` value for automated page publication.
+* Reason: The former cadence setting was UI/database-only. Explicit per-job scheduling avoids accidental publication of unrelated drafts and preserves source factories as the template and publisher authority.
+* Files/areas affected: `app.py` scheduler contract, `scheduler.py`, `run-scheduler.sh`, `content_jobs` SQLite migration, PM2 deployment.
+* Replaced/deprecated: A `publishing_cadence` value by itself is not treated as an active scheduler.
+
+### 2026-07-21 — Source-factory blog validation alignment
+
+* Decision: Align the source-factory writer brief with its blog validator: six to eight H2 sections, at most twelve H3 sections, and contextual blog links only where no real non-blog link inventory is supplied.
+* Reason: The old source prompt demanded 20-40 H3 while the validator capped articles at 16, and it required a non-blog link that the blog-generation contract did not provide.
+* Files/areas affected: `/var/www/content-factory-solocruz/factory/generate.py`, `/var/www/content-factory-solocruz/factory/validate.py`.
+* Replaced/deprecated: The contradictory 20-40 H3 blog instruction and impossible non-blog link requirement.
 
 ### 2026-07-01 — Store durable project memory in repo
 

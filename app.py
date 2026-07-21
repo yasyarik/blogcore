@@ -373,6 +373,7 @@ def init_db():
             "alter table content_jobs add column reddit_post_url text",
             "alter table content_jobs add column reddit_posted_at text",
             "alter table content_jobs add column reddit_error text",
+            "alter table content_jobs add column scheduled_for text",
             "alter table autopublish_settings add column pinterest_include_link integer not null default 0",
             "alter table autopublish_settings add column instagram_include_link integer not null default 0",
             "alter table autopublish_settings add column threads_include_link integer not null default 0",
@@ -382,6 +383,7 @@ def init_db():
                 conn.execute(statement)
             except sqlite3.OperationalError:
                 pass
+        conn.execute("create index if not exists content_jobs_scheduled_for_idx on content_jobs(scheduled_for,status)")
         for site_row in conn.execute("select id from sites").fetchall():
             sid = site_row[0]
             conn.execute(
@@ -6958,6 +6960,55 @@ def publish_content_job(site_id, job_id):
     return {"ok": True, "jobId": job_id, "status": "PUBLISHED", "publishedUrl": published_url, "legacyFactory": factory_name, "legacyJobId": old_job_id, "result": result}
 
 
+def run_scheduled_content_publications(now=None):
+    """Advance due article jobs through the native factory without social posting.
+
+    A separate PM2 worker invokes this function. It intentionally only processes
+    jobs with an explicit ``scheduled_for`` timestamp, so enabling a site's
+    publishing cadence cannot publish unrelated drafts.
+    """
+    current = now or datetime.now(timezone.utc)
+    due_before = current.isoformat(timespec="seconds")
+    with db() as conn:
+        due_jobs = conn.execute(
+            """
+            select id, site_id, status from content_jobs
+            where scheduled_for is not null and scheduled_for <> ''
+              and scheduled_for <= ?
+              and status in ('QUEUED','GENERATING','DRAFT')
+            order by scheduled_for asc, created_at asc
+            """,
+            (due_before,),
+        ).fetchall()
+    results = []
+    for due in due_jobs:
+        site_id, job_id = int(due["site_id"]), due["id"]
+        try:
+            if due["status"] == "QUEUED":
+                generate_content_job(site_id, job_id)
+                results.append({"jobId": job_id, "action": "generation_started"})
+                continue
+            if due["status"] == "GENERATING":
+                maybe_sync_legacy_factory_status(site_id, job_id, force=True)
+                with db() as conn:
+                    refreshed = conn.execute(
+                        "select status from content_jobs where site_id=? and id=?", (site_id, job_id)
+                    ).fetchone()
+                if not refreshed or refreshed["status"] != "DRAFT":
+                    results.append({"jobId": job_id, "action": "waiting_for_generation"})
+                    continue
+            publish_content_job(site_id, job_id)
+            results.append({"jobId": job_id, "action": "published"})
+        except Exception as e:
+            with db() as conn:
+                conn.execute(
+                    "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                    (site_id, job_id, now_iso(), "ERROR", "scheduled-publish", str(e)),
+                )
+            results.append({"jobId": job_id, "action": "error", "error": str(e)})
+    return {"due": len(due_jobs), "results": results}
+
+
 def get_site_by_custom_host(host):
     host = clean_host(host)
     if not host:
@@ -7753,6 +7804,36 @@ def publish_content_job_route(site_id, job_id):
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/schedule")
+def schedule_content_job_route(site_id, job_id):
+    payload = request.get_json(silent=True) or {}
+    raw_value = str(payload.get("scheduledFor") or "").strip()
+    scheduled_for = None
+    if raw_value:
+        try:
+            parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                return jsonify({"error": "scheduledFor must include a timezone"}), 400
+            scheduled_for = parsed.astimezone(timezone.utc).isoformat(timespec="seconds")
+        except ValueError:
+            return jsonify({"error": "scheduledFor must be an ISO-8601 timestamp"}), 400
+    with db() as conn:
+        job = conn.execute("select status from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+        if not job:
+            return jsonify({"error": "job not found"}), 404
+        if job["status"] not in {"QUEUED", "GENERATING", "DRAFT"}:
+            return jsonify({"error": f"cannot schedule a {job['status']} job"}), 400
+        conn.execute(
+            "update content_jobs set scheduled_for=?, updated_at=? where site_id=? and id=?",
+            (scheduled_for, now_iso(), site_id, job_id),
+        )
+        conn.execute(
+            "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+            (site_id, job_id, now_iso(), "INFO", "scheduled-publish", "Publication schedule cleared" if not scheduled_for else f"Scheduled native publication for {scheduled_for}"),
+        )
+    return jsonify({"ok": True, "jobId": job_id, "scheduledFor": scheduled_for})
 
 
 @app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/social-drafts")

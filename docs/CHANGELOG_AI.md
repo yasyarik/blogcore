@@ -2,6 +2,34 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-21 — Schedule native SoloCruz publications
+
+### Summary
+
+* Added an explicit per-job publication schedule and a single PM2 worker that starts native generation when due, waits for the source factory draft, and publishes through the authoritative factory.
+* The scheduler is page-only: it never generates or publishes social posts.
+* Aligned SoloCruz source-factory blog generation and validation after the first job exposed a contradictory H3 requirement and an impossible non-blog link requirement.
+
+### Files changed
+
+* `app.py` — `scheduled_for` migration, scheduling API, and due-job lifecycle runner.
+* `scheduler.py`, `run-scheduler.sh` — durable PM2 worker entry point.
+* `/var/www/content-factory-solocruz/factory/generate.py`, `/var/www/content-factory-solocruz/factory/validate.py` — source-factory writer/validator alignment; not part of Blog Core Git.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — schedule contract and deployment memory.
+
+### Decisions
+
+* Automatic publication requires an explicit timestamp on each job; the previous cadence setting alone remains non-executing.
+
+### Checks run
+
+* Compiled Blog Core scheduler and SoloCruz factory modules, performed a zero-due scheduler dry run, started and saved the `blog-yas-core-scheduler` PM2 process, and verified Blog Core health.
+* Created 12 new SoloCruz tasks; published the first one through `content-factory-solocruz` and verified its public URL returns HTTP 200. The remaining 11 have explicit three-day UTC intervals from 2026-07-24 through 2026-08-23.
+
+### Risks / TODO
+
+* A source-factory generation error remains `ERROR` for operator review; the scheduler will not retry it blindly.
+
 ## 2026-07-18 — Complete source-factory control for connected sites
 
 ### Summary
