@@ -243,6 +243,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `/var/www/content-factory-solocruz/factory/seo_waitlist.py`.
 * Replaced/deprecated: Relative generated article-media URLs in nested native SEO pages.
 
+### 2026-07-21 — Native source-site chrome
+
+* Decision: Native static publication extracts the header and footer from the source site's locale homepage and loads its existing CSS/JS assets.
+* Reason: A source factory is a control-plane publisher, not a replacement theme. Its fallback chrome is visibly incomplete and must only be used when source chrome is unavailable.
+* Files/areas affected: `/var/www/content-factory-solocruz/factory/seo_waitlist.py`.
+* Replaced/deprecated: Default factory navigation/footer on pages for sites that already provide native chrome.
+
 ### 2026-07-01 — Store durable project memory in repo
 
 * Decision: Add `AGENTS.md` and `docs/` memory files requiring Codex to read memory before non-trivial work and update changelog after each task.

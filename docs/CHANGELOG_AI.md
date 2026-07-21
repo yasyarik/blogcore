@@ -10,6 +10,7 @@ This file is updated by Codex after every task.
 * The scheduler is page-only: it never generates or publishes social posts.
 * Aligned SoloCruz source-factory blog generation and validation after the first job exposed a contradictory H3 requirement and an impossible non-blog link requirement.
 * Fixed SoloCruz native SEO-page asset resolution: generated media is preserved in `/blog/` and published HTML now uses absolute asset URLs instead of nested relative paths.
+* Replaced the factory's shortened header/footer on SoloCruz native pages with chrome extracted from the published source site, including its own CSS and interaction script.
 
 ### Files changed
 
@@ -17,6 +18,7 @@ This file is updated by Codex after every task.
 * `scheduler.py`, `run-scheduler.sh` — durable PM2 worker entry point.
 * `/var/www/content-factory-solocruz/factory/generate.py`, `/var/www/content-factory-solocruz/factory/validate.py` — source-factory writer/validator alignment; not part of Blog Core Git.
 * `/var/www/content-factory-solocruz/factory/seo_waitlist.py` — native SEO-page media URL resolution; not part of Blog Core Git.
+* `/var/www/content-factory-solocruz/factory/seo_waitlist.py` — native header/footer extraction; not part of Blog Core Git.
 * `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — schedule contract and deployment memory.
 
 ### Decisions
