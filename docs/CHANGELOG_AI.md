@@ -11,6 +11,7 @@ This file is updated by Codex after every task.
 * Aligned SoloCruz source-factory blog generation and validation after the first job exposed a contradictory H3 requirement and an impossible non-blog link requirement.
 * Fixed SoloCruz native SEO-page asset resolution: generated media is preserved in `/blog/` and published HTML now uses absolute asset URLs instead of nested relative paths.
 * Replaced the factory's shortened header/footer on SoloCruz native pages with chrome extracted from the published source site, including its own CSS and interaction script.
+* Corrected native-page identity and language behavior: generated pages now retain SoloCruz favicon assets, and a language switch only exposes published translations of the same article rather than routing to a homepage.
 * Audited published source-factory samples across YAS Wine, My UGC Studio, SoloCruz, LaycanMatch, AIREP24, and PipsAlerts. No equivalent header/footer or media-path defect was found outside SoloCruz; recorded the separate stale AIREP24 French URL for a deliberate future migration.
 
 ### Files changed
@@ -20,6 +21,7 @@ This file is updated by Codex after every task.
 * `/var/www/content-factory-solocruz/factory/generate.py`, `/var/www/content-factory-solocruz/factory/validate.py` — source-factory writer/validator alignment; not part of Blog Core Git.
 * `/var/www/content-factory-solocruz/factory/seo_waitlist.py` — native SEO-page media URL resolution; not part of Blog Core Git.
 * `/var/www/content-factory-solocruz/factory/seo_waitlist.py` — native header/footer extraction; not part of Blog Core Git.
+* `/var/www/content-factory-solocruz/factory/seo_waitlist.py` — native favicon/manifest extraction and article-aware language switch; not part of Blog Core Git.
 * `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — schedule contract and deployment memory.
 
 ### Decisions
@@ -30,6 +32,7 @@ This file is updated by Codex after every task.
 
 * Compiled Blog Core scheduler and SoloCruz factory modules, performed a zero-due scheduler dry run, started and saved the `blog-yas-core-scheduler` PM2 process, and verified Blog Core health.
 * Created 12 new SoloCruz tasks; published the first one through `content-factory-solocruz` and verified its public URL returns HTTP 200. The remaining 11 have explicit three-day UTC intervals from 2026-07-24 through 2026-08-23.
+* Re-published the first SoloCruz article and verified HTTP 200, the native SVG favicon and Apple touch icon in its `<head>`, and no homepage language switch while only its English version exists.
 
 ### Risks / TODO
 

@@ -250,6 +250,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `/var/www/content-factory-solocruz/factory/seo_waitlist.py`.
 * Replaced/deprecated: Default factory navigation/footer on pages for sites that already provide native chrome.
 
+### 2026-07-21 — Native page identity and language links
+
+* Decision: Native static pages copy favicon/manifest identity tags from the source homepage. A copied language switch is rewritten to link only to published locales of the current canonical page; it is omitted when no translation exists.
+* Reason: A homepage language menu on an article silently sends a reader away from the article, and generic factory pages must not show a browser icon that differs from the connected site.
+* Files/areas affected: `/var/www/content-factory-solocruz/factory/seo_waitlist.py`.
+* Replaced/deprecated: Reusing source-homepage language URLs verbatim on article pages and dropping source favicon assets from generated page heads.
+
 ### 2026-07-21 — Source-factory publishing adapter audit
 
 * Decision: Keep each source factory's native rendering adapter where it already preserves site chrome and asset behavior; do not force a single SoloCruz renderer onto unrelated sites.
