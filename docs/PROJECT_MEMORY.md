@@ -236,6 +236,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `/var/www/content-factory-solocruz/factory/generate.py`, `/var/www/content-factory-solocruz/factory/validate.py`.
 * Replaced/deprecated: The contradictory 20-40 H3 blog instruction and impossible non-blog link requirement.
 
+### 2026-07-21 — Native SEO-page article asset URLs
+
+* Decision: Native SEO-page rendering resolves generated article media from the shared absolute `/blog/` asset folder.
+* Reason: SEO pages are published in nested route directories, so bare media filenames incorrectly resolve relative to the page URL and make otherwise generated hero/inline images appear missing.
+* Files/areas affected: `/var/www/content-factory-solocruz/factory/seo_waitlist.py`.
+* Replaced/deprecated: Relative generated article-media URLs in nested native SEO pages.
+
 ### 2026-07-01 — Store durable project memory in repo
 
 * Decision: Add `AGENTS.md` and `docs/` memory files requiring Codex to read memory before non-trivial work and update changelog after each task.
