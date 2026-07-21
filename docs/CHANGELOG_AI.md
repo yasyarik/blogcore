@@ -2,6 +2,33 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-21 — Repair SoloCruz native hero, blog index, and sitemap submission path
+
+### Summary
+
+* Changed the native article hero so a generated image fills the full-height media panel with no overlay copy obscuring it. Added `og:image` for native SEO pages.
+* Fixed the SEO publication branch to rebuild each locale's blog index and feed. The indexer now preserves manually authored cards and adds factory output in a separate marked section.
+* Re-published the EN/RU/ES/DE/FR article set. The new article is present on `/blog/` and localized blog indexes; all five article URLs are present in the rebuilt blog sitemap.
+* Verified Search Console submission cannot complete: the configured service-account credential file is missing. The public `robots.txt` references the current sitemap, but no successful GSC submission can be asserted.
+
+### Files changed
+
+* `/var/www/content-factory-solocruz/app.py` — native SEO index/feed refresh and GSC submission result handling; source-factory repository, not Blog Core Git.
+* `/var/www/content-factory-solocruz/factory/landing.py` — preserve source index cards, append a marked factory-card block, and repair the stale excerpt helper call; source-factory repository, not Blog Core Git.
+* `/var/www/content-factory-solocruz/factory/seo_waitlist.py` — full-height unobstructed hero media and `og:image`; source-factory repository, not Blog Core Git.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — durable native-publication and GSC status memory.
+
+### Checks run
+
+* Compiled and restarted `content-factory-solocruz`.
+* Confirmed the EN and ES `/blog/` indexes contain the new article while retaining an existing manual card.
+* Confirmed no `visual-card` markup in the article hero, and `sitemap-blog.xml` contains the article in all five locales.
+* Confirmed `robots.txt` references `https://solocruz.com/sitemap.xml`; GSC submission returned the expected missing-credentials error.
+
+### Risks / TODO
+
+* Add an authorized Search Console service-account credential and grant it access to the SoloCruz property before automatic sitemap submission can work.
+
 ## 2026-07-21 — Recreate SoloCruz article in all native languages
 
 ### Summary

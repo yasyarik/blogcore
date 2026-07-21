@@ -264,6 +264,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: source-factory job records and `/var/www/content-factory-solocruz/factory/seo_waitlist.py` publication behavior.
 * Replaced/deprecated: Treating a single source job as a completed multilingual article.
 
+### 2026-07-21 — Native SEO publication index and hero contract
+
+* Decision: Native SEO blog publication must update the matching locale blog index and feed while preserving manually authored index cards; factory cards are maintained in a separate marked block. When a hero image exists, render it as unobstructed full-height media rather than placing generic copy over it.
+* Reason: A published page is incomplete when it is absent from `/blog/`, and an image asset loses its purpose when template text obscures it.
+* Files/areas affected: `/var/www/content-factory-solocruz/app.py`, `factory/landing.py`, and `factory/seo_waitlist.py`.
+* Known issue: SoloCruz sitemap files are rebuilt and publicly referenced in `robots.txt`, but automated Google Search Console submission is not operational because the configured service-account credential file is absent. Do not claim a submission succeeded until an authorized credential is configured.
+
 ### 2026-07-21 — Source-factory publishing adapter audit
 
 * Decision: Keep each source factory's native rendering adapter where it already preserves site chrome and asset behavior; do not force a single SoloCruz renderer onto unrelated sites.
