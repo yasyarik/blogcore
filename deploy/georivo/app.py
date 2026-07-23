@@ -64,15 +64,16 @@ def clean_article_markup(markup):
 
 def site_header():
     return """
-    <header class="site-header">
+    <header class="nav glass">
       <a class="brand" href="/" aria-label="Georivo home">
-        <img src="/brand/georivo-on-dark.png" alt="Georivo">
+        <span class="brand-logo light" aria-hidden="true"><img src="/brand/georivo-on-light.png" alt=""></span>Georivo
       </a>
-      <nav aria-label="Main navigation">
+      <button class="menu-button" type="button" aria-label="Toggle navigation" aria-expanded="false">Menu</button>
+      <nav class="nav-links" aria-label="Main navigation">
         <a href="/#movements">Examples</a>
         <a href="/#how">How it works</a>
         <a href="/#plans">Pricing</a>
-        <a class="active" href="/blog/">Blog</a>
+        <a href="/blog/" aria-current="page">Blog</a>
         <a href="/login">Sign in</a>
         <a class="nav-cta" href="/#create">Create a widget <span>↗</span></a>
       </nav>
@@ -82,15 +83,15 @@ def site_header():
 
 def site_footer():
     return """
-    <footer class="site-footer">
-      <div class="footer-main">
-        <div class="footer-brand">
-          <a class="brand" href="/"><img src="/brand/georivo-on-dark.png" alt="Georivo"></a>
-          <p>Interactive 3D location stories,<br>embedded on real-estate websites.</p>
-        </div>
+    <footer id="footer">
+      <div class="footer-top">
+        <a class="brand" href="/">
+          <span class="brand-logo dark" aria-hidden="true"><img src="/brand/georivo-on-dark.png" alt=""></span>Georivo
+        </a>
+        <p>Interactive 3D location stories,<br>embedded on real-estate websites.</p>
         <div class="footer-links">
-          <div><strong>Product</strong><a href="/#movements">Examples</a><a href="/#how">How it works</a><a href="/#plans">Pricing</a><a href="/blog/">Blog</a></div>
-          <div><strong>Company</strong><a href="/contact">Contact</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a></div>
+          <div><b>Product</b><a href="/#movements">Examples</a><a href="/#how">How it works</a><a href="/#plans">Pricing</a><a href="/blog/">Blog</a></div>
+          <div><b>Company</b><a href="/contact">Contact</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a></div>
         </div>
       </div>
       <div class="footer-bottom"><span>© 2026 Georivo. All rights reserved.</span><span>3D visualization generated from available licensed geospatial imagery.</span></div>
@@ -115,15 +116,16 @@ def shell(title, description, body, canonical, schema=None, noindex=False):
   {robots}
   <link rel="canonical" href="{esc(canonical)}">
   <link rel="icon" href="/favicon.ico">
-  <link rel="preload" as="image" href="/brand/georivo-on-dark.png">
+  <link rel="preload" as="image" href="/brand/georivo-on-light.png">
   <link rel="stylesheet" href="/assets/index-22jNjtDO.css">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260723">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260723b">
   {structured}
 </head>
-<body>
+<body class="blog-shell">
   {site_header()}
   {body}
   {site_footer()}
+  <script src="/georivo-blog-nav.js?v=20260723b" defer></script>
 </body>
 </html>"""
 
@@ -226,22 +228,36 @@ def blog_index():
     if not cards:
         cards.append("""
           <div class="empty-state">
-            <span>Editorial system connected</span>
-            <h2>New location stories are in production.</h2>
-            <p>Georivo is preparing practical research for real-estate teams using interactive 3D to explain location, context, and arrival.</p>
+            <span>Coming to the journal</span>
+            <h2>A clearer way to talk about location.</h2>
+            <p>New research for real-estate teams using interactive 3D to explain property context, neighborhoods, and arrival.</p>
           </div>
         """)
     body = f"""
-    <main>
+    <main id="top">
       <section class="journal-hero">
-        <div class="eyebrow">Georivo journal</div>
-        <h1>Location is more than a pin on a map.</h1>
-        <p>Research and practical guidance for turning property context into interactive stories that buyers can understand and explore.</p>
+        <div class="journal-hero-image" aria-hidden="true"></div>
+        <div class="journal-hero-wash" aria-hidden="true"></div>
+        <div class="journal-hero-content">
+          <div class="section-tag">Georivo journal</div>
+          <h1>Location,<br><em>seen clearly.</em></h1>
+          <p>Research and practical guidance for turning property context into interactive stories that buyers can understand and explore.</p>
+        </div>
       </section>
-      <section class="journal-grid" aria-label="Latest articles">{''.join(cards)}</section>
+      <section class="journal-intro">
+        <div class="section-tag">A better perspective</div>
+        <h2>Stories about place,<br><em>built for real decisions.</em></h2>
+      </section>
+      <section class="journal-grid section-pad" aria-label="Latest articles">{''.join(cards)}</section>
       <section class="journal-cta">
-        <div><span>Try it with a real property</span><h2>See whether live 3D coverage is available.</h2></div>
-        <a href="/#create">Check an address <span>↗</span></a>
+        <div class="journal-cta-image" aria-hidden="true"></div>
+        <div class="journal-cta-wash" aria-hidden="true"></div>
+        <div class="journal-cta-copy">
+          <span>Your next listing deserves a better view</span>
+          <h2>Ready to see your<br>property <em>take flight?</em></h2>
+          <a href="/#create">Check an address <span>↗</span></a>
+          <p>No signup required to check availability.</p>
+        </div>
       </section>
     </main>
     """

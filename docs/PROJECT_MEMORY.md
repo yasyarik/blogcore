@@ -532,6 +532,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `deploy/georivo/`, live `/var/www/georivo-blog`, `/etc/nginx/conf.d/georivo.com.conf`, ignored Blog Core SQLite site/profile data.
 * Replaced/deprecated: External design scanning followed by a generic Blog Core-hosted mirror for Georivo.
 
+### 2026-07-23 — Georivo renderer must reuse exact source visual chrome
+
+* Decision: The Georivo journal uses the source site's `header.nav.glass`, `brand-logo`, `nav-links`, `footer-top`, `footer-links`, and `footer-bottom` DOM/CSS contracts. Its content follows the same photographic hero, cream editorial band, dark content band, photographic CTA, Arial display copy, Georgia emphasis, Geist metadata, lime action, and 14-28 px radius system.
+* Reason: A separate theme that merely reused Georivo colors and fonts did not look like the product site. Exact source chrome and responsive behavior are required for a native integration.
+* Files/areas affected: `deploy/georivo/app.py`, `deploy/georivo/georivo-blog.css`, `deploy/georivo/georivo-blog-nav.js`.
+* Replaced/deprecated: The initial custom dark `site-header`/`site-footer` renderer and oversized standalone logo treatment.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
@@ -553,5 +560,6 @@ It must be updated after every meaningful task.
 * Do not auto-publish podcast audio after generation. A ready episode must be reviewed and explicitly published. Native embedding on an imported source site must use that source factory's adapter rather than Blog Core changing its public template.
 * Do not bypass a configured source-factory binding for a new imported-site task. Create, generate, preview, and publish through the native source factory so the public URL, design, assets, and validations remain authoritative.
 * Do not create a legacy source-factory binding for a first-party `native_content_store` site. Blog Core is already its factory; keep the native renderer focused on preview and publication.
+* Do not claim a site integration is native because it shares colors or fonts. Match and verify the source DOM, computed header/footer dimensions, section rhythm, typography roles, controls, and responsive behavior.
 * Do not delegate only a title and slug to a source factory. Preserve the planned task's native path, canonical group, type, and language in the source job payload.
 * An explicit Regenerate action for a source-authoritative task must call the source factory even when the previous result is `READY` or `PUBLISHED`; merely re-syncing an old result is not regeneration.

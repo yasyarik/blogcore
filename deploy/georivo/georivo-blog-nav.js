@@ -20,9 +20,32 @@
     });
   };
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", insertBlogLink, { once: true });
-  } else {
+  const wireBlogMenu = () => {
+    if (!document.body.classList.contains("blog-shell")) return;
+    const button = document.querySelector(".menu-button");
+    const links = document.querySelector(".nav-links");
+    if (!button || !links) return;
+    button.addEventListener("click", () => {
+      const open = links.classList.toggle("open");
+      button.setAttribute("aria-expanded", open ? "true" : "false");
+      button.textContent = open ? "Close" : "Menu";
+    });
+    links.addEventListener("click", (event) => {
+      if (!event.target.closest("a")) return;
+      links.classList.remove("open");
+      button.setAttribute("aria-expanded", "false");
+      button.textContent = "Menu";
+    });
+  };
+
+  const initialize = () => {
     insertBlogLink();
+    wireBlogMenu();
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initialize, { once: true });
+  } else {
+    initialize();
   }
 })();

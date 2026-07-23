@@ -2,6 +2,37 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-23 — Rebuild Georivo blog with exact native visual chrome
+
+### Summary
+
+* Replaced the initial approximate dark blog theme with Georivo's actual visual system: the same glass navigation, logo treatment, mobile menu, editorial typography, cream and dark section rhythm, native aerial media, CTA treatment, and exact footer grid.
+* Reworked both the empty blog index and generated-article template across wide desktop, desktop, laptop, tablet, mobile, and narrow-mobile breakpoints.
+* Preserved Blog Core's native content-store contract; this task changed presentation only and did not generate or publish a real article.
+
+### Files changed
+
+* `deploy/georivo/app.py` — exact source header/footer markup and Georivo-native blog/article composition.
+* `deploy/georivo/georivo-blog.css` — responsive native visual system for index, article content, TOC, tables, FAQ, media, and CTAs.
+* `deploy/georivo/georivo-blog-nav.js` — native mobile menu behavior in the blog shell while preserving Blog-link injection on the existing product site.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — durable native-style requirements and verification record.
+
+### Decisions
+
+* Native style fidelity is measured against the source site's DOM and computed styles at matching viewport widths. Reusing only colors and fonts is insufficient.
+
+### Checks run
+
+* Compared source and blog header/footer DOM plus computed dimensions at 1440, 1024, 768, and 390 px.
+* Verified blog widths at 1920, 1440, 1024, 768, 390, and 320 px with no horizontal overflow.
+* Captured and visually inspected full-page desktop, tablet, and mobile blog screenshots plus desktop/mobile article screenshots.
+* Verified the mobile menu opens, exposes the Blog link, and updates `aria-expanded`.
+* Verified all article fixture images loaded, then removed the temporary fixture and database row.
+
+### Risks / TODO
+
+* The renderer references the source site's stable `/georivo-hero.png`, brand assets, fonts, and compiled CSS. A future source redesign or hashed CSS asset change requires a deliberate renderer parity update.
+
 ## 2026-07-23 — Integrate Georivo as a native Blog Core site
 
 ### Summary

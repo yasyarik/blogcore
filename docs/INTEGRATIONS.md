@@ -82,6 +82,7 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * Relative Blog Core article assets under `/sites/{site_id}/article-assets/` must be resolved against `https://blog.yas.ooo` by the native renderer; they must not be interpreted as source-site paths.
 * Georivo uses this contract as site 14. Its renderer is deployed at `/var/www/georivo-blog`, listens on loopback port `13340`, and serves public `/blog/` plus noindex `/content-preview/{job_id}` pages through `georivo.com`.
 * Georivo's content context covers interactive photorealistic 3D location stories for real estate, Property Showcase, Neighborhood Story, Arrival Guide, programmed camera routes, protected links, domain-bound embeds, and post-playback live exploration. Discovery must use the complete stored context and uniqueness checks, not only the homepage headline.
+* Georivo presentation parity is source-contract based. The renderer loads the source compiled CSS and source assets, uses the exact source header/footer class structure, and supplies only namespaced journal/article styles. Its mobile breakpoint retains the source `Menu`/`.nav-links.open` interaction rather than substituting a separate blog navigation.
 
 ## YAS Source Scanner draft ingestion
 
