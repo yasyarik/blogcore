@@ -74,6 +74,15 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * Source-factory lifecycle requests resolve the endpoint from `site_factory_bindings` first. The old factory-name endpoint map is only a fallback for records created before bindings existed.
 * Explicitly scheduled article jobs use `content_jobs.scheduled_for` and the separate `blog-yas-core-scheduler` PM2 worker. At the scheduled UTC time it starts native generation, waits for the source factory to return a draft, then publishes through that same source factory. This worker never creates or publishes social posts. Only jobs with an explicit timestamp are eligible.
 
+## Native content-store sites
+
+* `sites.access_type=native_content_store` identifies a first-party site whose factory is Blog Core itself. It is not a source-authoritative imported-site binding.
+* Generation uses the universal Blog Core article schema, four article images, and validation. Draft preview writes `{root_path}/data/blog-core/drafts/{job_id}.json`; explicit publication writes `{root_path}/data/blog-core/published/{slug}.json`.
+* The site renderer owns its public header, footer, layout, schema markup, canonical URL, index, and sitemap. Blog Core owns editorial state and generated assets.
+* Relative Blog Core article assets under `/sites/{site_id}/article-assets/` must be resolved against `https://blog.yas.ooo` by the native renderer; they must not be interpreted as source-site paths.
+* Georivo uses this contract as site 14. Its renderer is deployed at `/var/www/georivo-blog`, listens on loopback port `13340`, and serves public `/blog/` plus noindex `/content-preview/{job_id}` pages through `georivo.com`.
+* Georivo's content context covers interactive photorealistic 3D location stories for real estate, Property Showcase, Neighborhood Story, Arrival Guide, programmed camera routes, protected links, domain-bound embeds, and post-playback live exploration. Discovery must use the complete stored context and uniqueness checks, not only the homepage headline.
+
 ## YAS Source Scanner draft ingestion
 
 * `POST /api/integrations/source-scanner/sites/{site_id}/drafts` accepts a finished Studio article for the Scanner editorial project connected to that Blog Core site.

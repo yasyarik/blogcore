@@ -27,6 +27,23 @@ curl -fsS http://127.0.0.1:3299/health
 * Live default catchall proxies unknown Host traffic to Blog Core so external CNAME domains can be routed by Flask.
 * Tracked `deploy/nginx-blog.yas.ooo.conf` contains only the `blog.yas.ooo` vhost template and does not currently include the catchall CNAME routing config.
 
+### Georivo native renderer
+
+* Application path: `/var/www/georivo-blog`.
+* Service: `georivo-blog.service`.
+* Loopback listener: `127.0.0.1:13340`.
+* Public routes handled locally: `/blog`, `/content-preview/`, and `/sitemap.xml`.
+* Existing Georivo product routes continue to proxy to their configured upstream.
+* Tracked deployment templates live under `deploy/georivo/`.
+
+```bash
+python3 -m py_compile /var/www/georivo-blog/app.py
+systemctl restart georivo-blog
+curl -fsS http://127.0.0.1:13340/health
+nginx -t
+systemctl reload nginx
+```
+
 ## Environment
 
 * `PORT`: default `3299`.

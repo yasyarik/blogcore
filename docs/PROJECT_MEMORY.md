@@ -518,6 +518,20 @@ It must be updated after every meaningful task.
 * Files/areas affected: `app.py` source endpoint resolver plus inventory-sync/backfill APIs; ignored Blog Core SQLite bindings and source-job mappings; `docs/INTEGRATIONS.md`.
 * Replaced/deprecated: Factory-name endpoint defaults as the primary routing mechanism. They remain only for legacy records that predate a binding.
 
+### 2026-07-23 — Native content-store sites use Blog Core as their factory
+
+* Decision: A site with `sites.access_type=native_content_store` uses Blog Core's universal generation, review, scheduling, and explicit publication lifecycle. Blog Core writes atomic JSON records into `{root_path}/data/blog-core/drafts` and `{root_path}/data/blog-core/published`; the site-owned renderer consumes those records.
+* Reason: Newly integrated first-party sites do not need a duplicate legacy factory service. They still require native preview and publication under their own domain and visual system.
+* Files/areas affected: `app.py` native-store detection; site-owned renderer deployments such as `deploy/georivo/`.
+* Replaced/deprecated: Treating the native content-store contract as a `yas.ooo`-only special case.
+
+### 2026-07-23 — Georivo native journal integration
+
+* Decision: Georivo site 14 is a first-party Blog Core factory site with local native content storage at `/var/www/georivo-blog`. Nginx keeps the existing product upstream intact and routes only `/blog`, `/content-preview`, and `/sitemap.xml` to the local renderer.
+* Reason: The live product application is currently proxied from an external `chatgpt.site` origin and has no `/blog`. A local route adapter gives Blog Core full editorial control without rebuilding or modifying the product application.
+* Files/areas affected: `deploy/georivo/`, live `/var/www/georivo-blog`, `/etc/nginx/conf.d/georivo.com.conf`, ignored Blog Core SQLite site/profile data.
+* Replaced/deprecated: External design scanning followed by a generic Blog Core-hosted mirror for Georivo.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
@@ -538,5 +552,6 @@ It must be updated after every meaningful task.
 * Do not imply Gemini TTS prebuilt voices are voice cloning. A selected Gemini voice and per-site direction are supported; true custom/clone voice requires a separate Google Cloud Custom Voice arrangement and adapter.
 * Do not auto-publish podcast audio after generation. A ready episode must be reviewed and explicitly published. Native embedding on an imported source site must use that source factory's adapter rather than Blog Core changing its public template.
 * Do not bypass a configured source-factory binding for a new imported-site task. Create, generate, preview, and publish through the native source factory so the public URL, design, assets, and validations remain authoritative.
+* Do not create a legacy source-factory binding for a first-party `native_content_store` site. Blog Core is already its factory; keep the native renderer focused on preview and publication.
 * Do not delegate only a title and slug to a source factory. Preserve the planned task's native path, canonical group, type, and language in the source job payload.
 * An explicit Regenerate action for a source-authoritative task must call the source factory even when the previous result is `READY` or `PUBLISHED`; merely re-syncing an old result is not regeneration.

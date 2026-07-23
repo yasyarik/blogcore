@@ -1202,10 +1202,11 @@ def source_authoritative_content_job(row):
     return bool(sources.get("migratedFrom") and sources.get("oldFactoryJobId") and sources.get("ownership") == "source_site_authoritative")
 
 
-def native_content_store_job(row):
-    """A site-owned Next content store accepts generated drafts and publishes them natively."""
+def native_content_store_job(row, site=None):
+    """A site-owned content store accepts generated drafts and publishes them natively."""
     mode = str(content_job_sources(row).get("publicationMode") or "").strip().lower()
-    return mode in {"native_next_content_store", "native_yas_publisher"}
+    site_mode = str(site["access_type"] or "").strip().lower() if site is not None else ""
+    return mode in {"native_next_content_store", "native_yas_publisher"} or site_mode == "native_content_store"
 
 
 def native_content_store_root(site, row):
@@ -6367,7 +6368,7 @@ def generate_content_job(site_id, job_id):
                     f"Draft generated and validated: {validation['word_count']} words, {validation['sections']} sections, {validation['images']} images, {validation['faq']} FAQ items, 4 article images",
                 ),
             )
-        if native_content_store_job(job):
+        if native_content_store_job(job, site):
             with db() as conn:
                 generated_job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
             write_native_content_store(site, generated_job, "drafts")
@@ -6896,7 +6897,7 @@ def publish_content_job(site_id, job_id):
     if job["status"] not in {"DRAFT", "PUBLISHED"}:
         raise ValueError(f"Job status must be DRAFT or PUBLISHED before publish, got {job['status']}")
     sources = content_job_sources(job)
-    if native_content_store_job(job):
+    if native_content_store_job(job, site):
         published_path = write_native_content_store(site, job, "published")
         published_url = content_job_source_url(site, job)
         now = now_iso()
@@ -7710,7 +7711,7 @@ def preview_content_job(site_id, job_id):
         return Response("Draft not found.", status=404, mimetype="text/plain")
     if job["status"] not in {"DRAFT", "PUBLISHED", "IMPORTED"} or not (job["draft_html"] or "").strip():
         return Response("Draft is not generated yet.", status=409, mimetype="text/plain")
-    if native_content_store_job(job):
+    if native_content_store_job(job, site):
         if job["status"] == "PUBLISHED":
             return redirect(content_job_source_url(site, job), code=302)
         try:

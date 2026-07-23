@@ -2,6 +2,42 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-23 — Integrate Georivo as a native Blog Core site
+
+### Summary
+
+* Added `georivo.com` to Blog Core as site 14 with an English, product-wide editorial context and a manual-by-default publishing workflow.
+* Added the reusable `native_content_store` site mode. Blog Core now generates, previews, schedules, and explicitly publishes its own sites through a local site-owned content store without requiring a legacy source-factory binding.
+* Deployed a Georivo-native blog renderer on the VPS. It serves `/blog/`, article URLs, draft previews, and the combined sitemap while retaining Georivo's existing product pages and visual language.
+* Added Blog navigation to the existing externally hosted Georivo shell without replacing or rebuilding its product-page design.
+
+### Files changed
+
+* `app.py` — recognize `sites.access_type=native_content_store` in generation, preview, and publication.
+* `deploy/georivo/app.py` — native Georivo blog/article renderer.
+* `deploy/georivo/georivo-blog.css` — responsive Georivo journal and article styles.
+* `deploy/georivo/georivo-blog-nav.js` — non-destructive Blog navigation injection for the current upstream shell.
+* `deploy/georivo/georivo-blog.service` — local Gunicorn systemd service template.
+* `deploy/georivo/georivo.com.conf` — nginx routing template for local content routes and the unchanged product upstream.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable architecture and deployment memory.
+
+### Decisions
+
+* Georivo is a Blog Core-owned site, not an imported source-authoritative factory. Blog Core is its factory and control plane; the local renderer is only the native presentation and publication adapter.
+* The current externally hosted product site remains untouched. Only `/blog`, `/content-preview`, and `/sitemap.xml` are routed to the VPS renderer.
+
+### Checks run
+
+* Compiled both Python applications; restarted Blog Core and the `georivo-blog` systemd service; verified both health endpoints.
+* Ran `nginx -t`, reloaded nginx, and confirmed `/blog/`, sitemap inclusion, injected Blog navigation, and HTTP 200 responses.
+* Verified desktop and 390 px mobile layouts with Playwright screenshots.
+* Created a temporary Blog Core draft, verified the native-store write and redirect to the Georivo noindex preview, then removed the temporary database row and file.
+
+### Risks / TODO
+
+* No Georivo article was generated or published during integration. The public journal intentionally shows its connected empty state until an operator queues and publishes the first article.
+* Georivo's product application currently runs on an external `chatgpt.site` upstream. The local blog remains independent of that upstream, but future upstream asset-name changes should be checked against the renderer's stylesheet preload.
+
 ## 2026-07-21 — Repair SoloCruz native hero, blog index, and sitemap submission path
 
 ### Summary
