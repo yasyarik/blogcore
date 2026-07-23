@@ -41,6 +41,19 @@
   const initialize = () => {
     insertBlogLink();
     wireBlogMenu();
+    if (!document.body.classList.contains("blog-shell")) {
+      let scheduled = false;
+      const observer = new MutationObserver(() => {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(() => {
+          scheduled = false;
+          insertBlogLink();
+        });
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      window.setTimeout(insertBlogLink, 1000);
+    }
   };
 
   if (document.readyState === "loading") {

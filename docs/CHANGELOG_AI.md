@@ -27,6 +27,7 @@ This file is updated by Codex after every task.
 * Verified blog widths at 1920, 1440, 1024, 768, 390, and 320 px with no horizontal overflow.
 * Captured and visually inspected full-page desktop, tablet, and mobile blog screenshots plus desktop/mobile article screenshots.
 * Verified the mobile menu opens, exposes the Blog link, and updates `aria-expanded`.
+* Verified the existing product homepage retains exactly one Blog link in both header and footer after React hydration at desktop and mobile widths.
 * Verified all article fixture images loaded, then removed the temporary fixture and database row.
 
 ### Risks / TODO

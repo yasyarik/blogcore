@@ -125,7 +125,7 @@ def shell(title, description, body, canonical, schema=None, noindex=False):
   {site_header()}
   {body}
   {site_footer()}
-  <script src="/georivo-blog-nav.js?v=20260723b" defer></script>
+  <script src="/georivo-blog-nav.js?v=20260723c" defer></script>
 </body>
 </html>"""
 
