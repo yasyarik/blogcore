@@ -9,6 +9,7 @@ Group=www-data
 WorkingDirectory=/var/www/georivo-blog
 Environment=PORT=13340
 Environment=BLOG_CORE_ORIGIN=https://blog.yas.ooo
+Environment=PYTHONPATH=/var/www/blog.yas.ooo
 Environment=HOME=/tmp/georivo-blog
 ExecStart=/var/www/blog.yas.ooo/.venv/bin/gunicorn --workers 2 --bind 127.0.0.1:13340 --timeout 120 app:app
 Restart=always

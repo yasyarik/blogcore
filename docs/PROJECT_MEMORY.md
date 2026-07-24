@@ -567,6 +567,20 @@ It must be updated after every meaningful task.
 * Files/areas affected: Blog Core site 14 database records and `/var/www/georivo-blog/data/blog-core/published/`.
 * Replaced/deprecated: Georivo's connected-but-empty journal state.
 
+### 2026-07-24 — Live source chrome is a global renderer contract
+
+* Decision: Blog Core-owned hosted/CNAME pages and native renderers obtain current source `<header>`, `<footer>`, and stylesheet URLs from the connected site's `homepage_url` through shared `native_site_chrome.py`, cache briefly, and fall back to the saved design scan only when the source cannot be read.
+* Reason: Copying source chrome into a renderer drifts as soon as account controls, language selectors, footer credits, navigation, or compiled assets change. Runtime source reuse keeps Blog Core content native without modifying the product application.
+* Files/areas affected: `native_site_chrome.py`, `app.py` hosted rendering, and native adapters under `deploy/`.
+* Replaced/deprecated: Hand-maintained header/footer copies in Blog Core-owned renderers and relying on a historical design scan as the public chrome authority.
+
+### 2026-07-24 — Source-authoritative publisher boundary
+
+* Decision: Imported sites bound to their own source factory do not use Blog Core's hosted chrome wrapper. Their source publisher must render the site's real template, header, footer, language routing, and assets.
+* Reason: A universal wrapper cannot safely replace a source application's routing, hydration, authentication controls, or page-template contract.
+* Files/areas affected: source-factory bindings and preview/publish adapters.
+* Replaced/deprecated: Assuming one generic header/footer mechanism should overwrite source-authoritative factory output.
+
 ### 2026-07-24 — Georivo trend-led editorial territory
 
 * Decision: Georivo's initial journal should build authority around the intersection of virtual property tours, real-estate photography, drone alternatives, interactive maps, digital twins, neighborhood context, remote-buyer decisions, and verifiable geospatial visualization. Raw Trends/search phrases are research signals, not article titles.

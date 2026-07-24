@@ -3,11 +3,11 @@ import json
 import os
 import re
 import time
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, Response, abort, redirect, request
+from native_site_chrome import LiveSiteChrome
 
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -21,10 +21,14 @@ NATIVE_STYLESHEET_FALLBACK = os.environ.get(
     "/assets/index-BzOmagHL.css",
 )
 NATIVE_STYLESHEET_CACHE_SECONDS = 300
-_native_stylesheet_cache = {
-    "href": NATIVE_STYLESHEET_FALLBACK,
-    "checked_at": 0.0,
-}
+SOURCE_CHROME = LiveSiteChrome(
+    SITE_ORIGIN,
+    cache_seconds=NATIVE_STYLESHEET_CACHE_SECONDS,
+    fallback_stylesheet=NATIVE_STYLESHEET_FALLBACK,
+    stylesheet_href_pattern=(
+        r'href=["\'](?P<href>/assets/index-[A-Za-z0-9_-]+\.css)["\']'
+    ),
+)
 DEFAULT_LANGUAGE = "en"
 LANGUAGES = tuple(
     dict.fromkeys(
@@ -39,6 +43,20 @@ LANGUAGE_LABELS = {
     "es": "ES",
     "fr": "FR",
     "ru": "RU",
+}
+LANGUAGE_NAMES = {
+    "en": "English",
+    "de": "Deutsch",
+    "es": "Español",
+    "fr": "Français",
+    "ru": "Русский",
+}
+LANGUAGE_FLAGS = {
+    "en": "🇬🇧",
+    "de": "🇩🇪",
+    "es": "🇪🇸",
+    "fr": "🇫🇷",
+    "ru": "🇷🇺",
 }
 UI = {
     "en": {
@@ -241,7 +259,82 @@ def clean_article_markup(markup):
     return absolute_article_assets(cleaned)
 
 
-def site_header(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None):
+def native_chrome():
+    snapshot = SOURCE_CHROME.get()
+    return snapshot["header"], snapshot["footer"]
+
+
+def native_language_options(language, slug=None, preview_job_id=None):
+    options = []
+    for item in LANGUAGES:
+        if preview_job_id:
+            target = f"/content-preview/{preview_job_id}?lang={item}"
+        else:
+            target = article_path(item, slug) if slug else blog_path(item)
+        selected = " selected" if item == language else ""
+        options.append(
+            f'<option value="{esc(target)}" aria-label="{esc(LANGUAGE_NAMES[item])}"'
+            f'{selected}>{LANGUAGE_FLAGS[item]}</option>'
+        )
+    return "".join(options)
+
+
+def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, footer=False):
+    if not fragment:
+        return ""
+    labels = copy_for(language)
+    fragment = re.sub(r'href=(["\'])#', r'href=\1/#', fragment)
+    fragment = fragment.replace('href="/#top"', 'href="/"')
+    fragment = fragment.replace("href='/#top'", "href='/'")
+    select = (
+        f'<select aria-label="Language" title="{esc(LANGUAGE_NAMES[language])}" '
+        f'onchange="window.location.href=this.value">'
+        f'{native_language_options(language, slug, preview_job_id)}</select>'
+    )
+    fragment = re.sub(
+        r'(?is)<select\b[^>]*aria-label=(["\'])Language\1[^>]*>.*?</select>',
+        select,
+        fragment,
+        count=1,
+    )
+    replacements = {
+        "Examples": labels["examples"],
+        "How it works": labels["how"],
+        "Pricing": labels["pricing"],
+        "Sign in": labels["sign_in"],
+        "Create a widget": labels["create"],
+        "Product": labels["product"],
+        "Company": labels["company"],
+        "Contact": labels["contact"],
+        "Terms": labels["terms"],
+        "Privacy": labels["privacy"],
+    }
+    for source, translated in replacements.items():
+        fragment = fragment.replace(f">{source}</a>", f">{esc(translated)}</a>")
+        fragment = fragment.replace(f">{source}</b>", f">{esc(translated)}</b>")
+    current = "" if footer else ' aria-current="page"'
+    blog_link = (
+        f'<a href="{esc(blog_path(language))}"{current}>'
+        f'{esc(labels["blog"])}</a>'
+    )
+    if not re.search(r'href=(["\'])/(?:[a-z]{2}/)?blog/?\1', fragment):
+        if footer:
+            fragment = re.sub(
+                r'(?is)(<a\b[^>]*href=(["\'])/#plans\2[^>]*>.*?</a>)',
+                rf"\1{blog_link}",
+                fragment,
+                count=1,
+            )
+        else:
+            fragment = fragment.replace(
+                '<a class="nav-account"',
+                f'{blog_link}<a class="nav-account"',
+                1,
+            )
+    return fragment
+
+
+def fallback_site_header(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None):
     language = normalize_language(language)
     labels = copy_for(language)
     return f"""
@@ -263,7 +356,18 @@ def site_header(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None):
     """
 
 
-def site_footer(language=DEFAULT_LANGUAGE):
+def site_header(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None):
+    language = normalize_language(language)
+    header, _ = native_chrome()
+    return adapt_native_chrome(
+        header,
+        language,
+        slug=slug,
+        preview_job_id=preview_job_id,
+    ) or fallback_site_header(language, slug, preview_job_id)
+
+
+def fallback_site_footer(language=DEFAULT_LANGUAGE):
     labels = copy_for(language)
     return f"""
     <footer id="footer">
@@ -282,33 +386,24 @@ def site_footer(language=DEFAULT_LANGUAGE):
     """
 
 
+def site_footer(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None):
+    language = normalize_language(language)
+    _, footer = native_chrome()
+    return adapt_native_chrome(
+        footer,
+        language,
+        slug=slug,
+        preview_job_id=preview_job_id,
+        footer=True,
+    ) or fallback_site_footer(language)
+
+
 def schema_markup(payload):
     return '<script type="application/ld+json">' + json.dumps(payload, ensure_ascii=False).replace("</", "<\\/") + "</script>"
 
 
 def native_stylesheet_url():
-    now = time.monotonic()
-    if now - _native_stylesheet_cache["checked_at"] < NATIVE_STYLESHEET_CACHE_SECONDS:
-        return _native_stylesheet_cache["href"]
-
-    try:
-        request = urllib.request.Request(
-            f"{SITE_ORIGIN}/",
-            headers={"User-Agent": "GeorivoBlog/1.0"},
-        )
-        with urllib.request.urlopen(request, timeout=5) as response:
-            homepage = response.read(512_000).decode("utf-8", errors="ignore")
-        match = re.search(
-            r'href=["\'](?P<href>/assets/index-[A-Za-z0-9_-]+\.css)["\']',
-            homepage,
-        )
-        if match:
-            _native_stylesheet_cache["href"] = match.group("href")
-    except (OSError, ValueError):
-        pass
-
-    _native_stylesheet_cache["checked_at"] = now
-    return _native_stylesheet_cache["href"]
+    return SOURCE_CHROME.get()["stylesheet"] or NATIVE_STYLESHEET_FALLBACK
 
 
 def shell(
@@ -353,7 +448,7 @@ def shell(
 <body class="blog-shell">
   {site_header(language, slug, preview_job_id)}
   {body}
-  {site_footer(language)}
+  {site_footer(language, slug, preview_job_id)}
   <script src="/georivo-blog-nav.js?v=20260724d" defer></script>
 </body>
 </html>"""
@@ -401,6 +496,13 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
         hero_html = f'<figure class="article-hero"><img src="{esc(hero)}" alt="{esc(title)}"></figure>'
     preview_badge = f'<div class="preview-banner">{esc(labels["draft"])}</div>' if preview else ""
     article_body = clean_article_markup(record.get("draftHtml") or "")
+    toc_match = re.search(
+        r'(?is)<nav\b[^>]*class=(["\'])[^"\']*\barticle-toc\b[^"\']*\1[^>]*>.*?</nav>',
+        article_body,
+    )
+    toc_html = toc_match.group(0) if toc_match else ""
+    if toc_match:
+        article_body = article_body[:toc_match.start()] + article_body[toc_match.end():]
     category = record.get("category") or "Georivo journal"
     read_minutes = record.get("readMinutes") or 7
     body = f"""
@@ -412,6 +514,7 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
         <h1>{esc(title)}</h1>
         <p class="dek">{esc(description)}</p>
         <div class="article-meta">{esc(labels["editorial"])} · {esc(read_minutes)} {esc(labels["minutes"])}</div>
+        {toc_html}
         {hero_html}
         <div class="article-copy">{article_body}</div>
         <aside class="article-cta">

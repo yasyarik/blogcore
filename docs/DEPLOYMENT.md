@@ -35,6 +35,7 @@ curl -fsS http://127.0.0.1:3299/health
 * Public routes handled locally: `/blog`, `/{en|de|es|fr|ru}/blog`, `/content-preview/`, and `/sitemap.xml`. EN canonically uses `/blog/`; `/en/blog` redirects there.
 * Existing Georivo product routes continue to proxy to their configured upstream.
 * Tracked deployment templates live under `deploy/georivo/`.
+* Native renderer services import shared `/var/www/blog.yas.ooo/native_site_chrome.py`; set `PYTHONPATH=/var/www/blog.yas.ooo` in their service environment.
 
 ```bash
 python3 -m py_compile /var/www/georivo-blog/app.py

@@ -2,6 +2,39 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-24 — Use live source chrome globally and expose article TOC
+
+### Summary
+
+* Replaced Georivo's manually reproduced header/footer with the actual current header/footer fetched from the source homepage.
+* Moved live source-chrome extraction into reusable `native_site_chrome.py` and connected Blog Core's hosted/CNAME renderer to the same adapter.
+* Preserved each site's real account control, language-switcher markup, footer credits, navigation structure, and current stylesheet references; site-specific adapters add only the Blog route and current article-language URLs.
+* Moved Georivo's generated TOC out of the article-body stream and placed it directly below article metadata, before the hero image.
+
+### Files changed
+
+* `native_site_chrome.py` — shared cached source header/footer and stylesheet extraction.
+* `app.py` — hosted/CNAME blogs refresh source chrome from `homepage_url`, using the saved design scan only as fallback.
+* `deploy/georivo/app.py` — consume shared live chrome, adapt native Blog/language links, and surface TOC before hero.
+* `deploy/georivo/georivo-blog.css` — explicit top-level article TOC placement.
+* `deploy/georivo/georivo-blog.service` — make the shared Blog Core module available to the native renderer.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — global source-chrome contract and deployment requirements.
+
+### Decisions
+
+* Blog Core-owned native and hosted/CNAME renderers must use current source chrome at runtime with a short cache and a saved-scan fallback. They must not maintain a hand-copied header/footer.
+* Imported source-authoritative sites remain owned by their native factory publisher; Blog Core must not wrap those pages in a second header/footer.
+* A generated TOC must be a first-section navigation element visible before the article hero, not buried after the lead inside generated body HTML.
+
+### Checks run
+
+* Compiled the shared adapter, Blog Core, and Georivo renderer.
+* Smoke-tested extraction of the exact Georivo native account icon, compact flag language selector, footer credit, Blog route insertion, and one TOC before hero in EN and DE.
+
+### Risks / TODO
+
+* A source site that renders header/footer only after client-side JavaScript and emits no server HTML needs an explicit source adapter or server endpoint; the saved scan remains the fallback.
+
 ## 2026-07-24 — Generate and publish Georivo's first multilingual article
 
 ### Summary

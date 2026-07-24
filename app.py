@@ -22,6 +22,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_from_directory
+from native_site_chrome import LiveSiteChrome
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -42,6 +43,7 @@ LEGACY_FACTORY_ENDPOINTS = {
 }
 LEGACY_STATUS_CHECKS = {}
 LINKEDIN_OAUTH_STATES = {}
+LIVE_SITE_CHROME_ADAPTERS = {}
 
 app = Flask(__name__)
 DATA_DIR.mkdir(exist_ok=True)
@@ -7236,6 +7238,21 @@ def render_hosted_blog_response(site, public_path):
     source_css_urls = json.loads(profile["css_urls_json"] or "[]") if profile else []
     header = profile["header_html"] if profile and profile["header_html"] else ""
     footer = profile["footer_html"] if profile and profile["footer_html"] else ""
+    homepage_url = str(site["homepage_url"] or "").rstrip("/")
+    if homepage_url:
+        adapter_key = (site["id"], homepage_url)
+        adapter = LIVE_SITE_CHROME_ADAPTERS.get(adapter_key)
+        if adapter is None:
+            adapter = LiveSiteChrome(homepage_url)
+            LIVE_SITE_CHROME_ADAPTERS[adapter_key] = adapter
+        live_chrome = adapter.get()
+        if live_chrome["header"] and live_chrome["footer"]:
+            header = absolutize_html_attrs(homepage_url + "/", live_chrome["header"])
+            footer = absolutize_html_attrs(homepage_url + "/", live_chrome["footer"])
+            source_css_urls = [
+                absolutize(homepage_url + "/", value)
+                for value in live_chrome["stylesheets"][:12]
+            ] or source_css_urls
     brand = site["brand_name"] or site["domain"]
     if path in ("blog-core.css", "blog/blog-core.css"):
         return Response(theme_css(profile), mimetype="text/css")
