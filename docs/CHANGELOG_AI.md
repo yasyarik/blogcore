@@ -2,6 +2,36 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-24 — Publish five additional Georivo articles
+
+### Summary
+
+* Explicitly published the five reviewed Georivo multilingual drafts through the native content-store publisher.
+* Exposed each canonical article in EN, DE, ES, FR, and RU and added all variants to their localized blog indexes and the Georivo sitemap.
+* Preserved the generated TOC, article structure, FAQ, table, lists, and one hero plus three inline images per article.
+
+### Files changed
+
+* `data/blog_core.sqlite3` — moved five Georivo tasks from `DRAFT` to `PUBLISHED` and recorded their canonical public URLs; runtime data remains ignored.
+* `/var/www/georivo-blog/data/blog-core/published/*.json` — stored five multilingual native publication records; runtime data remains ignored.
+* `docs/CHANGELOG_AI.md` — logged publication and public validation.
+
+### Decisions
+
+* No new architecture or product rule was introduced. This task executed the existing explicit Publish lifecycle for approved native content-store drafts.
+
+### Checks run
+
+* Verified all five database tasks are `PUBLISHED` with no errors.
+* Verified all 25 public language URLs return HTTP 200, are indexable, have the correct per-language canonical, and expose EN/DE/ES/FR/RU plus `x-default` hreflang links.
+* Verified all five localized blog indexes contain every newly published slug.
+* Verified `https://georivo.com/sitemap.xml` contains all 25 article URLs.
+* Verified each article exposes four generated article images and all 20 JPEG URLs return HTTP 200 with an image MIME type.
+
+### Risks / TODO
+
+* No publication errors remain. Editorial or social distribution is separate from this native article publication.
+
 ## 2026-07-24 — Generate five additional Georivo article drafts
 
 ### Summary
