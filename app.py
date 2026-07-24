@@ -1292,6 +1292,23 @@ def native_content_store_root(site, row):
 
 def native_content_store_payload(site, row, published=False):
     sources = content_job_sources(row)
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    editorial = brief.get("editorial") if isinstance(brief.get("editorial"), dict) else {}
+    public_sources = []
+    for item in brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        public_url = str(item.get("publicUrl") or "").strip()
+        public_sources.append(
+            {
+                "id": str(item.get("id") or "").strip(),
+                "title": str(item.get("title") or "").strip(),
+                "publisher": str(item.get("publisher") or "").strip(),
+                "publicUrl": public_url if re.match(r"^https://", public_url) else "",
+                "accessedAt": str(item.get("accessedAt") or "").strip(),
+                "supports": str(item.get("supports") or "").strip(),
+            }
+        )
     try:
         faq = json.loads(row["faq_json"] or "[]")
     except Exception:
@@ -1340,6 +1357,17 @@ def native_content_store_payload(site, row, published=False):
         "readMinutes": max(1, math.ceil(word_count / 220)),
         "targetPath": content_job_target_path(row),
         "contentType": content_type,
+        "editorial": {
+            "author": str(editorial.get("author") or "").strip(),
+            "reviewer": str(editorial.get("reviewer") or "").strip(),
+            "owner": str(editorial.get("owner") or "").strip(),
+            "reviewDueAt": str(editorial.get("reviewDueAt") or "").strip(),
+            "reviewCadence": str(editorial.get("reviewCadence") or "").strip(),
+            "factCheckedAt": str(editorial.get("factCheckedAt") or "").strip(),
+            "sources": public_sources,
+        },
+        "primaryCta": brief.get("primaryCta") if isinstance(brief.get("primaryCta"), dict) else {},
+        "contentDetails": brief.get("contentDetails") if isinstance(brief.get("contentDetails"), dict) else {},
         "translations": translations,
         "updatedAt": now_iso(),
         "publishedAt": now_iso() if published else None,
@@ -6093,8 +6121,37 @@ ARTICLE_DRAFT_SCHEMA = {
                 "required": ["question", "answer"],
             },
         },
+        "internalLinks": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "label": {"type": "STRING"},
+                    "url": {"type": "STRING"},
+                    "context": {"type": "STRING"},
+                    "role": {"type": "STRING"},
+                },
+                "required": ["label", "url", "context", "role"],
+            },
+        },
+        "recommendedNext": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "label": {"type": "STRING"},
+                    "url": {"type": "STRING"},
+                    "role": {"type": "STRING"},
+                },
+                "required": ["label", "url", "role"],
+            },
+        },
     },
-    "required": ["slug", "title", "description", "category", "heroImage", "lead", "sections", "table", "orderedList", "quote", "images", "faq"],
+    "required": [
+        "slug", "title", "description", "category", "heroImage", "lead", "sections",
+        "table", "orderedList", "quote", "images", "faq", "internalLinks",
+        "recommendedNext",
+    ],
 }
 
 ARTICLE_LANGUAGE_NAMES = {
@@ -6109,14 +6166,14 @@ ARTICLE_LANGUAGE_NAMES = {
 }
 
 ARTICLE_UI_LABELS = {
-    "en": {"contents": "Contents", "faq": "FAQ", "next_steps": "Practical next steps"},
-    "de": {"contents": "Inhalt", "faq": "Häufige Fragen", "next_steps": "Praktische nächste Schritte"},
-    "es": {"contents": "Contenido", "faq": "Preguntas frecuentes", "next_steps": "Próximos pasos prácticos"},
-    "fr": {"contents": "Sommaire", "faq": "Questions fréquentes", "next_steps": "Prochaines étapes pratiques"},
-    "ru": {"contents": "Содержание", "faq": "Частые вопросы", "next_steps": "Практические следующие шаги"},
-    "it": {"contents": "Contenuti", "faq": "Domande frequenti", "next_steps": "Prossimi passi pratici"},
-    "pt": {"contents": "Conteúdo", "faq": "Perguntas frequentes", "next_steps": "Próximos passos práticos"},
-    "pl": {"contents": "Spis treści", "faq": "Częste pytania", "next_steps": "Praktyczne kolejne kroki"},
+    "en": {"contents": "Contents", "faq": "FAQ", "next_steps": "Practical next steps", "related": "Related reading", "recommended": "Recommended next"},
+    "de": {"contents": "Inhalt", "faq": "Häufige Fragen", "next_steps": "Praktische nächste Schritte", "related": "Weiterführende Inhalte", "recommended": "Als Nächstes empfohlen"},
+    "es": {"contents": "Contenido", "faq": "Preguntas frecuentes", "next_steps": "Próximos pasos prácticos", "related": "Lecturas relacionadas", "recommended": "Recomendado a continuación"},
+    "fr": {"contents": "Sommaire", "faq": "Questions fréquentes", "next_steps": "Prochaines étapes pratiques", "related": "À lire aussi", "recommended": "À consulter ensuite"},
+    "ru": {"contents": "Содержание", "faq": "Частые вопросы", "next_steps": "Практические следующие шаги", "related": "Материалы по теме", "recommended": "Что читать дальше"},
+    "it": {"contents": "Contenuti", "faq": "Domande frequenti", "next_steps": "Prossimi passi pratici", "related": "Letture correlate", "recommended": "Consigliato dopo"},
+    "pt": {"contents": "Conteúdo", "faq": "Perguntas frequentes", "next_steps": "Próximos passos práticos", "related": "Leitura relacionada", "recommended": "Recomendado a seguir"},
+    "pl": {"contents": "Spis treści", "faq": "Częste pytania", "next_steps": "Praktyczne kolejne kroki", "related": "Powiązane materiały", "recommended": "Polecane dalej"},
 }
 
 
@@ -6155,7 +6212,11 @@ def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
         src, alt, caption = image_tuple
         if asset_prefix and not re.match(r"^(?:https?:)?/", src):
             src = f"{asset_prefix.rstrip('/')}/{src}"
-        return f'<figure class="article-figure"><img src="{escape(src, quote=True)}" alt="{escape(alt, quote=True)}" /><figcaption>{escape(caption)}</figcaption></figure>'
+        return (
+            f'<figure class="article-figure"><img src="{escape(src, quote=True)}" '
+            f'alt="{escape(alt, quote=True)}" width="1376" height="768" loading="lazy" '
+            f'decoding="async" /><figcaption>{escape(caption)}</figcaption></figure>'
+        )
 
     inserted_images = set()
     sections = draft.get("sections") if isinstance(draft.get("sections"), list) else []
@@ -6169,6 +6230,8 @@ def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
         if not heading:
             continue
         base = simple_slug(heading)[:80] or f"section-{index + 1}"
+        if base in {"article", "post"} or len(base) < 4:
+            base = f"section-{index + 1}"
         anchor = base
         suffix = 2
         while anchor in used_anchors:
@@ -6236,6 +6299,44 @@ def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
     quote = re.sub(r"\s+", " ", str(draft.get("quote") or "")).strip()
     if quote:
         parts.append(f'<blockquote class="article-quote">{escape(quote)}</blockquote>')
+    internal_links = []
+    for item in draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        label = re.sub(r"\s+", " ", str(item.get("label") or "")).strip()
+        context = re.sub(r"\s+", " ", str(item.get("context") or "")).strip()
+        if label and context and re.match(r"^/[a-z0-9][a-z0-9/_-]*$", url):
+            internal_links.append((label, url, context))
+    if internal_links:
+        link_items = "".join(
+            f'<li><span>{escape(context)}</span> '
+            f'<a href="{escape(url, quote=True)}">{escape(label)}</a></li>'
+            for label, url, context in internal_links[:8]
+        )
+        parts.append(
+            f'<section class="article-related"><h2>{escape(labels["related"])}</h2>'
+            f'<ul>{link_items}</ul></section>'
+        )
+    recommended = []
+    for item in draft.get("recommendedNext") if isinstance(draft.get("recommendedNext"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        label = re.sub(r"\s+", " ", str(item.get("label") or "")).strip()
+        role = re.sub(r"\s+", " ", str(item.get("role") or "")).strip()
+        if label and role and re.match(r"^/[a-z0-9][a-z0-9/_-]*$", url):
+            recommended.append((label, url, role))
+    if recommended:
+        cards = "".join(
+            f'<a class="recommended-card" href="{escape(url, quote=True)}">'
+            f'<span>{escape(role)}</span><strong>{escape(label)}</strong></a>'
+            for label, url, role in recommended[:3]
+        )
+        parts.append(
+            f'<nav class="article-recommended" aria-label="{escape(labels["recommended"], quote=True)}">'
+            f'<h2>{escape(labels["recommended"])}</h2><div>{cards}</div></nav>'
+        )
     faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
     faq_items = []
     for item in faq[:7]:
@@ -6274,6 +6375,14 @@ def structured_article_plain_text(draft):
     for row in table.get("rows") if isinstance(table.get("rows"), list) else []:
         chunks.extend(row if isinstance(row, list) else [])
     chunks.extend(draft.get("orderedList") if isinstance(draft.get("orderedList"), list) else [])
+    for item in draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else []:
+        if isinstance(item, dict):
+            chunks.append(item.get("context"))
+            chunks.append(item.get("label"))
+    for item in draft.get("recommendedNext") if isinstance(draft.get("recommendedNext"), list) else []:
+        if isinstance(item, dict):
+            chunks.append(item.get("label"))
+            chunks.append(item.get("role"))
     for item in draft.get("faq") if isinstance(draft.get("faq"), list) else []:
         if isinstance(item, dict):
             chunks.append(item.get("question"))
@@ -6281,7 +6390,20 @@ def structured_article_plain_text(draft):
     return " ".join(re.sub(r"\s+", " ", str(chunk or "")).strip() for chunk in chunks if str(chunk or "").strip())
 
 
-def validate_structured_article_draft(draft):
+MODEL_OUTPUT_ARTIFACT_PATTERN = re.compile(
+    r"(?:```(?:json)?|"
+    r"\b(?:chain|train)_of_thought\b|"
+    r"\bof_thought(?:_and_[a-z0-9_]+)?\b|"
+    r"\bjson_block\b|"
+    r"\baccording_to_(?:the_)?rules\b|"
+    r"\b(?:here is|let(?:'s| us))\s+(?:the\s+)?final\s+(?:json|output)\b|"
+    r"\bsingle[- ]line,\s*valid\s+json\b|"
+    r"\b(?:assistant|developer|system)\s*(?:message|prompt)\b)",
+    re.I,
+)
+
+
+def validate_structured_article_draft(draft, job=None, language="en"):
     errors = []
     title = re.sub(r"\s+", " ", str(draft.get("title") or "")).strip()
     description = re.sub(r"\s+", " ", str(draft.get("description") or "")).strip()
@@ -6301,7 +6423,23 @@ def validate_structured_article_draft(draft):
     table = draft.get("table") if isinstance(draft.get("table"), dict) else {}
     table_rows = table.get("rows") if isinstance(table.get("rows"), list) else []
     ordered = [item for item in (draft.get("orderedList") if isinstance(draft.get("orderedList"), list) else []) if str(item or "").strip()]
+    internal_links = [
+        item for item in (draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else [])
+        if isinstance(item, dict)
+        and str(item.get("label") or "").strip()
+        and str(item.get("context") or "").strip()
+        and re.match(r"^/[a-z0-9][a-z0-9/_-]*$", str(item.get("url") or "").strip())
+    ]
+    recommended = [
+        item for item in (draft.get("recommendedNext") if isinstance(draft.get("recommendedNext"), list) else [])
+        if isinstance(item, dict)
+        and str(item.get("label") or "").strip()
+        and str(item.get("role") or "").strip()
+        and re.match(r"^/[a-z0-9][a-z0-9/_-]*$", str(item.get("url") or "").strip())
+    ]
     word_count = len(re.findall(r"\b[\w'-]+\b", structured_article_plain_text(draft)))
+    lead_word_count = len(re.findall(r"\b[\w'-]+\b", lead))
+    plain_text = structured_article_plain_text(draft)
     if len(title) < 18:
         errors.append("title is too short")
     if description and lead and normalize_topic_text(description) == normalize_topic_text(lead):
@@ -6320,9 +6458,112 @@ def validate_structured_article_draft(draft):
         errors.append("draft must include at least 5 ordered-list items")
     if word_count < 1200:
         errors.append(f"draft is too short: {word_count} words, expected at least 1200")
+    artifact = MODEL_OUTPUT_ARTIFACT_PATTERN.search(plain_text)
+    if artifact:
+        errors.append(f"model control artifact leaked into article copy: {artifact.group(0)[:80]}")
+    content_type = native_content_type(job) if job is not None else "blog"
+    if content_type != "blog":
+        if language == "en" and not 50 <= lead_word_count <= 80:
+            errors.append(f"direct answer must be 50-80 words, got {lead_word_count}")
+        if language != "en" and not 40 <= lead_word_count <= 110:
+            errors.append(f"localized direct answer is outside the safe range: {lead_word_count} words")
+        limitation_terms_by_language = {
+            "en": {
+                "limitation", "limitations", "not for", "when not", "does not", "cannot",
+                "boundary", "boundaries", "suitability", "fit",
+            },
+            "de": {
+                "grenze", "grenzen", "einschränkung", "einschränkungen", "nicht geeignet",
+                "wann nicht", "eignung", "ungeeignet", "kann nicht",
+            },
+            "es": {
+                "límite", "límites", "limitación", "limitaciones", "no es adecuado",
+                "cuándo no", "idoneidad", "no puede",
+            },
+            "fr": {
+                "limite", "limites", "limitation", "limitations", "ne convient pas",
+                "quand ne pas", "adéquation", "ne peut pas",
+            },
+            "ru": {
+                "ограничение", "ограничения", "не подходит", "когда не", "применимость",
+                "не может", "границы", "пригодность",
+            },
+        }
+        limitation_terms = limitation_terms_by_language.get(
+            language,
+            limitation_terms_by_language["en"],
+        )
+        normalized_headings = [normalize_topic_text(section.get("heading") or "") for section in usable_sections]
+        if not any(any(term in heading for term in limitation_terms) for heading in normalized_headings):
+            errors.append("typed page must include a standalone limitations or suitability section")
+        if language == "en":
+            risky_pattern = re.compile(
+                r"\b(?:shows?|provides?|uses?|includes?|offers?|guarantees?|confirms?|verifies?)\s+"
+                r"(?:the\s+)?(?:exact|precise|guaranteed|verified|real-time|current)\s+"
+                r"(?:position|location|route|distance|travel time|boundary|boundaries|"
+                r"availability|imagery|map imagery|road condition|road conditions)\b"
+                r"|\b(?:position|location|route|distance|travel time|boundary|boundaries|"
+                r"availability|imagery|map imagery|road condition|road conditions)\s+"
+                r"(?:is|are)\s+(?:exact|precise|guaranteed|verified|real-time|current)\b",
+                re.I,
+            )
+            safe_context = re.compile(
+                r"\b(?:not|no|without|false|cannot|does not|do not|does not promise|"
+                r"isn't|is not|aren't|are not|"
+                r"requires? (?:independent )?verification|must be (?:checked|verified)|illustrative)\b",
+                re.I,
+            )
+            for sentence in re.split(r"(?<=[.!?])\s+", structured_article_plain_text(draft)):
+                if risky_pattern.search(sentence) and not safe_context.search(sentence):
+                    errors.append(
+                        "unsupported precision or recency claim: "
+                        + re.sub(r"\s+", " ", sentence).strip()[:180]
+                    )
+                    break
+            for image in images:
+                image_copy = " ".join(
+                    str(image.get(field) or "") for field in ("alt", "caption")
+                )
+                if re.search(
+                    r"\bexact\s+(?:position|location|route|distance|boundary|boundaries)\b",
+                    image_copy,
+                    re.I,
+                ):
+                    errors.append("image copy must not claim exact spatial precision")
+                    break
+    if content_type != "blog":
+        if len(internal_links) < 4:
+            errors.append("draft must include at least 4 contextual internal links")
+        if len(recommended) != 3:
+            errors.append("draft must include exactly 3 Recommended next links")
+        if len({str(item.get("url") or "").strip() for item in internal_links}) != len(internal_links):
+            errors.append("internal links must not repeat")
+        if len({str(item.get("url") or "").strip() for item in recommended}) != len(recommended):
+            errors.append("Recommended next links must not repeat")
+    if job is not None:
+        sources = content_job_sources(job)
+        brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+        approved_links = set()
+        for item in brief.get("approvedInternalLinks") if isinstance(brief.get("approvedInternalLinks"), list) else []:
+            url = str(item.get("url") or "").strip() if isinstance(item, dict) else str(item or "").strip()
+            if url:
+                approved_links.add(url)
+        generated_urls = {
+            str(item.get("url") or "").strip()
+            for item in internal_links + recommended
+        }
+        if approved_links and not generated_urls.issubset(approved_links):
+            errors.append("draft contains an internal link outside the approved page brief")
     if errors:
         raise ValueError("Article draft failed validation: " + "; ".join(errors))
-    return {"word_count": word_count, "sections": len(usable_sections), "images": len(images), "faq": len(faq)}
+    return {
+        "word_count": word_count,
+        "sections": len(usable_sections),
+        "images": len(images),
+        "faq": len(faq),
+        "internal_links": len(internal_links),
+        "recommended_next": len(recommended),
+    }
 
 
 def article_asset_job_dir(site_id, job_id):
@@ -6400,10 +6641,15 @@ def build_universal_article_prompt(site, job):
     strategy = site["topic_strategy"] or ""
     languages = languages_to_text(site["languages"])
     source_context = ""
+    source_payload = {}
     try:
-        source_context = json.dumps(json.loads(job["sources_json"] or "{}"), ensure_ascii=False)
+        source_payload = json.loads(job["sources_json"] or "{}")
+        source_context = json.dumps(source_payload, ensure_ascii=False)
     except Exception:
         source_context = job["sources_json"] or ""
+    brief = source_payload.get("pageBrief") if isinstance(source_payload.get("pageBrief"), dict) else {}
+    approved_links = brief.get("approvedInternalLinks") if isinstance(brief.get("approvedInternalLinks"), list) else []
+    approved_sources = brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []
     content_type = native_content_type(job)
     target_path = content_job_target_path(job)
     page_contracts = {
@@ -6415,6 +6661,26 @@ def build_universal_article_prompt(site, job):
         "use_case": "A decision-led use-case page connecting a real operational problem, relevant workflow, limitations, and an appropriate product outcome without unsupported claims.",
     }
     page_contract = page_contracts[content_type]
+    brief_contract = {
+        key: brief.get(key)
+        for key in (
+            "primaryIntent", "seoTitle", "metaDescription", "h1", "directAnswer",
+            "outline", "contentDetails",
+        )
+        if brief.get(key) not in (None, "", [], {})
+    }
+    limitation_outline = next(
+        (
+            str(item).strip()
+            for item in (brief.get("outline") if isinstance(brief.get("outline"), list) else [])
+            if re.search(
+                r"\b(?:limitation|limitations|suitability|not for|caveat|constraints?|access limitations)\b",
+                str(item),
+                re.I,
+            )
+        ),
+        "Limitations and suitability",
+    )
     return f"""
 You are an expert SEO and editorial writer for a real business website.
 Write a useful, human, expert {content_type.replace('_', ' ')} page for the connected site.
@@ -6434,10 +6700,17 @@ ARTICLE JOB:
 - content type: {content_type}
 - canonical target path: {target_path}
 - page contract: {page_contract}
+- approved page brief contract: {json.dumps(brief_contract, ensure_ascii=False)}
+- required standalone section heading: {limitation_outline}
+- approved internal links: {json.dumps(approved_links, ensure_ascii=False)}
+- approved source references: {json.dumps(approved_sources, ensure_ascii=False)}
 - source context: {source_context[:4000]}
 
 QUALITY RULES:
 - Output valid JSON matching the provided schema only.
+- For a typed page, copy the approved `h1` into `title`, the approved `metaDescription`
+  into `description`, and the approved `directAnswer` into `lead` exactly. Blog Core
+  enforces these fields after generation.
 - Write like a specialist editor for this exact site, not a generic AI assistant.
 - The article must be a complete long-form page, not a short summary. Target 1400-2200 words across the structured fields.
 - Do not repeat `title` inside `lead`, `description`, section headings, or FAQ questions.
@@ -6454,9 +6727,276 @@ QUALITY RULES:
 - Avoid fluff and vague marketing language.
 - Make the article clearly connect the problem/question to why {brand} is useful, but do not turn every section into an ad.
 - Answer the page's primary question directly in the first 50-80 words.
-- Include a clear limitations, suitability, or "not for" section appropriate to the page type.
+- Include a standalone section whose heading is exactly `{limitation_outline}`. Put
+  the page-specific limitations, suitability boundaries, and verification duties
+  in that section. Do not bury these points in another section.
 - Use only factual claims supported by the supplied site/job context. Mark illustrative scenarios as examples.
+- Treat every item in `contentDetails` as a closed factual boundary. Do not add a
+  landmark, road type, transport facility, customer, address, route, distance,
+  outcome, or current condition that is not explicitly present there.
+- Never positively claim an exact position, exact route, exact distance, legal
+  boundary, current imagery, current road condition, or guaranteed availability.
 - Treat the canonical target path and content type as fixed publication intent. Do not turn a guide, template, example, integration guide, or use case into a generic blog post.
+- For a non-blog typed page, return 4-6 `internalLinks` and exactly 3 `recommendedNext` entries.
+- Use only URLs from `approved internal links`. Never invent a route, external source, customer, metric, address, product feature, platform UI label, or embed code.
+- Each `internalLinks.context` must be a useful sentence explaining why the linked page answers the reader's natural next question. `label` is a descriptive anchor, never "click here".
+- `recommendedNext` must contain three distinct roles: foundational, decision, and practical or example.
+- Preserve approved source facts and limitations. Do not print an internal source reference as a public citation unless the brief explicitly provides a public URL.
+""".strip()
+
+
+def apply_typed_safety_section(draft, job, language="en"):
+    if native_content_type(job) == "blog":
+        return draft
+    limitation_terms_by_language = {
+        "en": ("limitation", "suitability", "not for", "caveat", "constraint"),
+        "de": ("grenze", "einschränkung", "eignung", "ungeeignet"),
+        "es": ("límite", "limitación", "idoneidad", "no es adecuado"),
+        "fr": ("limite", "limitation", "adéquation", "ne convient pas"),
+        "ru": ("ограничение", "не подходит", "применимость", "границы"),
+    }
+    headings = {
+        "en": "Limitations and suitability",
+        "de": "Einschränkungen und Eignung",
+        "es": "Limitaciones e idoneidad",
+        "fr": "Limites et adéquation",
+        "ru": "Ограничения и применимость",
+    }
+    fallback_copy = {
+        "en": (
+            "Use this material for presentation and decision support, not as a "
+            "substitute for independently verified source information. Confirm "
+            "routes, distances, access, availability, imagery, legal boundaries, "
+            "platform requirements, and current conditions with the relevant "
+            "authoritative source before publication or use."
+        ),
+        "de": (
+            "Nutzen Sie dieses Material zur Darstellung und Entscheidungsunterstützung, "
+            "nicht als Ersatz für unabhängig geprüfte Quellen. Prüfen Sie Routen, "
+            "Entfernungen, Zugang, Verfügbarkeit, Bildmaterial, rechtliche Grenzen, "
+            "Plattformanforderungen und aktuelle Bedingungen vor Veröffentlichung "
+            "oder Nutzung bei der zuständigen Quelle."
+        ),
+        "es": (
+            "Utiliza este material para presentación y apoyo a decisiones, no como "
+            "sustituto de fuentes verificadas de forma independiente. Confirma rutas, "
+            "distancias, acceso, disponibilidad, imágenes, límites legales, requisitos "
+            "de plataforma y condiciones actuales con la fuente competente antes de "
+            "publicar o utilizar el contenido."
+        ),
+        "fr": (
+            "Utilisez ce contenu pour la présentation et l'aide à la décision, et non "
+            "comme substitut à des sources vérifiées indépendamment. Confirmez les "
+            "itinéraires, distances, accès, disponibilités, images, limites légales, "
+            "exigences de plateforme et conditions actuelles auprès de la source "
+            "compétente avant publication ou utilisation."
+        ),
+        "ru": (
+            "Используйте этот материал для презентации и поддержки решений, а не "
+            "вместо независимо проверенных источников. До публикации или применения "
+            "проверяйте маршруты, расстояния, доступ, доступность, изображения, "
+            "юридические границы, требования платформы и текущие условия по "
+            "соответствующему авторитетному источнику."
+        ),
+    }
+    terms = limitation_terms_by_language.get(language, limitation_terms_by_language["en"])
+    sections = [
+        dict(section) for section in (
+            draft.get("sections") if isinstance(draft.get("sections"), list) else []
+        )
+        if isinstance(section, dict)
+    ]
+    has_usable_term_heading = any(
+        any(term in normalize_topic_text(section.get("heading") or "") for term in terms)
+        and any(str(paragraph or "").strip() for paragraph in (
+            section.get("paragraphs") if isinstance(section.get("paragraphs"), list) else []
+        ))
+        for section in sections
+    )
+    expected_heading = headings.get(language, headings["en"])
+    has_canonical_localized_heading = any(
+        normalize_topic_text(section.get("heading") or "") == normalize_topic_text(expected_heading)
+        and any(str(paragraph or "").strip() for paragraph in (
+            section.get("paragraphs") if isinstance(section.get("paragraphs"), list) else []
+        ))
+        for section in sections
+    )
+    if (language == "en" and has_usable_term_heading) or (
+        language != "en" and has_canonical_localized_heading
+    ):
+        draft["sections"] = sections
+        return draft
+
+    sources = content_job_sources(job)
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    outline = brief.get("outline") if isinstance(brief.get("outline"), list) else []
+    approved_heading = expected_heading
+    if language == "en":
+        approved_heading = next(
+            (
+                str(item).strip()
+                for item in outline
+                if re.search(
+                    r"\b(?:limitation|limitations|suitability|not for|caveat|constraints?|access limitations)\b",
+                    str(item),
+                    re.I,
+                )
+            ),
+            expected_heading,
+        )
+    details = brief.get("contentDetails") if isinstance(brief.get("contentDetails"), dict) else {}
+    limitations = details.get("limitations") if isinstance(details.get("limitations"), list) else []
+    paragraphs = [fallback_copy.get(language, fallback_copy["en"])]
+    if language == "en" and limitations:
+        paragraphs.append("Approved boundaries for this page: " + "; ".join(str(item).strip() for item in limitations if str(item).strip()) + ".")
+    sections.append({"heading": approved_heading, "paragraphs": paragraphs, "bullets": []})
+    draft["sections"] = sections
+    return draft
+
+
+def apply_approved_page_brief(draft, job, language="en"):
+    if native_content_type(job) == "blog":
+        return draft
+    sources = content_job_sources(job)
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    fixed = dict(draft)
+    if str(brief.get("h1") or "").strip():
+        fixed["title"] = str(brief["h1"]).strip()
+    if str(brief.get("metaDescription") or "").strip():
+        fixed["description"] = str(brief["metaDescription"]).strip()
+    if str(brief.get("directAnswer") or "").strip():
+        fixed["lead"] = str(brief["directAnswer"]).strip()
+    fixed = apply_typed_safety_section(fixed, job, language=language)
+    return ensure_typed_navigation_contract(fixed, job)
+
+
+def sanitize_typed_image_copy(draft):
+    replacements = (
+        (r"\bexact\s+(?:position|location)\b", "general location context"),
+        (r"\bexact\s+route\b", "general approach"),
+        (r"\bexact\s+distance\b", "distance context requiring verification"),
+        (r"\bexact\s+boundar(?:y|ies)\b", "surrounding area context"),
+    )
+    images = draft.get("images") if isinstance(draft.get("images"), list) else []
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        for field in ("alt", "caption"):
+            value = str(image.get(field) or "")
+            for pattern, replacement in replacements:
+                value = re.sub(pattern, replacement, value, flags=re.I)
+            image[field] = value
+    return draft
+
+
+def approved_link_label(url):
+    path = urllib.parse.urlsplit(str(url or "")).path.strip("/")
+    if not path:
+        return "Create a Georivo location story"
+    slug = path.rsplit("/", 1)[-1]
+    return re.sub(r"\s+", " ", slug.replace("-", " ")).strip().title()
+
+
+def ensure_typed_navigation_contract(draft, job):
+    if native_content_type(job) == "blog":
+        return draft
+    sources = content_job_sources(job)
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    approved = []
+    for item in brief.get("approvedInternalLinks") if isinstance(brief.get("approvedInternalLinks"), list) else []:
+        url = str(item.get("url") or "").strip() if isinstance(item, dict) else str(item or "").strip()
+        if re.match(r"^/[a-z0-9#][a-z0-9/_#-]*$", url) and url not in approved:
+            approved.append(url)
+    page_links = [url for url in approved if url != "/#create"]
+
+    internal = []
+    for item in draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if url in approved and url not in {link["url"] for link in internal}:
+            internal.append(item)
+    for url in approved:
+        if len(internal) >= 4:
+            break
+        if url in {link["url"] for link in internal}:
+            continue
+        label = approved_link_label(url)
+        internal.append({
+            "url": url,
+            "label": label,
+            "context": f"Use {label} to continue this decision with the approved next step.",
+        })
+    draft["internalLinks"] = internal[:6]
+
+    recommended = []
+    for item in draft.get("recommendedNext") if isinstance(draft.get("recommendedNext"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if url in page_links and url not in {link["url"] for link in recommended}:
+            recommended.append(item)
+        if len(recommended) == 3:
+            break
+    for url in page_links:
+        if len(recommended) == 3:
+            break
+        if url in {link["url"] for link in recommended}:
+            continue
+        recommended.append({"url": url, "label": approved_link_label(url), "role": ""})
+    roles = ("foundational", "decision", "practical")
+    for index, item in enumerate(recommended[:3]):
+        item["role"] = roles[index]
+    draft["recommendedNext"] = recommended[:3]
+    return draft
+
+
+def build_article_fact_edit_prompt(site, job, draft):
+    sources = content_job_sources(job)
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    factual_contract = {
+        "siteContext": site["content_context"] or "",
+        "pageBrief": brief,
+        "contentType": native_content_type(job),
+        "targetPath": content_job_target_path(job),
+    }
+    return f"""
+You are the final factual editor for a universal website content factory.
+Return the complete article as valid JSON matching the provided schema.
+
+FACTUAL CONTRACT:
+{json.dumps(factual_contract, ensure_ascii=False)}
+
+DRAFT TO EDIT:
+{json.dumps(draft, ensure_ascii=False)}
+
+NON-NEGOTIABLE EDIT:
+- Treat the factual contract as the complete boundary of what this page may claim.
+- Keep the approved H1, meta description, direct answer, content type, and target
+  path unchanged.
+- Preserve the useful depth, structure, table, ordered list, 3 image specs, FAQ,
+  internal links, and Recommended next entries, but rewrite or remove every
+  concrete detail that is not directly supported by the factual contract.
+- Do not infer or invent a customer, property, address, landmark, road, route,
+  distance, travel time, direction, terrain condition, weather effect, boundary,
+  legal right, permission, current imagery state, current access state, product
+  mechanism, production time, cost, performance metric, buyer outcome, business
+  outcome, regulatory constraint, or platform interface detail.
+- An illustrative example may use only the scenario and selected points explicitly
+  supplied in `contentDetails`. Label it as illustrative and do not turn it into
+  evidence or a customer result.
+- A limitation may describe what is not established. It must not smuggle in a new
+  positive factual claim.
+- Product behavior may be stated only when it appears in `siteContext`,
+  `directAnswer`, `contentDetails`, or a source reference's `supports` field.
+- Platform instructions may use only the supplied source support, prerequisites,
+  troubleshooting list, and embed contract. Never invent button names or code.
+- Do not claim that a visualization proves or shows a legal/property boundary.
+- Do not claim conversion, engagement, qualification, time, cost, compliance, or
+  performance improvement unless the factual contract explicitly provides it.
+- Keep 1400-2200 words. Use cautious, useful explanation instead of unsupported
+  specificity.
+- Output JSON only. This is factual editing, not JSON repair.
 """.strip()
 
 
@@ -6477,6 +7017,7 @@ RULES:
 - Translate title, description, category, lead, headings, paragraphs, bullets, table text, ordered-list text, quote, image alt/caption, and FAQ.
 - Keep `heroImage` and every image `src` filename exactly unchanged.
 - Keep the slug unchanged; locale routing is handled separately.
+- Keep every `internalLinks.url` and `recommendedNext.url` exactly unchanged while translating labels, contexts, and roles.
 - Do not use em dashes, en dashes, asterisks, or smart quotes.
 
 SOURCE ARTICLE JSON:
@@ -6504,6 +7045,7 @@ def generate_native_content_localizations(site, job, draft, slug, article_asset_
             response_schema=ARTICLE_DRAFT_SCHEMA,
             repair=False,
         )
+        localized = apply_typed_safety_section(localized, job, language=language)
         localized["slug"] = slug
         localized["heroImage"] = draft.get("heroImage") or ""
         localized_images = localized.get("images") if isinstance(localized.get("images"), list) else []
@@ -6518,7 +7060,10 @@ def generate_native_content_localizations(site, job, draft, slug, article_asset_
                 }
             )
         localized["images"] = normalized_images
-        validation = validate_structured_article_draft(localized)
+        try:
+            validation = validate_structured_article_draft(localized, job=job, language=language)
+        except ValueError as error:
+            raise ValueError(f"{language.upper()} localization failed validation: {error}") from error
         localized_html = render_structured_article_html(
             localized,
             slug,
@@ -6583,7 +7128,46 @@ def generate_content_job(site_id, job_id):
         conn.execute("insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "INFO", "generate", "Starting article draft generation"))
     try:
         draft = _gemini_text_json(build_universal_article_prompt(site, job), response_schema=ARTICLE_DRAFT_SCHEMA, repair=False)
-        validation = validate_structured_article_draft(draft)
+        draft = apply_approved_page_brief(
+            draft,
+            job,
+            language=parse_languages(site["languages"])[0],
+        )
+        pre_fact_draft = draft
+        draft = _gemini_text_json(
+            build_article_fact_edit_prompt(site, job, draft),
+            response_schema=ARTICLE_DRAFT_SCHEMA,
+            repair=False,
+        )
+        # The factual editor owns prose claims, not the already-approved navigation
+        # plan. Preserve the original validated URL set and cardinality exactly.
+        for navigation_field in ("internalLinks", "recommendedNext"):
+            if isinstance(pre_fact_draft.get(navigation_field), list):
+                draft[navigation_field] = pre_fact_draft[navigation_field]
+        table = draft.get("table") if isinstance(draft.get("table"), dict) else {}
+        if not table.get("headers") or len(table.get("rows") if isinstance(table.get("rows"), list) else []) < 3:
+            draft["table"] = pre_fact_draft.get("table")
+        current_ordered = draft.get("orderedList") if isinstance(draft.get("orderedList"), list) else []
+        if len([item for item in current_ordered if str(item or "").strip()]) < 5:
+            draft["orderedList"] = pre_fact_draft.get("orderedList")
+            draft["orderedListTitle"] = pre_fact_draft.get("orderedListTitle")
+        current_images = draft.get("images") if isinstance(draft.get("images"), list) else []
+        if len([item for item in current_images if isinstance(item, dict)]) != 3:
+            draft["images"] = pre_fact_draft.get("images")
+        current_faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
+        if len([item for item in current_faq if isinstance(item, dict)]) < 5:
+            draft["faq"] = pre_fact_draft.get("faq")
+        draft = apply_approved_page_brief(
+            draft,
+            job,
+            language=parse_languages(site["languages"])[0],
+        )
+        draft = sanitize_typed_image_copy(draft)
+        validation = validate_structured_article_draft(
+            draft,
+            job=job,
+            language=parse_languages(site["languages"])[0],
+        )
         # Imported/migrated URL paths can carry existing search value. A queued job
         # may lock that canonical slug while still allowing its title and draft to be rewritten.
         preserved_slug = str(job["slug"] or "").strip() if sources.get("preserveSlug") else ""
@@ -6597,11 +7181,18 @@ def generate_content_job(site_id, job_id):
             asset_prefix=article_asset_prefix,
             language=base_language,
         )
+        generated_sources = dict(sources)
+        generated_sources["generatedContentContract"] = {
+            "internalLinks": draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else [],
+            "recommendedNext": draft.get("recommendedNext") if isinstance(draft.get("recommendedNext"), list) else [],
+            "validation": validation,
+            "generatedAt": now_iso(),
+        }
         with db() as conn:
             conn.execute(
                 """
-                update content_jobs set status='DRAFT', slug=?, title=?, description=?, category=?, hero_image=?,
-                    draft_html=?, faq_json=?, error=NULL, updated_at=? where site_id=? and id=?
+                update content_jobs set status='GENERATING', slug=?, title=?, description=?, category=?, hero_image=?,
+                    draft_html=?, faq_json=?, sources_json=?, error=NULL, updated_at=? where site_id=? and id=?
                 """,
                 (
                     slug,
@@ -6611,6 +7202,7 @@ def generate_content_job(site_id, job_id):
                     hero_image_url,
                     draft_html,
                     json.dumps(faq, ensure_ascii=False),
+                    json.dumps(generated_sources, ensure_ascii=False),
                     now_iso(),
                     site_id,
                     job_id,
@@ -6639,6 +7231,22 @@ def generate_content_job(site_id, job_id):
                 article_asset_prefix,
             )
             write_native_content_store(site, generated_job, "drafts")
+        with db() as conn:
+            conn.execute(
+                "update content_jobs set status='DRAFT', error=NULL, updated_at=? where site_id=? and id=?",
+                (now_iso(), site_id, job_id),
+            )
+            conn.execute(
+                "insert into content_job_logs(site_id,job_id,ts,level,step,message) values(?,?,?,?,?,?)",
+                (
+                    site_id,
+                    job_id,
+                    now_iso(),
+                    "INFO",
+                    "generate-complete",
+                    "Complete draft and all configured language variants are ready",
+                ),
+            )
         return {
             "ok": True,
             "jobId": job_id,
@@ -7161,6 +7769,90 @@ def legacy_factory_generate_and_sync(site_id, job_id, factory_name, old_job_id, 
             )
 
 
+def validate_native_publish_contract(site, job):
+    content_type = native_content_type(job)
+    if content_type == "blog":
+        return {"contentType": content_type, "legacyCompatible": True}
+    sources = content_job_sources(job)
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    editorial = brief.get("editorial") if isinstance(brief.get("editorial"), dict) else {}
+    generated = sources.get("generatedContentContract") if isinstance(sources.get("generatedContentContract"), dict) else {}
+    approvals = brief.get("approvals") if isinstance(brief.get("approvals"), dict) else {}
+    details = brief.get("contentDetails") if isinstance(brief.get("contentDetails"), dict) else {}
+    errors = []
+
+    required_brief_fields = ("primaryIntent", "seoTitle", "metaDescription", "h1", "directAnswer")
+    for field in required_brief_fields:
+        if not str(brief.get(field) or "").strip():
+            errors.append(f"pageBrief.{field} is required")
+    for field in ("author", "reviewer", "owner", "reviewDueAt", "reviewCadence", "factCheckedAt"):
+        if not str(editorial.get(field) or "").strip():
+            errors.append(f"pageBrief.editorial.{field} is required")
+    source_references = brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []
+    if not source_references:
+        errors.append("pageBrief.sourceReferences is required")
+    primary_cta = brief.get("primaryCta") if isinstance(brief.get("primaryCta"), dict) else {}
+    if not str(primary_cta.get("label") or "").strip() or not str(primary_cta.get("url") or "").startswith("/"):
+        errors.append("pageBrief.primaryCta requires a label and internal URL")
+    for gate in ("editorialReview", "productFactCheck", "seoReview", "browserQa"):
+        if approvals.get(gate) is not True:
+            errors.append(f"pageBrief.approvals.{gate} must be true")
+
+    target_path = content_job_target_path(job)
+    expected_prefix = f"/{NATIVE_CONTENT_TYPE_PREFIXES[content_type]}/"
+    if not target_path.startswith(expected_prefix):
+        errors.append(f"targetPath must start with {expected_prefix}")
+    if not str(job["hero_image"] or "").strip():
+        errors.append("hero image is required")
+    draft_html = str(job["draft_html"] or "")
+    if draft_html.count('class="article-figure"') < 3:
+        errors.append("three inline article images are required")
+    if not re.search(r"(?is)<h2[^>]*>[^<]*(?:limitation|when not|not for|suitability|boundary|does not|cannot|fit)", draft_html):
+        errors.append("a standalone limitations or suitability section is required")
+    internal_links = generated.get("internalLinks") if isinstance(generated.get("internalLinks"), list) else []
+    recommended = generated.get("recommendedNext") if isinstance(generated.get("recommendedNext"), list) else []
+    if len(internal_links) < 4:
+        errors.append("at least four generated contextual internal links are required")
+    if len(recommended) != 3:
+        errors.append("exactly three Recommended next links are required")
+
+    with db() as conn:
+        localized_count = conn.execute(
+            "select count(*) from content_job_localizations where site_id=? and job_id=?",
+            (site["id"], job["id"]),
+        ).fetchone()[0]
+    expected_localizations = max(0, len(parse_languages(site["languages"])) - 1)
+    if localized_count != expected_localizations:
+        errors.append(
+            f"expected {expected_localizations} localized variants, found {localized_count}"
+        )
+
+    if content_type == "template":
+        for field in ("audience", "sequence", "limitations"):
+            if not details.get(field):
+                errors.append(f"pageBrief.contentDetails.{field} is required for templates")
+    if content_type == "example":
+        for field in ("exampleType", "scenario", "limitations", "lastFunctionalCheck"):
+            if not details.get(field):
+                errors.append(f"pageBrief.contentDetails.{field} is required for examples")
+        if details.get("exampleType") == "customer_case" and not details.get("permissionRecord"):
+            errors.append("customer examples require permissionRecord")
+    if content_type == "integration_guide":
+        for field in ("platform", "platformVersionNote", "versionCheckedAt", "prerequisites", "troubleshooting"):
+            if not details.get(field):
+                errors.append(f"pageBrief.contentDetails.{field} is required for integration guides")
+
+    if errors:
+        raise ValueError("Native publication blocked: " + "; ".join(errors))
+    return {
+        "contentType": content_type,
+        "localizations": localized_count,
+        "internalLinks": len(internal_links),
+        "recommendedNext": len(recommended),
+        "sources": len(source_references),
+    }
+
+
 def publish_content_job(site_id, job_id):
     with db() as conn:
         site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
@@ -7171,6 +7863,7 @@ def publish_content_job(site_id, job_id):
         raise ValueError(f"Job status must be DRAFT or PUBLISHED before publish, got {job['status']}")
     sources = content_job_sources(job)
     if native_content_store_job(job, site):
+        contract = validate_native_publish_contract(site, job)
         published_path = write_native_content_store(site, job, "published")
         published_url = content_job_source_url(site, job)
         now = now_iso()
@@ -7181,7 +7874,14 @@ def publish_content_job(site_id, job_id):
             )
             conn.execute(
                 "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
-                (site_id, job_id, now, "INFO", "native-publish", f"Published native content record: {published_path}"),
+                (
+                    site_id,
+                    job_id,
+                    now,
+                    "INFO",
+                    "native-publish",
+                    f"Published native content record: {published_path}; contract={json.dumps(contract, ensure_ascii=False)}",
+                ),
             )
         return {"ok": True, "jobId": job_id, "status": "PUBLISHED", "publishedUrl": published_url, "publisher": "native-content-store"}
     factory_name = str(sources.get("migratedFrom") or "").strip()
@@ -8075,12 +8775,38 @@ def preview_content_job(site_id, job_id):
 
 @app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/generate")
 def generate_content_job_route(site_id, job_id):
-    try:
-        return jsonify(generate_content_job(site_id, job_id))
-    except KeyError:
+    with db() as conn:
+        row = conn.execute(
+            "select id,status from content_jobs where site_id=? and id=?",
+            (site_id, job_id),
+        ).fetchone()
+    if not row:
         return jsonify({"error": "job not found"}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    if str(row["status"] or "").upper() == "GENERATING":
+        return jsonify({"ok": True, "jobId": job_id, "status": "GENERATING", "alreadyRunning": True}), 202
+
+    def run_generation():
+        try:
+            generate_content_job(site_id, job_id)
+        except Exception:
+            # generate_content_job persists the full error and log before re-raising.
+            pass
+
+    with db() as conn:
+        conn.execute(
+            "update content_jobs set status='GENERATING',error=NULL,updated_at=? where site_id=? and id=?",
+            (now_iso(), site_id, job_id),
+        )
+        conn.execute(
+            "insert into content_job_logs(site_id,job_id,ts,level,step,message) values(?,?,?,?,?,?)",
+            (site_id, job_id, now_iso(), "INFO", "generate-queued", "Background generation queued"),
+        )
+    threading.Thread(
+        target=run_generation,
+        name=f"content-generation-{site_id}-{job_id}",
+        daemon=True,
+    ).start()
+    return jsonify({"ok": True, "jobId": job_id, "status": "GENERATING"}), 202
 
 
 @app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/publish")

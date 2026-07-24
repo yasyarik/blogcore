@@ -127,3 +127,23 @@ Special editorial rules:
 * Published hubs and pages have correct canonical/hreflang and appear in sitemap.
 * Preview never becomes indexable or public by generation alone.
 * No change is made to the product site's native routes or design outside the adapter proxy paths.
+
+## 9. Production status — 2026-07-25
+
+Completed:
+
+* Published all 8 planned Guides, 3 Templates, 4 Examples, and 4 Integration guides.
+* Generated and published EN, DE, ES, FR, and RU for every canonical task.
+* Added deterministic fact/safety/navigation enforcement and model-control artifact rejection.
+* Passed the independent static audit for all 19 tasks.
+* Passed 114/114 browser checks across all desktop locales and mobile EN.
+* Verified 19/19 public page audits, four indexable typed hubs, native header/footer, zero responsive overflow, and all 95 typed language URLs in the live sitemap.
+* Enabled the daily public contract audit with systemd.
+
+Externally blocked:
+
+* Search Console submission cannot complete until a verified Georivo property grants access to the existing service account. Both API property forms return `403`, and the currently authorized Google account reports no access to `georivo.com`.
+
+Measurement work remains ongoing by design:
+
+* Query/page performance tracking and refresh-candidate decisions require Search Console access and post-publication data. They are not prerequisites for the initial publication.

@@ -26,6 +26,10 @@
 * Georivo's typed native collections use `/guides/`, `/templates/`, `/examples/`, `/embed/`, and `/use-cases/`, plus the same path under each non-default locale prefix. Content type and canonical target path are fixed task intent and must not be rewritten to `/blog/`.
 * Empty typed collection hubs remain available to the adapter but are `noindex` and excluded from sitemap. A hub becomes indexable and enters sitemap only after it has at least one explicitly published record.
 * Identical slugs may exist in separate content types. Canonical lookup and native storage must therefore use content type plus slug, not slug alone.
+* As of 2026-07-25, Georivo has 19 published typed canonical pages: 8 Guides, 3 Templates, 4 Examples, and 4 Integration guides. All five language variants are public, giving 95 typed article URLs in the live sitemap. `/guides/`, `/templates/`, `/examples/`, and `/embed/` are indexable because their publication thresholds are satisfied.
+* The Georivo Guides hub groups evergreen pages by reader decision stage (`Understand`, `Compare`, `Plan`, `Implement`) rather than publication date.
+* Georivo typed previews remain `noindex,nofollow`; only records that passed editorial, fact, SEO, and browser QA and were explicitly published enter public hubs and sitemap.
+* Model-output hygiene is an SEO publish requirement. Visible copy must be rejected if it contains code fences, chain-of-thought/control markers, JSON-output narration, or similar generation artifacts.
 
 ## Known SEO gaps
 
@@ -35,3 +39,4 @@
 * Hosted imported article rendering stores the original canonical/source URL in `content_jobs.published_url` and `sources_json`, but current rendering does not yet emit canonical tags from that stored URL. This matters mainly if imported content is exposed through a Blog Core-hosted preview/mirror; the preferred imported-blog model is publishing back to the original site.
 * Automated custom-domain HTTPS is not implemented; this affects production SEO readiness for external CNAME sites.
 * Replaced/deprecated 2026-07-24: The old statement that the discovery Google source is Google News RSS is no longer current. Product Discovery uses Google autocomplete/search-demand signals, while manual editorial research may use Google Trends as a separate relative-demand input. Blog Core still has no official Google Trends API integration.
+* Georivo Search Console submission is pending. `https://georivo.com/sitemap.xml` is public and contains all 95 typed language URLs, but the existing service account has no permission for either `sc-domain:georivo.com` or `https://georivo.com/`, and the currently authorized Google account also lacks access to the property. Do not report GSC submission until ownership/access is granted and the API call succeeds.

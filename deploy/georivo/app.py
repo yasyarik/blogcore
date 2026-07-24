@@ -208,6 +208,96 @@ SECTION_LABELS = {
         "examples": "Примеры", "embed": "Инструкции по встраиванию", "use-cases": "Сценарии использования",
     },
 }
+TRUST_LABELS = {
+    "en": {"author": "Written by", "reviewer": "Reviewed by", "updated": "Updated", "sources": "Sources"},
+    "de": {"author": "Verfasst von", "reviewer": "Geprüft von", "updated": "Aktualisiert", "sources": "Quellen"},
+    "es": {"author": "Escrito por", "reviewer": "Revisado por", "updated": "Actualizado", "sources": "Fuentes"},
+    "fr": {"author": "Rédigé par", "reviewer": "Relu par", "updated": "Mis à jour", "sources": "Sources"},
+    "ru": {"author": "Автор", "reviewer": "Проверено", "updated": "Обновлено", "sources": "Источники"},
+}
+CONTENT_NOTICE = {
+    "en": {
+        "demo": "Demonstration, not a customer case. It does not claim current property condition, legal boundaries, exact routes, distances, or availability.",
+        "checked": "Platform instructions checked",
+        "change": "Platform interfaces and plan rules can change. Verify the public page after publishing.",
+    },
+    "de": {
+        "demo": "Demonstration, kein Kundenfall. Sie macht keine Aussagen zu aktuellem Objektzustand, rechtlichen Grenzen, exakten Routen, Entfernungen oder Verfügbarkeit.",
+        "checked": "Plattformanleitung geprüft",
+        "change": "Plattformoberflächen und Tarifregeln können sich ändern. Prüfen Sie die öffentliche Seite nach der Veröffentlichung.",
+    },
+    "es": {
+        "demo": "Demostración, no caso de cliente. No afirma el estado actual, límites legales, rutas o distancias exactas ni disponibilidad.",
+        "checked": "Instrucciones de la plataforma comprobadas",
+        "change": "La interfaz y las reglas del plan pueden cambiar. Verifica la página pública después de publicar.",
+    },
+    "fr": {
+        "demo": "Démonstration, pas un cas client. Elle ne garantit ni l'état actuel, ni les limites légales, ni les itinéraires, distances ou disponibilités exacts.",
+        "checked": "Instructions de la plateforme vérifiées",
+        "change": "L'interface et les règles d'abonnement peuvent changer. Vérifiez la page publique après publication.",
+    },
+    "ru": {
+        "demo": "Демонстрация, а не клиентский кейс. Она не подтверждает текущее состояние объекта, юридические границы, точные маршруты, расстояния или доступность.",
+        "checked": "Инструкция платформы проверена",
+        "change": "Интерфейс и правила тарифа могут измениться. После публикации проверьте публичную страницу.",
+    },
+}
+HUB_COPY = {
+    "en": {
+        "guide": ("Decision guides", "Choose the right location-story approach for the property, audience, and publishing workflow."),
+        "template": ("Story templates", "Compare reusable story structures, then choose the sequence that matches the property and buyer question."),
+        "example": ("Location-story examples", "See clearly labelled demonstrations of how different property contexts can be explained."),
+        "integration_guide": ("Embed guides", "Publish and verify a responsive Georivo widget on the website platform you already use."),
+        "use_case": ("Real-estate use cases", "Match a location-story workflow to a concrete marketing or buyer-information problem."),
+    },
+}
+HUB_COPY["de"] = HUB_COPY["en"]
+HUB_COPY["es"] = HUB_COPY["en"]
+HUB_COPY["fr"] = HUB_COPY["en"]
+HUB_COPY["ru"] = HUB_COPY["en"]
+
+GUIDE_GROUPS = {
+    "en": {
+        "understand": ("Understand", "Start with the core format and what it can explain."),
+        "compare": ("Compare", "Choose between location-story and alternative media formats."),
+        "plan": ("Plan", "Match the story to buyer questions, listing context, and media needs."),
+        "implement": ("Implement", "Put the selected location story into a working publishing flow."),
+    },
+    "de": {
+        "understand": ("Verstehen", "Beginnen Sie mit dem Format und seinem Erklärungswert."),
+        "compare": ("Vergleichen", "Vergleichen Sie Location Storys mit anderen Medienformaten."),
+        "plan": ("Planen", "Stimmen Sie die Story auf Käuferfragen und das Objekt ab."),
+        "implement": ("Umsetzen", "Integrieren Sie die gewählte Story in den Veröffentlichungsablauf."),
+    },
+    "es": {
+        "understand": ("Comprender", "Empieza por el formato y lo que puede explicar."),
+        "compare": ("Comparar", "Compara la historia de ubicación con otros formatos."),
+        "plan": ("Planificar", "Adapta la historia a las preguntas del comprador y al inmueble."),
+        "implement": ("Implementar", "Integra la historia elegida en el flujo de publicación."),
+    },
+    "fr": {
+        "understand": ("Comprendre", "Commencez par le format et ce qu'il permet d'expliquer."),
+        "compare": ("Comparer", "Comparez le récit de localisation aux autres formats."),
+        "plan": ("Planifier", "Adaptez le récit aux questions des acheteurs et au bien."),
+        "implement": ("Mettre en œuvre", "Intégrez le récit choisi au flux de publication."),
+    },
+    "ru": {
+        "understand": ("Разобраться", "Начните с формата и задач, которые он помогает объяснить."),
+        "compare": ("Сравнить", "Сопоставьте историю локации с другими форматами."),
+        "plan": ("Спланировать", "Свяжите историю с вопросами покупателя и объектом."),
+        "implement": ("Внедрить", "Добавьте выбранную историю локации в процесс публикации."),
+    },
+}
+GUIDE_SLUG_GROUPS = {
+    "what-is-a-3d-property-flyover": "understand",
+    "3d-property-flyover-vs-drone-video": "compare",
+    "3d-property-flyover-vs-virtual-tour": "compare",
+    "how-to-show-nearby-amenities-on-a-property-listing": "plan",
+    "how-to-market-a-property-to-remote-buyers": "plan",
+    "which-property-listings-need-an-aerial-view": "plan",
+    "real-estate-listing-media-checklist": "plan",
+    "how-to-add-a-3d-map-to-a-real-estate-website": "implement",
+}
 
 app = Flask(__name__)
 
@@ -340,6 +430,12 @@ def absolute_article_assets(markup):
 def clean_article_markup(markup):
     cleaned = re.sub(r"(?is)<script\b[^>]*>.*?</script>", "", markup or "")
     cleaned = re.sub(r"(?is)<style\b[^>]*>.*?</style>", "", cleaned)
+    def stabilize_image(match):
+        tag = match.group(0)
+        if not re.search(r"\bwidth=", tag, re.I):
+            tag = re.sub(r"\s*/?>$", ' width="1376" height="768" loading="lazy" decoding="async">', tag)
+        return tag
+    cleaned = re.sub(r"(?is)<img\b[^>]*>", stabilize_image, cleaned)
     return absolute_article_assets(cleaned)
 
 
@@ -529,7 +625,7 @@ def shell(
   <link rel="icon" href="/favicon.ico">
   <link rel="preload" as="image" href="/brand/georivo-on-light.png">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260723b">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260724d">
   {structured}
 </head>
 <body class="blog-shell">
@@ -550,22 +646,87 @@ def article_schema(record, canonical):
         "integration_guide": "TechArticle",
         "use_case": "Article",
     }
-    payload = {
-        "@context": "https://schema.org",
+    article = {
+        "@id": f"{canonical}#content",
         "@type": schema_types[record_content_type(record)],
         "headline": record.get("title") or "",
         "description": record.get("description") or "",
-        "mainEntityOfPage": canonical,
+        "mainEntityOfPage": {"@id": canonical},
         "author": {"@type": "Organization", "name": "Georivo"},
         "publisher": {"@type": "Organization", "name": "Georivo"},
         "dateModified": record.get("updatedAt") or datetime.now(timezone.utc).isoformat(),
     }
     if record.get("publishedAt"):
-        payload["datePublished"] = record["publishedAt"]
+        article["datePublished"] = record["publishedAt"]
     if record.get("heroImage"):
         image_url = str(record["heroImage"])
-        payload["image"] = BLOG_CORE_ORIGIN + image_url if image_url.startswith("/sites/") else image_url
-    return payload
+        article["image"] = BLOG_CORE_ORIGIN + image_url if image_url.startswith("/sites/") else image_url
+    content_type = record_content_type(record)
+    breadcrumb = {
+        "@id": f"{canonical}#breadcrumb",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Georivo", "item": f"{SITE_ORIGIN}/"},
+            {
+                "@type": "ListItem",
+                "position": 2,
+                "name": section_label(DEFAULT_LANGUAGE, content_type),
+                "item": f"{SITE_ORIGIN}{content_path(DEFAULT_LANGUAGE, content_type)}",
+            },
+            {"@type": "ListItem", "position": 3, "name": record.get("title") or "", "item": canonical},
+        ],
+    }
+    article["breadcrumb"] = {"@id": breadcrumb["@id"]}
+    return {"@context": "https://schema.org", "@graph": [article, breadcrumb]}
+
+
+def editorial_trust_html(record, language):
+    editorial = record.get("editorial") if isinstance(record.get("editorial"), dict) else {}
+    if not editorial:
+        return ""
+    labels = TRUST_LABELS.get(language, TRUST_LABELS[DEFAULT_LANGUAGE])
+    author = str(editorial.get("author") or "").strip()
+    reviewer = str(editorial.get("reviewer") or "").strip()
+    updated = str(record.get("updatedAt") or "").strip()[:10]
+    meta = []
+    if author:
+        meta.append(f'<span><b>{esc(labels["author"])}</b> {esc(author)}</span>')
+    if reviewer:
+        meta.append(f'<span><b>{esc(labels["reviewer"])}</b> {esc(reviewer)}</span>')
+    if updated:
+        meta.append(f'<span><b>{esc(labels["updated"])}</b> <time datetime="{esc(updated)}">{esc(updated)}</time></span>')
+    source_items = []
+    for source in editorial.get("sources") if isinstance(editorial.get("sources"), list) else []:
+        if not isinstance(source, dict):
+            continue
+        title = str(source.get("title") or source.get("publisher") or "").strip()
+        url = str(source.get("publicUrl") or "").strip()
+        if not title:
+            continue
+        source_items.append(
+            f'<li><a href="{esc(url)}" rel="noopener noreferrer">{esc(title)}</a></li>'
+            if url.startswith("https://")
+            else f"<li>{esc(title)}</li>"
+        )
+    source_html = (
+        f'<div class="trust-sources"><b>{esc(labels["sources"])}</b><ul>{"".join(source_items)}</ul></div>'
+        if source_items else ""
+    )
+    return f'<aside class="article-trust">{"".join(meta)}{source_html}</aside>' if meta or source_html else ""
+
+
+def content_notice_html(record, language):
+    details = record.get("contentDetails") if isinstance(record.get("contentDetails"), dict) else {}
+    labels = CONTENT_NOTICE.get(language, CONTENT_NOTICE[DEFAULT_LANGUAGE])
+    content_type = record_content_type(record)
+    if content_type == "example" and details.get("exampleType") == "demo":
+        return f'<aside class="content-notice" role="note">{esc(labels["demo"])}</aside>'
+    if content_type == "integration_guide" and details.get("versionCheckedAt"):
+        return (
+            f'<aside class="content-notice" role="note"><strong>{esc(labels["checked"])}: '
+            f'{esc(details["versionCheckedAt"])}</strong> {esc(labels["change"])}</aside>'
+        )
+    return ""
 
 
 def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
@@ -589,7 +750,10 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
         hero = BLOG_CORE_ORIGIN + hero
     hero_html = ""
     if hero:
-        hero_html = f'<figure class="article-hero"><img src="{esc(hero)}" alt="{esc(title)}"></figure>'
+        hero_html = (
+            f'<figure class="article-hero"><img src="{esc(hero)}" alt="{esc(title)}" '
+            'width="1376" height="768" fetchpriority="high"></figure>'
+        )
     preview_badge = f'<div class="preview-banner">{esc(labels["draft"])}</div>' if preview else ""
     article_body = clean_article_markup(record.get("draftHtml") or "")
     toc_match = re.search(
@@ -601,6 +765,13 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
         article_body = article_body[:toc_match.start()] + article_body[toc_match.end():]
     category = record.get("category") or "Georivo journal"
     read_minutes = record.get("readMinutes") or 7
+    trust_html = editorial_trust_html(record, language)
+    notice_html = content_notice_html(record, language)
+    primary_cta = record.get("primaryCta") if isinstance(record.get("primaryCta"), dict) else {}
+    cta_label = str(primary_cta.get("label") or labels["cta"]).strip()
+    cta_url = str(primary_cta.get("url") or "/#create").strip()
+    if not cta_url.startswith("/"):
+        cta_url = "/#create"
     body = f"""
     {preview_badge}
     <main class="article-layout">
@@ -610,12 +781,15 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
         <h1>{esc(title)}</h1>
         <p class="dek">{esc(description)}</p>
         <div class="article-meta">{esc(labels["editorial"])} · {esc(read_minutes)} {esc(labels["minutes"])}</div>
+        {notice_html}
         {toc_html}
         {hero_html}
         <div class="article-copy">{article_body}</div>
+        {trust_html}
         <aside class="article-cta">
           <div><span>{esc(labels["build"])}</span><strong>{esc(labels["build_copy"])}</strong></div>
-          <a href="/#create">{esc(labels["cta"])} <span>↗</span></a>
+          <a href="{esc(cta_url)}" data-event="seo_cta_click" data-page-type="{esc(content_type)}"
+             data-content-id="{esc(record.get("id") or slug)}" data-cta-location="article-end">{esc(cta_label)} <span>↗</span></a>
         </aside>
       </article>
     </main>
@@ -660,9 +834,12 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
         hero = str(localized.get("heroImage") or post.get("heroImage") or "")
         if hero.startswith("/sites/"):
             hero = BLOG_CORE_ORIGIN + hero
-        media = f'<img src="{esc(hero)}" alt="{esc(title)}" loading="lazy">' if hero else '<div class="card-placeholder">G</div>'
+        media = (
+            f'<img src="{esc(hero)}" alt="{esc(title)}" loading="lazy" width="1376" height="768">'
+            if hero else '<div class="card-placeholder">G</div>'
+        )
         url = article_path(language, slug, content_type)
-        cards.append(f"""
+        cards.append((slug, f"""
           <article class="post-card">
             <a class="post-media" href="{esc(url)}">{media}</a>
             <div class="post-card-copy">
@@ -672,15 +849,58 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
               <a class="read-link" href="{esc(url)}">{esc(labels["read"])} <span>↗</span></a>
             </div>
           </article>
-        """)
+        """))
     if not cards:
-        cards.append(f"""
+        cards.append(("", f"""
           <div class="empty-state">
             <span>{esc(labels["coming"])}</span>
             <h2>{esc(labels["empty_title"])}</h2>
             <p>{esc(labels["empty_copy"])}</p>
           </div>
-        """)
+        """))
+    hub_title, hub_intro = HUB_COPY.get(language, HUB_COPY["en"]).get(
+        content_type,
+        (section_name, labels["hero_copy"]),
+    )
+    template_comparison = ""
+    if content_type == "template" and posts:
+        template_comparison = f"""
+        <section class="hub-comparison section-pad">
+          <div class="section-tag">{esc(section_name)}</div>
+          <h2>{esc(hub_title)}</h2>
+          <p>{esc(hub_intro)}</p>
+          <div class="table-scroll"><table>
+            <thead><tr><th>Template</th><th>Best for</th><th>Story sequence</th></tr></thead>
+            <tbody>
+              <tr><td>Property Showcase</td><td>One property and its immediate setting</td><td>Approach, identify, orbit</td></tr>
+              <tr><td>Neighborhood Story</td><td>Nearby places and area context</td><td>Places, arrival, property</td></tr>
+              <tr><td>Arrival Guide</td><td>A route from a selected place</td><td>Departure, journey, arrival</td></tr>
+            </tbody>
+          </table></div>
+        </section>
+        """
+    cards_html = "".join(card for _, card in cards)
+    if content_type == "guide" and posts:
+        grouped = {key: [] for key in ("understand", "compare", "plan", "implement")}
+        for slug, card in cards:
+            grouped[GUIDE_SLUG_GROUPS.get(slug, "plan")].append(card)
+        group_copy = GUIDE_GROUPS.get(language, GUIDE_GROUPS["en"])
+        cards_html = "".join(
+            f"""
+            <section class="guide-group">
+              <div class="guide-group-heading">
+                <span>{esc(group_copy[key][0])}</span>
+                <p>{esc(group_copy[key][1])}</p>
+              </div>
+              <div class="journal-grid">{''.join(grouped[key])}</div>
+            </section>
+            """
+            for key in ("understand", "compare", "plan", "implement")
+            if grouped[key]
+        )
+        cards_html = f'<div class="guide-groups section-pad">{cards_html}</div>'
+    else:
+        cards_html = f'<section class="journal-grid section-pad" aria-label="{esc(labels["latest"])}">{cards_html}</section>'
     body = f"""
     <main id="top">
       <section class="journal-hero">
@@ -694,16 +914,19 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
       </section>
       <section class="journal-intro">
         <div class="section-tag">{esc(labels["perspective"])}</div>
-        <h2>{labels["intro"]}</h2>
+        <h2>{labels["intro"] if content_type == "blog" else esc(hub_title)}</h2>
+        {f'<p>{esc(hub_intro)}</p>' if content_type != "blog" else ''}
       </section>
-      <section class="journal-grid section-pad" aria-label="{esc(labels["latest"])}">{''.join(cards)}</section>
+      {template_comparison}
+      {cards_html}
       <section class="journal-cta">
         <div class="journal-cta-image" aria-hidden="true"></div>
         <div class="journal-cta-wash" aria-hidden="true"></div>
         <div class="journal-cta-copy">
           <span>{esc(labels["cta_kicker"])}</span>
           <h2>{labels["cta_title"]}</h2>
-          <a href="/#create">{esc(labels["cta"])} <span>↗</span></a>
+          <a href="/#create" data-event="seo_cta_click" data-page-type="{esc(content_type)}"
+             data-content-id="{esc(content_type)}-hub" data-cta-location="hub-end">{esc(labels["cta"])} <span>↗</span></a>
           <p>{esc(labels["cta_note"])}</p>
         </div>
       </section>
@@ -724,7 +947,7 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
         body,
         canonical,
         schema,
-        noindex=not bool(posts),
+        noindex=(len(posts) < 3 if content_type == "integration_guide" else not bool(posts)),
         language=language,
         alternate_urls=alternate_urls,
         content_type=content_type,
@@ -839,10 +1062,16 @@ def sitemap():
         (f"{SITE_ORIGIN}/privacy", "0.3", {}),
     ]
     records = load_records(PUBLISHED_ROOT)
-    available_types = {record_content_type(record) for record in records}
+    type_counts = {
+        content_type: sum(1 for record in records if record_content_type(record) == content_type)
+        for content_type in CONTENT_SECTIONS
+    }
+    available_types = {content_type for content_type, count in type_counts.items() if count}
     available_types.add("blog")
     for content_type in CONTENT_SECTIONS:
         if content_type not in available_types:
+            continue
+        if content_type == "integration_guide" and type_counts.get(content_type, 0) < 3:
             continue
         section_alternates = {
             item: f"{SITE_ORIGIN}{content_path(item, content_type)}"

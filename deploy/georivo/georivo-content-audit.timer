@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Georivo content audit every day
+
+[Timer]
+OnCalendar=*-*-* 04:15:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+Unit=georivo-content-audit.service
+
+[Install]
+WantedBy=timers.target

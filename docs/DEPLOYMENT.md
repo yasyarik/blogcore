@@ -37,11 +37,15 @@ curl -fsS http://127.0.0.1:3299/health
 * Tracked deployment templates live under `deploy/georivo/`.
 * Nginx proxies only the Blog Core-owned content paths `/blog`, `/guides`, `/templates`, `/examples`, `/embed`, `/use-cases`, their configured locale-prefixed equivalents, `/content-preview/`, and `/sitemap.xml` to `127.0.0.1:13340`. All other product routes remain on the existing Georivo upstream.
 * Native renderer services import shared `/var/www/blog.yas.ooo/native_site_chrome.py`; set `PYTHONPATH=/var/www/blog.yas.ooo` in their service environment.
+* `georivo-content-audit.timer` runs the public content-contract audit daily at 04:15 UTC with up to 10 minutes of randomized delay. The oneshot service must finish with status `0/SUCCESS`.
 
 ```bash
 python3 -m py_compile /var/www/georivo-blog/app.py
 systemctl restart georivo-blog
 curl -fsS http://127.0.0.1:13340/health
+cd /var/www/blog.yas.ooo/deploy/georivo
+python3 audit_content_plan.py --check-public
+systemctl list-timers --all georivo-content-audit.timer --no-pager
 nginx -t
 systemctl reload nginx
 ```

@@ -1,0 +1,10 @@
+[Unit]
+Description=Audit Georivo Blog Core content contract
+After=network-online.target georivo-blog.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/var/www/blog.yas.ooo/deploy/georivo
+ExecStart=/usr/bin/python3 /var/www/blog.yas.ooo/deploy/georivo/audit_content_plan.py --check-public

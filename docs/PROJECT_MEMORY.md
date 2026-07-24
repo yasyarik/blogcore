@@ -3,6 +3,22 @@
 This file is the durable memory of the project.
 It must be updated after every meaningful task.
 
+## 2026-07-25 — Georivo typed content rollout is live
+
+* Decision: Georivo's approved initial typed-content tree is live as 19 canonical tasks: 8 Guides, 3 Templates, 4 Examples, and 4 Integration guides. Every task publishes EN plus DE/ES/FR/RU variants from one dashboard record.
+* Reason: The first production rollout proves the complete native content-store lifecycle without reconnecting Georivo or changing its product application.
+* Files/areas affected: `app.py`, `deploy/georivo/`, Georivo native content records, collection hubs, and sitemap.
+* Decision: Typed generation uses a structured first pass, a factual-editor second pass, deterministic safety/navigation restoration, and strict final validation. Validation rejects incomplete structure, unsupported precision/recency claims, unapproved links, and leaked model-control text such as code fences, chain-of-thought markers, or JSON-output narration.
+* Reason: A model response can be valid JSON yet still contain unsafe claims, remove required sections, or leak internal generation text into a visible heading. Correctness must be enforced before a draft is saved.
+* Files/areas affected: structured article generation and validation in `app.py`, plus `deploy/georivo/audit_content_plan.py`.
+* Decision: Georivo publication requires four recorded gates: editorial review, product fact check, SEO review, and browser QA. The rollout passed 19/19 static audits and 114/114 browser checks before explicit publication.
+* Reason: Generation success is not publication approval. The site needs independent structure, language, asset, responsive, and SEO checks.
+* Files/areas affected: page briefs, content-job logs, `deploy/georivo/approve_and_publish_content_plan.py`, and `deploy/georivo/visual-test.js`.
+* Decision: A daily systemd audit rechecks the public Georivo contract. Search Console submission remains pending until the existing service account is granted access to a verified Georivo property.
+* Reason: Both the Search Console API and the current Google account lack access to `georivo.com`; public sitemap availability alone does not prove submission.
+* Files/areas affected: `georivo-content-audit.service`, `georivo-content-audit.timer`, deployment/integration memory.
+* Replaced/deprecated: The 2026-07-24 plan state in which typed hubs existed but no typed pages had been queued or published.
+
 ## 2026-07-24 — Typed native content routes and single-user workflow
 
 * Decision: Native content-store sites preserve explicit content types instead of collapsing them into Blog. The supported route contract is Blog `/blog/`, Guide `/guides/`, Template `/templates/`, Example `/examples/`, Integration guide `/embed/`, and Use case `/use-cases/`, with the same route under each configured non-default language prefix.

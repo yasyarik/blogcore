@@ -2,6 +2,54 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-25 — Complete and publish the Georivo typed content plan
+
+### Summary
+
+* Finished the full approved Georivo factory rollout without reconnecting the site or changing its product application.
+* Generated, validated, approved, and explicitly published 19 canonical typed pages: 8 Guides, 3 Templates, 4 Examples, and 4 Integration guides.
+* Published EN plus DE/ES/FR/RU for every task and exposed all 95 language URLs through native routes and sitemap.
+* Added a structured factual-editor pass, deterministic safety/navigation guarantees, and rejection of leaked model-control text.
+* Added independent static/public audits, a 114-check browser QA gate, and a daily systemd audit timer.
+
+### Files changed
+
+* `app.py` — typed structured generation, factual editor, deterministic required-content restoration, strict validation, and model-control artifact rejection.
+* `deploy/georivo/app.py` — native typed rendering, multilingual metadata, collection hubs, trust/CTA/schema blocks, asset URL handling, and current stylesheet cache version.
+* `deploy/georivo/georivo-blog.css` — typed-page presentation, guide grouping, responsive tables, and safe wrapping for generated copy.
+* `deploy/georivo/seed_content_plan.py` — the approved 19-page content tree and verified briefs.
+* `deploy/georivo/run_content_plan.py` — bounded parallel generation runner.
+* `deploy/georivo/audit_content_plan.py` — independent static and public contract audit, including model-artifact detection.
+* `deploy/georivo/approve_and_publish_content_plan.py` — four-gate approval and explicit publication runner.
+* `deploy/georivo/visual-test.js` — full browser matrix with decoded lazy-image verification.
+* `deploy/georivo/georivo-content-audit.service`, `deploy/georivo/georivo-content-audit.timer` — daily production audit.
+* `docs/GEORIVO_CONTENT_FACTORY_PLAN.md`, `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — durable rollout state and operational rules.
+
+### Decisions
+
+* A syntactically valid model response is still invalid if visible copy contains internal generation/control text.
+* Publication requires editorial, product-fact, SEO, and browser QA gates; generation success alone is insufficient.
+* Lazy images must be activated and decoded during browser QA rather than marked broken while outside the viewport.
+* Search Console submission must remain reported as pending until property access exists and the API submission succeeds.
+
+### Checks run
+
+* Compiled Blog Core, Georivo renderer, and all deployment scripts.
+* Restarted `blog-yas-core` and `georivo-blog`; both health endpoints passed.
+* Regenerated the one draft rejected by the new model-artifact audit.
+* Static draft audit: 19 expected, 19 passed, 0 failed.
+* Browser QA: 114 checks, 19 pages, 0 failed pages.
+* Public audit: 19 expected, 19 passed, 0 failed across 95 language URLs.
+* Verified `/guides/`, `/templates/`, `/examples/`, and `/embed/` return 200 and are indexable.
+* Verified the Guides hub on desktop/mobile with 8 loaded card images and zero horizontal overflow.
+* Verified the sitemap contains 154 total URLs and all 95 expected typed URLs.
+* Enabled and ran `georivo-content-audit.service`; first run exited `0/SUCCESS`.
+
+### Risks / TODO
+
+* Search Console is the only external blocker: the existing service account and current Google account have no access to a verified Georivo property. Grant access, then retry sitemap submission.
+* Performance measurement and refresh decisions require post-publication Search Console data.
+
 ## 2026-07-24 — Expand Georivo's existing native content adapter
 
 ### Summary
