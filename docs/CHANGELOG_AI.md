@@ -2,6 +2,36 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-24 — Research Georivo trend-led article topics
+
+### Summary
+
+* Reviewed Georivo's complete live product positioning, current sitemap, Blog Core site profile, and empty content queue.
+* Built a prioritized editorial slate from broad Google Trends parent clusters rather than copying low-volume raw queries into titles.
+* Kept the slate focused on Georivo's defensible territory: location context, interactive 3D property experiences, drone alternatives, remote-buyer decisions, and trustworthy geospatial visualization.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — recorded Georivo's durable trend-led editorial territory.
+* `docs/SEO_MEMORY.md` — recorded the Trends-to-editorial transformation rule and corrected the deprecated Google News source note.
+* `docs/CHANGELOG_AI.md` — logged the research task.
+
+### Decisions
+
+* Google Trends is a relative-demand input, not a source of ready-made article titles.
+* Exact niche phrases with insufficient Trends data must not be assigned invented growth figures; use broader parent-topic evidence and apply product/audience fit before proposing an article.
+
+### Checks run
+
+* Confirmed Georivo site 14 has no existing or planned `content_jobs`.
+* Reviewed the live homepage product claims, use cases, FAQ, sitemap, and robots directives.
+* Checked Google Trends methodology and related-search guidance; attempted direct worldwide 12-month and five-year Explore comparisons.
+
+### Risks / TODO
+
+* Google Trends rate-limited direct Explore/API requests during this research, and several exact niche phrases had insufficient data. The resulting list is intentionally ranked by broad trend-cluster relevance plus product fit, not by unsupported absolute search-volume claims.
+* No article tasks were queued or published in this task.
+
 ## 2026-07-23 — Rebuild Georivo blog with exact native visual chrome
 
 ### Summary

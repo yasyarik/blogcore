@@ -21,6 +21,7 @@
 * `yas.ooo` now has an indexable `/use-cases/` hub with canonical use-case URLs for Shopify conversion/performance recovery, AI support and sales operations, founder MVP/operator delivery, and technical advisory. The native Next content-store maps `use_case`/SEO-money-page jobs to that section rather than adding them to `/blog/`; both blog and use-case publications are included in the source sitemap.
 * Discovery now routes only explicitly classified, service-aligned `seo_money_page` ideas to `/use-cases/<slug>/`; all other editorial ideas use `/blog/<slug>/`. This is enforced when jobs are queued, not inferred later from their title.
 * YAS native `sitemap.xml` is dynamic. It reads Blog Core's published content store on request, so an explicit Publish action exposes the new canonical blog/use-case route without requiring a Next build.
+* Georivo topic research must use broad Google Trends parent clusters as demand evidence, then transform them into original decision-led editorial angles about location context, interactive 3D, drone alternatives, remote buyers, and geospatial trust. Do not present low-volume exact phrases as statistically reliable trends or copy raw queries into titles.
 
 ## Known SEO gaps
 
@@ -29,4 +30,4 @@
 * Canonical tags for hosted blog pages are not explicitly documented/implemented in memory yet.
 * Hosted imported article rendering stores the original canonical/source URL in `content_jobs.published_url` and `sources_json`, but current rendering does not yet emit canonical tags from that stored URL. This matters mainly if imported content is exposed through a Blog Core-hosted preview/mirror; the preferred imported-blog model is publishing back to the original site.
 * Automated custom-domain HTTPS is not implemented; this affects production SEO readiness for external CNAME sites.
-* Google source is Google News RSS search, not official Google Trends API.
+* Replaced/deprecated 2026-07-24: The old statement that the discovery Google source is Google News RSS is no longer current. Product Discovery uses Google autocomplete/search-demand signals, while manual editorial research may use Google Trends as a separate relative-demand input. Blog Core still has no official Google Trends API integration.

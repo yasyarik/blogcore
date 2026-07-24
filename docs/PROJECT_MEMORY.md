@@ -539,6 +539,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `deploy/georivo/app.py`, `deploy/georivo/georivo-blog.css`, `deploy/georivo/georivo-blog-nav.js`.
 * Replaced/deprecated: The initial custom dark `site-header`/`site-footer` renderer and oversized standalone logo treatment.
 
+### 2026-07-24 — Georivo trend-led editorial territory
+
+* Decision: Georivo's initial journal should build authority around the intersection of virtual property tours, real-estate photography, drone alternatives, interactive maps, digital twins, neighborhood context, remote-buyer decisions, and verifiable geospatial visualization. Raw Trends/search phrases are research signals, not article titles.
+* Reason: Exact Georivo-specific phrases are often too low-volume for reliable Google Trends reporting. Broader parent topics reveal audience demand, while the final editorial angle must answer a real property-marketing decision and express Georivo's distinct location-story expertise.
+* Files/areas affected: Georivo Discovery profile and future `/blog/` queue.
+* Replaced/deprecated: Treating generic real-estate marketing news or copied trend-query wording as suitable Georivo article ideas.
+
 ## 9. Do not repeat
 
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
