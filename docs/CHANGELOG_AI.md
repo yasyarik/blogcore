@@ -2,6 +2,38 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-24 — Generate five additional Georivo article drafts
+
+### Summary
+
+* Added five distinct Georivo editorial tasks covering off-plan location trust, useful interactive property maps, contextual digital twins, master-planned development phases, and walkability context.
+* Generated every task through Blog Core as one canonical multilingual article with EN, DE, ES, FR, and RU variants.
+* Left all five tasks in `DRAFT`; no article was published or added to the public Georivo blog index.
+
+### Files changed
+
+* `data/blog_core.sqlite3` — added five Georivo content jobs and their generated localization records; runtime data remains ignored.
+* `/var/www/georivo-blog/data/blog-core/drafts/*.json` — stored five native multilingual draft payloads; runtime data remains ignored.
+* `data/article_assets/14/*` — stored one hero and three inline JPEG assets for each draft; generated assets remain ignored.
+* `docs/CHANGELOG_AI.md` — logged the generation and validation task.
+
+### Decisions
+
+* These articles remain reviewable drafts. Generation does not imply publication; an explicit Publish action is still required for each canonical task.
+* One Georivo task continues to own all configured language variants rather than creating separate dashboard tasks per language.
+
+### Checks run
+
+* All five generation calls completed successfully and returned `DRAFT` with `en`, `de`, `es`, `fr`, and `ru`.
+* Verified all five database records have DE/ES/FR/RU localization rows and matching native draft payload translations.
+* Verified each draft has four generated JPEG assets, three inline figures, 7-8 editorial sections, a table, an ordered list, and six FAQ items.
+* Verified all 25 language preview URLs return HTTP 200 and contain `noindex`, TOC markup, and images.
+* Verified the five draft slugs are absent from the public `https://georivo.com/blog/` index.
+
+### Risks / TODO
+
+* The drafts require editorial review and explicit publication before they appear on Georivo or enter its public sitemap.
+
 ## 2026-07-24 — Use live source chrome globally and expose article TOC
 
 ### Summary
