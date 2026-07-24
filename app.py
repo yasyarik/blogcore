@@ -201,6 +201,24 @@ def init_db():
                 foreign key(site_id) references sites(id) on delete cascade
             );
             create index if not exists content_job_logs_site_job_ts_idx on content_job_logs(site_id,job_id,ts);
+            create table if not exists content_job_localizations (
+                site_id integer not null,
+                job_id text not null,
+                language text not null,
+                slug text not null,
+                title text not null,
+                description text,
+                category text,
+                draft_html text not null,
+                faq_json text,
+                created_at text not null,
+                updated_at text not null,
+                primary key(job_id, language),
+                foreign key(site_id) references sites(id) on delete cascade,
+                foreign key(job_id) references content_jobs(id) on delete cascade
+            );
+            create index if not exists content_job_localizations_site_language_idx
+                on content_job_localizations(site_id,language);
             create table if not exists source_scanner_drafts (
                 scanner_article_id text primary key,
                 site_id integer not null,
@@ -1226,8 +1244,38 @@ def native_content_store_payload(site, row, published=False):
     word_count = len(strip_html_text(row["draft_html"] or "").split())
     raw_content_type = str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower()
     content_type = "use_case" if raw_content_type in {"use_case", "use-cases", "seo_money_page", "seo-money-page"} else "blog"
+    languages = parse_languages(site["languages"])
+    base_language = languages[0]
+    translations = {}
+    with db() as conn:
+        localized_rows = conn.execute(
+            """
+            select language,slug,title,description,category,draft_html,faq_json
+            from content_job_localizations
+            where site_id=? and job_id=?
+            order by language
+            """,
+            (site["id"], row["id"]),
+        ).fetchall()
+    for localized in localized_rows:
+        try:
+            localized_faq = json.loads(localized["faq_json"] or "[]")
+        except Exception:
+            localized_faq = []
+        localized_word_count = len(strip_html_text(localized["draft_html"] or "").split())
+        translations[localized["language"]] = {
+            "slug": localized["slug"],
+            "title": localized["title"],
+            "description": localized["description"] or "",
+            "category": localized["category"] or "Insights",
+            "draftHtml": localized["draft_html"],
+            "faq": localized_faq if isinstance(localized_faq, list) else [],
+            "readMinutes": max(1, math.ceil(localized_word_count / 220)),
+        }
     return {
         "id": row["id"],
+        "language": base_language,
+        "languages": languages,
         "slug": row["slug"],
         "title": row["title"] or row["topic"],
         "description": row["description"] or "",
@@ -1238,6 +1286,7 @@ def native_content_store_payload(site, row, published=False):
         "readMinutes": max(1, math.ceil(word_count / 220)),
         "targetPath": content_job_target_path(row),
         "contentType": content_type,
+        "translations": translations,
         "updatedAt": now_iso(),
         "publishedAt": now_iso() if published else None,
     }
@@ -5994,6 +6043,28 @@ ARTICLE_DRAFT_SCHEMA = {
     "required": ["slug", "title", "description", "category", "heroImage", "lead", "sections", "table", "orderedList", "quote", "images", "faq"],
 }
 
+ARTICLE_LANGUAGE_NAMES = {
+    "en": "English",
+    "de": "German",
+    "es": "Spanish",
+    "fr": "French",
+    "ru": "Russian",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "pl": "Polish",
+}
+
+ARTICLE_UI_LABELS = {
+    "en": {"contents": "Contents", "faq": "FAQ", "next_steps": "Practical next steps"},
+    "de": {"contents": "Inhalt", "faq": "Häufige Fragen", "next_steps": "Praktische nächste Schritte"},
+    "es": {"contents": "Contenido", "faq": "Preguntas frecuentes", "next_steps": "Próximos pasos prácticos"},
+    "fr": {"contents": "Sommaire", "faq": "Questions fréquentes", "next_steps": "Prochaines étapes pratiques"},
+    "ru": {"contents": "Содержание", "faq": "Частые вопросы", "next_steps": "Практические следующие шаги"},
+    "it": {"contents": "Contenuti", "faq": "Domande frequenti", "next_steps": "Prossimi passi pratici"},
+    "pt": {"contents": "Conteúdo", "faq": "Perguntas frequentes", "next_steps": "Próximos passos práticos"},
+    "pl": {"contents": "Spis treści", "faq": "Częste pytania", "next_steps": "Praktyczne kolejne kroki"},
+}
+
 
 def clean_image_filename(value, fallback):
     name = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(value or "").strip())
@@ -6007,7 +6078,8 @@ def clean_image_filename(value, fallback):
     return name
 
 
-def render_structured_article_html(draft, slug, asset_prefix=""):
+def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
+    labels = ARTICLE_UI_LABELS.get(language, ARTICLE_UI_LABELS["en"])
     parts = []
     lead = re.sub(r"\s+", " ", str(draft.get("lead") or "")).strip()
     if lead:
@@ -6056,7 +6128,10 @@ def render_structured_article_html(draft, slug, asset_prefix=""):
             f'<li><a href="#{escape(anchor, quote=True)}">{escape(heading)}</a></li>'
             for anchor, heading in toc_items[:10]
         )
-        parts.append(f'<nav class="article-toc" aria-label="Contents"><h2>Contents</h2><ol>{toc_html}</ol></nav>')
+        parts.append(
+            f'<nav class="article-toc" aria-label="{escape(labels["contents"], quote=True)}">'
+            f'<h2>{escape(labels["contents"])}</h2><ol>{toc_html}</ol></nav>'
+        )
     if normalized_images:
         parts.append(image_html(normalized_images[0]))
         inserted_images.add(0)
@@ -6101,7 +6176,7 @@ def render_structured_article_html(draft, slug, asset_prefix=""):
     clean_ordered = [re.sub(r"\s+", " ", str(item or "")).strip() for item in ordered[:10]]
     clean_ordered = [item for item in clean_ordered if item]
     if clean_ordered:
-        title = re.sub(r"\s+", " ", str(draft.get("orderedListTitle") or "Practical next steps")).strip()
+        title = re.sub(r"\s+", " ", str(draft.get("orderedListTitle") or labels["next_steps"])).strip()
         parts.append(f"<h2>{escape(title)}</h2>")
         parts.append("<ol>" + "".join(f"<li>{escape(item)}</li>" for item in clean_ordered) + "</ol>")
     quote = re.sub(r"\s+", " ", str(draft.get("quote") or "")).strip()
@@ -6121,7 +6196,7 @@ def render_structured_article_html(draft, slug, asset_prefix=""):
             f"<details><summary>{escape(question)}</summary><p>{escape(answer)}</p></details>"
             for question, answer in faq_items
         )
-        parts.append(f'<section class="article-faq"><h2>FAQ</h2>{details}</section>')
+        parts.append(f'<section class="article-faq"><h2>{escape(labels["faq"])}</h2>{details}</section>')
     return "\n".join(parts)
 
 
@@ -6313,6 +6388,112 @@ QUALITY RULES:
 """.strip()
 
 
+def build_article_translation_prompt(site, draft, target_language):
+    language_name = ARTICLE_LANGUAGE_NAMES.get(target_language, target_language)
+    source_json = json.dumps(draft, ensure_ascii=False)
+    return f"""
+You are a professional native-language editor for {site['brand_name'] or site['domain']}.
+
+Translate and localize the complete structured article JSON below into {language_name} ({target_language}).
+
+RULES:
+- Output valid JSON matching the provided schema only.
+- Preserve every factual claim, section, paragraph, bullet, table row, ordered-list item, quote, image, and FAQ item.
+- Do not summarize, shorten, add claims, or change the editorial intent.
+- Write fluent native editorial copy, not literal machine translation.
+- Keep the same article depth and approximately the same amount of information.
+- Translate title, description, category, lead, headings, paragraphs, bullets, table text, ordered-list text, quote, image alt/caption, and FAQ.
+- Keep `heroImage` and every image `src` filename exactly unchanged.
+- Keep the slug unchanged; locale routing is handled separately.
+- Do not use em dashes, en dashes, asterisks, or smart quotes.
+
+SOURCE ARTICLE JSON:
+{source_json}
+""".strip()
+
+
+def generate_native_content_localizations(site, job, draft, slug, article_asset_prefix):
+    languages = parse_languages(site["languages"])
+    base_language = languages[0]
+    now = now_iso()
+    with db() as conn:
+        conn.execute(
+            "delete from content_job_localizations where site_id=? and job_id=?",
+            (site["id"], job["id"]),
+        )
+    if len(languages) == 1:
+        return []
+
+    source_images = draft.get("images") if isinstance(draft.get("images"), list) else []
+    generated = []
+    for language in languages[1:]:
+        localized = _gemini_text_json(
+            build_article_translation_prompt(site, draft, language),
+            response_schema=ARTICLE_DRAFT_SCHEMA,
+            repair=False,
+        )
+        localized["slug"] = slug
+        localized["heroImage"] = draft.get("heroImage") or ""
+        localized_images = localized.get("images") if isinstance(localized.get("images"), list) else []
+        normalized_images = []
+        for index, source_image in enumerate(source_images):
+            translated_image = localized_images[index] if index < len(localized_images) and isinstance(localized_images[index], dict) else {}
+            normalized_images.append(
+                {
+                    "src": source_image.get("src") or f"{slug}-image-{index + 1}.jpg",
+                    "alt": translated_image.get("alt") or source_image.get("alt") or "",
+                    "caption": translated_image.get("caption") or source_image.get("caption") or "",
+                }
+            )
+        localized["images"] = normalized_images
+        validation = validate_structured_article_draft(localized)
+        localized_html = render_structured_article_html(
+            localized,
+            slug,
+            asset_prefix=article_asset_prefix,
+            language=language,
+        )
+        localized_faq = localized.get("faq") if isinstance(localized.get("faq"), list) else []
+        with db() as conn:
+            conn.execute(
+                """
+                insert into content_job_localizations(
+                    site_id,job_id,language,slug,title,description,category,draft_html,
+                    faq_json,created_at,updated_at
+                ) values(?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    site["id"],
+                    job["id"],
+                    language,
+                    slug,
+                    localized.get("title") or job["topic"],
+                    localized.get("description") or "",
+                    localized.get("category") or job["category"] or "Article",
+                    localized_html,
+                    json.dumps(localized_faq, ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                insert into content_job_logs(site_id,job_id,ts,level,step,message)
+                values(?,?,?,?,?,?)
+                """,
+                (
+                    site["id"],
+                    job["id"],
+                    now_iso(),
+                    "INFO",
+                    "localize",
+                    f"{language.upper()} localization generated and validated: {validation['word_count']} words",
+                ),
+            )
+        generated.append(language)
+    return generated
+
+
 def generate_content_job(site_id, job_id):
     with db() as conn:
         site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
@@ -6337,7 +6518,13 @@ def generate_content_job(site_id, job_id):
         slug = preserved_slug or simple_slug(draft.get("slug") or draft.get("title") or job["topic"])
         faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
         hero_image_url, article_asset_prefix = generate_article_image_assets(site_id, job_id, site, job, draft, slug)
-        draft_html = render_structured_article_html(draft, slug, asset_prefix=article_asset_prefix)
+        base_language = parse_languages(site["languages"])[0]
+        draft_html = render_structured_article_html(
+            draft,
+            slug,
+            asset_prefix=article_asset_prefix,
+            language=base_language,
+        )
         with db() as conn:
             conn.execute(
                 """
@@ -6368,11 +6555,25 @@ def generate_content_job(site_id, job_id):
                     f"Draft generated and validated: {validation['word_count']} words, {validation['sections']} sections, {validation['images']} images, {validation['faq']} FAQ items, 4 article images",
                 ),
             )
+        localized_languages = []
         if native_content_store_job(job, site):
             with db() as conn:
                 generated_job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+            localized_languages = generate_native_content_localizations(
+                site,
+                generated_job,
+                draft,
+                slug,
+                article_asset_prefix,
+            )
             write_native_content_store(site, generated_job, "drafts")
-        return {"ok": True, "jobId": job_id, "status": "DRAFT", "slug": slug}
+        return {
+            "ok": True,
+            "jobId": job_id,
+            "status": "DRAFT",
+            "slug": slug,
+            "languages": [base_language, *localized_languages],
+        }
     except Exception as e:
         with db() as conn:
             conn.execute("update content_jobs set status='ERROR', error=?, updated_at=? where site_id=? and id=?", (str(e), now_iso(), site_id, job_id))

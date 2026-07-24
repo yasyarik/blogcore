@@ -2,6 +2,44 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-24 — Add end-to-end multilingual native publishing
+
+### Summary
+
+* Extended the reusable native content-store contract so one Blog Core task generates and validates every configured site language while keeping one canonical task in the dashboard.
+* Enabled Georivo in English, German, Spanish, French, and Russian with localized blog indexes, article chrome, draft previews, language switching, canonical/hreflang metadata, and multilingual sitemap entries.
+* Added nginx routing for localized `/{language}/blog/` URLs and fixed the shared navigation helper so localized Blog links are not duplicated.
+
+### Files changed
+
+* `app.py` — localization schema, structured-article translation generation, localized static article labels, and multilingual native-store payloads.
+* `deploy/georivo/app.py` — localized routes, chrome, content selection, language switcher, canonical/hreflang, and sitemap output.
+* `deploy/georivo/georivo-blog.css` — compact language-selector styling within the native header.
+* `deploy/georivo/georivo-blog-nav.js` — recognize both base and localized Blog links.
+* `deploy/georivo/georivo.com.conf` — proxy supported localized blog routes to the native renderer.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md` — durable multilingual generation, routing, and SEO contracts.
+
+### Decisions
+
+* Native content-store sites use one task per article; translations are child records keyed by `job_id + language`, not separate dashboard tasks.
+* English remains Georivo's base path at `/blog/`; DE, ES, FR, and RU use `/{language}/blog/`. All variants retain the same slug and generated image assets.
+* Only actually generated article variants receive article-level hreflang links.
+
+### Checks run
+
+* Compiled Blog Core and the Georivo renderer locally and on the VPS.
+* Ran a five-language renderer fixture covering indexes, articles, localized draft preview, canonical URLs, hreflang/x-default, sitemap output, and unknown-language handling.
+* Ran a Blog Core schema/render smoke test for the localization table and localized TOC/FAQ labels.
+* Passed `nginx -t`; reloaded nginx; restarted `georivo-blog` and `blog-yas-core`; both health endpoints returned `ok`.
+* Verified all five public blog indexes return HTTP 200.
+* Browser-tested desktop and mobile navigation, opened the mobile menu, switched DE to ES, and confirmed localized navigation without duplicate Blog links.
+* Verified draft language switching stays on the same noindex preview job through `?lang=` rather than navigating to an unpublished public URL.
+
+### Risks / TODO
+
+* Existing drafts generated before this change have no translations. Regenerate them after configuring site languages if localized variants are required.
+* Each additional language performs a full structured Gemini localization during generation, so multilingual tasks take longer than single-language tasks.
+
 ## 2026-07-24 — Restore Georivo blog's native stylesheet
 
 ### Summary

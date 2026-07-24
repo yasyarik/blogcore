@@ -32,7 +32,7 @@ curl -fsS http://127.0.0.1:3299/health
 * Application path: `/var/www/georivo-blog`.
 * Service: `georivo-blog.service`.
 * Loopback listener: `127.0.0.1:13340`.
-* Public routes handled locally: `/blog`, `/content-preview/`, and `/sitemap.xml`.
+* Public routes handled locally: `/blog`, `/{en|de|es|fr|ru}/blog`, `/content-preview/`, and `/sitemap.xml`. EN canonically uses `/blog/`; `/en/blog` redirects there.
 * Existing Georivo product routes continue to proxy to their configured upstream.
 * Tracked deployment templates live under `deploy/georivo/`.
 

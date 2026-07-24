@@ -546,6 +546,20 @@ It must be updated after every meaningful task.
 * Files/areas affected: `deploy/georivo/app.py` and the live `/var/www/georivo-blog/app.py`.
 * Replaced/deprecated: Hard-coded `/assets/index-22jNjtDO.css`.
 
+### 2026-07-24 — Native content-store multilingual contract
+
+* Decision: One native content-store task generates the base article plus full structured localizations for every language in `sites.languages`. Localizations are stored in `content_job_localizations` by `job_id + language` and exported inside the native JSON record's `translations` map; they are not separate dashboard jobs.
+* Reason: Editors manage one topic and publication decision while the site receives complete language variants with the same slug, structure, facts, FAQ, and generated image files.
+* Files/areas affected: `app.py`, native content-store JSON, and site-owned renderers such as `deploy/georivo/`.
+* Replaced/deprecated: Native content-store generation that wrote only the site's first configured language.
+
+### 2026-07-24 — Georivo multilingual URL and SEO model
+
+* Decision: Georivo uses EN as its base language at `/blog/` and DE/ES/FR/RU at `/{language}/blog/`. Article slugs remain identical across languages. The native renderer localizes its interface, links language variants, emits per-language canonical plus hreflang/x-default, and includes localized variants in the sitemap.
+* Reason: Language switching must keep the reader on the same article and search engines must receive an explicit relationship between real translated pages.
+* Files/areas affected: site 14 language settings, `deploy/georivo/`, live `/var/www/georivo-blog`, and `/etc/nginx/conf.d/georivo.com.conf`.
+* Replaced/deprecated: Georivo as an English-only native journal.
+
 ### 2026-07-24 — Georivo trend-led editorial territory
 
 * Decision: Georivo's initial journal should build authority around the intersection of virtual property tours, real-estate photography, drone alternatives, interactive maps, digital twins, neighborhood context, remote-buyer decisions, and verifiable geospatial visualization. Raw Trends/search phrases are research signals, not article titles.

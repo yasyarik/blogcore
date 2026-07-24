@@ -22,6 +22,7 @@
 * Discovery now routes only explicitly classified, service-aligned `seo_money_page` ideas to `/use-cases/<slug>/`; all other editorial ideas use `/blog/<slug>/`. This is enforced when jobs are queued, not inferred later from their title.
 * YAS native `sitemap.xml` is dynamic. It reads Blog Core's published content store on request, so an explicit Publish action exposes the new canonical blog/use-case route without requiring a Next build.
 * Georivo topic research must use broad Google Trends parent clusters as demand evidence, then transform them into original decision-led editorial angles about location context, interactive 3D, drone alternatives, remote buyers, and geospatial trust. Do not present low-volume exact phrases as statistically reliable trends or copy raw queries into titles.
+* Georivo multilingual SEO uses EN at `/blog/` and DE/ES/FR/RU at `/{language}/blog/`. Every generated variant has its own canonical URL; article pages expose hreflang only for translations that actually exist, with EN as `x-default`; the native sitemap lists each real language URL with the same alternate set.
 
 ## Known SEO gaps
 

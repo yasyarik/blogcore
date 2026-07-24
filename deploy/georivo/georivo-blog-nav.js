@@ -1,7 +1,12 @@
 (() => {
+  const hasBlogLink = (root) =>
+    Array.from(root.querySelectorAll("a[href]")).some((link) =>
+      /^\/(?:[a-z]{2}\/)?blog\/?$/.test(new URL(link.href, window.location.origin).pathname)
+    );
+
   const insertBlogLink = () => {
     const nav = document.querySelector("header nav, nav");
-    if (nav && !nav.querySelector('a[href="/blog/"]')) {
+    if (nav && !hasBlogLink(nav)) {
       const link = document.createElement("a");
       link.href = "/blog/";
       link.textContent = "Blog";
@@ -10,7 +15,7 @@
     }
 
     document.querySelectorAll("footer").forEach((footer) => {
-      if (footer.querySelector('a[href="/blog/"]')) return;
+      if (hasBlogLink(footer)) return;
       const pricing = footer.querySelector('a[href="#plans"], a[href="/#plans"]');
       if (!pricing) return;
       const link = document.createElement("a");
