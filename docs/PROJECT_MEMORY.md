@@ -3,6 +3,17 @@
 This file is the durable memory of the project.
 It must be updated after every meaningful task.
 
+## 2026-07-24 — Typed native content routes and single-user workflow
+
+* Decision: Native content-store sites preserve explicit content types instead of collapsing them into Blog. The supported route contract is Blog `/blog/`, Guide `/guides/`, Template `/templates/`, Example `/examples/`, Integration guide `/embed/`, and Use case `/use-cases/`, with the same route under each configured non-default language prefix.
+* Reason: Blog Core is a full content factory, not only an article renderer. Typed routes preserve search intent, avoid slug collisions across collections, and let native adapters present each content class without changing the product application.
+* Files/areas affected: `app.py`, native content-store JSON, native site adapters, nginx route allowlists, canonical/hreflang, and sitemap generation.
+* Replaced/deprecated: Mapping every native content type except use cases to `blog`.
+* Decision: Blog Core remains a single-user operator dashboard. Do not add users, roles, permissions, or RBAC. Use workflow status, mandatory validation, explicit Publish, and durable task logs for control and auditability.
+* Reason: The project does not need organizational access control; role labels from editorial specifications are trust metadata, not application accounts.
+* Files/areas affected: Dashboard workflow, publication validation, logs, and future trust metadata.
+* Replaced/deprecated: Any planned RBAC or multi-role editorial workflow for this project.
+
 ## 1. Product overview
 
 * Project name: Blog Core for yas.ooo.

@@ -156,6 +156,59 @@ UI = {
     },
 }
 
+CONTENT_TYPE_ALIASES = {
+    "article": "blog",
+    "blog": "blog",
+    "blog_post": "blog",
+    "blog-post": "blog",
+    "guide": "guide",
+    "guides": "guide",
+    "template": "template",
+    "templates": "template",
+    "example": "example",
+    "examples": "example",
+    "integration": "integration_guide",
+    "integration-guide": "integration_guide",
+    "integration_guide": "integration_guide",
+    "embed": "integration_guide",
+    "use_case": "use_case",
+    "use-case": "use_case",
+    "use-cases": "use_case",
+    "seo_money_page": "use_case",
+    "seo-money-page": "use_case",
+}
+CONTENT_SECTIONS = {
+    "blog": "blog",
+    "guide": "guides",
+    "template": "templates",
+    "example": "examples",
+    "integration_guide": "embed",
+    "use_case": "use-cases",
+}
+SECTION_CONTENT_TYPES = {section: content_type for content_type, section in CONTENT_SECTIONS.items()}
+SECTION_LABELS = {
+    "en": {
+        "blog": "Georivo journal", "guides": "Guides", "templates": "Templates",
+        "examples": "Examples", "embed": "Embed guides", "use-cases": "Use cases",
+    },
+    "de": {
+        "blog": "Georivo Journal", "guides": "Leitfäden", "templates": "Vorlagen",
+        "examples": "Beispiele", "embed": "Einbettungsanleitungen", "use-cases": "Anwendungsfälle",
+    },
+    "es": {
+        "blog": "Revista Georivo", "guides": "Guías", "templates": "Plantillas",
+        "examples": "Ejemplos", "embed": "Guías de integración", "use-cases": "Casos de uso",
+    },
+    "fr": {
+        "blog": "Journal Georivo", "guides": "Guides", "templates": "Modèles",
+        "examples": "Exemples", "embed": "Guides d'intégration", "use-cases": "Cas d'usage",
+    },
+    "ru": {
+        "blog": "Журнал Georivo", "guides": "Руководства", "templates": "Шаблоны",
+        "examples": "Примеры", "embed": "Инструкции по встраиванию", "use-cases": "Сценарии использования",
+    },
+}
+
 app = Flask(__name__)
 
 
@@ -172,13 +225,34 @@ def copy_for(language):
     return UI.get(normalize_language(language), UI[DEFAULT_LANGUAGE])
 
 
-def blog_path(language):
+def normalize_content_type(value):
+    return CONTENT_TYPE_ALIASES.get(str(value or "blog").strip().lower(), "blog")
+
+
+def record_content_type(record):
+    return normalize_content_type(record.get("contentType") or record.get("pageType") or "blog")
+
+
+def content_path(language, content_type="blog", slug=None):
     language = normalize_language(language)
-    return "/blog/" if language == DEFAULT_LANGUAGE else f"/{language}/blog/"
+    section = CONTENT_SECTIONS[normalize_content_type(content_type)]
+    prefix = "" if language == DEFAULT_LANGUAGE else f"/{language}"
+    path = f"{prefix}/{section}/"
+    return f"{path}{str(slug or '').strip('/')}/" if slug else path
 
 
-def article_path(language, slug):
-    return f"{blog_path(language)}{str(slug or '').strip('/')}/"
+def blog_path(language):
+    return content_path(language, "blog")
+
+
+def article_path(language, slug, content_type="blog"):
+    return content_path(language, content_type, slug)
+
+
+def section_label(language, content_type):
+    language = normalize_language(language)
+    section = CONTENT_SECTIONS[normalize_content_type(content_type)]
+    return SECTION_LABELS.get(language, SECTION_LABELS[DEFAULT_LANGUAGE]).get(section, section.title())
 
 
 def localized_record(record, language):
@@ -200,13 +274,13 @@ def record_languages(record):
     return list(dict.fromkeys(available))
 
 
-def language_switcher(language, slug=None, preview_job_id=None):
+def language_switcher(language, slug=None, preview_job_id=None, content_type="blog"):
     options = []
     for item in LANGUAGES:
         if preview_job_id:
             target = f"/content-preview/{preview_job_id}?lang={item}"
         else:
-            target = article_path(item, slug) if slug else blog_path(item)
+            target = article_path(item, slug, content_type) if slug else content_path(item, content_type)
         selected = " selected" if item == language else ""
         options.append(
             f'<option value="{esc(target)}"{selected}>{esc(LANGUAGE_LABELS.get(item, item.upper()))}</option>'
@@ -244,6 +318,16 @@ def load_record(directory, key, field):
     return None
 
 
+def load_content_record(directory, content_type, slug):
+    content_type = normalize_content_type(content_type)
+    for record in load_records(directory):
+        if record_content_type(record) != content_type:
+            continue
+        if str(record.get("slug") or "").strip("/") == str(slug or "").strip("/"):
+            return record
+    return None
+
+
 def absolute_article_assets(markup):
     return re.sub(
         r'(?P<attr>\b(?:src|href)=["\'])(?P<path>/sites/\d+/article-assets/)',
@@ -264,13 +348,13 @@ def native_chrome():
     return snapshot["header"], snapshot["footer"]
 
 
-def native_language_options(language, slug=None, preview_job_id=None):
+def native_language_options(language, slug=None, preview_job_id=None, content_type="blog"):
     options = []
     for item in LANGUAGES:
         if preview_job_id:
             target = f"/content-preview/{preview_job_id}?lang={item}"
         else:
-            target = article_path(item, slug) if slug else blog_path(item)
+            target = article_path(item, slug, content_type) if slug else content_path(item, content_type)
         selected = " selected" if item == language else ""
         options.append(
             f'<option value="{esc(target)}" aria-label="{esc(LANGUAGE_NAMES[item])}"'
@@ -279,7 +363,7 @@ def native_language_options(language, slug=None, preview_job_id=None):
     return "".join(options)
 
 
-def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, footer=False):
+def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, footer=False, content_type="blog"):
     if not fragment:
         return ""
     labels = copy_for(language)
@@ -289,7 +373,7 @@ def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, foot
     select = (
         f'<select aria-label="Language" title="{esc(LANGUAGE_NAMES[language])}" '
         f'onchange="window.location.href=this.value">'
-        f'{native_language_options(language, slug, preview_job_id)}</select>'
+        f'{native_language_options(language, slug, preview_job_id, content_type)}</select>'
     )
     fragment = re.sub(
         r'(?is)<select\b[^>]*aria-label=(["\'])Language\1[^>]*>.*?</select>',
@@ -312,7 +396,7 @@ def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, foot
     for source, translated in replacements.items():
         fragment = fragment.replace(f">{source}</a>", f">{esc(translated)}</a>")
         fragment = fragment.replace(f">{source}</b>", f">{esc(translated)}</b>")
-    current = "" if footer else ' aria-current="page"'
+    current = "" if footer or normalize_content_type(content_type) != "blog" else ' aria-current="page"'
     blog_link = (
         f'<a href="{esc(blog_path(language))}"{current}>'
         f'{esc(labels["blog"])}</a>'
@@ -334,7 +418,7 @@ def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, foot
     return fragment
 
 
-def fallback_site_header(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None):
+def fallback_site_header(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None, content_type="blog"):
     language = normalize_language(language)
     labels = copy_for(language)
     return f"""
@@ -347,8 +431,8 @@ def fallback_site_header(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=No
         <a href="/#movements">{esc(labels["examples"])}</a>
         <a href="/#how">{esc(labels["how"])}</a>
         <a href="/#plans">{esc(labels["pricing"])}</a>
-        <a href="{esc(blog_path(language))}" aria-current="page">{esc(labels["blog"])}</a>
-        {language_switcher(language, slug, preview_job_id)}
+        <a href="{esc(blog_path(language))}"{' aria-current="page"' if normalize_content_type(content_type) == "blog" else ""}>{esc(labels["blog"])}</a>
+        {language_switcher(language, slug, preview_job_id, content_type)}
         <a href="/login">{esc(labels["sign_in"])}</a>
         <a class="nav-cta" href="/#create">{esc(labels["create"])} <span>↗</span></a>
       </nav>
@@ -356,7 +440,7 @@ def fallback_site_header(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=No
     """
 
 
-def site_header(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None):
+def site_header(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None, content_type="blog"):
     language = normalize_language(language)
     header, _ = native_chrome()
     return adapt_native_chrome(
@@ -364,7 +448,8 @@ def site_header(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None):
         language,
         slug=slug,
         preview_job_id=preview_job_id,
-    ) or fallback_site_header(language, slug, preview_job_id)
+        content_type=content_type,
+    ) or fallback_site_header(language, slug, preview_job_id, content_type)
 
 
 def fallback_site_footer(language=DEFAULT_LANGUAGE):
@@ -386,7 +471,7 @@ def fallback_site_footer(language=DEFAULT_LANGUAGE):
     """
 
 
-def site_footer(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None):
+def site_footer(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None, content_type="blog"):
     language = normalize_language(language)
     _, footer = native_chrome()
     return adapt_native_chrome(
@@ -395,6 +480,7 @@ def site_footer(language=DEFAULT_LANGUAGE, slug=None, preview_job_id=None):
         slug=slug,
         preview_job_id=preview_job_id,
         footer=True,
+        content_type=content_type,
     ) or fallback_site_footer(language)
 
 
@@ -417,6 +503,7 @@ def shell(
     alternate_urls=None,
     slug=None,
     preview_job_id=None,
+    content_type="blog",
 ):
     language = normalize_language(language)
     robots = '<meta name="robots" content="noindex,nofollow">' if noindex else '<meta name="robots" content="index,follow,max-image-preview:large">'
@@ -446,18 +533,26 @@ def shell(
   {structured}
 </head>
 <body class="blog-shell">
-  {site_header(language, slug, preview_job_id)}
+  {site_header(language, slug, preview_job_id, content_type)}
   {body}
-  {site_footer(language, slug, preview_job_id)}
+  {site_footer(language, slug, preview_job_id, content_type)}
   <script src="/georivo-blog-nav.js?v=20260724d" defer></script>
 </body>
 </html>"""
 
 
 def article_schema(record, canonical):
+    schema_types = {
+        "blog": "Article",
+        "guide": "Article",
+        "template": "CreativeWork",
+        "example": "Article",
+        "integration_guide": "TechArticle",
+        "use_case": "Article",
+    }
     payload = {
         "@context": "https://schema.org",
-        "@type": "Article",
+        "@type": schema_types[record_content_type(record)],
         "headline": record.get("title") or "",
         "description": record.get("description") or "",
         "mainEntityOfPage": canonical,
@@ -483,9 +578,10 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
     title = record.get("title") or "Georivo insight"
     description = record.get("description") or "Practical guidance for presenting real estate locations with interactive 3D."
     slug = record.get("slug") or ""
-    canonical = f"{SITE_ORIGIN}{article_path(language, slug)}"
+    content_type = record_content_type(record)
+    canonical = f"{SITE_ORIGIN}{article_path(language, slug, content_type)}"
     alternate_urls = {
-        item: f"{SITE_ORIGIN}{article_path(item, slug)}"
+        item: f"{SITE_ORIGIN}{article_path(item, slug, content_type)}"
         for item in record_languages(record)
     }
     hero = str(record.get("heroImage") or "")
@@ -509,7 +605,7 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
     {preview_badge}
     <main class="article-layout">
       <article>
-        <a class="back-link" href="{esc(blog_path(language))}">← {esc(labels["back"])}</a>
+        <a class="back-link" href="{esc(content_path(language, content_type))}">← {esc(section_label(language, content_type))}</a>
         <div class="eyebrow">{esc(category)}</div>
         <h1>{esc(title)}</h1>
         <p class="dek">{esc(description)}</p>
@@ -535,6 +631,7 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
         alternate_urls=alternate_urls,
         slug=slug,
         preview_job_id=record.get("id") if preview else None,
+        content_type=content_type,
     )
 
 
@@ -543,15 +640,15 @@ def health():
     return {"ok": True, "service": "georivo-blog", "published": len(load_records(PUBLISHED_ROOT))}
 
 
-@app.get("/blog")
-def blog_redirect():
-    return redirect("/blog/", code=308)
-
-
-def render_blog_index(language=DEFAULT_LANGUAGE):
+def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
     language = normalize_language(language)
+    content_type = normalize_content_type(content_type)
     labels = copy_for(language)
-    posts = load_records(PUBLISHED_ROOT)
+    section_name = section_label(language, content_type)
+    posts = [
+        record for record in load_records(PUBLISHED_ROOT)
+        if record_content_type(record) == content_type
+    ]
     cards = []
     for post in posts:
         localized = localized_record(post, language)
@@ -564,7 +661,7 @@ def render_blog_index(language=DEFAULT_LANGUAGE):
         if hero.startswith("/sites/"):
             hero = BLOG_CORE_ORIGIN + hero
         media = f'<img src="{esc(hero)}" alt="{esc(title)}" loading="lazy">' if hero else '<div class="card-placeholder">G</div>'
-        url = article_path(language, slug)
+        url = article_path(language, slug, content_type)
         cards.append(f"""
           <article class="post-card">
             <a class="post-media" href="{esc(url)}">{media}</a>
@@ -590,8 +687,8 @@ def render_blog_index(language=DEFAULT_LANGUAGE):
         <div class="journal-hero-image" aria-hidden="true"></div>
         <div class="journal-hero-wash" aria-hidden="true"></div>
         <div class="journal-hero-content">
-          <div class="section-tag">{esc(labels["journal"])}</div>
-          <h1>{labels["hero_title"]}</h1>
+          <div class="section-tag">{esc(section_name)}</div>
+          <h1>{labels["hero_title"] if content_type == "blog" else esc(section_name)}</h1>
           <p>{esc(labels["hero_copy"])}</p>
         </div>
       </section>
@@ -614,62 +711,114 @@ def render_blog_index(language=DEFAULT_LANGUAGE):
     """
     schema = {
         "@context": "https://schema.org",
-        "@type": "Blog",
-        "name": labels["journal"],
-        "url": f"{SITE_ORIGIN}{blog_path(language)}",
+        "@type": "Blog" if content_type == "blog" else "CollectionPage",
+        "name": section_name,
+        "url": f"{SITE_ORIGIN}{content_path(language, content_type)}",
         "description": labels["hero_copy"],
     }
-    canonical = f"{SITE_ORIGIN}{blog_path(language)}"
-    alternate_urls = {item: f"{SITE_ORIGIN}{blog_path(item)}" for item in LANGUAGES}
+    canonical = f"{SITE_ORIGIN}{content_path(language, content_type)}"
+    alternate_urls = {item: f"{SITE_ORIGIN}{content_path(item, content_type)}" for item in LANGUAGES}
     return shell(
-        f"{labels['journal']} | Georivo",
+        f"{section_name} | Georivo",
         labels["hero_copy"],
         body,
         canonical,
         schema,
+        noindex=not bool(posts),
         language=language,
         alternate_urls=alternate_urls,
+        content_type=content_type,
     )
 
 
-@app.get("/blog/")
-def blog_index():
-    return render_blog_index(DEFAULT_LANGUAGE)
+def content_index_redirect(section):
+    content_type = SECTION_CONTENT_TYPES.get(str(section or "").strip().lower())
+    if not content_type:
+        abort(404)
+    return redirect(content_path(DEFAULT_LANGUAGE, content_type), code=308)
 
 
-@app.get("/<language>/blog")
-def localized_blog_redirect(language):
+def content_index(section):
+    content_type = SECTION_CONTENT_TYPES.get(str(section or "").strip().lower())
+    if not content_type:
+        abort(404)
+    return render_content_index(DEFAULT_LANGUAGE, content_type)
+
+
+def localized_content_index_redirect(language, section):
     language = str(language or "").strip().lower()
-    if language not in LANGUAGES:
+    content_type = SECTION_CONTENT_TYPES.get(str(section or "").strip().lower())
+    if language not in LANGUAGES or not content_type:
         abort(404)
     if language == DEFAULT_LANGUAGE:
-        return redirect("/blog/", code=308)
-    return redirect(blog_path(language), code=308)
+        return redirect(content_path(DEFAULT_LANGUAGE, content_type), code=308)
+    return redirect(content_path(language, content_type), code=308)
 
 
-@app.get("/<language>/blog/")
-def localized_blog_index(language):
-    if language not in LANGUAGES or language == DEFAULT_LANGUAGE:
+def localized_content_index(language, section):
+    content_type = SECTION_CONTENT_TYPES.get(str(section or "").strip().lower())
+    if language not in LANGUAGES or language == DEFAULT_LANGUAGE or not content_type:
         abort(404)
-    return render_blog_index(language)
+    return render_content_index(language, content_type)
 
 
-@app.get("/blog/<slug>/")
-def published_article(slug):
-    record = load_record(PUBLISHED_ROOT, slug, "slug")
+def published_article(section, slug):
+    content_type = SECTION_CONTENT_TYPES.get(str(section or "").strip().lower())
+    if not content_type:
+        abort(404)
+    record = load_content_record(PUBLISHED_ROOT, content_type, slug)
     if not record:
         abort(404)
     return article_page(record, DEFAULT_LANGUAGE)
 
 
-@app.get("/<language>/blog/<slug>/")
-def localized_published_article(language, slug):
-    if language not in LANGUAGES or language == DEFAULT_LANGUAGE:
+def localized_published_article(language, section, slug):
+    content_type = SECTION_CONTENT_TYPES.get(str(section or "").strip().lower())
+    if language not in LANGUAGES or language == DEFAULT_LANGUAGE or not content_type:
         abort(404)
-    record = load_record(PUBLISHED_ROOT, slug, "slug")
+    record = load_content_record(PUBLISHED_ROOT, content_type, slug)
     if not record:
         abort(404)
     return article_page(record, language)
+
+
+for _section in SECTION_CONTENT_TYPES:
+    app.add_url_rule(
+        f"/{_section}",
+        endpoint=f"{_section}_index_redirect",
+        view_func=content_index_redirect,
+        defaults={"section": _section},
+    )
+    app.add_url_rule(
+        f"/{_section}/",
+        endpoint=f"{_section}_index",
+        view_func=content_index,
+        defaults={"section": _section},
+    )
+    app.add_url_rule(
+        f"/{_section}/<slug>/",
+        endpoint=f"{_section}_article",
+        view_func=published_article,
+        defaults={"section": _section},
+    )
+    app.add_url_rule(
+        f"/<language>/{_section}",
+        endpoint=f"localized_{_section}_index_redirect",
+        view_func=localized_content_index_redirect,
+        defaults={"section": _section},
+    )
+    app.add_url_rule(
+        f"/<language>/{_section}/",
+        endpoint=f"localized_{_section}_index",
+        view_func=localized_content_index,
+        defaults={"section": _section},
+    )
+    app.add_url_rule(
+        f"/<language>/{_section}/<slug>/",
+        endpoint=f"localized_{_section}_article",
+        view_func=localized_published_article,
+        defaults={"section": _section},
+    )
 
 
 @app.get("/content-preview/<job_id>")
@@ -689,13 +838,23 @@ def sitemap():
         (f"{SITE_ORIGIN}/terms", "0.3", {}),
         (f"{SITE_ORIGIN}/privacy", "0.3", {}),
     ]
-    blog_alternates = {item: f"{SITE_ORIGIN}{blog_path(item)}" for item in LANGUAGES}
-    groups.extend((url, "0.8", blog_alternates) for url in blog_alternates.values())
-    for record in load_records(PUBLISHED_ROOT):
+    records = load_records(PUBLISHED_ROOT)
+    available_types = {record_content_type(record) for record in records}
+    available_types.add("blog")
+    for content_type in CONTENT_SECTIONS:
+        if content_type not in available_types:
+            continue
+        section_alternates = {
+            item: f"{SITE_ORIGIN}{content_path(item, content_type)}"
+            for item in LANGUAGES
+        }
+        groups.extend((url, "0.8", section_alternates) for url in section_alternates.values())
+    for record in records:
         slug = str(record.get("slug") or "").strip("/")
         if slug:
+            content_type = record_content_type(record)
             article_alternates = {
-                language: f"{SITE_ORIGIN}{article_path(language, slug)}"
+                language: f"{SITE_ORIGIN}{article_path(language, slug, content_type)}"
                 for language in record_languages(record)
             }
             groups.extend((url, "0.7", article_alternates) for url in article_alternates.values())
@@ -726,7 +885,7 @@ def sitemap():
 
 @app.errorhandler(404)
 def not_found(_error):
-    match = re.match(r"^/([a-z]{2})/blog(?:/|$)", request.path)
+    match = re.match(r"^/([a-z]{2})/(?:blog|guides|templates|examples|embed|use-cases)(?:/|$)", request.path)
     language = normalize_language(match.group(1) if match else DEFAULT_LANGUAGE)
     labels = copy_for(language)
     body = f"""

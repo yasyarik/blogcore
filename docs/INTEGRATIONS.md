@@ -1,5 +1,23 @@
 # INTEGRATIONS.md
 
+## Native content-store typed route contract
+
+Native JSON records preserve `contentType` and `targetPath`.
+
+Supported normalized values:
+
+* `blog` -> `/blog/{slug}/`
+* `guide` -> `/guides/{slug}/`
+* `template` -> `/templates/{slug}/`
+* `example` -> `/examples/{slug}/`
+* `integration_guide` -> `/embed/{slug}/`
+* `use_case` -> `/use-cases/{slug}/`
+
+Native adapters must route the same path below each configured non-default
+language prefix, keep previews on the adapter's `noindex` preview endpoint, and
+look up published records by `contentType + slug`. Published filenames must be
+collision-safe across content types.
+
 ## Public site scanner
 
 * Fetches the homepage with `urllib.request` and user agent `YASBlogCore/0.1 (+https://blog.yas.ooo)`.

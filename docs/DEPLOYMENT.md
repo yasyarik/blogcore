@@ -32,9 +32,10 @@ curl -fsS http://127.0.0.1:3299/health
 * Application path: `/var/www/georivo-blog`.
 * Service: `georivo-blog.service`.
 * Loopback listener: `127.0.0.1:13340`.
-* Public routes handled locally: `/blog`, `/{en|de|es|fr|ru}/blog`, `/content-preview/`, and `/sitemap.xml`. EN canonically uses `/blog/`; `/en/blog` redirects there.
+* Public routes handled locally: `/blog`, `/guides`, `/templates`, `/examples`, `/embed`, `/use-cases`, their configured locale-prefixed equivalents, `/content-preview/`, and `/sitemap.xml`. EN uses unprefixed canonical paths; `/en/...` redirects to them.
 * Existing Georivo product routes continue to proxy to their configured upstream.
 * Tracked deployment templates live under `deploy/georivo/`.
+* Nginx proxies only the Blog Core-owned content paths `/blog`, `/guides`, `/templates`, `/examples`, `/embed`, `/use-cases`, their configured locale-prefixed equivalents, `/content-preview/`, and `/sitemap.xml` to `127.0.0.1:13340`. All other product routes remain on the existing Georivo upstream.
 * Native renderer services import shared `/var/www/blog.yas.ooo/native_site_chrome.py`; set `PYTHONPATH=/var/www/blog.yas.ooo` in their service environment.
 
 ```bash

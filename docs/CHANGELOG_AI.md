@@ -2,6 +2,45 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-24 — Expand Georivo's existing native content adapter
+
+### Summary
+
+* Extended the existing Georivo integration without reconnecting or reimporting the site.
+* Added typed native content support for Guide, Template, Example, Integration guide, and Use case alongside Blog.
+* Added base and localized routes for `/guides/`, `/templates/`, `/examples/`, `/embed/`, and `/use-cases/`.
+* Preserved one canonical task with sequential localized child records and the existing explicit Generate, Preview, Publish workflow.
+* Confirmed that no users, roles, permissions, or RBAC are required; workflow status, validation, explicit Publish, and logs remain the control model.
+
+### Files changed
+
+* `app.py` — preserve native content types, derive typed fallback paths, use collision-safe published filenames, and add type-specific generation instructions.
+* `deploy/georivo/app.py` — typed collection/article routing, locale switching, canonical, hreflang, structured data, preview, and sitemap behavior.
+* `deploy/georivo/georivo.com.conf` — proxy only the approved typed content routes and locale variants to the existing native renderer.
+* `docs/GEORIVO_CONTENT_FACTORY_PLAN.md` — complete factory-only execution plan extracted from the Georivo specification.
+* `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/DEPLOYMENT.md` — durable typed-route, SEO, integration, deployment, and single-user workflow rules.
+
+### Decisions
+
+* Georivo remains existing Blog Core site 14; this change expands its adapter rather than creating another connection.
+* Content type plus slug is the publication identity. Different collections may safely reuse a slug.
+* Empty collection hubs are available but `noindex` and excluded from sitemap until their first explicit publication.
+* Editorial author/reviewer data may be stored as trust metadata, but it does not create application roles.
+
+### Checks run
+
+* Compiled Blog Core, the shared chrome adapter, and the Georivo renderer.
+* Passed a renderer contract fixture for all six content types across EN/DE/ES/FR/RU, including duplicate slugs, canonical, hreflang, preview noindex, redirects, and sitemap.
+* Passed all six existing Georivo publication records through the new renderer in every available language.
+* Verified live Blog Core and Georivo health endpoints and nginx configuration.
+* Verified live `/blog/`, `/de/blog/`, `/guides/`, `/de/guides/`, `/templates/`, `/examples/`, and `/embed/` routes.
+* Browser-checked the live responsive `/blog/` composition after route generalization; native header, hero, article grid, CTA, footer, and language selector remain intact.
+
+### Risks / TODO
+
+* No Guide, Template, Example, Integration guide, or Use case has been queued or published by this task. Empty hubs intentionally remain out of the sitemap.
+* Typed generation currently shares the proven long-form structured article schema with type-specific instructions. Dedicated template/example/integration data schemas, verified source inventory, trust metadata, internal-link plans, and Recommended next remain later phases in `docs/GEORIVO_CONTENT_FACTORY_PLAN.md`.
+
 ## 2026-07-24 — Publish five additional Georivo articles
 
 ### Summary

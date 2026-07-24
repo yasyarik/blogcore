@@ -1213,8 +1213,61 @@ def content_job_target_path(row):
     if not target_path and row["published_url"]:
         target_path = urllib.parse.urlsplit(row["published_url"]).path or ""
     if not target_path and row["slug"]:
-        target_path = f"/blog/{str(row['slug']).strip('/')}/"
-    return target_path or "/blog/"
+        prefix = NATIVE_CONTENT_TYPE_PREFIXES[native_content_type(row)]
+        target_path = f"/{prefix}/{str(row['slug']).strip('/')}/"
+    if target_path:
+        return target_path
+    prefix = NATIVE_CONTENT_TYPE_PREFIXES[native_content_type(row)]
+    return f"/{prefix}/"
+
+
+NATIVE_CONTENT_TYPE_ALIASES = {
+    "article": "blog",
+    "blog": "blog",
+    "blog_post": "blog",
+    "blog-post": "blog",
+    "guide": "guide",
+    "guides": "guide",
+    "template": "template",
+    "templates": "template",
+    "example": "example",
+    "examples": "example",
+    "integration": "integration_guide",
+    "integration-guide": "integration_guide",
+    "integration_guide": "integration_guide",
+    "embed": "integration_guide",
+    "use_case": "use_case",
+    "use-case": "use_case",
+    "use-cases": "use_case",
+    "seo_money_page": "use_case",
+    "seo-money-page": "use_case",
+}
+
+NATIVE_CONTENT_TYPE_PREFIXES = {
+    "blog": "blog",
+    "guide": "guides",
+    "template": "templates",
+    "example": "examples",
+    "integration_guide": "embed",
+    "use_case": "use-cases",
+}
+
+
+def native_content_type(row):
+    sources = content_job_sources(row)
+    raw = str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower()
+    return NATIVE_CONTENT_TYPE_ALIASES.get(raw, "blog")
+
+
+def native_content_store_filename(row, state):
+    if state == "drafts":
+        return f"{row['id']}.json"
+    content_type = native_content_type(row)
+    slug = re.sub(r"[^a-z0-9-]+", "-", str(row["slug"] or "").strip().lower()).strip("-")
+    if not slug:
+        raise ValueError("A published native content record requires a slug")
+    prefix = NATIVE_CONTENT_TYPE_PREFIXES[content_type]
+    return f"{slug}.json" if content_type == "blog" else f"{prefix}--{slug}.json"
 
 
 def source_authoritative_content_job(row):
@@ -1244,8 +1297,7 @@ def native_content_store_payload(site, row, published=False):
     except Exception:
         faq = []
     word_count = len(strip_html_text(row["draft_html"] or "", limit=500000).split())
-    raw_content_type = str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower()
-    content_type = "use_case" if raw_content_type in {"use_case", "use-cases", "seo_money_page", "seo-money-page"} else "blog"
+    content_type = native_content_type(row)
     languages = parse_languages(site["languages"])
     base_language = languages[0]
     translations = {}
@@ -1301,7 +1353,7 @@ def write_native_content_store(site, row, state):
         raise ValueError("A native content record requires a generated draft")
     directory = native_content_store_root(site, row) / state
     directory.mkdir(parents=True, exist_ok=True)
-    filename = f"{row['id']}.json" if state == "drafts" else f"{row['slug']}.json"
+    filename = native_content_store_filename(row, state)
     target = directory / filename
     temporary = target.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(native_content_store_payload(site, row, published=state == "published"), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -6352,9 +6404,20 @@ def build_universal_article_prompt(site, job):
         source_context = json.dumps(json.loads(job["sources_json"] or "{}"), ensure_ascii=False)
     except Exception:
         source_context = job["sources_json"] or ""
+    content_type = native_content_type(job)
+    target_path = content_job_target_path(job)
+    page_contracts = {
+        "blog": "A topical editorial article that earns attention through an original, useful angle.",
+        "guide": "An evergreen decision or how-to guide that answers the main question immediately, then helps the reader act with confidence.",
+        "template": "A reusable working template page. Explain the outcome, intended user, required inputs, step-by-step use, limitations, and a concrete worked example.",
+        "example": "An evidence-led example page. Establish context, show the approach and result, explain what can be learned, and clearly distinguish verified facts from illustrative details.",
+        "integration_guide": "A current platform integration guide. State prerequisites, use only verified steps from supplied context, include validation and troubleshooting, and never invent UI labels or code.",
+        "use_case": "A decision-led use-case page connecting a real operational problem, relevant workflow, limitations, and an appropriate product outcome without unsupported claims.",
+    }
+    page_contract = page_contracts[content_type]
     return f"""
 You are an expert SEO and editorial writer for a real business website.
-Write a useful, human, expert article for the connected site.
+Write a useful, human, expert {content_type.replace('_', ' ')} page for the connected site.
 
 SITE:
 - brand: {brand}
@@ -6368,6 +6431,9 @@ SITE:
 ARTICLE JOB:
 - topic: {job['topic']}
 - category hint: {job['category'] or ''}
+- content type: {content_type}
+- canonical target path: {target_path}
+- page contract: {page_contract}
 - source context: {source_context[:4000]}
 
 QUALITY RULES:
@@ -6387,6 +6453,10 @@ QUALITY RULES:
 - No em dash, no en dash, no asterisks, no smart quotes.
 - Avoid fluff and vague marketing language.
 - Make the article clearly connect the problem/question to why {brand} is useful, but do not turn every section into an ad.
+- Answer the page's primary question directly in the first 50-80 words.
+- Include a clear limitations, suitability, or "not for" section appropriate to the page type.
+- Use only factual claims supported by the supplied site/job context. Mark illustrative scenarios as examples.
+- Treat the canonical target path and content type as fixed publication intent. Do not turn a guide, template, example, integration guide, or use case into a generic blog post.
 """.strip()
 
 
