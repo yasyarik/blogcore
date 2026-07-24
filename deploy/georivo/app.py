@@ -2,6 +2,8 @@ import html
 import json
 import os
 import re
+import time
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,6 +16,15 @@ PUBLISHED_ROOT = CONTENT_ROOT / "published"
 DRAFT_ROOT = CONTENT_ROOT / "drafts"
 BLOG_CORE_ORIGIN = os.environ.get("BLOG_CORE_ORIGIN", "https://blog.yas.ooo").rstrip("/")
 SITE_ORIGIN = "https://georivo.com"
+NATIVE_STYLESHEET_FALLBACK = os.environ.get(
+    "GEORIVO_NATIVE_STYLESHEET",
+    "/assets/index-BzOmagHL.css",
+)
+NATIVE_STYLESHEET_CACHE_SECONDS = 300
+_native_stylesheet_cache = {
+    "href": NATIVE_STYLESHEET_FALLBACK,
+    "checked_at": 0.0,
+}
 
 app = Flask(__name__)
 
@@ -103,9 +114,35 @@ def schema_markup(payload):
     return '<script type="application/ld+json">' + json.dumps(payload, ensure_ascii=False).replace("</", "<\\/") + "</script>"
 
 
+def native_stylesheet_url():
+    now = time.monotonic()
+    if now - _native_stylesheet_cache["checked_at"] < NATIVE_STYLESHEET_CACHE_SECONDS:
+        return _native_stylesheet_cache["href"]
+
+    try:
+        request = urllib.request.Request(
+            f"{SITE_ORIGIN}/",
+            headers={"User-Agent": "GeorivoBlog/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            homepage = response.read(512_000).decode("utf-8", errors="ignore")
+        match = re.search(
+            r'href=["\'](?P<href>/assets/index-[A-Za-z0-9_-]+\.css)["\']',
+            homepage,
+        )
+        if match:
+            _native_stylesheet_cache["href"] = match.group("href")
+    except (OSError, ValueError):
+        pass
+
+    _native_stylesheet_cache["checked_at"] = now
+    return _native_stylesheet_cache["href"]
+
+
 def shell(title, description, body, canonical, schema=None, noindex=False):
     robots = '<meta name="robots" content="noindex,nofollow">' if noindex else '<meta name="robots" content="index,follow,max-image-preview:large">'
     structured = schema_markup(schema) if schema else ""
+    native_stylesheet = native_stylesheet_url()
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -117,7 +154,7 @@ def shell(title, description, body, canonical, schema=None, noindex=False):
   <link rel="canonical" href="{esc(canonical)}">
   <link rel="icon" href="/favicon.ico">
   <link rel="preload" as="image" href="/brand/georivo-on-light.png">
-  <link rel="stylesheet" href="/assets/index-22jNjtDO.css">
+  <link rel="stylesheet" href="{esc(native_stylesheet)}">
   <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260723b">
   {structured}
 </head>

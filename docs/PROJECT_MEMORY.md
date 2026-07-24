@@ -539,6 +539,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: `deploy/georivo/app.py`, `deploy/georivo/georivo-blog.css`, `deploy/georivo/georivo-blog-nav.js`.
 * Replaced/deprecated: The initial custom dark `site-header`/`site-footer` renderer and oversized standalone logo treatment.
 
+### 2026-07-24 — Resolve Georivo's native hashed stylesheet dynamically
+
+* Decision: The Georivo blog renderer discovers the current `/assets/index-*.css` reference from the live product homepage, validates the path against a strict asset pattern, and caches it briefly. A configurable current fallback remains available when the upstream homepage cannot be read.
+* Reason: The externally hosted product rebuilds its CSS under new hashed filenames. Pinning one hash caused the blog's otherwise native header/footer structure to render unstyled as soon as the upstream asset changed.
+* Files/areas affected: `deploy/georivo/app.py` and the live `/var/www/georivo-blog/app.py`.
+* Replaced/deprecated: Hard-coded `/assets/index-22jNjtDO.css`.
+
 ### 2026-07-24 — Georivo trend-led editorial territory
 
 * Decision: Georivo's initial journal should build authority around the intersection of virtual property tours, real-estate photography, drone alternatives, interactive maps, digital twins, neighborhood context, remote-buyer decisions, and verifiable geospatial visualization. Raw Trends/search phrases are research signals, not article titles.

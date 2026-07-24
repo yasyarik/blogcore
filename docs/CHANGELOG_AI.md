@@ -2,6 +2,36 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-24 — Restore Georivo blog's native stylesheet
+
+### Summary
+
+* Identified that the Georivo product's hashed native CSS asset changed while the blog renderer still referenced the old asset, which now returned `404`.
+* Restored the current native stylesheet and made stylesheet discovery dynamic so future upstream rebuilds do not leave the blog header, footer, logo, and navigation unstyled.
+* Kept the source `header.nav.glass` and footer DOM contracts unchanged; no replacement visual system was introduced.
+
+### Files changed
+
+* `deploy/georivo/app.py` — validated discovery and short caching of the current native `/assets/index-*.css` path.
+* `docs/PROJECT_MEMORY.md` — recorded the durable hashed-asset rule.
+* `docs/CHANGELOG_AI.md` — logged the repair and verification.
+
+### Decisions
+
+* Source-owned hashed assets must be resolved from the source page rather than copied into a permanent hard-coded renderer URL.
+
+### Checks run
+
+* Compiled the live and tracked Georivo renderer.
+* Restarted `georivo-blog` and verified its service and public `/blog/` response.
+* Verified `/blog/` now references the live native `/assets/index-BzOmagHL.css` asset, which returns HTTP 200.
+* Browser-verified the repaired full page.
+* Compared computed header and footer styles between the product homepage and `/blog/`; position, dimensions, padding, colors, display, and border radius match.
+
+### Risks / TODO
+
+* If the external product stops using the `/assets/index-*.css` naming contract entirely, configure `GEORIVO_NATIVE_STYLESHEET` or update the strict resolver pattern.
+
 ## 2026-07-24 — Research Georivo trend-led article topics
 
 ### Summary
