@@ -2,6 +2,40 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-25 — Automate Georivo Search Console submission retries
+
+### Summary
+
+* Added a durable Search Console adapter that validates the public sitemap, authenticates with the existing service account, checks property permissions, submits through the official API, and reads back the sitemap record.
+* Added an atomic ignored status file with distinct `blocked`, `error`, and `submitted` states.
+* Enabled a daily systemd retry so granting property access later does not require another deployment or manual command.
+
+### Files changed
+
+* `requirements.txt` — added pinned `google-auth` and `requests` runtime dependencies.
+* `.gitignore` — ignored the server-only `keys/` directory.
+* `deploy/georivo/gsc_submit.py` — official API check/submit adapter and atomic status reporting.
+* `deploy/georivo/georivo-gsc-submit.service`, `deploy/georivo/georivo-gsc-submit.timer` — daily retry deployment.
+* `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/INTEGRATIONS.md`, `docs/GEORIVO_CONTENT_FACTORY_PLAN.md`, `docs/CHANGELOG_AI.md` — durable GSC behavior and blocker state.
+
+### Decisions
+
+* Missing property permission is a controlled temporary blocker (`75`), not a credential or application error.
+* Search Console success is recorded only after API submission and read-back; a public sitemap or systemd success alone is insufficient.
+* Credentials remain in ignored `keys/` with restrictive permissions.
+
+### Checks run
+
+* Compiled `gsc_submit.py`.
+* Installed the pinned dependencies in the Blog Core virtualenv.
+* Verified the script authenticates, validates the 122,943-byte public XML, hashes it, and records `blocked` because the service account is absent from `sc-domain:georivo.com`.
+* Verified a missing credential produces `status=error` and exit code `1`.
+* Enabled and ran `georivo-gsc-submit.timer`; the controlled `75` result is accepted and the next daily run is scheduled.
+
+### Risks / TODO
+
+* Property ownership/access is still external. The current Google account cannot access Georivo, so it cannot add the service account. The official submission will remain `blocked` until a verified owner grants `siteFullUser` or `siteOwner`.
+
 ## 2026-07-25 — Complete and publish the Georivo typed content plan
 
 ### Summary

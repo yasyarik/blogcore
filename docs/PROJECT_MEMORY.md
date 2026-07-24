@@ -3,6 +3,15 @@
 This file is the durable memory of the project.
 It must be updated after every meaningful task.
 
+## 2026-07-25 — Search Console submission is retryable and observable
+
+* Decision: Native-site Search Console submission uses a repository script with Google service-account OAuth, public sitemap validation, explicit property-permission checks, official Webmasters API submission, and an atomic ignored status file.
+* Reason: A public sitemap and an authenticated service account are not proof that Google accepted a submission. The system must distinguish missing property access from credential/network/API errors and record the actual result.
+* Files/areas affected: `requirements.txt`, `.gitignore`, `deploy/georivo/gsc_submit.py`, `georivo-gsc-submit.service`, `georivo-gsc-submit.timer`, and ignored `data/georivo-gsc-status.json`.
+* Decision: Exit code `75` means a controlled external-access blocker and is accepted by systemd; exit code `1` remains a real operational error. The daily timer retries automatically after the content audit.
+* Reason: Property permission can be granted later without another deployment, while credential or network failures must remain visible as failures.
+* Replaced/deprecated: One-off manual GSC commands that leave no durable state and require an operator to remember to rerun them.
+
 ## 2026-07-25 — Georivo typed content rollout is live
 
 * Decision: Georivo's approved initial typed-content tree is live as 19 canonical tasks: 8 Guides, 3 Templates, 4 Examples, and 4 Integration guides. Every task publishes EN plus DE/ES/FR/RU variants from one dashboard record.

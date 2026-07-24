@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry Georivo Search Console sitemap submission daily
+
+[Timer]
+OnCalendar=*-*-* 04:45:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+Unit=georivo-gsc-submit.service
+
+[Install]
+WantedBy=timers.target

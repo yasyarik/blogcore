@@ -38,6 +38,9 @@ curl -fsS http://127.0.0.1:3299/health
 * Nginx proxies only the Blog Core-owned content paths `/blog`, `/guides`, `/templates`, `/examples`, `/embed`, `/use-cases`, their configured locale-prefixed equivalents, `/content-preview/`, and `/sitemap.xml` to `127.0.0.1:13340`. All other product routes remain on the existing Georivo upstream.
 * Native renderer services import shared `/var/www/blog.yas.ooo/native_site_chrome.py`; set `PYTHONPATH=/var/www/blog.yas.ooo` in their service environment.
 * `georivo-content-audit.timer` runs the public content-contract audit daily at 04:15 UTC with up to 10 minutes of randomized delay. The oneshot service must finish with status `0/SUCCESS`.
+* `georivo-gsc-submit.timer` runs at 04:45 UTC with up to 10 minutes of randomized delay. It validates the public sitemap and retries official Search Console submission.
+* The GSC credential lives only at ignored `/var/www/blog.yas.ooo/keys/gsc-service-account.json` with mode `0600`. Never commit or print its private-key fields.
+* GSC runtime state is ignored `/var/www/blog.yas.ooo/data/georivo-gsc-status.json`. `blocked` means the credential is valid but lacks property access; `error` means an operational failure; `submitted` is the only success state.
 
 ```bash
 python3 -m py_compile /var/www/georivo-blog/app.py
@@ -46,6 +49,7 @@ curl -fsS http://127.0.0.1:13340/health
 cd /var/www/blog.yas.ooo/deploy/georivo
 python3 audit_content_plan.py --check-public
 systemctl list-timers --all georivo-content-audit.timer --no-pager
+systemctl list-timers --all georivo-gsc-submit.timer --no-pager
 nginx -t
 systemctl reload nginx
 ```
@@ -58,6 +62,7 @@ systemctl reload nginx
 * `HOSTED_BLOG_IPS`: default `72.61.1.109`.
 * `GEMINI_API_KEY` or `GOOGLE_API_KEY`: enables Gemini article generation and automatic site topic-profile inference.
 * `GEMINI_TEXT_MODEL`, `GEMINI_MODEL_TEXT`, or `GEMINI_MODEL`: optional text-model override.
+* `GSC_SERVICE_ACCOUNT_FILE`: optional path override for deploy scripts that submit sitemaps through Google Search Console.
 
 Do not store secrets or raw `.env` contents in this file.
 

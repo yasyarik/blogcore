@@ -143,6 +143,7 @@ Completed:
 Externally blocked:
 
 * Search Console submission cannot complete until a verified Georivo property grants access to the existing service account. Both API property forms return `403`, and the currently authorized Google account reports no access to `georivo.com`.
+* A daily retry adapter is deployed. Once access is granted, it will validate and submit the current sitemap through the official API without another code change.
 
 Measurement work remains ongoing by design:
 

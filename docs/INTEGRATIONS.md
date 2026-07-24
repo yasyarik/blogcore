@@ -109,6 +109,8 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * `deploy/georivo/audit_content_plan.py` is the independent static/public contract audit. `deploy/georivo/visual-test.js` is the browser gate for 19 pages across five desktop locales plus one mobile EN viewport per page (114 checks). Lazy images must be scrolled into view and decoded before they are judged broken.
 * The daily `georivo-content-audit.timer` reruns the public audit. It does not generate, edit, or publish content.
 * Georivo GSC submission is blocked by access, not by sitemap generation. The existing service account is not listed on a Georivo Search Console property, and the currently authorized Google account cannot access `sc-domain:georivo.com`. Grant access to a verified property before retrying `sitemaps.submit`; never claim success from a public sitemap response alone.
+* `deploy/georivo/gsc_submit.py` validates the public XML, authenticates with the ignored service-account credential, checks `sites.list` for `siteOwner` or `siteFullUser`, submits through the official Webmasters v3 endpoint, reads back the sitemap record, and writes atomic runtime status. It never creates or verifies a Search Console property.
+* `georivo-gsc-submit.timer` retries daily. Controlled missing access exits `75`; systemd accepts that code so the timer remains healthy. Credential, public-sitemap, network, and unexpected API failures exit `1`.
 
 ## YAS Source Scanner draft ingestion
 

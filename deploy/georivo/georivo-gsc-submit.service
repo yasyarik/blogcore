@@ -1,0 +1,12 @@
+[Unit]
+Description=Submit the Georivo sitemap to Google Search Console
+After=network-online.target georivo-content-audit.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/var/www/blog.yas.ooo/deploy/georivo
+Environment=GSC_SERVICE_ACCOUNT_FILE=/var/www/blog.yas.ooo/keys/gsc-service-account.json
+ExecStart=/var/www/blog.yas.ooo/.venv/bin/python3 /var/www/blog.yas.ooo/deploy/georivo/gsc_submit.py
+SuccessExitStatus=75
