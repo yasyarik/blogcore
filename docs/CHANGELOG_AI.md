@@ -2,6 +2,38 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-24 — Generate and publish Georivo's first multilingual article
+
+### Summary
+
+* Confirmed that Georivo had no queued jobs; the earlier topic slate existed only as recommendations and had not been inserted into Blog Core.
+* Queued, generated, validated, and explicitly published “How Remote Property Buyers Evaluate Location Before Booking a Viewing”.
+* Produced one canonical task with EN, DE, ES, FR, and RU variants plus one hero and three inline editorial images.
+* Corrected native-store reading-time calculation so it counts the complete article instead of the 1400-character text-excerpt default.
+
+### Files changed
+
+* `app.py` — count full native article HTML when calculating base and localized `readMinutes`.
+* `docs/PROJECT_MEMORY.md` — recorded Georivo's first live multilingual article.
+* `docs/CHANGELOG_AI.md` — logged generation, publication, validation, and the reading-time correction.
+
+### Decisions
+
+* A proposed topic list is not considered queued until `content_jobs` rows exist.
+* Native-store reading time must use full article text; excerpt limits remain appropriate only for summaries and metadata.
+
+### Checks run
+
+* Validated the base article at 1688 words, 7 sections, 3 inline images, one hero, a table, an ordered list, and 6 FAQ items.
+* Validated all four localized child records and confirmed every language preview remained `noindex,nofollow`.
+* Published through the native content-store publisher and verified HTTP 200 for all five public article URLs.
+* Verified the article appears on `/blog/`, all four image assets return HTTP 200, article pages expose six hreflang entries including x-default, and the multilingual sitemap contains the article.
+* Browser-verified the live EN article structure, media, TOC, FAQ, native header/footer, and language selector.
+
+### Risks / TODO
+
+* The remaining proposed Georivo topics are not queued yet.
+
 ## 2026-07-24 — Add end-to-end multilingual native publishing
 
 ### Summary

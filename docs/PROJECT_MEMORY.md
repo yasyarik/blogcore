@@ -560,6 +560,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: site 14 language settings, `deploy/georivo/`, live `/var/www/georivo-blog`, and `/etc/nginx/conf.d/georivo.com.conf`.
 * Replaced/deprecated: Georivo as an English-only native journal.
 
+### 2026-07-24 — Georivo first live multilingual article
+
+* Decision: Georivo's first Blog Core-owned publication is the canonical task “How Remote Property Buyers Evaluate Location Before Booking a Viewing”, published at `/blog/remote-property-buyers-evaluate-location-before-viewing/` with DE/ES/FR/RU counterparts under their locale prefixes.
+* Reason: It establishes the intended editorial territory through a real end-to-end native publication and proves one-task multilingual generation, media delivery, language routing, hreflang, index listing, and sitemap expansion.
+* Files/areas affected: Blog Core site 14 database records and `/var/www/georivo-blog/data/blog-core/published/`.
+* Replaced/deprecated: Georivo's connected-but-empty journal state.
+
 ### 2026-07-24 — Georivo trend-led editorial territory
 
 * Decision: Georivo's initial journal should build authority around the intersection of virtual property tours, real-estate photography, drone alternatives, interactive maps, digital twins, neighborhood context, remote-buyer decisions, and verifiable geospatial visualization. Raw Trends/search phrases are research signals, not article titles.

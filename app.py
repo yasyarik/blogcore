@@ -1241,7 +1241,7 @@ def native_content_store_payload(site, row, published=False):
         faq = json.loads(row["faq_json"] or "[]")
     except Exception:
         faq = []
-    word_count = len(strip_html_text(row["draft_html"] or "").split())
+    word_count = len(strip_html_text(row["draft_html"] or "", limit=500000).split())
     raw_content_type = str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower()
     content_type = "use_case" if raw_content_type in {"use_case", "use-cases", "seo_money_page", "seo-money-page"} else "blog"
     languages = parse_languages(site["languages"])
@@ -1262,7 +1262,7 @@ def native_content_store_payload(site, row, published=False):
             localized_faq = json.loads(localized["faq_json"] or "[]")
         except Exception:
             localized_faq = []
-        localized_word_count = len(strip_html_text(localized["draft_html"] or "").split())
+        localized_word_count = len(strip_html_text(localized["draft_html"] or "", limit=500000).split())
         translations[localized["language"]] = {
             "slug": localized["slug"],
             "title": localized["title"],
