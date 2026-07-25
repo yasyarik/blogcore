@@ -429,6 +429,31 @@ def load_content_record(directory, content_type, slug):
     return None
 
 
+def is_money_page_record(record):
+    slug = str(record.get("slug") or "").strip("/")
+    content_type = record_content_type(record)
+    return (
+        slug in MONEY_PAGE_SLUGS
+        and (
+            content_type == "money_page"
+            or (
+                content_type == "use_case"
+                and record.get("canonicalRootPage") is True
+            )
+        )
+    )
+
+
+def load_money_page_record(directory, slug):
+    slug = str(slug or "").strip("/")
+    if slug not in MONEY_PAGE_SLUGS:
+        return None
+    for record in load_records(directory):
+        if is_money_page_record(record) and str(record.get("slug") or "").strip("/") == slug:
+            return record
+    return None
+
+
 def absolute_article_assets(markup):
     return re.sub(
         r'(?P<attr>\b(?:src|href)=["\'])(?P<path>/sites/\d+/article-assets/)',
@@ -928,7 +953,7 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
       </section>
       {checker}
       <section class="money-content">
-        <div class="money-content-inner">{body_html}</div>
+        <div class="money-content-inner"><div class="article-copy">{body_html}</div></div>
       </section>
       <section class="money-final">
         <span>{esc(record.get("finalEyebrow") or labels["build"])}</span>
@@ -939,12 +964,13 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
       </section>
     </main>
     """
+    schema_record = {**record, "contentType": "money_page", "pageType": "seo_money_page"}
     return shell(
         f"{title} | Georivo",
         description,
         body,
         canonical,
-        article_schema(record, canonical),
+        article_schema(schema_record, canonical),
         noindex=preview,
         language=language,
         alternate_urls=alternate_urls,
@@ -1154,7 +1180,7 @@ def localized_published_article(language, section, slug):
 def published_money_page(money_slug):
     if money_slug not in MONEY_PAGE_SLUGS:
         abort(404)
-    record = load_content_record(PUBLISHED_ROOT, "money_page", money_slug)
+    record = load_money_page_record(PUBLISHED_ROOT, money_slug)
     if not record:
         abort(404)
     return money_page(record, DEFAULT_LANGUAGE)
@@ -1164,7 +1190,7 @@ def published_money_page(money_slug):
 def localized_published_money_page(language, money_slug):
     if language not in LANGUAGES or language == DEFAULT_LANGUAGE or money_slug not in MONEY_PAGE_SLUGS:
         abort(404)
-    record = load_content_record(PUBLISHED_ROOT, "money_page", money_slug)
+    record = load_money_page_record(PUBLISHED_ROOT, money_slug)
     if not record:
         abort(404)
     return money_page(record, language)
@@ -1217,7 +1243,7 @@ def draft_preview(job_id):
     language = normalize_language(request.args.get("lang"))
     return (
         money_page(record, language, preview=True)
-        if record_content_type(record) == "money_page"
+        if is_money_page_record(record)
         else article_page(record, language, preview=True)
     )
 
@@ -1232,7 +1258,7 @@ def sitemap():
     ]
     records = load_records(PUBLISHED_ROOT)
     for slug in MONEY_PAGE_SLUGS:
-        record = load_content_record(PUBLISHED_ROOT, "money_page", slug)
+        record = load_money_page_record(PUBLISHED_ROOT, slug)
         if not record:
             continue
         alternates = {
@@ -1241,7 +1267,10 @@ def sitemap():
         }
         groups.extend((url, "0.9", alternates) for url in alternates.values())
     type_counts = {
-        content_type: sum(1 for record in records if record_content_type(record) == content_type)
+        content_type: sum(
+            1 for record in records
+            if record_content_type(record) == content_type and not is_money_page_record(record)
+        )
         for content_type in CONTENT_SECTIONS
     }
     available_types = {content_type for content_type, count in type_counts.items() if count}
@@ -1258,7 +1287,7 @@ def sitemap():
         groups.extend((url, "0.8", section_alternates) for url in section_alternates.values())
     for record in records:
         slug = str(record.get("slug") or "").strip("/")
-        if slug and record_content_type(record) != "money_page":
+        if slug and not is_money_page_record(record):
             content_type = record_content_type(record)
             article_alternates = {
                 language: f"{SITE_ORIGIN}{article_path(language, slug, content_type)}"

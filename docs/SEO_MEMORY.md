@@ -2,9 +2,9 @@
 
 ## Current SEO behavior
 
-* Georivo root SEO money pages `/how-it-works`, `/coverage`, and `/pricing` are canonical Blog Core `money_page` records for site 14. EN is unprefixed; DE/ES/FR/RU use locale prefixes. Each page emits its exact canonical, the complete five-language hreflang set with EN as `x-default`, one H1, `WebPage` plus breadcrumb structured data, and one unique thematic hero.
+* Georivo root SEO money pages `/how-it-works`, `/coverage`, and `/pricing` are genuine Blog Core factory `seo_money_page`/`use_case` records for site 14. EN is unprefixed; DE/ES/FR/RU use locale prefixes. Each page emits its exact canonical, the complete five-language hreflang set with EN as `x-default`, one H1, `WebPage` plus breadcrumb structured data, and one unique factory-generated thematic hero.
 * These pages use the live Georivo header/footer and design stylesheet captured by `LiveSiteChrome`; they must not use an article byline/date shell or a separately recreated commercial-page header/footer.
-* The composite sitemap lists every one of the 15 money-page language URLs exactly once. `deploy/georivo/audit_money_pages.py` enforces the canonical, hreflang, shared-chrome, unique-hero, real coverage-form, and pricing-checkout contracts.
+* The composite sitemap lists every one of the 15 money-page language URLs exactly once. `deploy/georivo/audit_money_pages.py` also rejects thin/manual substitutes by requiring at least 1,200 visible content words, 7 headings, exactly 3 editorial figures, a comparison table, and at least 5 FAQ items in addition to canonical, hreflang, shared chrome, unique hero, real coverage form, and pricing checkout.
 * Hosted custom-domain blogs serve `robots.txt` allowing all and pointing to `/sitemap.xml` on the current Host.
 * Hosted custom-domain blogs serve `sitemap.xml` with `/blog/` plus public imported/generated `content_jobs` when jobs exist.
 * If a hosted site has no public content jobs, hosted `sitemap.xml` falls back to `/blog/visual-chaos-in-ai-product-cards/`.
@@ -33,6 +33,7 @@
 * The Georivo Guides hub groups evergreen pages by reader decision stage (`Understand`, `Compare`, `Plan`, `Implement`) rather than publication date.
 * Georivo typed previews remain `noindex,nofollow`; only records that passed editorial, fact, SEO, and browser QA and were explicitly published enter public hubs and sitemap.
 * Model-output hygiene is an SEO publish requirement. Visible copy must be rejected if it contains code fences, chain-of-thought/control markers, JSON-output narration, or similar generation artifacts.
+* Internal taxonomy must not leak into public eyebrow copy. Product-root pages use approved localized `pageBrief.categoryLabels`, not labels such as `SEO Money Page`.
 
 ## Known SEO gaps
 

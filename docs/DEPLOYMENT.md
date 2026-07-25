@@ -44,7 +44,6 @@ curl -fsS http://127.0.0.1:3299/health
 
 ```bash
 python3 -m py_compile /var/www/georivo-blog/app.py
-python3 /var/www/blog.yas.ooo/deploy/georivo/seed_money_pages.py
 systemctl restart georivo-blog
 curl -fsS http://127.0.0.1:13340/health
 python3 /var/www/blog.yas.ooo/deploy/georivo/audit_money_pages.py
@@ -55,6 +54,12 @@ systemctl list-timers --all georivo-gsc-submit.timer --no-pager
 nginx -t
 systemctl reload nginx
 ```
+
+Root money pages are created and published from Blog Core content jobs. Do not
+restore or run the retired `seed_money_pages.py` manual publisher. A root
+canonical requires a factory `seo_money_page` job with
+`canonicalRootPage=true`, `targetPath=/{slug}`, a generated-content contract,
+validated localizations, and an explicit Publish action.
 
 ## Environment
 

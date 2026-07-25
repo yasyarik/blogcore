@@ -10,11 +10,20 @@
 This file is the durable memory of the project.
 It must be updated after every meaningful task.
 
+## 2026-07-25 — Georivo root money pages use the genuine Blog Core factory
+
+* Decision: `/how-it-works`, `/coverage`, and `/pricing` are generated as native `seo_money_page`/`use_case` jobs by the standard Blog Core text, factual-edit, image, localization, validation, draft, and explicit-publish pipeline.
+* Decision: A native use-case may publish at an approved root canonical only when `sources_json.canonicalRootPage` is exactly `true` and `targetPath` exactly equals `/{slug}`. Other typed pages retain their normal collection prefix.
+* Decision: Root money-page records are stored as ordinary factory `use_case` files. The Georivo renderer recognizes only the three approved root slugs as money pages and presents them with `WebPage` schema and the shared product chrome.
+* Decision: Public category/eyebrow copy comes from approved per-language `pageBrief.categoryLabels`; internal workflow terms such as `SEO Money Page` must not leak into visible copy.
+* Replaced/deprecated: The deterministic `seed_money_pages.py` implementation and its manually authored short HTML are retired. The old `money--*.json` records were replaced by factory-generated `use-cases--*.json` records and preserved only in the dated VPS backup.
+* Verification: each EN draft passed the factory contract with 1,821–2,116 words, 8 sections, 3 inline images, 6 FAQ items, contextual links, and exactly 3 recommended-next links; all DE/ES/FR/RU variants passed localization validation. The strict public audit passed all 15 canonical language URLs.
+
 ## 2026-07-25 — Georivo SEO money pages are owned by live Blog Core
 
-* Decision: `/how-it-works`, `/coverage`, and `/pricing`, plus DE/ES/FR/RU variants, are first-class `money_page` records for Blog Core site 14 and are rendered by `georivo-blog.service`; they are not independent React commercial-page copies.
+* Replaced 2026-07-25: `/how-it-works`, `/coverage`, and `/pricing`, plus DE/ES/FR/RU variants, remain owned by Blog Core site 14 and rendered by `georivo-blog.service`, but the earlier manual `money_page` seed records are superseded by genuine factory-generated `use_case` records.
 * Reason: SEO money pages need the live content workflow while remaining visually and navigationally part of `georivo.com`.
-* Files/areas affected: `deploy/georivo/app.py`, `seed_money_pages.py`, `georivo-blog.css`, `georivo-blog-nav.js`, `georivo.com.conf`, native published records, and site 14 content jobs.
+* Files/areas affected: `deploy/georivo/app.py`, `georivo-blog.css`, `georivo-blog-nav.js`, `georivo.com.conf`, native published records, and site 14 content jobs.
 * Decision: The renderer continues to obtain the current Georivo header, footer, and native stylesheet through `LiveSiteChrome`. Money pages add only a namespaced marketing-page body, so source chrome remains the single public header/footer implementation.
 * Decision: Every money page has its own thematic hero. Coverage calls the real production coverage endpoint, and Pricing opens the existing account-aware Stripe Checkout flow. Neither interaction may simulate success.
 * Replaced/deprecated: The React-origin implementations for these three public paths are no longer the production owner after Nginx cutover.

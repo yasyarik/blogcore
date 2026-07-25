@@ -1357,6 +1357,7 @@ def native_content_store_payload(site, row, published=False):
         "readMinutes": max(1, math.ceil(word_count / 220)),
         "targetPath": content_job_target_path(row),
         "contentType": content_type,
+        "canonicalRootPage": sources.get("canonicalRootPage") is True,
         "editorial": {
             "author": str(editorial.get("author") or "").strip(),
             "reviewer": str(editorial.get("reviewer") or "").strip(),
@@ -6866,8 +6867,19 @@ def apply_approved_page_brief(draft, job, language="en"):
         fixed["description"] = str(brief["metaDescription"]).strip()
     if str(brief.get("directAnswer") or "").strip():
         fixed["lead"] = str(brief["directAnswer"]).strip()
+    fixed = apply_approved_category_label(fixed, job, language)
     fixed = apply_typed_safety_section(fixed, job, language=language)
     return ensure_typed_navigation_contract(fixed, job)
+
+
+def apply_approved_category_label(draft, job, language="en"):
+    sources = content_job_sources(job)
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    labels = brief.get("categoryLabels") if isinstance(brief.get("categoryLabels"), dict) else {}
+    label = str(labels.get(language) or "").strip()
+    if label:
+        draft["category"] = label
+    return draft
 
 
 def sanitize_typed_image_copy(draft):
@@ -7046,6 +7058,7 @@ def generate_native_content_localizations(site, job, draft, slug, article_asset_
             repair=False,
         )
         localized = apply_typed_safety_section(localized, job, language=language)
+        localized = apply_approved_category_label(localized, job, language=language)
         localized["slug"] = slug
         localized["heroImage"] = draft.get("heroImage") or ""
         localized_images = localized.get("images") if isinstance(localized.get("images"), list) else []
@@ -7800,7 +7813,13 @@ def validate_native_publish_contract(site, job):
 
     target_path = content_job_target_path(job)
     expected_prefix = f"/{NATIVE_CONTENT_TYPE_PREFIXES[content_type]}/"
-    if not target_path.startswith(expected_prefix):
+    canonical_root_page = sources.get("canonicalRootPage") is True
+    expected_root_path = f"/{str(job['slug'] or '').strip('/')}"
+    if canonical_root_page and content_type != "use_case":
+        errors.append("canonicalRootPage is allowed only for SEO money/use-case pages")
+    elif canonical_root_page and target_path != expected_root_path:
+        errors.append(f"canonical root targetPath must equal {expected_root_path}")
+    elif not canonical_root_page and not target_path.startswith(expected_prefix):
         errors.append(f"targetPath must start with {expected_prefix}")
     if not str(job["hero_image"] or "").strip():
         errors.append("hero image is required")
@@ -7850,6 +7869,7 @@ def validate_native_publish_contract(site, job):
         "internalLinks": len(internal_links),
         "recommendedNext": len(recommended),
         "sources": len(source_references),
+        "canonicalRootPage": canonical_root_page,
     }
 
 

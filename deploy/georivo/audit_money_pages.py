@@ -4,6 +4,7 @@
 from html.parser import HTMLParser
 import argparse
 import json
+import re
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -21,6 +22,12 @@ class PageParser(HTMLParser):
     def __init__(self):
         super().__init__()
         self.h1_count = 0
+        self.h2_count = 0
+        self.figure_count = 0
+        self.table_count = 0
+        self.details_count = 0
+        self.content_depth = 0
+        self.content_text = []
         self.canonical = ""
         self.alternates = {}
         self.hero = ""
@@ -36,6 +43,14 @@ class PageParser(HTMLParser):
         classes = attrs.get("class", "").split()
         if tag == "h1":
             self.h1_count += 1
+        elif tag == "h2":
+            self.h2_count += 1
+        elif tag == "figure":
+            self.figure_count += 1
+        elif tag == "table":
+            self.table_count += 1
+        elif tag == "details":
+            self.details_count += 1
         elif tag == "link" and attrs.get("rel") == "canonical":
             self.canonical = attrs.get("href", "")
         elif tag == "link" and attrs.get("rel") == "alternate":
@@ -48,6 +63,10 @@ class PageParser(HTMLParser):
             self.money_page = attrs["data-money-page"]
         elif tag == "div" and "money-hero-media" in classes:
             self.in_hero_media = True
+        if tag == "div" and "money-content-inner" in classes:
+            self.content_depth = 1
+        elif tag == "div" and self.content_depth:
+            self.content_depth += 1
         elif tag == "img" and self.in_hero_media and not self.hero:
             self.hero = attrs.get("src", "")
         if "data-money-checker" in attrs:
@@ -58,6 +77,16 @@ class PageParser(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "div" and self.in_hero_media:
             self.in_hero_media = False
+        if tag == "div" and self.content_depth:
+            self.content_depth -= 1
+
+    def handle_data(self, data):
+        if self.content_depth:
+            self.content_text.append(data)
+
+    @property
+    def content_words(self):
+        return len(re.findall(r"\b[\wÀ-žА-яЁё'-]+\b", " ".join(self.content_text)))
 
 
 def fetch(url):
@@ -109,6 +138,11 @@ def main():
                 "shared_footer": parsed.has_footer,
                 "money_template": parsed.money_page == slug,
                 "hero": bool(parsed.hero),
+                "long_form": parsed.content_words >= 1200,
+                "sections": parsed.h2_count >= 7,
+                "editorial_images": parsed.figure_count == 3,
+                "comparison_table": parsed.table_count >= 1,
+                "faq": parsed.details_count >= 5,
                 "coverage_checker": slug != "coverage" or parsed.has_checker,
                 "pricing_checkout": slug != "pricing" or parsed.has_checkout,
             }

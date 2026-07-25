@@ -21,9 +21,47 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-25 — Replace manual Georivo pages with genuine factory output
+
+## Summary
+
+* Requeued How it works, Coverage, and Pricing as real Blog Core `seo_money_page` jobs with approved factual briefs.
+* Ran the complete two-pass Gemini generation, image generation, five-language localization, strict validation, draft preview, browser QA, and explicit native publication workflow.
+* Replaced the manual native records and removed the deterministic manual seed path.
+* Added a guarded root-canonical contract and strengthened the public audit so thin manual substitutes cannot pass again.
+
+## Files changed
+
+* `app.py` — guarded `canonicalRootPage` publication and approved localized category labels.
+* `deploy/georivo/app.py` — resolves approved factory `use_case` records at the three root money-page routes while preserving `WebPage` schema and product-page rendering.
+* `deploy/georivo/audit_money_pages.py` — long-form structure, image, table, and FAQ release gates.
+* `deploy/georivo/seed_money_pages.py` — removed; manual page authoring is deprecated.
+* `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — corrected the durable ownership and release record.
+
+## Decisions
+
+* Blog Core may publish a use-case at `/{slug}` only with explicit `canonicalRootPage=true` and an exact matching target path.
+* Editorial metadata may be approved deterministically, but page prose, factual editing, imagery, and localization must come from the factory pipeline.
+* Internal labels such as `SEO Money Page` are not public copy.
+
+## Checks run
+
+* Blog Core generated EN drafts with 2,116, 1,821, and 2,106 validated words respectively; every page has 8 sections, 3 inline images, 6 FAQ items, contextual links, a table, ordered steps, and exactly 3 recommended-next links.
+* DE/ES/FR/RU localizations generated and validated for all three pages.
+* Native publish contracts passed with generated-content evidence and four localized variants.
+* Desktop and mobile Playwright preview/live checks passed with shared chrome and zero browser console errors.
+* Strict public audit passed all 15 canonical language URLs and sitemap entries.
+* Blog Core and Georivo renderer compilation/health checks passed.
+
+## Risks / TODO
+
+* Coverage continues to expose the existing real provider response; provider access is a separate integration concern and is not simulated by these pages.
+
 ## 2026-07-25 — Publish Georivo SEO money pages through live Blog Core
 
 ## Summary
+
+* Replaced later on 2026-07-25: this release used a deterministic manual seed and must not be described as factory-generated. See the correction entry above.
 
 * Added dedicated Blog Core rendering and native records for How it works, Coverage, and Pricing in EN/DE/ES/FR/RU.
 * Reused the live Georivo header, footer, and stylesheet while giving every page a distinct thematic hero and product-specific layout.
