@@ -1,4 +1,16 @@
 (() => {
+  const locale = (() => {
+    const pathLocale = window.location.pathname.match(/^\/(de|es|fr|ru)(?:\/|$)/);
+    return pathLocale ? pathLocale[1] : "en";
+  })();
+  const blogLabels = {
+    en: "Blog",
+    de: "Magazin",
+    es: "Revista",
+    fr: "Journal",
+    ru: "Блог",
+  };
+  const blogPath = locale === "en" ? "/blog/" : `/${locale}/blog/`;
   const hasBlogLink = (root) =>
     Array.from(root.querySelectorAll("a[href]")).some((link) =>
       /^\/(?:[a-z]{2}\/)?blog\/?$/.test(new URL(link.href, window.location.origin).pathname)
@@ -8,8 +20,8 @@
     const nav = document.querySelector("header nav, nav");
     if (nav && !hasBlogLink(nav)) {
       const link = document.createElement("a");
-      link.href = "/blog/";
-      link.textContent = "Blog";
+      link.href = blogPath;
+      link.textContent = blogLabels[locale];
       const signIn = nav.querySelector('a[href="/login"]');
       nav.insertBefore(link, signIn || null);
     }
@@ -19,8 +31,8 @@
       const pricing = footer.querySelector('a[href="#plans"], a[href="/#plans"]');
       if (!pricing) return;
       const link = document.createElement("a");
-      link.href = "/blog/";
-      link.textContent = "Blog";
+      link.href = blogPath;
+      link.textContent = blogLabels[locale];
       pricing.insertAdjacentElement("afterend", link);
     });
   };

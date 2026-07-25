@@ -3,6 +3,13 @@
 This file is the durable memory of the project.
 It must be updated after every meaningful task.
 
+## 2026-07-25 — Native content navigation follows the active locale
+
+* Decision: Existing source-header/footer links for Blog Core-owned content sections are rewritten to the active locale path and localized menu label by the native renderer.
+* Reason: Reusing live source chrome can preserve newly added `/guides/` and `/blog/` anchors with English labels and EN URLs unless the adapter localizes the existing anchors, not only links it inserts itself.
+* Files/areas affected: `deploy/georivo/app.py` and `deploy/georivo/georivo-blog-nav.js`.
+* Current labels: EN `Guides`/`Blog`; DE `Leitfäden`/`Magazin`; ES `Guías`/`Revista`; FR `Guides`/`Journal`; RU `Руководства`/`Блог`.
+
 ## 2026-07-25 — Georivo Search Console monitoring is durable
 
 * Decision: The daily Georivo Search Console task records two complete 28-day performance windows, top pages, and URL Inspection results for the primary product/collection URLs after every successful sitemap read-back.

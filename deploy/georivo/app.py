@@ -79,7 +79,7 @@ UI = {
         "not_found": "This location is not on the map.", "not_found_copy": "The requested journal page does not exist.",
     },
     "de": {
-        "examples": "Beispiele", "how": "So funktioniert es", "pricing": "Preise", "blog": "Blog",
+        "examples": "Beispiele", "how": "So funktioniert es", "pricing": "Preise", "blog": "Magazin",
         "sign_in": "Anmelden", "create": "Widget erstellen", "product": "Produkt", "company": "Unternehmen",
         "contact": "Kontakt", "terms": "Bedingungen", "privacy": "Datenschutz",
         "footer_copy": "Interaktive 3D-Standortgeschichten,<br>eingebettet in Immobilien-Websites.",
@@ -98,7 +98,7 @@ UI = {
         "not_found": "Dieser Standort ist nicht auf der Karte.", "not_found_copy": "Die angeforderte Journalseite existiert nicht.",
     },
     "es": {
-        "examples": "Ejemplos", "how": "Cómo funciona", "pricing": "Precios", "blog": "Blog",
+        "examples": "Ejemplos", "how": "Cómo funciona", "pricing": "Precios", "blog": "Revista",
         "sign_in": "Iniciar sesión", "create": "Crear un widget", "product": "Producto", "company": "Empresa",
         "contact": "Contacto", "terms": "Términos", "privacy": "Privacidad",
         "footer_copy": "Historias interactivas de ubicación en 3D,<br>integradas en sitios inmobiliarios.",
@@ -117,7 +117,7 @@ UI = {
         "not_found": "Esta ubicación no aparece en el mapa.", "not_found_copy": "La página solicitada no existe.",
     },
     "fr": {
-        "examples": "Exemples", "how": "Fonctionnement", "pricing": "Tarifs", "blog": "Blog",
+        "examples": "Exemples", "how": "Fonctionnement", "pricing": "Tarifs", "blog": "Journal",
         "sign_in": "Connexion", "create": "Créer un widget", "product": "Produit", "company": "Entreprise",
         "contact": "Contact", "terms": "Conditions", "privacy": "Confidentialité",
         "footer_copy": "Des histoires de localisation 3D interactives,<br>intégrées aux sites immobiliers.",
@@ -459,6 +459,26 @@ def native_language_options(language, slug=None, preview_job_id=None, content_ty
     return "".join(options)
 
 
+def localize_native_content_link(fragment, language, content_type):
+    content_type = normalize_content_type(content_type)
+    section = CONTENT_SECTIONS[content_type]
+    target = content_path(language, content_type)
+    label = copy_for(language)["blog"] if content_type == "blog" else section_label(language, content_type)
+    pattern = re.compile(
+        rf'(?is)<a\b(?P<before>[^>]*?)href=(?P<quote>["\'])'
+        rf'/(?:[a-z]{{2}}/)?{re.escape(section)}/?(?P=quote)'
+        rf'(?P<after>[^>]*)>.*?</a>'
+    )
+
+    def replace(match):
+        return (
+            f'<a{match.group("before")}href={match.group("quote")}{esc(target)}'
+            f'{match.group("quote")}{match.group("after")}>{esc(label)}</a>'
+        )
+
+    return pattern.sub(replace, fragment)
+
+
 def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, footer=False, content_type="blog"):
     if not fragment:
         return ""
@@ -492,6 +512,19 @@ def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, foot
     for source, translated in replacements.items():
         fragment = fragment.replace(f">{source}</a>", f">{esc(translated)}</a>")
         fragment = fragment.replace(f">{source}</b>", f">{esc(translated)}</b>")
+    prefix = "" if language == DEFAULT_LANGUAGE else f"/{language}"
+    fragment = re.sub(
+        r'href=(["\'])/(?:[a-z]{2}/)?how-it-works/?\1',
+        f'href="{prefix}/how-it-works"',
+        fragment,
+    )
+    fragment = re.sub(
+        r'href=(["\'])/(?:[a-z]{2}/)?pricing/?\1',
+        f'href="{prefix}/pricing"',
+        fragment,
+    )
+    for native_content_type in CONTENT_SECTIONS:
+        fragment = localize_native_content_link(fragment, language, native_content_type)
     current = "" if footer or normalize_content_type(content_type) != "blog" else ' aria-current="page"'
     blog_link = (
         f'<a href="{esc(blog_path(language))}"{current}>'

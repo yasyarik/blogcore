@@ -2,6 +2,37 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-25 — Localize Georivo Guides and Blog navigation
+
+### Summary
+
+* Localized existing Guides and Blog menu entries in Georivo's reused source header/footer.
+* Rewrote content-section links to the active locale instead of sending non-English readers to EN routes.
+* Made the client-side Blog fallback locale-aware.
+
+### Files changed
+
+* `deploy/georivo/app.py` — localized existing native content anchors and their locale-prefixed paths.
+* `deploy/georivo/georivo-blog-nav.js` — locale-aware Blog fallback label and URL.
+* `docs/PROJECT_MEMORY.md` — recorded the durable native-navigation localization contract.
+* `docs/CHANGELOG_AI.md` — logged this task.
+
+### Decisions
+
+* Native chrome reuse must localize existing Blog Core content links; checking only whether a link already exists is insufficient.
+
+### Checks run
+
+* Python and JavaScript syntax checks.
+* Public Guides and Blog pages returned 200 for EN/DE/ES/FR/RU.
+* Verified localized menu labels and locale-prefixed Guides/Blog URLs for all five languages.
+* Browser-rendered the Guides hub with its hero and eight cards.
+* Public content audit returned 19 expected, 19 found, 19 passed, 0 failed after the clean deployment.
+
+### Risks / TODO
+
+* None for this navigation change.
+
 ## 2026-07-25 — Add durable Georivo search-performance monitoring
 
 ### Summary
