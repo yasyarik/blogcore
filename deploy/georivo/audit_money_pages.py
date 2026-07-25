@@ -6,6 +6,8 @@ import argparse
 import json
 import re
 import sys
+import urllib.error
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
@@ -95,6 +97,20 @@ def fetch(url):
         return response.status, response.read().decode("utf-8")
 
 
+def fetch_without_redirect(url):
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+            return None
+
+    opener = urllib.request.build_opener(NoRedirect)
+    request = urllib.request.Request(url, headers={"User-Agent": "GeorivoMoneyPageAudit/1.0"})
+    try:
+        with opener.open(request, timeout=20) as response:
+            return response.status, response.headers.get("Location", "")
+    except urllib.error.HTTPError as error:
+        return error.code, error.headers.get("Location", "")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--origin", default="https://georivo.com")
@@ -151,6 +167,23 @@ def main():
                     failures.append(f"{url}: {name} failed")
             heroes.setdefault(slug, parsed.hero)
             checked.append({"url": url, **checks})
+
+            legacy_path = (
+                f"/use-cases/{slug}/"
+                if language == "en"
+                else f"/{language}/use-cases/{slug}/"
+            )
+            legacy_url = origin + legacy_path
+            try:
+                legacy_status, legacy_location = fetch_without_redirect(legacy_url)
+                resolved_location = urllib.parse.urljoin(legacy_url, legacy_location)
+                if legacy_status != 301 or resolved_location != expected_canonical:
+                    failures.append(
+                        f"{legacy_url}: expected 301 to {expected_canonical}, "
+                        f"got {legacy_status} to {resolved_location}"
+                    )
+            except Exception as exc:
+                failures.append(f"{legacy_url}: redirect check failed: {exc}")
 
     if len(set(heroes.values())) != len(SLUGS):
         failures.append(f"Money-page heroes are not unique: {heroes}")

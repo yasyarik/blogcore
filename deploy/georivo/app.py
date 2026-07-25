@@ -993,6 +993,7 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
     posts = [
         record for record in load_records(PUBLISHED_ROOT)
         if record_content_type(record) == content_type
+        and not is_money_page_record(record)
     ]
     cards = []
     for post in posts:
@@ -1163,6 +1164,8 @@ def published_article(section, slug):
     record = load_content_record(PUBLISHED_ROOT, content_type, slug)
     if not record:
         abort(404)
+    if is_money_page_record(record):
+        return redirect(article_path(DEFAULT_LANGUAGE, slug, "money_page"), code=301)
     return article_page(record, DEFAULT_LANGUAGE)
 
 
@@ -1173,6 +1176,8 @@ def localized_published_article(language, section, slug):
     record = load_content_record(PUBLISHED_ROOT, content_type, slug)
     if not record:
         abort(404)
+    if is_money_page_record(record):
+        return redirect(article_path(language, slug, "money_page"), code=301)
     return article_page(record, language)
 
 

@@ -33,8 +33,8 @@ This file is updated by Codex after every task.
 ## Files changed
 
 * `app.py` — guarded `canonicalRootPage` publication and approved localized category labels.
-* `deploy/georivo/app.py` — resolves approved factory `use_case` records at the three root money-page routes while preserving `WebPage` schema and product-page rendering.
-* `deploy/georivo/audit_money_pages.py` — long-form structure, image, table, and FAQ release gates.
+* `deploy/georivo/app.py` — resolves approved factory `use_case` records at the three root money-page routes while preserving `WebPage` schema and product-page rendering; redirects collection-form aliases to the root canonical.
+* `deploy/georivo/audit_money_pages.py` — long-form structure, image, table, FAQ, and duplicate-alias release gates.
 * `deploy/georivo/seed_money_pages.py` — removed; manual page authoring is deprecated.
 * `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — corrected the durable ownership and release record.
 
@@ -50,7 +50,7 @@ This file is updated by Codex after every task.
 * DE/ES/FR/RU localizations generated and validated for all three pages.
 * Native publish contracts passed with generated-content evidence and four localized variants.
 * Desktop and mobile Playwright preview/live checks passed with shared chrome and zero browser console errors.
-* Strict public audit passed all 15 canonical language URLs and sitemap entries.
+* Strict public audit passed all 15 canonical language URLs, 15 collection-alias redirects, and sitemap entries.
 * Blog Core and Georivo renderer compilation/health checks passed.
 
 ## Risks / TODO
