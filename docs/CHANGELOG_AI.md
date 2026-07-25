@@ -2,6 +2,41 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-25 — Publish Georivo SEO money pages through live Blog Core
+
+## Summary
+
+* Added dedicated Blog Core rendering and native records for How it works, Coverage, and Pricing in EN/DE/ES/FR/RU.
+* Reused the live Georivo header, footer, and stylesheet while giving every page a distinct thematic hero and product-specific layout.
+* Connected Coverage to the real production coverage endpoint and Pricing to the existing account-aware Stripe Checkout flow.
+* Added Nginx ownership routes, composite sitemap entries, deterministic publishing, and a public contract audit.
+
+## Files changed
+
+* `deploy/georivo/app.py` — direct money-page routes, rendering, schema, canonical/hreflang, and sitemap ownership.
+* `deploy/georivo/seed_money_pages.py` — idempotent site-14 DB/native-store publication in five languages.
+* `deploy/georivo/georivo-blog.css` — responsive namespaced product-page design.
+* `deploy/georivo/georivo-blog-nav.js` — real coverage and Stripe interactions.
+* `deploy/georivo/georivo.com.conf` — public root and locale-prefixed money-page routing.
+* `deploy/georivo/audit_money_pages.py` — 15-URL SEO, chrome, hero, and action contract audit.
+* `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md` — durable ownership and release contract.
+
+## Decisions
+
+* Blog Core site 14 is the public owner of the three SEO money pages; the Sites-origin React copies are replaced for these paths.
+* Shared source chrome remains the only public header/footer; money pages provide only their body.
+* Coverage/payment outcomes remain real and fail honestly.
+
+## Checks run
+
+* Python compilation, JavaScript syntax check, and `git diff --check`.
+* Seeded all three records into a copy of the production DB.
+* Loopback audit passed all 15 language URLs before public Nginx cutover.
+
+## Risks / TODO
+
+* Re-run the public audit and desktop/mobile browser verification after Nginx cutover.
+
 ## 2026-07-25 — Localize Georivo Guides and Blog navigation
 
 ### Summary

@@ -3,6 +3,15 @@
 This file is the durable memory of the project.
 It must be updated after every meaningful task.
 
+## 2026-07-25 — Georivo SEO money pages are owned by live Blog Core
+
+* Decision: `/how-it-works`, `/coverage`, and `/pricing`, plus DE/ES/FR/RU variants, are first-class `money_page` records for Blog Core site 14 and are rendered by `georivo-blog.service`; they are not independent React commercial-page copies.
+* Reason: SEO money pages need the live content workflow while remaining visually and navigationally part of `georivo.com`.
+* Files/areas affected: `deploy/georivo/app.py`, `seed_money_pages.py`, `georivo-blog.css`, `georivo-blog-nav.js`, `georivo.com.conf`, native published records, and site 14 content jobs.
+* Decision: The renderer continues to obtain the current Georivo header, footer, and native stylesheet through `LiveSiteChrome`. Money pages add only a namespaced marketing-page body, so source chrome remains the single public header/footer implementation.
+* Decision: Every money page has its own thematic hero. Coverage calls the real production coverage endpoint, and Pricing opens the existing account-aware Stripe Checkout flow. Neither interaction may simulate success.
+* Replaced/deprecated: The React-origin implementations for these three public paths are no longer the production owner after Nginx cutover.
+
 ## 2026-07-25 — Native content navigation follows the active locale
 
 * Decision: Existing source-header/footer links for Blog Core-owned content sections are rewritten to the active locale path and localized menu label by the native renderer.

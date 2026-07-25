@@ -2,6 +2,9 @@
 
 ## Current SEO behavior
 
+* Georivo root SEO money pages `/how-it-works`, `/coverage`, and `/pricing` are canonical Blog Core `money_page` records for site 14. EN is unprefixed; DE/ES/FR/RU use locale prefixes. Each page emits its exact canonical, the complete five-language hreflang set with EN as `x-default`, one H1, `WebPage` plus breadcrumb structured data, and one unique thematic hero.
+* These pages use the live Georivo header/footer and design stylesheet captured by `LiveSiteChrome`; they must not use an article byline/date shell or a separately recreated commercial-page header/footer.
+* The composite sitemap lists every one of the 15 money-page language URLs exactly once. `deploy/georivo/audit_money_pages.py` enforces the canonical, hreflang, shared-chrome, unique-hero, real coverage-form, and pricing-checkout contracts.
 * Hosted custom-domain blogs serve `robots.txt` allowing all and pointing to `/sitemap.xml` on the current Host.
 * Hosted custom-domain blogs serve `sitemap.xml` with `/blog/` plus public imported/generated `content_jobs` when jobs exist.
 * If a hosted site has no public content jobs, hosted `sitemap.xml` falls back to `/blog/visual-chaos-in-ai-product-cards/`.

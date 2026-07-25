@@ -174,8 +174,10 @@ CONTENT_TYPE_ALIASES = {
     "use_case": "use_case",
     "use-case": "use_case",
     "use-cases": "use_case",
-    "seo_money_page": "use_case",
-    "seo-money-page": "use_case",
+    "money_page": "money_page",
+    "money-page": "money_page",
+    "seo_money_page": "money_page",
+    "seo-money-page": "money_page",
 }
 CONTENT_SECTIONS = {
     "blog": "blog",
@@ -186,6 +188,7 @@ CONTENT_SECTIONS = {
     "use_case": "use-cases",
 }
 SECTION_CONTENT_TYPES = {section: content_type for content_type, section in CONTENT_SECTIONS.items()}
+MONEY_PAGE_SLUGS = ("how-it-works", "coverage", "pricing")
 SECTION_LABELS = {
     "en": {
         "blog": "Georivo journal", "guides": "Guides", "templates": "Templates",
@@ -325,8 +328,13 @@ def record_content_type(record):
 
 def content_path(language, content_type="blog", slug=None):
     language = normalize_language(language)
-    section = CONTENT_SECTIONS[normalize_content_type(content_type)]
+    content_type = normalize_content_type(content_type)
     prefix = "" if language == DEFAULT_LANGUAGE else f"/{language}"
+    if content_type == "money_page":
+        if not slug:
+            return f"{prefix}/"
+        return f"{prefix}/{str(slug or '').strip('/')}"
+    section = CONTENT_SECTIONS[content_type]
     path = f"{prefix}/{section}/"
     return f"{path}{str(slug or '').strip('/')}/" if slug else path
 
@@ -341,7 +349,10 @@ def article_path(language, slug, content_type="blog"):
 
 def section_label(language, content_type):
     language = normalize_language(language)
-    section = CONTENT_SECTIONS[normalize_content_type(content_type)]
+    content_type = normalize_content_type(content_type)
+    if content_type == "money_page":
+        return "Georivo"
+    section = CONTENT_SECTIONS[content_type]
     return SECTION_LABELS.get(language, SECTION_LABELS[DEFAULT_LANGUAGE]).get(section, section.title())
 
 
@@ -658,14 +669,14 @@ def shell(
   <link rel="icon" href="/favicon.ico">
   <link rel="preload" as="image" href="/brand/georivo-on-light.png">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260724d">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260725a">
   {structured}
 </head>
 <body class="blog-shell">
   {site_header(language, slug, preview_job_id, content_type)}
   {body}
   {site_footer(language, slug, preview_job_id, content_type)}
-  <script src="/georivo-blog-nav.js?v=20260724d" defer></script>
+  <script src="/georivo-blog-nav.js?v=20260725a" defer></script>
 </body>
 </html>"""
 
@@ -678,6 +689,7 @@ def article_schema(record, canonical):
         "example": "Article",
         "integration_guide": "TechArticle",
         "use_case": "Article",
+        "money_page": "WebPage",
     }
     article = {
         "@id": f"{canonical}#content",
@@ -695,19 +707,30 @@ def article_schema(record, canonical):
         image_url = str(record["heroImage"])
         article["image"] = BLOG_CORE_ORIGIN + image_url if image_url.startswith("/sites/") else image_url
     content_type = record_content_type(record)
-    breadcrumb = {
-        "@id": f"{canonical}#breadcrumb",
-        "@type": "BreadcrumbList",
-        "itemListElement": [
-            {"@type": "ListItem", "position": 1, "name": "Georivo", "item": f"{SITE_ORIGIN}/"},
+    breadcrumb_items = [
+        {"@type": "ListItem", "position": 1, "name": "Georivo", "item": f"{SITE_ORIGIN}/"},
+    ]
+    if content_type != "money_page":
+        breadcrumb_items.append(
             {
                 "@type": "ListItem",
                 "position": 2,
                 "name": section_label(DEFAULT_LANGUAGE, content_type),
                 "item": f"{SITE_ORIGIN}{content_path(DEFAULT_LANGUAGE, content_type)}",
-            },
-            {"@type": "ListItem", "position": 3, "name": record.get("title") or "", "item": canonical},
-        ],
+            }
+        )
+    breadcrumb_items.append(
+        {
+            "@type": "ListItem",
+            "position": len(breadcrumb_items) + 1,
+            "name": record.get("title") or "",
+            "item": canonical,
+        }
+    )
+    breadcrumb = {
+        "@id": f"{canonical}#breadcrumb",
+        "@type": "BreadcrumbList",
+        "itemListElement": breadcrumb_items,
     }
     article["breadcrumb"] = {"@id": breadcrumb["@id"]}
     return {"@context": "https://schema.org", "@graph": [article, breadcrumb]}
@@ -839,6 +862,96 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
         slug=slug,
         preview_job_id=record.get("id") if preview else None,
         content_type=content_type,
+    )
+
+
+def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
+    language = normalize_language(language)
+    labels = copy_for(language)
+    localized = localized_record(record, language)
+    if not localized:
+        abort(404)
+    record = localized
+    slug = str(record.get("slug") or "").strip("/")
+    if slug not in MONEY_PAGE_SLUGS:
+        abort(404)
+    title = str(record.get("title") or "Georivo").strip()
+    description = str(record.get("description") or "").strip()
+    eyebrow = str(record.get("category") or "Georivo").strip()
+    canonical = f"{SITE_ORIGIN}{article_path(language, slug, 'money_page')}"
+    alternate_urls = {
+        item: f"{SITE_ORIGIN}{article_path(item, slug, 'money_page')}"
+        for item in record_languages(record)
+    }
+    hero = str(record.get("heroImage") or "")
+    if hero.startswith("/sites/"):
+        hero = BLOG_CORE_ORIGIN + hero
+    hero_html = (
+        f'<img src="{esc(hero)}" alt="" width="1376" height="768" fetchpriority="high">'
+        if hero else ""
+    )
+    body_html = clean_article_markup(record.get("draftHtml") or "")
+    primary_cta = record.get("primaryCta") if isinstance(record.get("primaryCta"), dict) else {}
+    cta_label = str(primary_cta.get("label") or labels["cta"]).strip()
+    cta_url = str(primary_cta.get("url") or "/#create").strip()
+    if not cta_url.startswith("/"):
+        cta_url = "/#create"
+    action = ' data-money-action="checkout"' if slug == "pricing" else ""
+    checker = ""
+    if slug == "coverage":
+        checker = f"""
+        <form class="money-checker" data-money-checker data-locale="{esc(language)}">
+          <label for="money-page-address">{esc(record.get("checkerLabel") or "Property address")}</label>
+          <div>
+            <input id="money-page-address" name="address" type="text" autocomplete="street-address"
+                   placeholder="{esc(record.get("checkerPlaceholder") or "Enter a street, city and country")}" required>
+            <button type="submit">{esc(record.get("checkerButton") or labels["cta"])} <span>↗</span></button>
+          </div>
+          <p class="money-checker-result" role="status" aria-live="polite"></p>
+          <small>{esc(record.get("checkerNote") or "Real provider response. No raw address is sent to analytics.")}</small>
+        </form>
+        """
+    preview_badge = f'<div class="preview-banner">{esc(labels["draft"])}</div>' if preview else ""
+    body = f"""
+    {preview_badge}
+    <main class="money-page" id="top" data-money-page="{esc(slug)}">
+      <section class="money-hero">
+        <div class="money-hero-media">{hero_html}</div>
+        <div class="money-hero-wash" aria-hidden="true"></div>
+        <div class="money-hero-copy">
+          <div class="section-tag">{esc(eyebrow)}</div>
+          <h1>{esc(title)}</h1>
+          <p>{esc(description)}</p>
+          <a class="money-primary" href="{esc(cta_url)}"{action}
+             data-event="seo_cta_click" data-page-type="money_page"
+             data-content-id="{esc(record.get("id") or slug)}" data-cta-location="hero">{esc(cta_label)} <span>↗</span></a>
+        </div>
+      </section>
+      {checker}
+      <section class="money-content">
+        <div class="money-content-inner">{body_html}</div>
+      </section>
+      <section class="money-final">
+        <span>{esc(record.get("finalEyebrow") or labels["build"])}</span>
+        <h2>{esc(record.get("finalTitle") or labels["build_copy"])}</h2>
+        <a href="{esc(cta_url)}"{action}
+           data-event="seo_cta_click" data-page-type="money_page"
+           data-content-id="{esc(record.get("id") or slug)}" data-cta-location="page-end">{esc(cta_label)} <span>↗</span></a>
+      </section>
+    </main>
+    """
+    return shell(
+        f"{title} | Georivo",
+        description,
+        body,
+        canonical,
+        article_schema(record, canonical),
+        noindex=preview,
+        language=language,
+        alternate_urls=alternate_urls,
+        slug=slug,
+        preview_job_id=record.get("id") if preview else None,
+        content_type="money_page",
     )
 
 
@@ -1038,6 +1151,26 @@ def localized_published_article(language, section, slug):
     return article_page(record, language)
 
 
+@app.get("/<money_slug>")
+def published_money_page(money_slug):
+    if money_slug not in MONEY_PAGE_SLUGS:
+        abort(404)
+    record = load_content_record(PUBLISHED_ROOT, "money_page", money_slug)
+    if not record:
+        abort(404)
+    return money_page(record, DEFAULT_LANGUAGE)
+
+
+@app.get("/<language>/<money_slug>")
+def localized_published_money_page(language, money_slug):
+    if language not in LANGUAGES or language == DEFAULT_LANGUAGE or money_slug not in MONEY_PAGE_SLUGS:
+        abort(404)
+    record = load_content_record(PUBLISHED_ROOT, "money_page", money_slug)
+    if not record:
+        abort(404)
+    return money_page(record, language)
+
+
 for _section in SECTION_CONTENT_TYPES:
     app.add_url_rule(
         f"/{_section}",
@@ -1083,7 +1216,11 @@ def draft_preview(job_id):
     if not record:
         abort(404)
     language = normalize_language(request.args.get("lang"))
-    return article_page(record, language, preview=True)
+    return (
+        money_page(record, language, preview=True)
+        if record_content_type(record) == "money_page"
+        else article_page(record, language, preview=True)
+    )
 
 
 @app.get("/sitemap.xml")
@@ -1095,6 +1232,15 @@ def sitemap():
         (f"{SITE_ORIGIN}/privacy", "0.3", {}),
     ]
     records = load_records(PUBLISHED_ROOT)
+    for slug in MONEY_PAGE_SLUGS:
+        record = load_content_record(PUBLISHED_ROOT, "money_page", slug)
+        if not record:
+            continue
+        alternates = {
+            language: f"{SITE_ORIGIN}{article_path(language, slug, 'money_page')}"
+            for language in record_languages(record)
+        }
+        groups.extend((url, "0.9", alternates) for url in alternates.values())
     type_counts = {
         content_type: sum(1 for record in records if record_content_type(record) == content_type)
         for content_type in CONTENT_SECTIONS
@@ -1113,7 +1259,7 @@ def sitemap():
         groups.extend((url, "0.8", section_alternates) for url in section_alternates.values())
     for record in records:
         slug = str(record.get("slug") or "").strip("/")
-        if slug:
+        if slug and record_content_type(record) != "money_page":
             content_type = record_content_type(record)
             article_alternates = {
                 language: f"{SITE_ORIGIN}{article_path(language, slug, content_type)}"

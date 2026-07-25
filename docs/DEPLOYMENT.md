@@ -32,10 +32,10 @@ curl -fsS http://127.0.0.1:3299/health
 * Application path: `/var/www/georivo-blog`.
 * Service: `georivo-blog.service`.
 * Loopback listener: `127.0.0.1:13340`.
-* Public routes handled locally: `/blog`, `/guides`, `/templates`, `/examples`, `/embed`, `/use-cases`, their configured locale-prefixed equivalents, `/content-preview/`, and `/sitemap.xml`. EN uses unprefixed canonical paths; `/en/...` redirects to them.
+* Public routes handled locally: `/blog`, `/guides`, `/templates`, `/examples`, `/embed`, `/use-cases`, root SEO money pages `/how-it-works`, `/coverage`, `/pricing`, their configured locale-prefixed equivalents, `/content-preview/`, and `/sitemap.xml`. EN uses unprefixed canonical paths; `/en/...` redirects to them.
 * Existing Georivo product routes continue to proxy to their configured upstream.
 * Tracked deployment templates live under `deploy/georivo/`.
-* Nginx proxies only the Blog Core-owned content paths `/blog`, `/guides`, `/templates`, `/examples`, `/embed`, `/use-cases`, their configured locale-prefixed equivalents, `/content-preview/`, and `/sitemap.xml` to `127.0.0.1:13340`. All other product routes remain on the existing Georivo upstream.
+* Nginx proxies the Blog Core-owned content paths `/blog`, `/guides`, `/templates`, `/examples`, `/embed`, `/use-cases`, `/how-it-works`, `/coverage`, `/pricing`, their configured locale-prefixed equivalents, `/content-preview/`, and `/sitemap.xml` to `127.0.0.1:13340`. All other product routes remain on the existing Georivo upstream.
 * Native renderer services import shared `/var/www/blog.yas.ooo/native_site_chrome.py`; set `PYTHONPATH=/var/www/blog.yas.ooo` in their service environment.
 * `georivo-content-audit.timer` runs the public content-contract audit daily at 04:15 UTC with up to 10 minutes of randomized delay. The oneshot service must finish with status `0/SUCCESS`.
 * `georivo-gsc-submit.timer` runs at 04:45 UTC with up to 10 minutes of randomized delay. It validates the public sitemap, retries official Search Console submission, and refreshes aggregate search-performance plus key-URL indexation evidence.
@@ -44,8 +44,10 @@ curl -fsS http://127.0.0.1:3299/health
 
 ```bash
 python3 -m py_compile /var/www/georivo-blog/app.py
+python3 /var/www/blog.yas.ooo/deploy/georivo/seed_money_pages.py
 systemctl restart georivo-blog
 curl -fsS http://127.0.0.1:13340/health
+python3 /var/www/blog.yas.ooo/deploy/georivo/audit_money_pages.py
 cd /var/www/blog.yas.ooo/deploy/georivo
 python3 audit_content_plan.py --check-public
 systemctl list-timers --all georivo-content-audit.timer --no-pager
