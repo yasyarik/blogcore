@@ -4,7 +4,7 @@
 
 - Decision: CabinJoin is connected as a `native_content_store` site with EN/RU/FR/ES/DE and a dedicated shared content root. Static `seo_money_page` records will be drafted, reviewed and explicitly published by Blog Core; CabinJoin renders only the published local payload in its own transactional application.
 - Reason: CabinJoin needs the same controlled content lifecycle as other generated sites without making Blog Core responsible for availability, payment, identity or marketplace transactions.
-- Boundary: Blog Core currently validates money-page routes below `/use-cases/`. Its interactive root homepage is not yet a supported native content type and remains product-owned until an explicit Core extension is built.
+- Boundary: Blog Core supports the `home` native content type with canonical target path `/`, in addition to `seo_money_page` routes under `/use-cases/`. CabinJoin retains ownership of live search, availability and checkout interactions around that published home body.
 - Replaced/deprecated: The earlier CabinJoin-only assumption that Blog Core would be limited to a future blog tenant.
 
 This file is the durable memory of the project.

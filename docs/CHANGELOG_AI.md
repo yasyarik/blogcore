@@ -17,7 +17,7 @@
 
 ### Risks / TODO
 
-- Add an explicit root-home content type before Blog Core can publish content for CabinJoin’s interactive homepage.
+- Create, review and explicitly publish the first CabinJoin home or money-page draft; no page has been auto-published.
 
 This file is updated by Codex after every task.
 

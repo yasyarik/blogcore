@@ -1212,6 +1212,8 @@ def content_job_target_path(row):
     target_path = str(sources.get("targetPath") or "").strip()
     if not target_path and row["published_url"]:
         target_path = urllib.parse.urlsplit(row["published_url"]).path or ""
+    if native_content_type(row) == "home":
+        return target_path or "/"
     if not target_path and row["slug"]:
         prefix = NATIVE_CONTENT_TYPE_PREFIXES[native_content_type(row)]
         target_path = f"/{prefix}/{str(row['slug']).strip('/')}/"
@@ -1241,6 +1243,8 @@ NATIVE_CONTENT_TYPE_ALIASES = {
     "use-cases": "use_case",
     "seo_money_page": "use_case",
     "seo-money-page": "use_case",
+    "home": "home",
+    "homepage": "home",
 }
 
 NATIVE_CONTENT_TYPE_PREFIXES = {
@@ -1250,6 +1254,7 @@ NATIVE_CONTENT_TYPE_PREFIXES = {
     "example": "examples",
     "integration_guide": "embed",
     "use_case": "use-cases",
+    "home": "home",
 }
 
 
@@ -7799,9 +7804,13 @@ def validate_native_publish_contract(site, job):
             errors.append(f"pageBrief.approvals.{gate} must be true")
 
     target_path = content_job_target_path(job)
-    expected_prefix = f"/{NATIVE_CONTENT_TYPE_PREFIXES[content_type]}/"
-    if not target_path.startswith(expected_prefix):
-        errors.append(f"targetPath must start with {expected_prefix}")
+    if content_type == "home":
+        if target_path != "/":
+            errors.append("targetPath must be / for a home page")
+    else:
+        expected_prefix = f"/{NATIVE_CONTENT_TYPE_PREFIXES[content_type]}/"
+        if not target_path.startswith(expected_prefix):
+            errors.append(f"targetPath must start with {expected_prefix}")
     if not str(job["hero_image"] or "").strip():
         errors.append("hero image is required")
     draft_html = str(job["draft_html"] or "")
