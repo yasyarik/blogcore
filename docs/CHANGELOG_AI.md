@@ -32,10 +32,13 @@ This file is updated by Codex after every task.
 * Python compilation, JavaScript syntax check, and `git diff --check`.
 * Seeded all three records into a copy of the production DB.
 * Loopback audit passed all 15 language URLs before public Nginx cutover.
+* Public audit passed all 15 language URLs after Nginx cutover.
+* Playwright verified the shared source header/footer, unique loaded hero media, 1440 px and 390 px layouts, and no horizontal overflow.
+* The Coverage form called the real production endpoint. Google currently returns a technical access denial, which the page reports as a technical error rather than inventing an unsupported-address result.
 
 ## Risks / TODO
 
-* Re-run the public audit and desktop/mobile browser verification after Nginx cutover.
+* Restore valid Google Photorealistic 3D server access separately; the SEO page correctly exposes the current provider error.
 
 ## 2026-07-25 — Localize Georivo Guides and Blog navigation
 

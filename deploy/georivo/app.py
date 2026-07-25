@@ -666,6 +666,7 @@ def shell(
   {robots}
   <link rel="canonical" href="{esc(canonical)}">
   {alternate_markup}
+  <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
   <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260725a">
   {structured}
