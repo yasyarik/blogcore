@@ -693,7 +693,7 @@ def shell(
   {alternate_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726c">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726d">
   {structured}
 </head>
 <body class="blog-shell">
@@ -978,6 +978,45 @@ def money_image_for_href(href, language, fallbacks, index):
     return fallbacks[index % len(fallbacks)] if fallbacks else ""
 
 
+def money_published_hero_pool(language, excluded):
+    excluded = {money_asset_url(item) for item in excluded if item}
+    pool = []
+    type_order = {
+        "example": 0,
+        "template": 1,
+        "guide": 2,
+        "integration_guide": 3,
+        "blog": 4,
+        "use_case": 5,
+        "money_page": 6,
+    }
+    candidates = []
+    for candidate in load_records(PUBLISHED_ROOT):
+        localized = localized_record(candidate, language)
+        if not localized:
+            continue
+        content_type = (
+            "money_page" if is_money_page_record(candidate)
+            else record_content_type(candidate)
+        )
+        image = money_asset_url(
+            localized.get("heroImage") or candidate.get("heroImage") or ""
+        )
+        if not image or image in excluded:
+            continue
+        candidates.append(
+            (
+                type_order.get(content_type, 9),
+                str(localized.get("slug") or candidate.get("slug") or ""),
+                image,
+            )
+        )
+    for _, _, image in sorted(candidates):
+        if image not in pool:
+            pool.append(image)
+    return pool
+
+
 def money_recommendations_html(blocks, language, fallbacks):
     links = []
     seen = set()
@@ -1107,6 +1146,17 @@ def money_editorial_html(
     hero = money_asset_url(hero)
     if hero and hero not in visual_pool:
         visual_pool.append(hero)
+    recommendation_images = set()
+    for block in extras:
+        for href in re.findall(
+            r"""(?is)<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1""", block
+        ):
+            image = money_image_for_href(href[1], language, [], 0)
+            if image:
+                recommendation_images.add(image)
+    supporting_pool = money_published_hero_pool(
+        language, set(visual_pool) | recommendation_images
+    )
 
     section_html = []
     if lead or intro:
@@ -1131,6 +1181,14 @@ def money_editorial_html(
         copy_blocks = [
             item for item in group if not block_has_class(item, "article-figure")
         ]
+        if not media_blocks and decorative_index < len(supporting_pool):
+            image = supporting_pool[decorative_index]
+            decorative_index += 1
+            media_blocks = [
+                '<div class="money-section-visual" aria-hidden="true">'
+                f'<img src="{esc(image)}" alt="" loading="lazy" decoding="async"></div>'
+            ]
+            classes.append("money-story-generated-media")
         if media_blocks:
             classes.append("money-story-media")
             if index % 2 == 0:
@@ -1141,21 +1199,12 @@ def money_editorial_html(
         text_blocks = [
             item for item in copy_blocks if not re.match(r"(?is)\s*<h2\b", item)
         ]
-        supporting_visual = ""
-        if not media_blocks and visual_pool:
-            image = visual_pool[decorative_index % len(visual_pool)]
-            decorative_index += 1
-            supporting_visual = (
-                '<div class="money-section-visual" aria-hidden="true">'
-                f'<img src="{esc(image)}" alt="" loading="lazy" decoding="async"></div>'
-            )
         section_html.append(
             f'<section class="{" ".join(classes)}" data-money-section="{index:02d}">'
             f'<div class="money-section-number" aria-hidden="true">{index:02d}</div>'
             '<div class="money-section-body">'
             '<div class="money-section-copy">'
-            f'<div class="money-section-heading">{"".join(heading_blocks)}'
-            f'{supporting_visual}</div>'
+            f'<div class="money-section-heading">{"".join(heading_blocks)}</div>'
             f'<div class="money-section-text">{"".join(text_blocks)}</div>'
             '</div>'
             f'<div class="money-section-media">{"".join(media_blocks)}</div>'

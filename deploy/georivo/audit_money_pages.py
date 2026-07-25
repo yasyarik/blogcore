@@ -44,7 +44,10 @@ class PageParser(HTMLParser):
         self.hero_depth = 0
         self.has_toc_in_hero = False
         self.story_section_count = 0
+        self.primary_story_classes = []
         self.supporting_visual_count = 0
+        self.supporting_visual_images = []
+        self.in_supporting_visual = False
         self.recommendation_card_count = 0
         self.has_mid_cta = False
 
@@ -82,8 +85,11 @@ class PageParser(HTMLParser):
             self.has_toc_in_hero = bool(self.hero_depth)
         elif tag == "section" and "money-story-section" in classes:
             self.story_section_count += 1
+            if "money-story-utility" not in classes:
+                self.primary_story_classes.append(set(classes))
         elif tag == "div" and "money-section-visual" in classes:
             self.supporting_visual_count += 1
+            self.in_supporting_visual = True
         elif tag == "a" and "money-recommendation-card" in classes:
             self.recommendation_card_count += 1
         elif tag == "aside" and "money-inline-cta" in classes:
@@ -96,6 +102,8 @@ class PageParser(HTMLParser):
             self.content_depth += 1
         elif tag == "img" and self.in_hero_media and not self.hero:
             self.hero = attrs.get("src", "")
+        if tag == "img" and self.in_supporting_visual:
+            self.supporting_visual_images.append(attrs.get("src", ""))
         if "data-money-checker" in attrs:
             self.has_checker = True
         if attrs.get("data-money-action") == "checkout":
@@ -106,6 +114,8 @@ class PageParser(HTMLParser):
             self.hero_depth -= 1
         if tag == "div" and self.in_hero_media:
             self.in_hero_media = False
+        if tag == "div" and self.in_supporting_visual:
+            self.in_supporting_visual = False
         if tag == "div" and self.content_depth:
             self.content_depth -= 1
 
@@ -169,6 +179,11 @@ def main():
                 lang: canonical_origin + page_path(lang, slug) for lang in LANGUAGES
             }
             expected_alternates["x-default"] = expected_alternates["en"]
+            alternating_media = all(
+                "money-story-media" in classes
+                and (("money-story-reverse" in classes) == (index % 2 == 0))
+                for index, classes in enumerate(parsed.primary_story_classes, start=1)
+            )
             checks = {
                 "http_200": status == 200,
                 "one_h1": parsed.h1_count == 1,
@@ -186,6 +201,9 @@ def main():
                     and parsed.has_toc_in_hero
                     and parsed.story_section_count >= 7
                     and parsed.supporting_visual_count >= 4
+                    and len(parsed.supporting_visual_images)
+                    == len(set(parsed.supporting_visual_images))
+                    and alternating_media
                     and parsed.recommendation_card_count >= 3
                     and "article-related" not in markup
                     and "article-recommended" not in markup

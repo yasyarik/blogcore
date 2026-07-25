@@ -229,6 +229,9 @@
 .money-story-media .money-section-body{display:grid;grid-template-columns:minmax(360px,.92fr) minmax(440px,1.08fr);gap:clamp(36px,4vw,60px);align-items:stretch}
 .money-story-media.money-story-reverse .money-section-copy{order:2}
 .money-story-media.money-story-reverse .money-section-media{order:1}
+.money-story-generated-media .money-section-media{display:flex;min-height:480px}
+.money-story-generated-media .money-section-visual{width:100%;min-height:480px;margin:0}
+.money-story-generated-media .money-section-visual img{height:100%;min-height:480px}
 .money-section-heading h2{max-width:760px;margin:0;color:inherit;font-size:clamp(40px,3.8vw,58px);font-weight:500;line-height:.98;letter-spacing:-.048em;overflow-wrap:anywhere}
 .money-story-media .money-section-heading h2{font-size:clamp(38px,3.5vw,54px)}
 .money-section-text{padding-top:34px}
@@ -303,6 +306,8 @@
   .money-story-section{grid-template-columns:54px minmax(0,1fr)}
   .money-story-media .money-section-body{display:block}
   .money-story-media .money-section-media{margin-top:38px}
+  .money-story-generated-media .money-section-media{min-height:360px}
+  .money-story-generated-media .money-section-visual,.money-story-generated-media .money-section-visual img{min-height:360px}
   .money-story-section:not(.money-story-media):not(.money-story-utility) .money-section-copy{display:block}
   .money-story-section:not(.money-story-media) .money-section-text{padding-top:30px}
   .money-section-visual{min-height:360px}
@@ -335,6 +340,8 @@
   .money-section-visual{min-height:240px;margin-top:28px;border-radius:14px}
   .money-section-visual img{min-height:240px}
   .money-story-media .money-section-media{margin-top:32px}
+  .money-story-generated-media .money-section-media{min-height:240px}
+  .money-story-generated-media .money-section-visual,.money-story-generated-media .money-section-visual img{min-height:240px}
   .money-section-media .article-figure img{min-height:260px;border-radius:14px}
   .money-section-body .article-table{display:block;max-width:100%;overflow-x:auto}
   .money-section-body .article-table tbody{min-width:620px}

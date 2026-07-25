@@ -1,9 +1,17 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Money-page section media is unique and strictly alternating
+
+- Decision: every primary money-page narrative section is a two-column media section. Odd sections place copy left and image right; even sections place image left and copy right.
+- Decision: supporting visuals are selected from unique published Georivo hero assets. The selection excludes the current money-page hero, its opening/editorial figures, and hero images reserved for recommendation cards.
+- Decision: a supporting image URL may appear only once among primary sections. If the unique pool is exhausted, the renderer must not cycle back to a previously used image.
+- Replaced: the earlier same-day approach that cycled the current page's small hero/editorial pool and placed generated visuals beneath the heading.
+- Release gate: `commercial_sections` fails unless every primary section has media, reverse layout matches even-numbered sections, and all supporting image URLs are unique.
+
 ## 2026-07-26 — Georivo money pages integrate navigation and semantic imagery
 
 - Decision: the money-page TOC is part of the hero composition, not a detached article sidebar. Desktop/tablet use a wide multi-column navigation panel; mobile keeps it inside the hero as a horizontally scrollable strip that must not expand the document width.
-- Decision: every narrative section without its own factory figure receives a supporting visual from the page's approved hero/editorial asset pool. The image sits below the section heading and fills the otherwise empty column; it is decorative (`alt=""`) and does not change the validated count of editorial figures.
+- Replaced later 2026-07-26: the initial visual-fill renderer used the page's own small asset pool beneath headings. The current renderer uses unique published Georivo heroes as full opposite-column media and strictly alternates their side.
 - Decision: old `Related reading` and `Recommended next` article blocks are transformed into one localized `Explore Georivo` commercial recommendation grid. Cards preserve and deduplicate the factory's internal links/descriptions, resolve the target page's published hero image, and retain the FAQ below.
 - Reason: money pages must use long-form content without looking like stretched articles or leaving unused columns.
 - Release gate: the 15-page audit requires the TOC inside the hero, at least four supporting visuals, at least three photo recommendation cards, and no remaining article-related/article-recommended markup.

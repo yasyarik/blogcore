@@ -1,5 +1,32 @@
 # CHANGELOG_AI.md
 
+## 2026-07-26 — Enforce unique alternating money-page imagery
+
+### Summary
+
+- Replaced cyclic supporting-image reuse with a unique pool of published Georivo hero assets.
+- Excluded current-page hero/editorial media and recommendation-card heroes from supporting-image selection.
+- Converted every primary narrative section into a two-column media composition with strict right/left alternation.
+- Strengthened the production audit to reject missing media, broken alternation, or duplicate supporting-image URLs.
+
+### Files changed
+
+- `deploy/georivo/app.py` — unique supporting-image pool and full-section media assignment.
+- `deploy/georivo/georivo-blog.css` — full-height generated media columns and responsive stacking.
+- `deploy/georivo/audit_money_pages.py` — unique-image and alternating-side release gates.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable correction and release record.
+
+### Checks run
+
+- Python compilation and `git diff --check`.
+- Strict production audit passed all 15 canonical language pages.
+- Playwright confirmed nine distinct primary-section image URLs on How it works and the exact right/left sequence across sections 1–9.
+- 390 px remained free of horizontal document overflow; browser console reported zero errors and warnings.
+
+### Risks / TODO
+
+- Future publication must retain enough unique published hero assets; the renderer intentionally refuses to recycle a supporting image when the pool is exhausted.
+
 ## 2026-07-26 — Fill money-page whitespace with semantic visuals
 
 ### Summary

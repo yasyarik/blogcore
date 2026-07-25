@@ -82,6 +82,11 @@ file must also be copied to
 `/var/www/blog.yas.ooo/deploy/georivo/audit_money_pages.py`, which is the
 scheduled production-audit source.
 
+The 2026-07-26 unique-alternating-media correction has rollback files at
+`/var/backups/georivo-blogcore/20260726-money-unique-alternate`. Its release
+audit verifies that every primary section has media, odd/even sections alternate
+right/left, and no generated supporting-image URL repeats.
+
 ## Environment
 
 * `PORT`: default `3299`.
