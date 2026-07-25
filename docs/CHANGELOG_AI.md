@@ -17,7 +17,7 @@
 
 ### Risks / TODO
 
-- Create, review and explicitly publish the first CabinJoin home or money-page draft; no page has been auto-published.
+- Create, review and explicitly publish the first CabinJoin SEO money-page draft; no page has been auto-published.
 
 This file is updated by Codex after every task.
 
