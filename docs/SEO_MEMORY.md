@@ -42,3 +42,4 @@
 * Replaced/deprecated 2026-07-25: Georivo Search Console submission is no longer pending or blocked by access.
 * `sc-domain:georivo.com` grants the factory service account `siteFullUser`. The official API accepted `https://georivo.com/sitemap.xml` on 2026-07-25 and returned a readable record with `warnings=0`, `errors=0`, and `isPending=true` during initial Google processing.
 * `georivo-gsc-submit.timer` validates and resubmits the official sitemap daily. Runtime state is written to ignored `data/georivo-gsc-status.json` as `blocked`, `error`, or `submitted`; the current durable state is `submitted`.
+* Replaced/deprecated 2026-07-25: the Search Console timer no longer records only sitemap submission. After an accepted sitemap read-back it also records current/previous complete 28-day aggregate performance, top page URLs, and URL Inspection results for Georivo's primary public product and collection URLs. It does not store search-query text.

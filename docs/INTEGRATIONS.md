@@ -110,7 +110,7 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * The daily `georivo-content-audit.timer` reruns the public audit. It does not generate, edit, or publish content.
 * Replaced/deprecated 2026-07-25: Georivo GSC submission is no longer blocked by access.
 * The factory service account has `siteFullUser` on `sc-domain:georivo.com`. `deploy/georivo/gsc_submit.py` successfully submitted and read back `https://georivo.com/sitemap.xml` through the official API with zero warnings/errors; initial processing returned `isPending=true`.
-* `deploy/georivo/gsc_submit.py` validates the public XML, authenticates with the ignored service-account credential, checks `sites.list` for `siteOwner` or `siteFullUser`, submits through the official Webmasters v3 endpoint, reads back the sitemap record, and writes atomic runtime status. It never creates or verifies a Search Console property.
+* `deploy/georivo/gsc_submit.py` validates the public XML, authenticates with the ignored service-account credential, checks `sites.list` for `siteOwner` or `siteFullUser`, submits through the official Webmasters v3 endpoint, reads back the sitemap record, and writes atomic runtime status. After submission it queries two complete 28-day Search Analytics windows, top page URLs, and URL Inspection for the configured canonical URL set. It never creates or verifies a Search Console property and does not persist query text.
 * `georivo-gsc-submit.timer` retries daily. Controlled missing access exits `75`; systemd accepts that code so the timer remains healthy. Credential, public-sitemap, network, and unexpected API failures exit `1`.
 
 ## YAS Source Scanner draft ingestion

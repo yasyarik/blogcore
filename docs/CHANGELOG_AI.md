@@ -2,6 +2,36 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-25 — Add durable Georivo search-performance monitoring
+
+### Summary
+
+* Extended the operational Search Console job beyond sitemap submission.
+* Added API-sourced current/previous complete 28-day performance totals, top-page reporting, and URL Inspection for Georivo's primary public URLs.
+* Kept monitoring privacy-minimal by excluding search-query text and preserving honest empty-data states.
+
+### Files changed
+
+* `deploy/georivo/gsc_submit.py` — added Search Analytics and URL Inspection collection after successful sitemap read-back.
+* `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — documented the monitoring contract and operation.
+
+### Decisions
+
+* The comparison excludes today and yesterday because Search Console data can lag.
+* Index-inspection failures are recorded per URL and do not falsify a successful sitemap submission.
+* Only aggregate metrics and page URLs are stored; query strings are omitted.
+
+### Checks run
+
+* Python compilation.
+* Live Search Console API execution through the Georivo VPS service account.
+* Sitemap read-back, Search Analytics, and URL Inspection status-file validation.
+
+### Risks / TODO
+
+* Newly published URLs can remain `Discovered - currently not indexed` or unknown until Google chooses to crawl them.
+* Performance rows require real impressions/clicks; the adapter reports an empty dataset honestly until traffic exists.
+
 ## 2026-07-25 — Submit Georivo sitemap to Search Console
 
 ### Summary

@@ -3,6 +3,14 @@
 This file is the durable memory of the project.
 It must be updated after every meaningful task.
 
+## 2026-07-25 — Georivo Search Console monitoring is durable
+
+* Decision: The daily Georivo Search Console task records two complete 28-day performance windows, top pages, and URL Inspection results for the primary product/collection URLs after every successful sitemap read-back.
+* Reason: Sitemap submission alone does not prove indexation or provide a basis for search-performance decisions. The operator needs API-sourced, timestamped evidence without a browser session.
+* Files/areas affected: `deploy/georivo/gsc_submit.py`, ignored `data/georivo-gsc-status.json`, Search Console operations.
+* Decision: Query text is deliberately not stored. Monitoring keeps aggregate totals and page URLs only, and a missing data row is reported honestly rather than converted into an invented zero trend.
+* Replaced/deprecated: The earlier submission-only status file and manual Search Console inspection as the only source of indexation evidence.
+
 ## 2026-07-25 — Georivo Search Console submission is operational
 
 * Decision: `sc-domain:georivo.com` grants the factory service account `siteFullUser` access. The official adapter submitted `https://georivo.com/sitemap.xml` and read back the accepted API record with zero errors and warnings.

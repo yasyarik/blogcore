@@ -7,7 +7,7 @@ import json
 import os
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -17,9 +17,21 @@ from google.oauth2 import service_account
 
 
 WEBMASTERS_API = "https://www.googleapis.com/webmasters/v3"
+URL_INSPECTION_API = (
+    "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect"
+)
 WEBMASTERS_SCOPE = "https://www.googleapis.com/auth/webmasters"
 ALLOWED_PERMISSIONS = {"siteOwner", "siteFullUser"}
 BLOCKED_EXIT = 75
+DEFAULT_INSPECTION_URLS = (
+    "https://georivo.com/",
+    "https://georivo.com/how-it-works",
+    "https://georivo.com/coverage",
+    "https://georivo.com/pricing",
+    "https://georivo.com/templates",
+    "https://georivo.com/examples",
+    "https://georivo.com/embed",
+)
 
 
 def stamp():
@@ -89,7 +101,125 @@ def verify_public_sitemap(url):
     }
 
 
-def submit(credentials_path, site_url, sitemap_url, status_path):
+def search_analytics_window(access_token, encoded_site, start_date, end_date):
+    payload = request_json(
+        "POST",
+        f"{WEBMASTERS_API}/sites/{encoded_site}/searchAnalytics/query",
+        access_token,
+        json={
+            "startDate": start_date.isoformat(),
+            "endDate": end_date.isoformat(),
+            "dimensions": ["date"],
+            "dataState": "all",
+            "rowLimit": 1000,
+        },
+    )
+    rows = payload.get("rows", [])
+    return {
+        "startDate": start_date.isoformat(),
+        "endDate": end_date.isoformat(),
+        "daysWithData": len(rows),
+        "clicks": sum(float(row.get("clicks", 0)) for row in rows),
+        "impressions": sum(float(row.get("impressions", 0)) for row in rows),
+    }
+
+
+def search_performance(access_token, encoded_site):
+    # Search Console data can lag. Exclude today and yesterday from both
+    # comparison windows so an incomplete day cannot create a false drop.
+    current_end = datetime.now(timezone.utc).date() - timedelta(days=2)
+    current_start = current_end - timedelta(days=27)
+    previous_end = current_start - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=27)
+    current = search_analytics_window(
+        access_token,
+        encoded_site,
+        current_start,
+        current_end,
+    )
+    previous = search_analytics_window(
+        access_token,
+        encoded_site,
+        previous_start,
+        previous_end,
+    )
+    pages = request_json(
+        "POST",
+        f"{WEBMASTERS_API}/sites/{encoded_site}/searchAnalytics/query",
+        access_token,
+        json={
+            "startDate": current_start.isoformat(),
+            "endDate": current_end.isoformat(),
+            "dimensions": ["page"],
+            "dataState": "all",
+            "rowLimit": 25,
+        },
+    ).get("rows", [])
+    return {
+        "current28Days": current,
+        "previous28Days": previous,
+        "topPages": [
+            {
+                "page": (row.get("keys") or [""])[0],
+                "clicks": row.get("clicks", 0),
+                "impressions": row.get("impressions", 0),
+                "ctr": row.get("ctr", 0),
+                "position": row.get("position", 0),
+            }
+            for row in pages
+        ],
+        "note": "No rows means Search Console has no reportable data for the period.",
+    }
+
+
+def inspect_urls(access_token, site_url, inspection_urls):
+    inspected = []
+    for url in inspection_urls:
+        try:
+            payload = request_json(
+                "POST",
+                URL_INSPECTION_API,
+                access_token,
+                json={
+                    "inspectionUrl": url,
+                    "siteUrl": site_url,
+                    "languageCode": "en-US",
+                },
+            )
+            status = (
+                payload.get("inspectionResult", {})
+                .get("indexStatusResult", {})
+            )
+            inspected.append(
+                {
+                    "url": url,
+                    "verdict": status.get("verdict"),
+                    "coverageState": status.get("coverageState"),
+                    "robotsTxtState": status.get("robotsTxtState"),
+                    "indexingState": status.get("indexingState"),
+                    "lastCrawlTime": status.get("lastCrawlTime"),
+                    "pageFetchState": status.get("pageFetchState"),
+                    "googleCanonical": status.get("googleCanonical"),
+                    "userCanonical": status.get("userCanonical"),
+                }
+            )
+        except Exception as error:
+            inspected.append(
+                {
+                    "url": url,
+                    "error": str(error),
+                }
+            )
+    return inspected
+
+
+def submit(
+    credentials_path,
+    site_url,
+    sitemap_url,
+    status_path,
+    inspection_urls,
+):
     result = {
         "checkedAt": stamp(),
         "siteUrl": site_url,
@@ -149,6 +279,21 @@ def submit(credentials_path, site_url, sitemap_url, status_path):
             )
             if key in submitted
         }
+        result["monitoringErrors"] = []
+        try:
+            result["searchPerformance"] = search_performance(
+                credentials.token,
+                encoded_site,
+            )
+        except Exception as error:
+            result["monitoringErrors"].append(
+                f"search performance: {error}"
+            )
+        result["indexInspection"] = inspect_urls(
+            credentials.token,
+            site_url,
+            inspection_urls,
+        )
         write_status(status_path, result)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
@@ -182,12 +327,30 @@ if __name__ == "__main__":
         type=Path,
         default=Path("/var/www/blog.yas.ooo/data/georivo-gsc-status.json"),
     )
+    parser.add_argument(
+        "--inspect-url",
+        action="append",
+        dest="inspection_urls",
+        help=(
+            "Canonical URL to inspect. Repeat for multiple URLs. "
+            "Defaults to Georivo's primary public product and collection URLs."
+        ),
+    )
     args = parser.parse_args()
+    environment_urls = tuple(
+        url.strip()
+        for url in os.getenv("GSC_INSPECTION_URLS", "").split(",")
+        if url.strip()
+    )
+    inspection_urls = tuple(args.inspection_urls or environment_urls)
+    if not inspection_urls:
+        inspection_urls = DEFAULT_INSPECTION_URLS
     sys.exit(
         submit(
             args.credentials,
             args.site_url,
             args.sitemap_url,
             args.status_file,
+            inspection_urls,
         )
     )
