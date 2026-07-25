@@ -32,6 +32,16 @@ DEFAULT_INSPECTION_URLS = (
     "https://georivo.com/examples",
     "https://georivo.com/embed",
 )
+QUERY_CLUSTER_RULES = (
+    ("flyover", ("flyover", "fly over")),
+    ("drone_comparison", ("drone", "aerial video")),
+    ("virtual_tour", ("virtual tour", "3d tour")),
+    ("location_map", ("location map", "3d map")),
+    ("amenities", ("amenity", "amenities", "nearby")),
+    ("remote_buyers", ("remote buyer", "international buyer", "relocation")),
+    ("embed", ("embed", "wordpress", "webflow", "wix", "squarespace")),
+)
+SEARCH_ROW_LIMIT = 25000
 
 
 def stamp():
@@ -124,6 +134,104 @@ def search_analytics_window(access_token, encoded_site, start_date, end_date):
     }
 
 
+def query_cluster(query):
+    normalized = query.casefold()
+    for cluster, needles in QUERY_CLUSTER_RULES:
+        if any(needle in normalized for needle in needles):
+            return cluster
+    return "other"
+
+
+def position_bucket(position):
+    if position <= 3:
+        return "1_3"
+    if position <= 10:
+        return "4_10"
+    if position <= 20:
+        return "11_20"
+    return "21_plus"
+
+
+def add_metric(target, key, row):
+    metric = target.setdefault(
+        key,
+        {"clicks": 0.0, "impressions": 0.0, "positionWeight": 0.0},
+    )
+    clicks = float(row.get("clicks", 0))
+    impressions = float(row.get("impressions", 0))
+    position = float(row.get("position", 0))
+    metric["clicks"] += clicks
+    metric["impressions"] += impressions
+    metric["positionWeight"] += position * impressions
+
+
+def finish_metrics(metrics, limit=None):
+    records = []
+    for name, metric in metrics.items():
+        impressions = metric["impressions"]
+        clicks = metric["clicks"]
+        records.append(
+            {
+                "name": name,
+                "clicks": clicks,
+                "impressions": impressions,
+                "ctr": clicks / impressions if impressions else 0,
+                "position": (
+                    metric["positionWeight"] / impressions
+                    if impressions
+                    else 0
+                ),
+            }
+        )
+    records.sort(key=lambda item: (-item["impressions"], item["name"]))
+    return records[:limit] if limit else records
+
+
+def privacy_safe_query_segments(rows):
+    brand = {}
+    clusters = {}
+    positions = {}
+    devices = {}
+    countries = {}
+    pages_with_impressions = set()
+    query_pages = {}
+    for row in rows:
+        keys = row.get("keys") or ["", "", "", ""]
+        query = str(keys[0] if len(keys) > 0 else "")
+        page = str(keys[1] if len(keys) > 1 else "")
+        device = str(keys[2] if len(keys) > 2 else "UNKNOWN")
+        country = str(keys[3] if len(keys) > 3 else "unknown")
+        add_metric(brand, "brand" if "georivo" in query.casefold() else "non_brand", row)
+        add_metric(clusters, query_cluster(query), row)
+        add_metric(positions, position_bucket(float(row.get("position", 0))), row)
+        add_metric(devices, device.lower(), row)
+        add_metric(countries, country.lower(), row)
+        if float(row.get("impressions", 0)) > 0 and page:
+            pages_with_impressions.add(page)
+            query_pages.setdefault(query, set()).add(page)
+    cannibalized = {
+        query: pages
+        for query, pages in query_pages.items()
+        if query and len(pages) > 1
+    }
+    return {
+        "brandBreakdown": finish_metrics(brand),
+        "queryClusters": finish_metrics(clusters),
+        "positionBuckets": finish_metrics(positions),
+        "devices": finish_metrics(devices),
+        "countries": finish_metrics(countries, limit=10),
+        "pagesWithImpressions": len(pages_with_impressions),
+        "cannibalizedQueryCount": len(cannibalized),
+        "cannibalizedPageCount": len(
+            {page for pages in cannibalized.values() for page in pages}
+        ),
+        "privacyNote": (
+            "Raw queries are classified in memory and discarded; "
+            "only aggregate controlled categories are stored."
+        ),
+    }
+
+
 def search_performance(access_token, encoded_site):
     # Search Console data can lag. Exclude today and yesterday from both
     # comparison windows so an incomplete day cannot create a false drop.
@@ -155,6 +263,18 @@ def search_performance(access_token, encoded_site):
             "rowLimit": 25,
         },
     ).get("rows", [])
+    query_rows = request_json(
+        "POST",
+        f"{WEBMASTERS_API}/sites/{encoded_site}/searchAnalytics/query",
+        access_token,
+        json={
+            "startDate": current_start.isoformat(),
+            "endDate": current_end.isoformat(),
+            "dimensions": ["query", "page", "device", "country"],
+            "dataState": "all",
+            "rowLimit": SEARCH_ROW_LIMIT,
+        },
+    ).get("rows", [])
     return {
         "current28Days": current,
         "previous28Days": previous,
@@ -168,6 +288,10 @@ def search_performance(access_token, encoded_site):
             }
             for row in pages
         ],
+        "segments": {
+            **privacy_safe_query_segments(query_rows),
+            "rowLimitReached": len(query_rows) >= SEARCH_ROW_LIMIT,
+        },
         "note": "No rows means Search Console has no reportable data for the period.",
     }
 
