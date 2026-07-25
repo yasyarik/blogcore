@@ -693,7 +693,7 @@ def shell(
   {alternate_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260725a">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260725c">
   {structured}
 </head>
 <body class="blog-shell">
@@ -889,6 +889,132 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
     )
 
 
+VOID_HTML_TAGS = {
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+    "meta", "param", "source", "track", "wbr",
+}
+
+
+def top_level_html_blocks(markup):
+    """Split trusted, sanitised article HTML into complete top-level elements."""
+    blocks = []
+    start = None
+    depth = 0
+    token_pattern = re.compile(r"(?is)<\s*(/?)\s*([a-z][a-z0-9:-]*)\b[^>]*>")
+    for match in token_pattern.finditer(markup):
+        closing, tag = match.group(1), match.group(2).lower()
+        token = match.group(0)
+        self_closing = token.rstrip().endswith("/>") or tag in VOID_HTML_TAGS
+        if not closing:
+            if depth == 0:
+                start = match.start()
+            if not self_closing:
+                depth += 1
+            elif depth == 0 and start is not None:
+                blocks.append(markup[start:match.end()].strip())
+                start = None
+        elif depth:
+            depth -= 1
+            if depth == 0 and start is not None:
+                blocks.append(markup[start:match.end()].strip())
+                start = None
+    return [block for block in blocks if block]
+
+
+def block_has_class(block, class_name):
+    opening = re.match(r"(?is)\s*<[^>]+>", block)
+    return bool(
+        opening
+        and re.search(
+            rf"""(?is)\bclass\s*=\s*(["'])[^"']*\b{re.escape(class_name)}\b[^"']*\1""",
+            opening.group(0),
+        )
+    )
+
+
+def money_editorial_html(markup, cta_label, cta_url, action, content_id, mid_copy):
+    """Turn factory article markup into a sales-page section system."""
+    blocks = top_level_html_blocks(markup)
+    lead = ""
+    toc = ""
+    intro = []
+    groups = []
+    current = []
+
+    for block in blocks:
+        if block_has_class(block, "article-lead") and not lead:
+            lead = block
+            continue
+        if block_has_class(block, "article-toc") and not toc:
+            toc = block
+            continue
+        if re.match(r"(?is)\s*<h2\b", block):
+            if current:
+                groups.append(current)
+            current = [block]
+        elif current:
+            current.append(block)
+        else:
+            intro.append(block)
+    if current:
+        groups.append(current)
+
+    section_html = []
+    if lead or intro:
+        section_html.append(
+            '<section class="money-opening" data-money-section="opening">'
+            f'<div class="money-opening-copy">{lead}</div>'
+            f'<div class="money-opening-media">{"".join(intro)}</div>'
+            '</section>'
+        )
+
+    mid_point = min(3, max(1, len(groups) // 2))
+    for index, group in enumerate(groups, start=1):
+        classes = ["money-story-section"]
+        media_blocks = [
+            item for item in group if block_has_class(item, "article-figure")
+        ]
+        copy_blocks = [
+            item for item in group if not block_has_class(item, "article-figure")
+        ]
+        if media_blocks:
+            classes.append("money-story-media")
+        if any(block_has_class(item, "article-faq") for item in group):
+            classes.append("money-story-faq")
+        if any(
+            block_has_class(item, "article-related")
+            or block_has_class(item, "article-recommended")
+            for item in group
+        ):
+            classes.append("money-story-links")
+        section_html.append(
+            f'<section class="{" ".join(classes)}" data-money-section="{index:02d}">'
+            f'<div class="money-section-number" aria-hidden="true">{index:02d}</div>'
+            '<div class="money-section-body">'
+            f'<div class="money-section-copy">{"".join(copy_blocks)}</div>'
+            f'<div class="money-section-media">{"".join(media_blocks)}</div>'
+            '</div>'
+            '</section>'
+        )
+        if index == mid_point:
+            section_html.append(
+                '<aside class="money-inline-cta">'
+                '<div><span>Georivo</span>'
+                f'<strong>{esc(mid_copy)}</strong></div>'
+                f'<a href="{esc(cta_url)}"{action} data-event="seo_cta_click" '
+                'data-page-type="money_page" '
+                f'data-content-id="{esc(content_id)}" data-cta-location="article-middle">'
+                f'{esc(cta_label)} <span>↗</span></a></aside>'
+            )
+
+    return (
+        '<div class="money-editorial">'
+        f'<aside class="money-toc-rail">{toc}</aside>'
+        f'<div class="money-sections">{"".join(section_html)}</div>'
+        '</div>'
+    )
+
+
 def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
     language = normalize_language(language)
     labels = copy_for(language)
@@ -921,6 +1047,10 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
     if not cta_url.startswith("/"):
         cta_url = "/#create"
     action = ' data-money-action="checkout"' if slug == "pricing" else ""
+    content_id = str(record.get("id") or slug)
+    editorial_html = money_editorial_html(
+        body_html, cta_label, cta_url, action, content_id, labels["build_copy"]
+    )
     checker = ""
     if slug == "coverage":
         checker = f"""
@@ -953,7 +1083,7 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
       </section>
       {checker}
       <section class="money-content">
-        <div class="money-content-inner"><div class="article-copy">{body_html}</div></div>
+        <div class="money-content-inner">{editorial_html}</div>
       </section>
       <section class="money-final">
         <span>{esc(record.get("finalEyebrow") or labels["build"])}</span>

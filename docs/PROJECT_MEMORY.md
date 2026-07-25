@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-25 — Georivo money pages use a dedicated commercial section system
+
+- Decision: factory-generated Georivo root money pages are transformed at render time into a dedicated sales-page composition: full product hero, compact sticky TOC rail, large alternating section cards, media/text split sections, a mid-page conversion CTA, and a final CTA.
+- Reason: SEO money pages must keep the complete validated factory content while looking and behaving like Georivo product pages, not like Blog Core articles.
+- Boundary: the transformation applies only to the three approved root money-page slugs. Article, guide, template, example, integration-guide, and ordinary use-case renderers are unchanged.
+- Responsive rule: below tablet width the TOC becomes an in-flow card, media/text sections stack, tables scroll within their section, and the page must not create horizontal document overflow.
+
 ## 2026-07-25 — Register CabinJoin as a native money-page content store
 
 - Decision: CabinJoin is connected as a `native_content_store` site with EN/RU/FR/ES/DE and a dedicated shared content root. Static `seo_money_page` records will be drafted, reviewed and explicitly published by Blog Core; CabinJoin renders only the published local payload in its own transactional application.

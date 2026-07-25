@@ -61,6 +61,12 @@ canonical requires a factory `seo_money_page` job with
 `canonicalRootPage=true`, `targetPath=/{slug}`, a generated-content contract,
 validated localizations, and an explicit Publish action.
 
+The Georivo renderer converts that validated HTML into its commercial section
+layout at request time. Release checks must include
+`audit_money_pages.py --origin https://georivo.com` plus desktop and 390 px
+browser checks. The 2026-07-25 pre-redesign renderer backup is stored at
+`/var/backups/georivo-blogcore/20260725-money-layout`.
+
 ## Environment
 
 * `PORT`: default `3299`.

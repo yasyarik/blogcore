@@ -39,6 +39,10 @@ class PageParser(HTMLParser):
         self.has_checker = False
         self.has_checkout = False
         self.in_hero_media = False
+        self.has_editorial = False
+        self.has_toc_rail = False
+        self.story_section_count = 0
+        self.has_mid_cta = False
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -63,6 +67,14 @@ class PageParser(HTMLParser):
             self.has_footer = True
         elif tag == "main" and attrs.get("data-money-page"):
             self.money_page = attrs["data-money-page"]
+        elif tag == "div" and "money-editorial" in classes:
+            self.has_editorial = True
+        elif tag == "aside" and "money-toc-rail" in classes:
+            self.has_toc_rail = True
+        elif tag == "section" and "money-story-section" in classes:
+            self.story_section_count += 1
+        elif tag == "aside" and "money-inline-cta" in classes:
+            self.has_mid_cta = True
         elif tag == "div" and "money-hero-media" in classes:
             self.in_hero_media = True
         if tag == "div" and "money-content-inner" in classes:
@@ -153,6 +165,12 @@ def main():
                 "shared_header": parsed.has_header,
                 "shared_footer": parsed.has_footer,
                 "money_template": parsed.money_page == slug,
+                "commercial_sections": (
+                    parsed.has_editorial
+                    and parsed.has_toc_rail
+                    and parsed.story_section_count >= 7
+                    and parsed.has_mid_cta
+                ),
                 "hero": bool(parsed.hero),
                 "long_form": parsed.content_words >= 1200,
                 "sections": parsed.h2_count >= 7,

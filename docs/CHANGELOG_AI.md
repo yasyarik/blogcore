@@ -1,5 +1,31 @@
 # CHANGELOG_AI.md
 
+## 2026-07-25 — Redesign Georivo money pages as commercial product pages
+
+### Summary
+
+- Replaced the article-like money-page body with a renderer-owned commercial section system.
+- Added a compact sticky TOC, alternating product sections, media/text split layouts, section numbering, a mid-page CTA, and mobile stacking.
+- Kept the generated long-form content, the shared Georivo header/footer, the real Coverage checker, and the Stripe Pricing action intact.
+
+### Files changed
+
+- `deploy/georivo/app.py` — splits safe factory HTML into commercial sections without changing ordinary article rendering.
+- `deploy/georivo/georivo-blog.css` — dedicated desktop/mobile visual system for money pages.
+- `deploy/georivo/audit_money_pages.py` — release gate for commercial structure.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable design and deployment record.
+
+### Checks run
+
+- Python compilation and `git diff --check`.
+- Strict public audit: 15/15 canonical language pages passed; legacy aliases and sitemap remained correct.
+- Playwright desktop and 390 px mobile visual checks; all three RU mobile pages reported `scrollWidth == innerWidth`.
+- `georivo-blog.service` active and loopback health returned `ok: true`.
+
+### Risks / TODO
+
+- Factory copy remains intentionally long for search intent coverage; future content edits must preserve the section contract.
+
 ## 2026-07-25 — Register CabinJoin native money-page store
 
 ### Summary
