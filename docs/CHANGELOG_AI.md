@@ -1,5 +1,24 @@
 # CHANGELOG_AI.md
 
+## 2026-07-25 — Register CabinJoin native money-page store
+
+### Summary
+
+- Added the CabinJoin site record as a multilingual native content-store target with a dedicated shared content root.
+- No content draft or page was generated or published automatically.
+
+### Decisions
+
+- Blog Core owns the reviewable lifecycle for CabinJoin static money pages; CabinJoin owns its product shell and transactional facts.
+
+### Checks run
+
+- Confirmed the saved site mode, languages and content-root configuration through the local Blog Core API/database.
+
+### Risks / TODO
+
+- Add an explicit root-home content type before Blog Core can publish content for CabinJoin’s interactive homepage.
+
 This file is updated by Codex after every task.
 
 ## 2026-07-25 — Publish Georivo SEO money pages through live Blog Core

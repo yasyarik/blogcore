@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-25 — Register CabinJoin as a native money-page content store
+
+- Decision: CabinJoin is connected as a `native_content_store` site with EN/RU/FR/ES/DE and a dedicated shared content root. Static `seo_money_page` records will be drafted, reviewed and explicitly published by Blog Core; CabinJoin renders only the published local payload in its own transactional application.
+- Reason: CabinJoin needs the same controlled content lifecycle as other generated sites without making Blog Core responsible for availability, payment, identity or marketplace transactions.
+- Boundary: Blog Core currently validates money-page routes below `/use-cases/`. Its interactive root homepage is not yet a supported native content type and remains product-owned until an explicit Core extension is built.
+- Replaced/deprecated: The earlier CabinJoin-only assumption that Blog Core would be limited to a future blog tenant.
+
 This file is the durable memory of the project.
 It must be updated after every meaningful task.
 
