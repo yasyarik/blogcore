@@ -139,11 +139,13 @@ Completed:
 * Passed 114/114 browser checks across all desktop locales and mobile EN.
 * Verified 19/19 public page audits, four indexable typed hubs, native header/footer, zero responsive overflow, and all 95 typed language URLs in the live sitemap.
 * Enabled the daily public contract audit with systemd.
+* Verified `sc-domain:georivo.com` ownership/access and granted the factory service account `siteFullUser`.
+* Submitted `https://georivo.com/sitemap.xml` through the official Search Console API and read back the accepted record with zero warnings/errors. Initial Google processing is pending.
+* Enabled the daily Search Console validation/submission timer.
 
-Externally blocked:
+Replaced/deprecated:
 
-* Search Console submission cannot complete until a verified Georivo property grants access to the existing service account. Both API property forms return `403`, and the currently authorized Google account reports no access to `georivo.com`.
-* A daily retry adapter is deployed. Once access is granted, it will validate and submit the current sitemap through the official API without another code change.
+* The earlier external Search Console access blocker is closed as of 2026-07-25.
 
 Measurement work remains ongoing by design:
 

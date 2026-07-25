@@ -3,6 +3,14 @@
 This file is the durable memory of the project.
 It must be updated after every meaningful task.
 
+## 2026-07-25 — Georivo Search Console submission is operational
+
+* Decision: `sc-domain:georivo.com` grants the factory service account `siteFullUser` access. The official adapter submitted `https://georivo.com/sitemap.xml` and read back the accepted API record with zero errors and warnings.
+* Reason: This closes the external-access blocker and proves that the daily retry path works without an operator browser session.
+* Files/areas affected: Search Console property access, `deploy/georivo/gsc_submit.py`, ignored `data/georivo-gsc-status.json`, and `georivo-gsc-submit.timer`.
+* Current state: Google returned `isPending=true` immediately after submission on 2026-07-25. This is normal initial processing, not a failed submission.
+* Replaced/deprecated: The earlier 2026-07-25 statement that Georivo Search Console access and submission were pending.
+
 ## 2026-07-25 — Search Console submission is retryable and observable
 
 * Decision: Native-site Search Console submission uses a repository script with Google service-account OAuth, public sitemap validation, explicit property-permission checks, official Webmasters API submission, and an atomic ignored status file.
@@ -23,8 +31,9 @@ It must be updated after every meaningful task.
 * Decision: Georivo publication requires four recorded gates: editorial review, product fact check, SEO review, and browser QA. The rollout passed 19/19 static audits and 114/114 browser checks before explicit publication.
 * Reason: Generation success is not publication approval. The site needs independent structure, language, asset, responsive, and SEO checks.
 * Files/areas affected: page briefs, content-job logs, `deploy/georivo/approve_and_publish_content_plan.py`, and `deploy/georivo/visual-test.js`.
-* Decision: A daily systemd audit rechecks the public Georivo contract. Search Console submission remains pending until the existing service account is granted access to a verified Georivo property.
-* Reason: Both the Search Console API and the current Google account lack access to `georivo.com`; public sitemap availability alone does not prove submission.
+* Replaced/deprecated 2026-07-25: Search Console access is no longer pending. The service account now has `siteFullUser`, and the official API submission/read-back succeeded.
+* Decision: A daily systemd audit rechecks the public Georivo contract, while the separate GSC timer validates and resubmits the current sitemap through the official API.
+* Reason: Public sitemap availability alone does not prove submission; the durable success signal is the API `submitted` state plus a readable sitemap record.
 * Files/areas affected: `georivo-content-audit.service`, `georivo-content-audit.timer`, deployment/integration memory.
 * Replaced/deprecated: The 2026-07-24 plan state in which typed hubs existed but no typed pages had been queued or published.
 

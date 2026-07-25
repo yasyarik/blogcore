@@ -2,6 +2,41 @@
 
 This file is updated by Codex after every task.
 
+## 2026-07-25 — Submit Georivo sitemap to Search Console
+
+### Summary
+
+* Confirmed the verified `sc-domain:georivo.com` property in Search Console and submitted `https://georivo.com/sitemap.xml`.
+* Confirmed the factory service account now has `siteFullUser` access.
+* Re-ran the official API adapter successfully and read back the accepted sitemap record with zero errors and warnings.
+* Re-ran the complete public content audit and service/timer health checks.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — replaced the external-access blocker with the confirmed Search Console operating state.
+* `docs/SEO_MEMORY.md` — recorded the accepted sitemap and pending initial Google processing.
+* `docs/INTEGRATIONS.md` — recorded the verified service-account permission and official API result.
+* `docs/GEORIVO_CONTENT_FACTORY_PLAN.md` — closed Search Console submission in the production checklist.
+* `docs/CHANGELOG_AI.md` — logged this completion task.
+
+### Decisions
+
+* Search Console submission is complete only when the service-account API call succeeds and the submitted sitemap record can be read back.
+* `isPending=true` immediately after submission means Google is processing the accepted sitemap; it is not a submission failure.
+
+### Checks run
+
+* Search Console UI confirmed the sitemap was submitted on 2026-07-25.
+* Official Webmasters API reported `permissionLevel=siteFullUser`, `status=submitted`, `warnings=0`, `errors=0`, and `isPending=true`.
+* Public content audit: 19 expected, 19 found, 19 passed, 0 failed.
+* Verified `georivo-content-audit.timer` and `georivo-gsc-submit.timer` are enabled and active.
+* Verified Blog Core and Georivo renderer health endpoints.
+
+### Risks / TODO
+
+* Google must complete its initial sitemap processing before discovered/indexed URL counts become meaningful.
+* Query/page performance tracking and refresh decisions remain ongoing post-publication operations.
+
 ## 2026-07-25 — Automate Georivo Search Console submission retries
 
 ### Summary
