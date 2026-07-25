@@ -1046,7 +1046,7 @@ def money_published_asset_pool(language, excluded, money_slug):
     ]
 
 
-def money_recommendations_html(blocks, images):
+def money_recommendations_html(blocks, images, language):
     links = []
     seen = set()
     faq = []
@@ -1250,7 +1250,7 @@ def money_editorial_html(
             '<div class="money-section-number" aria-hidden="true">+</div>'
             '<div class="money-section-body">'
             f'<div class="money-utility-body">'
-            f'{money_recommendations_html(extras, supporting_pool[decorative_index:])}</div>'
+            f'{money_recommendations_html(extras, supporting_pool[decorative_index:], language)}</div>'
             '</div>'
             '</section>'
         )
