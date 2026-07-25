@@ -940,6 +940,11 @@ MONEY_EXPLORE_LABELS = {
     "ru": "Откройте Georivo",
 }
 
+MONEY_HERO_OVERRIDES = {
+    "coverage": "/brand/georivo-money-coverage.webp",
+    "pricing": "/brand/georivo-money-pricing.webp",
+}
+
 
 def money_plain_text(markup):
     return html.unescape(re.sub(r"(?is)<[^>]+>", " ", str(markup or ""))).strip()
@@ -978,9 +983,10 @@ def money_image_for_href(href, language, fallbacks, index):
     return fallbacks[index % len(fallbacks)] if fallbacks else ""
 
 
-def money_published_hero_pool(language, excluded):
+def money_published_asset_pool(language, excluded, money_slug):
+    """Allocate a non-overlapping media library to each root money page."""
     excluded = {money_asset_url(item) for item in excluded if item}
-    pool = []
+    global_pool = []
     type_order = {
         "example": 0,
         "template": 1,
@@ -995,29 +1001,52 @@ def money_published_hero_pool(language, excluded):
         localized = localized_record(candidate, language)
         if not localized:
             continue
+        candidate_slug = str(
+            localized.get("slug") or candidate.get("slug") or ""
+        ).strip("/")
+        if candidate_slug in MONEY_PAGE_SLUGS:
+            # A root money page owns its factory figures. They must not leak
+            # into either of the other two pages.
+            continue
         content_type = (
             "money_page" if is_money_page_record(candidate)
             else record_content_type(candidate)
         )
-        image = money_asset_url(
+        record_images = [
             localized.get("heroImage") or candidate.get("heroImage") or ""
-        )
-        if not image or image in excluded:
-            continue
-        candidates.append(
-            (
-                type_order.get(content_type, 9),
-                str(localized.get("slug") or candidate.get("slug") or ""),
-                image,
+        ]
+        record_images.extend(
+            match[1]
+            for match in re.findall(
+                r"""(?is)<img\b[^>]*\bsrc\s*=\s*(["'])(.*?)\1""",
+                str(localized.get("draftHtml") or candidate.get("draftHtml") or ""),
             )
         )
-    for _, _, image in sorted(candidates):
-        if image not in pool:
-            pool.append(image)
-    return pool
+        for asset_index, raw_image in enumerate(record_images):
+            image = money_asset_url(raw_image)
+            if not image or image in excluded:
+                continue
+            candidates.append(
+                (
+                    type_order.get(content_type, 9),
+                    candidate_slug,
+                    asset_index,
+                    image,
+                )
+            )
+    for _, _, _, image in sorted(candidates):
+        if image not in global_pool:
+            global_pool.append(image)
+
+    page_index = MONEY_PAGE_SLUGS.index(money_slug)
+    return [
+        image
+        for index, image in enumerate(global_pool)
+        if index % len(MONEY_PAGE_SLUGS) == page_index
+    ]
 
 
-def money_recommendations_html(blocks, language, fallbacks):
+def money_recommendations_html(blocks, images):
     links = []
     seen = set()
     faq = []
@@ -1071,7 +1100,7 @@ def money_recommendations_html(blocks, language, fallbacks):
     cards = []
     for index, (href, title, description, label) in enumerate(links[:6]):
         title = title[:1].upper() + title[1:] if title else "Georivo"
-        image = money_image_for_href(href, language, fallbacks, index)
+        image = images[index] if index < len(images) else ""
         media = (
             '<span class="money-recommendation-media" aria-hidden="true">'
             f'<img src="{esc(image)}" alt="" loading="lazy" decoding="async"></span>'
@@ -1099,7 +1128,7 @@ def money_recommendations_html(blocks, language, fallbacks):
 
 
 def money_editorial_html(
-    markup, cta_label, cta_url, action, content_id, mid_copy, language, hero
+    markup, cta_label, cta_url, action, content_id, mid_copy, language, hero, money_slug
 ):
     """Turn factory article markup into a sales-page section system."""
     blocks = top_level_html_blocks(markup)
@@ -1146,16 +1175,8 @@ def money_editorial_html(
     hero = money_asset_url(hero)
     if hero and hero not in visual_pool:
         visual_pool.append(hero)
-    recommendation_images = set()
-    for block in extras:
-        for href in re.findall(
-            r"""(?is)<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1""", block
-        ):
-            image = money_image_for_href(href[1], language, [], 0)
-            if image:
-                recommendation_images.add(image)
-    supporting_pool = money_published_hero_pool(
-        language, set(visual_pool) | recommendation_images
+    supporting_pool = money_published_asset_pool(
+        language, visual_pool, money_slug
     )
 
     section_html = []
@@ -1229,7 +1250,7 @@ def money_editorial_html(
             '<div class="money-section-number" aria-hidden="true">+</div>'
             '<div class="money-section-body">'
             f'<div class="money-utility-body">'
-            f'{money_recommendations_html(extras, language, visual_pool)}</div>'
+            f'{money_recommendations_html(extras, supporting_pool[decorative_index:])}</div>'
             '</div>'
             '</section>'
         )
@@ -1255,7 +1276,7 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
         item: f"{SITE_ORIGIN}{article_path(item, slug, 'money_page')}"
         for item in record_languages(record)
     }
-    hero = str(record.get("heroImage") or "")
+    hero = MONEY_HERO_OVERRIDES.get(slug) or str(record.get("heroImage") or "")
     if hero.startswith("/sites/"):
         hero = BLOG_CORE_ORIGIN + hero
     hero_html = (
@@ -1279,6 +1300,7 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
         labels["build_copy"],
         language,
         hero,
+        slug,
     )
     checker = ""
     if slug == "coverage":

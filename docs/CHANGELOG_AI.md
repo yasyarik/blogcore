@@ -1,5 +1,30 @@
 # CHANGELOG_AI.md
 
+## 2026-07-26 — Separate all money-page image libraries
+
+### Summary
+
+- Replaced page-local image uniqueness with a global three-page allocation.
+- How it works, Coverage, and Pricing now receive disjoint supporting and recommendation-card images in every language.
+- Added intentionally different Coverage and Pricing hero scenes instead of three near-identical office portraits.
+- Strengthened the public audit to reject any reused main-content image between two root money pages.
+
+### Files changed
+
+- `deploy/georivo/app.py` — slug-aware global asset partition, unique card imagery, and curated hero overrides.
+- `deploy/georivo/audit_money_pages.py` — cross-page main-image collision gate.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable media policy and release record.
+- Georivo `public/brand/georivo-money-coverage.webp` and `public/brand/georivo-money-pricing.webp` — project-owned hero assets.
+
+### Checks run
+
+- Python compilation and `git diff --check`.
+- Verified the live factory store contains 100 eligible non-money-page assets per language, yielding 34/33/33 disjoint allocations.
+
+### Risks / TODO
+
+- Production deployment and the strict 15-page audit must complete before this release is considered live.
+
 ## 2026-07-26 — Enforce unique alternating money-page imagery
 
 ### Summary

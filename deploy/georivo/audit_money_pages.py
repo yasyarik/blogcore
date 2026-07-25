@@ -50,6 +50,8 @@ class PageParser(HTMLParser):
         self.in_supporting_visual = False
         self.recommendation_card_count = 0
         self.has_mid_cta = False
+        self.main_depth = 0
+        self.main_images = []
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -78,6 +80,7 @@ class PageParser(HTMLParser):
             self.has_footer = True
         elif tag == "main" and attrs.get("data-money-page"):
             self.money_page = attrs["data-money-page"]
+            self.main_depth = 1
         elif tag == "div" and "money-editorial" in classes:
             self.has_editorial = True
         elif tag == "aside" and "money-toc-rail" in classes:
@@ -104,6 +107,10 @@ class PageParser(HTMLParser):
             self.hero = attrs.get("src", "")
         if tag == "img" and self.in_supporting_visual:
             self.supporting_visual_images.append(attrs.get("src", ""))
+        if tag == "img" and self.main_depth:
+            source = attrs.get("src", "")
+            if source:
+                self.main_images.append(source)
         if "data-money-checker" in attrs:
             self.has_checker = True
         if attrs.get("data-money-action") == "checkout":
@@ -118,6 +125,8 @@ class PageParser(HTMLParser):
             self.in_supporting_visual = False
         if tag == "div" and self.content_depth:
             self.content_depth -= 1
+        if tag == "main" and self.main_depth:
+            self.main_depth = 0
 
     def handle_data(self, data):
         if self.content_depth:
@@ -161,6 +170,7 @@ def main():
     canonical_origin = (args.canonical_origin or origin).rstrip("/")
     failures = []
     heroes = {}
+    page_images = {}
     checked = []
 
     for language in LANGUAGES:
@@ -222,6 +232,7 @@ def main():
                 if not ok:
                     failures.append(f"{url}: {name} failed")
             heroes.setdefault(slug, parsed.hero)
+            page_images[(language, slug)] = set(parsed.main_images)
             checked.append({"url": url, **checks})
 
             legacy_path = (
@@ -243,6 +254,18 @@ def main():
 
     if len(set(heroes.values())) != len(SLUGS):
         failures.append(f"Money-page heroes are not unique: {heroes}")
+    for language in LANGUAGES:
+        for index, slug in enumerate(SLUGS):
+            for other_slug in SLUGS[index + 1:]:
+                overlap = (
+                    page_images.get((language, slug), set())
+                    & page_images.get((language, other_slug), set())
+                )
+                if overlap:
+                    failures.append(
+                        f"{language}: {slug} and {other_slug} reuse money-page images: "
+                        f"{sorted(overlap)}"
+                    )
 
     try:
         _, sitemap = fetch(origin + "/sitemap.xml")

@@ -1,5 +1,14 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Root money pages own disjoint visual libraries
+
+- Decision: image uniqueness is global across `/how-it-works`, `/coverage`, and `/pricing`, not merely local to one page. A main-content image used by one root money page may not appear in either of the other two in the same language.
+- Decision: each money page keeps its own factory figures, while generated section visuals and recommendation-card photos come from a stable slug-partitioned pool of non-money-page published assets.
+- Decision: recommendation cards preserve their real destinations and copy but use the current money page's allocated contextual imagery; reusing the linked target's hero across several money pages is deprecated.
+- Decision: hero scenes must be intentionally different by subject. How it works uses the existing workflow scene; Coverage uses a people-free aerial coverage landscape; Pricing uses a publishable-widget/subscription scene in a real-estate gallery.
+- Release gate: `audit_money_pages.py` compares every image inside each money-page main region and fails on any cross-page overlap for the same language.
+- Replaced: the prior rule guaranteed uniqueness only within a single page and therefore allowed all three pages to render the same supporting asset sequence.
+
 ## 2026-07-26 — Money-page section media is unique and strictly alternating
 
 - Decision: every primary money-page narrative section is a two-column media section. Odd sections place copy left and image right; even sections place image left and copy right.
