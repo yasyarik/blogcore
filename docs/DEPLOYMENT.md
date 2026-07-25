@@ -67,6 +67,13 @@ layout at request time. Release checks must include
 browser checks. The 2026-07-25 pre-redesign renderer backup is stored at
 `/var/backups/georivo-blogcore/20260725-money-layout`.
 
+The 2026-07-25 content-density/style refinement is deployed from
+`deploy/georivo/app.py` and `deploy/georivo/georivo-blog.css`. Its immediate
+pre-change rollback copy is stored at
+`/var/backups/georivo-blogcore/20260725-money-style-polish`. Release QA must
+also include a tablet-width check because the hero typography changes below
+900 px.
+
 ## Environment
 
 * `PORT`: default `3299`.

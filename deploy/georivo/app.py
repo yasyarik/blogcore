@@ -693,7 +693,7 @@ def shell(
   {alternate_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260725c">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260725f">
   {structured}
 </head>
 <body class="blog-shell">
@@ -940,6 +940,7 @@ def money_editorial_html(markup, cta_label, cta_url, action, content_id, mid_cop
     intro = []
     groups = []
     current = []
+    extras = []
 
     for block in blocks:
         if block_has_class(block, "article-lead") and not lead:
@@ -947,6 +948,16 @@ def money_editorial_html(markup, cta_label, cta_url, action, content_id, mid_cop
             continue
         if block_has_class(block, "article-toc") and not toc:
             toc = block
+            continue
+        if (
+            block_has_class(block, "article-related")
+            or block_has_class(block, "article-recommended")
+            or block_has_class(block, "article-faq")
+        ):
+            if current:
+                groups.append(current)
+                current = []
+            extras.append(block)
             continue
         if re.match(r"(?is)\s*<h2\b", block):
             if current:
@@ -971,6 +982,10 @@ def money_editorial_html(markup, cta_label, cta_url, action, content_id, mid_cop
     mid_point = min(3, max(1, len(groups) // 2))
     for index, group in enumerate(groups, start=1):
         classes = ["money-story-section"]
+        if index % 4 == 2:
+            classes.append("money-tone-dark")
+        elif index % 4 == 0:
+            classes.append("money-tone-soft")
         media_blocks = [
             item for item in group if block_has_class(item, "article-figure")
         ]
@@ -979,19 +994,22 @@ def money_editorial_html(markup, cta_label, cta_url, action, content_id, mid_cop
         ]
         if media_blocks:
             classes.append("money-story-media")
-        if any(block_has_class(item, "article-faq") for item in group):
-            classes.append("money-story-faq")
-        if any(
-            block_has_class(item, "article-related")
-            or block_has_class(item, "article-recommended")
-            for item in group
-        ):
-            classes.append("money-story-links")
+            if index % 2 == 0:
+                classes.append("money-story-reverse")
+        heading_blocks = [
+            item for item in copy_blocks if re.match(r"(?is)\s*<h2\b", item)
+        ]
+        text_blocks = [
+            item for item in copy_blocks if not re.match(r"(?is)\s*<h2\b", item)
+        ]
         section_html.append(
             f'<section class="{" ".join(classes)}" data-money-section="{index:02d}">'
             f'<div class="money-section-number" aria-hidden="true">{index:02d}</div>'
             '<div class="money-section-body">'
-            f'<div class="money-section-copy">{"".join(copy_blocks)}</div>'
+            '<div class="money-section-copy">'
+            f'<div class="money-section-heading">{"".join(heading_blocks)}</div>'
+            f'<div class="money-section-text">{"".join(text_blocks)}</div>'
+            '</div>'
             f'<div class="money-section-media">{"".join(media_blocks)}</div>'
             '</div>'
             '</section>'
@@ -1006,6 +1024,17 @@ def money_editorial_html(markup, cta_label, cta_url, action, content_id, mid_cop
                 f'data-content-id="{esc(content_id)}" data-cta-location="article-middle">'
                 f'{esc(cta_label)} <span>↗</span></a></aside>'
             )
+
+    if extras:
+        section_html.append(
+            '<section class="money-story-section money-story-utility" '
+            'data-money-section="resources">'
+            '<div class="money-section-number" aria-hidden="true">+</div>'
+            '<div class="money-section-body">'
+            f'<div class="money-utility-body">{"".join(extras)}</div>'
+            '</div>'
+            '</section>'
+        )
 
     return (
         '<div class="money-editorial">'

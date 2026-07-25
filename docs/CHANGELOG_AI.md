@@ -1,5 +1,35 @@
 # CHANGELOG_AI.md
 
+## 2026-07-25 — Polish Georivo money-page typography and density
+
+### Summary
+
+- Rebalanced the commercial renderer into distinct heading, body, media, and utility regions without changing factory copy.
+- Removed artificial vertical whitespace, made imagery fill its paired section, reduced oversized introductory/tablet type, and tightened the TOC, cards, CTA, FAQ, and recommendation rhythm.
+- Added explicit responsive behavior for desktop, tablet, and mobile, including safe sticky-header anchor offsets.
+
+### Files changed
+
+- `deploy/georivo/app.py` — groups factory content into presentation regions and separates related/recommended/FAQ utilities.
+- `deploy/georivo/georivo-blog.css` — refined commercial typography, grids, media sizing, spacing, utility layout, and responsive breakpoints.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable style and deployment record.
+
+### Decisions
+
+- Preserve the Georivo brand system while applying the UI/UX density, readable-line-length, typography-scale, and responsive-layout guidance.
+- Never solve long-form page composition with fixed blank height; media and text must occupy the same visual section.
+
+### Checks run
+
+- Python compilation and `git diff --check`.
+- Strict public audit passed all 15 canonical language pages.
+- Playwright visual checks at 1440, 768, and 390 px; Coverage and Pricing reported no horizontal overflow at 390 px.
+- Browser console reported zero errors and warnings; `georivo-blog.service` health returned `ok: true`.
+
+### Risks / TODO
+
+- Future generated copy lengths vary; keep the renderer content-driven and re-run all three viewport classes after typography changes.
+
 ## 2026-07-25 — Redesign Georivo money pages as commercial product pages
 
 ### Summary

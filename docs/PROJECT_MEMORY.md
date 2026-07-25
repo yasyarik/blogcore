@@ -1,5 +1,14 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-25 — Georivo money-page styling uses content-driven density
+
+- Decision: commercial sections must not use artificial minimum heights. Section height is determined by real copy and media, with compact inter-section gaps and consistent internal padding.
+- Decision: long introductory copy is supporting text, not a second hero heading. Desktop leads use a restrained 21–25 px scale; mobile uses 20 px with a readable line height.
+- Decision: non-media sections split heading and body into balanced columns. In media sections the image fills the complete paired section height; it must not stop at a fixed 16:9 frame while copy continues beside an empty area.
+- Decision: related links, recommended pages, and FAQ are presentation utilities and belong in their own compact closing section rather than inside the final narrative section.
+- Responsive contract: the TOC becomes in-flow below 1180 px; story layouts stack below 900 px; mobile spacing/type are reduced below 640 px; no supported viewport may create horizontal document overflow.
+- Reason: commercial pages should feel like dense, deliberate Georivo product pages, not a stretched article or a sequence of disconnected oversized cards.
+
 ## 2026-07-25 — Georivo money pages use a dedicated commercial section system
 
 - Decision: factory-generated Georivo root money pages are transformed at render time into a dedicated sales-page composition: full product hero, compact sticky TOC rail, large alternating section cards, media/text split sections, a mid-page conversion CTA, and a final CTA.
