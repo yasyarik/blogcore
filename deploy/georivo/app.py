@@ -693,7 +693,7 @@ def shell(
   {alternate_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260725f">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726c">
   {structured}
 </head>
 <body class="blog-shell">
@@ -932,7 +932,136 @@ def block_has_class(block, class_name):
     )
 
 
-def money_editorial_html(markup, cta_label, cta_url, action, content_id, mid_copy):
+MONEY_EXPLORE_LABELS = {
+    "en": "Explore Georivo",
+    "de": "Georivo entdecken",
+    "es": "Descubre Georivo",
+    "fr": "Découvrez Georivo",
+    "ru": "Откройте Georivo",
+}
+
+
+def money_plain_text(markup):
+    return html.unescape(re.sub(r"(?is)<[^>]+>", " ", str(markup or ""))).strip()
+
+
+def money_asset_url(value):
+    value = str(value or "").strip()
+    return BLOG_CORE_ORIGIN + value if value.startswith("/sites/") else value
+
+
+def money_image_from_block(block):
+    match = re.search(r"""(?is)<img\b[^>]*\bsrc\s*=\s*(["'])(.*?)\1""", block)
+    return money_asset_url(match.group(2)) if match else ""
+
+
+def money_image_for_href(href, language, fallbacks, index):
+    path = str(href or "").split("?", 1)[0].split("#", 1)[0]
+    normalized = "/" + path.strip("/")
+    for candidate in load_records(PUBLISHED_ROOT):
+        localized = localized_record(candidate, language)
+        if not localized:
+            continue
+        slug = str(localized.get("slug") or candidate.get("slug") or "").strip("/")
+        content_type = (
+            "money_page" if is_money_page_record(candidate)
+            else record_content_type(candidate)
+        )
+        candidate_path = article_path(language, slug, content_type).rstrip("/") or "/"
+        if normalized.rstrip("/") != candidate_path:
+            continue
+        image = money_asset_url(
+            localized.get("heroImage") or candidate.get("heroImage") or ""
+        )
+        if image:
+            return image
+    return fallbacks[index % len(fallbacks)] if fallbacks else ""
+
+
+def money_recommendations_html(blocks, language, fallbacks):
+    links = []
+    seen = set()
+    faq = []
+    for block in blocks:
+        if block_has_class(block, "article-faq"):
+            faq.append(block)
+            continue
+        for item in re.findall(r"(?is)<li\b[^>]*>(.*?)</li>", block):
+            anchor = re.search(
+                r"""(?is)<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1[^>]*>(.*?)</a>""",
+                item,
+            )
+            if not anchor:
+                continue
+            href = anchor.group(2).strip()
+            if not href or href in seen:
+                continue
+            description_match = re.search(r"(?is)<span\b[^>]*>(.*?)</span>", item)
+            links.append(
+                (
+                    href,
+                    money_plain_text(anchor.group(3)),
+                    money_plain_text(description_match.group(1)) if description_match else "",
+                    "",
+                )
+            )
+            seen.add(href)
+        for anchor_match in re.finditer(
+            r"""(?is)<a\b([^>]*\brecommended-card\b[^>]*)>(.*?)</a>""",
+            block,
+        ):
+            opening, content = anchor_match.groups()
+            href_match = re.search(r"""\bhref\s*=\s*(["'])(.*?)\1""", opening)
+            if not href_match:
+                continue
+            href = href_match.group(2).strip()
+            if not href or href in seen:
+                continue
+            title_match = re.search(r"(?is)<strong\b[^>]*>(.*?)</strong>", content)
+            label_match = re.search(r"(?is)<span\b[^>]*>(.*?)</span>", content)
+            links.append(
+                (
+                    href,
+                    money_plain_text(title_match.group(1) if title_match else content),
+                    "",
+                    money_plain_text(label_match.group(1)) if label_match else "",
+                )
+            )
+            seen.add(href)
+
+    cards = []
+    for index, (href, title, description, label) in enumerate(links[:6]):
+        title = title[:1].upper() + title[1:] if title else "Georivo"
+        image = money_image_for_href(href, language, fallbacks, index)
+        media = (
+            '<span class="money-recommendation-media" aria-hidden="true">'
+            f'<img src="{esc(image)}" alt="" loading="lazy" decoding="async"></span>'
+            if image else ""
+        )
+        cards.append(
+            f'<a class="money-recommendation-card" href="{esc(href)}">'
+            f'{media}<span class="money-recommendation-copy">'
+            f'<small>{esc(label or "Georivo")}</small>'
+            f'<strong>{esc(title)}</strong>'
+            f'{f"<span>{esc(description)}</span>" if description else ""}'
+            '<b aria-hidden="true">↗</b></span></a>'
+        )
+
+    explore = ""
+    if cards:
+        explore = (
+            '<section class="money-recommendations">'
+            '<span class="money-recommendations-kicker">Georivo</span>'
+            f'<h2>{esc(MONEY_EXPLORE_LABELS.get(language, MONEY_EXPLORE_LABELS["en"]))}</h2>'
+            f'<div class="money-recommendation-grid">{"".join(cards)}</div>'
+            '</section>'
+        )
+    return explore + "".join(faq)
+
+
+def money_editorial_html(
+    markup, cta_label, cta_url, action, content_id, mid_copy, language, hero
+):
     """Turn factory article markup into a sales-page section system."""
     blocks = top_level_html_blocks(markup)
     lead = ""
@@ -970,6 +1099,15 @@ def money_editorial_html(markup, cta_label, cta_url, action, content_id, mid_cop
     if current:
         groups.append(current)
 
+    visual_pool = []
+    for block in intro + [item for group in groups for item in group]:
+        image = money_image_from_block(block)
+        if image and image not in visual_pool:
+            visual_pool.append(image)
+    hero = money_asset_url(hero)
+    if hero and hero not in visual_pool:
+        visual_pool.append(hero)
+
     section_html = []
     if lead or intro:
         section_html.append(
@@ -980,6 +1118,7 @@ def money_editorial_html(markup, cta_label, cta_url, action, content_id, mid_cop
         )
 
     mid_point = min(3, max(1, len(groups) // 2))
+    decorative_index = 0
     for index, group in enumerate(groups, start=1):
         classes = ["money-story-section"]
         if index % 4 == 2:
@@ -1002,12 +1141,21 @@ def money_editorial_html(markup, cta_label, cta_url, action, content_id, mid_cop
         text_blocks = [
             item for item in copy_blocks if not re.match(r"(?is)\s*<h2\b", item)
         ]
+        supporting_visual = ""
+        if not media_blocks and visual_pool:
+            image = visual_pool[decorative_index % len(visual_pool)]
+            decorative_index += 1
+            supporting_visual = (
+                '<div class="money-section-visual" aria-hidden="true">'
+                f'<img src="{esc(image)}" alt="" loading="lazy" decoding="async"></div>'
+            )
         section_html.append(
             f'<section class="{" ".join(classes)}" data-money-section="{index:02d}">'
             f'<div class="money-section-number" aria-hidden="true">{index:02d}</div>'
             '<div class="money-section-body">'
             '<div class="money-section-copy">'
-            f'<div class="money-section-heading">{"".join(heading_blocks)}</div>'
+            f'<div class="money-section-heading">{"".join(heading_blocks)}'
+            f'{supporting_visual}</div>'
             f'<div class="money-section-text">{"".join(text_blocks)}</div>'
             '</div>'
             f'<div class="money-section-media">{"".join(media_blocks)}</div>'
@@ -1031,17 +1179,13 @@ def money_editorial_html(markup, cta_label, cta_url, action, content_id, mid_cop
             'data-money-section="resources">'
             '<div class="money-section-number" aria-hidden="true">+</div>'
             '<div class="money-section-body">'
-            f'<div class="money-utility-body">{"".join(extras)}</div>'
+            f'<div class="money-utility-body">'
+            f'{money_recommendations_html(extras, language, visual_pool)}</div>'
             '</div>'
             '</section>'
         )
 
-    return (
-        '<div class="money-editorial">'
-        f'<aside class="money-toc-rail">{toc}</aside>'
-        f'<div class="money-sections">{"".join(section_html)}</div>'
-        '</div>'
-    )
+    return toc, f'<div class="money-sections">{"".join(section_html)}</div>'
 
 
 def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
@@ -1077,8 +1221,15 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
         cta_url = "/#create"
     action = ' data-money-action="checkout"' if slug == "pricing" else ""
     content_id = str(record.get("id") or slug)
-    editorial_html = money_editorial_html(
-        body_html, cta_label, cta_url, action, content_id, labels["build_copy"]
+    toc_html, editorial_html = money_editorial_html(
+        body_html,
+        cta_label,
+        cta_url,
+        action,
+        content_id,
+        labels["build_copy"],
+        language,
+        hero,
     )
     checker = ""
     if slug == "coverage":
@@ -1101,18 +1252,23 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
       <section class="money-hero">
         <div class="money-hero-media">{hero_html}</div>
         <div class="money-hero-wash" aria-hidden="true"></div>
-        <div class="money-hero-copy">
-          <div class="section-tag">{esc(eyebrow)}</div>
-          <h1>{esc(title)}</h1>
-          <p>{esc(description)}</p>
-          <a class="money-primary" href="{esc(cta_url)}"{action}
-             data-event="seo_cta_click" data-page-type="money_page"
-             data-content-id="{esc(record.get("id") or slug)}" data-cta-location="hero">{esc(cta_label)} <span>↗</span></a>
+        <div class="money-hero-frame">
+          <div class="money-hero-copy">
+            <div class="section-tag">{esc(eyebrow)}</div>
+            <h1>{esc(title)}</h1>
+            <p>{esc(description)}</p>
+            <a class="money-primary" href="{esc(cta_url)}"{action}
+               data-event="seo_cta_click" data-page-type="money_page"
+               data-content-id="{esc(record.get("id") or slug)}" data-cta-location="hero">{esc(cta_label)} <span>↗</span></a>
+          </div>
+          <aside class="money-toc-rail">{toc_html}</aside>
         </div>
       </section>
       {checker}
       <section class="money-content">
-        <div class="money-content-inner">{editorial_html}</div>
+        <div class="money-content-inner">
+          <div class="money-editorial">{editorial_html}</div>
+        </div>
       </section>
       <section class="money-final">
         <span>{esc(record.get("finalEyebrow") or labels["build"])}</span>

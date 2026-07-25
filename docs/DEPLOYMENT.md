@@ -74,6 +74,14 @@ pre-change rollback copy is stored at
 also include a tablet-width check because the hero typography changes below
 900 px.
 
+The 2026-07-26 money-page visual-fill release adds hero-contained TOC,
+supporting section imagery, and photo recommendation cards. Its immediate
+pre-change rollback copy is stored at
+`/var/backups/georivo-blogcore/20260726-money-visual-fill`. The tracked audit
+file must also be copied to
+`/var/www/blog.yas.ooo/deploy/georivo/audit_money_pages.py`, which is the
+scheduled production-audit source.
+
 ## Environment
 
 * `PORT`: default `3299`.

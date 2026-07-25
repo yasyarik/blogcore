@@ -41,12 +41,20 @@ class PageParser(HTMLParser):
         self.in_hero_media = False
         self.has_editorial = False
         self.has_toc_rail = False
+        self.hero_depth = 0
+        self.has_toc_in_hero = False
         self.story_section_count = 0
+        self.supporting_visual_count = 0
+        self.recommendation_card_count = 0
         self.has_mid_cta = False
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         classes = attrs.get("class", "").split()
+        if self.hero_depth:
+            self.hero_depth += 1
+        elif tag == "section" and "money-hero" in classes:
+            self.hero_depth = 1
         if tag == "h1":
             self.h1_count += 1
         elif tag == "h2":
@@ -71,8 +79,13 @@ class PageParser(HTMLParser):
             self.has_editorial = True
         elif tag == "aside" and "money-toc-rail" in classes:
             self.has_toc_rail = True
+            self.has_toc_in_hero = bool(self.hero_depth)
         elif tag == "section" and "money-story-section" in classes:
             self.story_section_count += 1
+        elif tag == "div" and "money-section-visual" in classes:
+            self.supporting_visual_count += 1
+        elif tag == "a" and "money-recommendation-card" in classes:
+            self.recommendation_card_count += 1
         elif tag == "aside" and "money-inline-cta" in classes:
             self.has_mid_cta = True
         elif tag == "div" and "money-hero-media" in classes:
@@ -89,6 +102,8 @@ class PageParser(HTMLParser):
             self.has_checkout = True
 
     def handle_endtag(self, tag):
+        if self.hero_depth:
+            self.hero_depth -= 1
         if tag == "div" and self.in_hero_media:
             self.in_hero_media = False
         if tag == "div" and self.content_depth:
@@ -168,7 +183,12 @@ def main():
                 "commercial_sections": (
                     parsed.has_editorial
                     and parsed.has_toc_rail
+                    and parsed.has_toc_in_hero
                     and parsed.story_section_count >= 7
+                    and parsed.supporting_visual_count >= 4
+                    and parsed.recommendation_card_count >= 3
+                    and "article-related" not in markup
+                    and "article-recommended" not in markup
                     and parsed.has_mid_cta
                 ),
                 "hero": bool(parsed.hero),

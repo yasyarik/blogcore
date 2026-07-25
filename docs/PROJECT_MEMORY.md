@@ -1,5 +1,13 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Georivo money pages integrate navigation and semantic imagery
+
+- Decision: the money-page TOC is part of the hero composition, not a detached article sidebar. Desktop/tablet use a wide multi-column navigation panel; mobile keeps it inside the hero as a horizontally scrollable strip that must not expand the document width.
+- Decision: every narrative section without its own factory figure receives a supporting visual from the page's approved hero/editorial asset pool. The image sits below the section heading and fills the otherwise empty column; it is decorative (`alt=""`) and does not change the validated count of editorial figures.
+- Decision: old `Related reading` and `Recommended next` article blocks are transformed into one localized `Explore Georivo` commercial recommendation grid. Cards preserve and deduplicate the factory's internal links/descriptions, resolve the target page's published hero image, and retain the FAQ below.
+- Reason: money pages must use long-form content without looking like stretched articles or leaving unused columns.
+- Release gate: the 15-page audit requires the TOC inside the hero, at least four supporting visuals, at least three photo recommendation cards, and no remaining article-related/article-recommended markup.
+
 ## 2026-07-25 — Georivo money-page styling uses content-driven density
 
 - Decision: commercial sections must not use artificial minimum heights. Section height is determined by real copy and media, with compact inter-section gaps and consistent internal padding.

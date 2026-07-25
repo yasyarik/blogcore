@@ -1,5 +1,37 @@
 # CHANGELOG_AI.md
 
+## 2026-07-26 — Fill money-page whitespace with semantic visuals
+
+### Summary
+
+- Moved the factory TOC into the money-page hero as a responsive navigation layer.
+- Filled non-media narrative sections with approved page imagery chosen from the page's own generated asset sequence.
+- Replaced blog-like Related/Recommended blocks with localized photo recommendation cards using the linked target pages' published hero images.
+- Strengthened the production audit so these commercial-layout requirements cannot silently regress.
+
+### Files changed
+
+- `deploy/georivo/app.py` — hero TOC composition, supporting visual assignment, localized recommendation-card transformation, and target-image resolution.
+- `deploy/georivo/georivo-blog.css` — hero navigation, filled section columns, responsive image/card layouts, and mobile horizontal TOC.
+- `deploy/georivo/audit_money_pages.py` — verifies hero-contained TOC, supporting visuals, photo cards, and removal of article resource markup.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable product and release record.
+
+### Decisions
+
+- Reuse only approved factory/published assets; do not fabricate external photos at request time.
+- Decorative supporting images keep empty alt text while recommendation cards derive meaning from their visible linked title and description.
+
+### Checks run
+
+- Python compilation and `git diff --check`.
+- Strict production audit passed all 15 canonical language pages.
+- Playwright checks at 1440, 768, and 390 px; all three EN pages remained exactly viewport width at 390 px.
+- Browser console reported zero errors and warnings; live renderer health returned `ok: true`.
+
+### Risks / TODO
+
+- Asset reuse is intentionally bounded by the approved image pool; future factory revisions may generate more section-specific imagery without changing the renderer contract.
+
 ## 2026-07-25 — Polish Georivo money-page typography and density
 
 ### Summary
