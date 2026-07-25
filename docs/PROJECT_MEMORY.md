@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Georivo money-page heroes are distinct from first paint
+
+- Decision: `/how-it-works`, `/coverage`, and `/pricing` use three separate same-origin WebP hero assets served by `georivo-blog.service`.
+- Decision: each money page preloads its own hero and has a page-specific CSS background fallback using that same asset, plus a page-specific wash/object position.
+- Reason: distinct `<img>` URLs alone were insufficient because the shared neutral placeholder could occupy the first visible frame while the image loaded, making all three pages appear to use the same hero.
+- Release gate: the 15-page audit must report three different hero paths; production HTML must include a matching hero preload for each page.
+
 ## 2026-07-25 — Register CabinJoin as a native money-page content store
 
 - Decision: CabinJoin is connected as a `native_content_store` site with EN/RU/FR/ES/DE and a dedicated shared content root. Static `seo_money_page` records will be drafted, reviewed and explicitly published by Blog Core; CabinJoin renders only the published local payload in its own transactional application.

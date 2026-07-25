@@ -32,6 +32,7 @@ curl -fsS http://127.0.0.1:3299/health
 * Application path: `/var/www/georivo-blog`.
 * Service: `georivo-blog.service`.
 * Loopback listener: `127.0.0.1:13340`.
+* Money-page hero assets are tracked as `deploy/georivo/money-hero-*.webp`, installed at the renderer root, served through `/blog-assets/`, and preloaded by the money-page HTML.
 * Public routes handled locally: `/blog`, `/guides`, `/templates`, `/examples`, `/embed`, `/use-cases`, root SEO money pages `/how-it-works`, `/coverage`, `/pricing`, their configured locale-prefixed equivalents, `/content-preview/`, and `/sitemap.xml`. EN uses unprefixed canonical paths; `/en/...` redirects to them.
 * Existing Georivo product routes continue to proxy to their configured upstream.
 * Tracked deployment templates live under `deploy/georivo/`.

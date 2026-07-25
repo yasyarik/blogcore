@@ -1,5 +1,35 @@
 # CHANGELOG_AI.md
 
+## 2026-07-26 — Make Georivo money-page heroes distinct from first paint
+
+### Summary
+
+- Moved all three Georivo money-page heroes to same-origin Blog Core assets.
+- Added per-page preload, background fallback, image position, and overlay treatment so the pages are visually distinct before and after image decoding.
+
+### Files changed
+
+- `deploy/georivo/app.py` — stable hero overrides, image preload metadata, and stylesheet cache bust.
+- `deploy/georivo/georivo-blog.css` — page-specific hero imagery and treatments.
+- `deploy/georivo/money-hero-*.webp` — three optimized thematic hero assets.
+- `docs/PROJECT_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable delivery and release record.
+
+### Decisions
+
+- A unique image URL is not enough; first paint must also be page-specific.
+- Hero images are delivered from the same Blog Core origin instead of mixing Blog Core and Sites asset hosts.
+
+### Checks run
+
+- Python compilation and service health passed.
+- Production HTML exposes a matching preload and hero URL on all three pages.
+- The strict money-page audit passed all 15 localized URLs with three distinct hero paths.
+- Browser QA confirmed the three visually distinct hero compositions.
+
+### Risks / TODO
+
+- Browser cache is explicitly invalidated through stylesheet revision `20260726e`.
+
 ## 2026-07-25 — Register CabinJoin native money-page store
 
 ### Summary

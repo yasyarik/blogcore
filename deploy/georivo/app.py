@@ -429,6 +429,31 @@ def load_content_record(directory, content_type, slug):
     return None
 
 
+def is_money_page_record(record):
+    slug = str(record.get("slug") or "").strip("/")
+    content_type = record_content_type(record)
+    return (
+        slug in MONEY_PAGE_SLUGS
+        and (
+            content_type == "money_page"
+            or (
+                content_type == "use_case"
+                and record.get("canonicalRootPage") is True
+            )
+        )
+    )
+
+
+def load_money_page_record(directory, slug):
+    slug = str(slug or "").strip("/")
+    if slug not in MONEY_PAGE_SLUGS:
+        return None
+    for record in load_records(directory):
+        if is_money_page_record(record) and str(record.get("slug") or "").strip("/") == slug:
+            return record
+    return None
+
+
 def absolute_article_assets(markup):
     return re.sub(
         r'(?P<attr>\b(?:src|href)=["\'])(?P<path>/sites/\d+/article-assets/)',
@@ -644,6 +669,7 @@ def shell(
     slug=None,
     preview_job_id=None,
     content_type="blog",
+    preload_image=None,
 ):
     language = normalize_language(language)
     robots = '<meta name="robots" content="noindex,nofollow">' if noindex else '<meta name="robots" content="index,follow,max-image-preview:large">'
@@ -656,6 +682,10 @@ def shell(
     )
     if DEFAULT_LANGUAGE in alternates:
         alternate_markup += f'<link rel="alternate" hreflang="x-default" href="{esc(alternates[DEFAULT_LANGUAGE])}">'
+    preload_markup = (
+        f'<link rel="preload" as="image" href="{esc(preload_image)}" fetchpriority="high">'
+        if preload_image else ""
+    )
     return f"""<!doctype html>
 <html lang="{esc(language)}">
 <head>
@@ -666,9 +696,10 @@ def shell(
   {robots}
   <link rel="canonical" href="{esc(canonical)}">
   {alternate_markup}
+  {preload_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260725a">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726e">
   {structured}
 </head>
 <body class="blog-shell">
@@ -864,6 +895,376 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
     )
 
 
+VOID_HTML_TAGS = {
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+    "meta", "param", "source", "track", "wbr",
+}
+
+
+def top_level_html_blocks(markup):
+    """Split trusted, sanitised article HTML into complete top-level elements."""
+    blocks = []
+    start = None
+    depth = 0
+    token_pattern = re.compile(r"(?is)<\s*(/?)\s*([a-z][a-z0-9:-]*)\b[^>]*>")
+    for match in token_pattern.finditer(markup):
+        closing, tag = match.group(1), match.group(2).lower()
+        token = match.group(0)
+        self_closing = token.rstrip().endswith("/>") or tag in VOID_HTML_TAGS
+        if not closing:
+            if depth == 0:
+                start = match.start()
+            if not self_closing:
+                depth += 1
+            elif depth == 0 and start is not None:
+                blocks.append(markup[start:match.end()].strip())
+                start = None
+        elif depth:
+            depth -= 1
+            if depth == 0 and start is not None:
+                blocks.append(markup[start:match.end()].strip())
+                start = None
+    return [block for block in blocks if block]
+
+
+def block_has_class(block, class_name):
+    opening = re.match(r"(?is)\s*<[^>]+>", block)
+    return bool(
+        opening
+        and re.search(
+            rf"""(?is)\bclass\s*=\s*(["'])[^"']*\b{re.escape(class_name)}\b[^"']*\1""",
+            opening.group(0),
+        )
+    )
+
+
+MONEY_EXPLORE_LABELS = {
+    "en": "Explore Georivo",
+    "de": "Georivo entdecken",
+    "es": "Descubre Georivo",
+    "fr": "Découvrez Georivo",
+    "ru": "Откройте Georivo",
+}
+
+MONEY_HERO_OVERRIDES = {
+    "how-it-works": "/blog-assets/money-hero-how-it-works.webp",
+    "coverage": "/blog-assets/money-hero-coverage.webp",
+    "pricing": "/blog-assets/money-hero-pricing.webp",
+}
+
+
+def money_plain_text(markup):
+    return html.unescape(re.sub(r"(?is)<[^>]+>", " ", str(markup or ""))).strip()
+
+
+def money_asset_url(value):
+    value = str(value or "").strip()
+    return BLOG_CORE_ORIGIN + value if value.startswith("/sites/") else value
+
+
+def money_image_from_block(block):
+    match = re.search(r"""(?is)<img\b[^>]*\bsrc\s*=\s*(["'])(.*?)\1""", block)
+    return money_asset_url(match.group(2)) if match else ""
+
+
+def money_image_for_href(href, language, fallbacks, index):
+    path = str(href or "").split("?", 1)[0].split("#", 1)[0]
+    normalized = "/" + path.strip("/")
+    for candidate in load_records(PUBLISHED_ROOT):
+        localized = localized_record(candidate, language)
+        if not localized:
+            continue
+        slug = str(localized.get("slug") or candidate.get("slug") or "").strip("/")
+        content_type = (
+            "money_page" if is_money_page_record(candidate)
+            else record_content_type(candidate)
+        )
+        candidate_path = article_path(language, slug, content_type).rstrip("/") or "/"
+        if normalized.rstrip("/") != candidate_path:
+            continue
+        image = money_asset_url(
+            localized.get("heroImage") or candidate.get("heroImage") or ""
+        )
+        if image:
+            return image
+    return fallbacks[index % len(fallbacks)] if fallbacks else ""
+
+
+def money_published_asset_pool(language, excluded, money_slug):
+    """Allocate a non-overlapping media library to each root money page."""
+    excluded = {money_asset_url(item) for item in excluded if item}
+    global_pool = []
+    type_order = {
+        "example": 0,
+        "template": 1,
+        "guide": 2,
+        "integration_guide": 3,
+        "blog": 4,
+        "use_case": 5,
+        "money_page": 6,
+    }
+    candidates = []
+    for candidate in load_records(PUBLISHED_ROOT):
+        localized = localized_record(candidate, language)
+        if not localized:
+            continue
+        candidate_slug = str(
+            localized.get("slug") or candidate.get("slug") or ""
+        ).strip("/")
+        if candidate_slug in MONEY_PAGE_SLUGS:
+            # A root money page owns its factory figures. They must not leak
+            # into either of the other two pages.
+            continue
+        content_type = (
+            "money_page" if is_money_page_record(candidate)
+            else record_content_type(candidate)
+        )
+        record_images = [
+            localized.get("heroImage") or candidate.get("heroImage") or ""
+        ]
+        record_images.extend(
+            match[1]
+            for match in re.findall(
+                r"""(?is)<img\b[^>]*\bsrc\s*=\s*(["'])(.*?)\1""",
+                str(localized.get("draftHtml") or candidate.get("draftHtml") or ""),
+            )
+        )
+        for asset_index, raw_image in enumerate(record_images):
+            image = money_asset_url(raw_image)
+            if not image or image in excluded:
+                continue
+            candidates.append(
+                (
+                    type_order.get(content_type, 9),
+                    candidate_slug,
+                    asset_index,
+                    image,
+                )
+            )
+    for _, _, _, image in sorted(candidates):
+        if image not in global_pool:
+            global_pool.append(image)
+
+    page_index = MONEY_PAGE_SLUGS.index(money_slug)
+    return [
+        image
+        for index, image in enumerate(global_pool)
+        if index % len(MONEY_PAGE_SLUGS) == page_index
+    ]
+
+
+def money_recommendations_html(blocks, images, language):
+    links = []
+    seen = set()
+    faq = []
+    for block in blocks:
+        if block_has_class(block, "article-faq"):
+            faq.append(block)
+            continue
+        for item in re.findall(r"(?is)<li\b[^>]*>(.*?)</li>", block):
+            anchor = re.search(
+                r"""(?is)<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1[^>]*>(.*?)</a>""",
+                item,
+            )
+            if not anchor:
+                continue
+            href = anchor.group(2).strip()
+            if not href or href in seen:
+                continue
+            description_match = re.search(r"(?is)<span\b[^>]*>(.*?)</span>", item)
+            links.append(
+                (
+                    href,
+                    money_plain_text(anchor.group(3)),
+                    money_plain_text(description_match.group(1)) if description_match else "",
+                    "",
+                )
+            )
+            seen.add(href)
+        for anchor_match in re.finditer(
+            r"""(?is)<a\b([^>]*\brecommended-card\b[^>]*)>(.*?)</a>""",
+            block,
+        ):
+            opening, content = anchor_match.groups()
+            href_match = re.search(r"""\bhref\s*=\s*(["'])(.*?)\1""", opening)
+            if not href_match:
+                continue
+            href = href_match.group(2).strip()
+            if not href or href in seen:
+                continue
+            title_match = re.search(r"(?is)<strong\b[^>]*>(.*?)</strong>", content)
+            label_match = re.search(r"(?is)<span\b[^>]*>(.*?)</span>", content)
+            links.append(
+                (
+                    href,
+                    money_plain_text(title_match.group(1) if title_match else content),
+                    "",
+                    money_plain_text(label_match.group(1)) if label_match else "",
+                )
+            )
+            seen.add(href)
+
+    cards = []
+    for index, (href, title, description, label) in enumerate(links[:6]):
+        title = title[:1].upper() + title[1:] if title else "Georivo"
+        image = images[index] if index < len(images) else ""
+        media = (
+            '<span class="money-recommendation-media" aria-hidden="true">'
+            f'<img src="{esc(image)}" alt="" loading="lazy" decoding="async"></span>'
+            if image else ""
+        )
+        cards.append(
+            f'<a class="money-recommendation-card" href="{esc(href)}">'
+            f'{media}<span class="money-recommendation-copy">'
+            f'<small>{esc(label or "Georivo")}</small>'
+            f'<strong>{esc(title)}</strong>'
+            f'{f"<span>{esc(description)}</span>" if description else ""}'
+            '<b aria-hidden="true">↗</b></span></a>'
+        )
+
+    explore = ""
+    if cards:
+        explore = (
+            '<section class="money-recommendations">'
+            '<span class="money-recommendations-kicker">Georivo</span>'
+            f'<h2>{esc(MONEY_EXPLORE_LABELS.get(language, MONEY_EXPLORE_LABELS["en"]))}</h2>'
+            f'<div class="money-recommendation-grid">{"".join(cards)}</div>'
+            '</section>'
+        )
+    return explore + "".join(faq)
+
+
+def money_editorial_html(
+    markup, cta_label, cta_url, action, content_id, mid_copy, language, hero, money_slug
+):
+    """Turn factory article markup into a sales-page section system."""
+    blocks = top_level_html_blocks(markup)
+    lead = ""
+    toc = ""
+    intro = []
+    groups = []
+    current = []
+    extras = []
+
+    for block in blocks:
+        if block_has_class(block, "article-lead") and not lead:
+            lead = block
+            continue
+        if block_has_class(block, "article-toc") and not toc:
+            toc = block
+            continue
+        if (
+            block_has_class(block, "article-related")
+            or block_has_class(block, "article-recommended")
+            or block_has_class(block, "article-faq")
+        ):
+            if current:
+                groups.append(current)
+                current = []
+            extras.append(block)
+            continue
+        if re.match(r"(?is)\s*<h2\b", block):
+            if current:
+                groups.append(current)
+            current = [block]
+        elif current:
+            current.append(block)
+        else:
+            intro.append(block)
+    if current:
+        groups.append(current)
+
+    visual_pool = []
+    for block in intro + [item for group in groups for item in group]:
+        image = money_image_from_block(block)
+        if image and image not in visual_pool:
+            visual_pool.append(image)
+    hero = money_asset_url(hero)
+    if hero and hero not in visual_pool:
+        visual_pool.append(hero)
+    supporting_pool = money_published_asset_pool(
+        language, visual_pool, money_slug
+    )
+
+    section_html = []
+    if lead or intro:
+        section_html.append(
+            '<section class="money-opening" data-money-section="opening">'
+            f'<div class="money-opening-copy">{lead}</div>'
+            f'<div class="money-opening-media">{"".join(intro)}</div>'
+            '</section>'
+        )
+
+    mid_point = min(3, max(1, len(groups) // 2))
+    decorative_index = 0
+    for index, group in enumerate(groups, start=1):
+        classes = ["money-story-section"]
+        if index % 4 == 2:
+            classes.append("money-tone-dark")
+        elif index % 4 == 0:
+            classes.append("money-tone-soft")
+        media_blocks = [
+            item for item in group if block_has_class(item, "article-figure")
+        ]
+        copy_blocks = [
+            item for item in group if not block_has_class(item, "article-figure")
+        ]
+        if not media_blocks and decorative_index < len(supporting_pool):
+            image = supporting_pool[decorative_index]
+            decorative_index += 1
+            media_blocks = [
+                '<div class="money-section-visual" aria-hidden="true">'
+                f'<img src="{esc(image)}" alt="" loading="lazy" decoding="async"></div>'
+            ]
+            classes.append("money-story-generated-media")
+        if media_blocks:
+            classes.append("money-story-media")
+            if index % 2 == 0:
+                classes.append("money-story-reverse")
+        heading_blocks = [
+            item for item in copy_blocks if re.match(r"(?is)\s*<h2\b", item)
+        ]
+        text_blocks = [
+            item for item in copy_blocks if not re.match(r"(?is)\s*<h2\b", item)
+        ]
+        section_html.append(
+            f'<section class="{" ".join(classes)}" data-money-section="{index:02d}">'
+            f'<div class="money-section-number" aria-hidden="true">{index:02d}</div>'
+            '<div class="money-section-body">'
+            '<div class="money-section-copy">'
+            f'<div class="money-section-heading">{"".join(heading_blocks)}</div>'
+            f'<div class="money-section-text">{"".join(text_blocks)}</div>'
+            '</div>'
+            f'<div class="money-section-media">{"".join(media_blocks)}</div>'
+            '</div>'
+            '</section>'
+        )
+        if index == mid_point:
+            section_html.append(
+                '<aside class="money-inline-cta">'
+                '<div><span>Georivo</span>'
+                f'<strong>{esc(mid_copy)}</strong></div>'
+                f'<a href="{esc(cta_url)}"{action} data-event="seo_cta_click" '
+                'data-page-type="money_page" '
+                f'data-content-id="{esc(content_id)}" data-cta-location="article-middle">'
+                f'{esc(cta_label)} <span>↗</span></a></aside>'
+            )
+
+    if extras:
+        section_html.append(
+            '<section class="money-story-section money-story-utility" '
+            'data-money-section="resources">'
+            '<div class="money-section-number" aria-hidden="true">+</div>'
+            '<div class="money-section-body">'
+            f'<div class="money-utility-body">'
+            f'{money_recommendations_html(extras, supporting_pool[decorative_index:], language)}</div>'
+            '</div>'
+            '</section>'
+        )
+
+    return toc, f'<div class="money-sections">{"".join(section_html)}</div>'
+
+
 def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
     language = normalize_language(language)
     labels = copy_for(language)
@@ -882,7 +1283,7 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
         item: f"{SITE_ORIGIN}{article_path(item, slug, 'money_page')}"
         for item in record_languages(record)
     }
-    hero = str(record.get("heroImage") or "")
+    hero = MONEY_HERO_OVERRIDES.get(slug) or str(record.get("heroImage") or "")
     if hero.startswith("/sites/"):
         hero = BLOG_CORE_ORIGIN + hero
     hero_html = (
@@ -896,6 +1297,18 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
     if not cta_url.startswith("/"):
         cta_url = "/#create"
     action = ' data-money-action="checkout"' if slug == "pricing" else ""
+    content_id = str(record.get("id") or slug)
+    toc_html, editorial_html = money_editorial_html(
+        body_html,
+        cta_label,
+        cta_url,
+        action,
+        content_id,
+        labels["build_copy"],
+        language,
+        hero,
+        slug,
+    )
     checker = ""
     if slug == "coverage":
         checker = f"""
@@ -917,18 +1330,23 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
       <section class="money-hero">
         <div class="money-hero-media">{hero_html}</div>
         <div class="money-hero-wash" aria-hidden="true"></div>
-        <div class="money-hero-copy">
-          <div class="section-tag">{esc(eyebrow)}</div>
-          <h1>{esc(title)}</h1>
-          <p>{esc(description)}</p>
-          <a class="money-primary" href="{esc(cta_url)}"{action}
-             data-event="seo_cta_click" data-page-type="money_page"
-             data-content-id="{esc(record.get("id") or slug)}" data-cta-location="hero">{esc(cta_label)} <span>↗</span></a>
+        <div class="money-hero-frame">
+          <div class="money-hero-copy">
+            <div class="section-tag">{esc(eyebrow)}</div>
+            <h1>{esc(title)}</h1>
+            <p>{esc(description)}</p>
+            <a class="money-primary" href="{esc(cta_url)}"{action}
+               data-event="seo_cta_click" data-page-type="money_page"
+               data-content-id="{esc(record.get("id") or slug)}" data-cta-location="hero">{esc(cta_label)} <span>↗</span></a>
+          </div>
+          <aside class="money-toc-rail">{toc_html}</aside>
         </div>
       </section>
       {checker}
       <section class="money-content">
-        <div class="money-content-inner">{body_html}</div>
+        <div class="money-content-inner">
+          <div class="money-editorial">{editorial_html}</div>
+        </div>
       </section>
       <section class="money-final">
         <span>{esc(record.get("finalEyebrow") or labels["build"])}</span>
@@ -939,18 +1357,20 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
       </section>
     </main>
     """
+    schema_record = {**record, "contentType": "money_page", "pageType": "seo_money_page"}
     return shell(
         f"{title} | Georivo",
         description,
         body,
         canonical,
-        article_schema(record, canonical),
+        article_schema(schema_record, canonical),
         noindex=preview,
         language=language,
         alternate_urls=alternate_urls,
         slug=slug,
         preview_job_id=record.get("id") if preview else None,
         content_type="money_page",
+        preload_image=hero,
     )
 
 
@@ -967,6 +1387,7 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
     posts = [
         record for record in load_records(PUBLISHED_ROOT)
         if record_content_type(record) == content_type
+        and not is_money_page_record(record)
     ]
     cards = []
     for post in posts:
@@ -1137,6 +1558,8 @@ def published_article(section, slug):
     record = load_content_record(PUBLISHED_ROOT, content_type, slug)
     if not record:
         abort(404)
+    if is_money_page_record(record):
+        return redirect(article_path(DEFAULT_LANGUAGE, slug, "money_page"), code=301)
     return article_page(record, DEFAULT_LANGUAGE)
 
 
@@ -1147,6 +1570,8 @@ def localized_published_article(language, section, slug):
     record = load_content_record(PUBLISHED_ROOT, content_type, slug)
     if not record:
         abort(404)
+    if is_money_page_record(record):
+        return redirect(article_path(language, slug, "money_page"), code=301)
     return article_page(record, language)
 
 
@@ -1154,7 +1579,7 @@ def localized_published_article(language, section, slug):
 def published_money_page(money_slug):
     if money_slug not in MONEY_PAGE_SLUGS:
         abort(404)
-    record = load_content_record(PUBLISHED_ROOT, "money_page", money_slug)
+    record = load_money_page_record(PUBLISHED_ROOT, money_slug)
     if not record:
         abort(404)
     return money_page(record, DEFAULT_LANGUAGE)
@@ -1164,7 +1589,7 @@ def published_money_page(money_slug):
 def localized_published_money_page(language, money_slug):
     if language not in LANGUAGES or language == DEFAULT_LANGUAGE or money_slug not in MONEY_PAGE_SLUGS:
         abort(404)
-    record = load_content_record(PUBLISHED_ROOT, "money_page", money_slug)
+    record = load_money_page_record(PUBLISHED_ROOT, money_slug)
     if not record:
         abort(404)
     return money_page(record, language)
@@ -1217,7 +1642,7 @@ def draft_preview(job_id):
     language = normalize_language(request.args.get("lang"))
     return (
         money_page(record, language, preview=True)
-        if record_content_type(record) == "money_page"
+        if is_money_page_record(record)
         else article_page(record, language, preview=True)
     )
 
@@ -1232,7 +1657,7 @@ def sitemap():
     ]
     records = load_records(PUBLISHED_ROOT)
     for slug in MONEY_PAGE_SLUGS:
-        record = load_content_record(PUBLISHED_ROOT, "money_page", slug)
+        record = load_money_page_record(PUBLISHED_ROOT, slug)
         if not record:
             continue
         alternates = {
@@ -1241,7 +1666,10 @@ def sitemap():
         }
         groups.extend((url, "0.9", alternates) for url in alternates.values())
     type_counts = {
-        content_type: sum(1 for record in records if record_content_type(record) == content_type)
+        content_type: sum(
+            1 for record in records
+            if record_content_type(record) == content_type and not is_money_page_record(record)
+        )
         for content_type in CONTENT_SECTIONS
     }
     available_types = {content_type for content_type, count in type_counts.items() if count}
@@ -1258,7 +1686,7 @@ def sitemap():
         groups.extend((url, "0.8", section_alternates) for url in section_alternates.values())
     for record in records:
         slug = str(record.get("slug") or "").strip("/")
-        if slug and record_content_type(record) != "money_page":
+        if slug and not is_money_page_record(record):
             content_type = record_content_type(record)
             article_alternates = {
                 language: f"{SITE_ORIGIN}{article_path(language, slug, content_type)}"
