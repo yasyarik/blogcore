@@ -20,10 +20,12 @@
 
 - Python compilation and `git diff --check`.
 - Verified the live factory store contains 100 eligible non-money-page assets per language, yielding 34/33/33 disjoint allocations.
+- Strict production audit passed all 15 canonical language pages with zero cross-page image collisions.
+- Playwright visually confirmed three deliberately different hero scenes at 1440 px; console errors and warnings: zero.
 
 ### Risks / TODO
 
-- Production deployment and the strict 15-page audit must complete before this release is considered live.
+- None specific to this release. The audit will block future publication if the disjoint image contract regresses.
 
 ## 2026-07-26 — Enforce unique alternating money-page imagery
 

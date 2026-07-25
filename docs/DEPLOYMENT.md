@@ -87,6 +87,13 @@ The 2026-07-26 unique-alternating-media correction has rollback files at
 audit verifies that every primary section has media, odd/even sections alternate
 right/left, and no generated supporting-image URL repeats.
 
+The 2026-07-26 global visual-identity release is Blog Core commit `f0fb285`.
+It partitions all non-money-page media across the three root money pages,
+including recommendation cards, and uses permanent Georivo-owned Coverage and
+Pricing hero assets from Sites version 77. Rollback files are in
+`/var/backups/georivo-blogcore/20260726-money-global-visuals`. The strict audit
+must report zero main-image overlap between the three slugs in every language.
+
 ## Environment
 
 * `PORT`: default `3299`.
