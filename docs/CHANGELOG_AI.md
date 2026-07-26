@@ -4209,3 +4209,22 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * Failed pre-fix YAS jobs must be regenerated.
+
+## 2026-07-26 — Add fail-closed YAS money-page audit
+
+### Summary
+
+* Added a production-data audit for the exact nine-page set, compact profile ranges, RU/DE completeness, media count, section structure, and common generic AI phrasing.
+
+### Files changed
+
+* `deploy/yas/audit_money_pages.py` — publication gate for generated YAS content.
+* `docs/CHANGELOG_AI.md` — this record.
+
+### Checks run
+
+* `python3 -m py_compile deploy/yas/audit_money_pages.py`.
+
+### Risks / TODO
+
+* Automated phrase checks supplement rather than replace browser and editorial review.
