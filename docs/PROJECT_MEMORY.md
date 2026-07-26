@@ -1,5 +1,13 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Informational content uses intent-specific Georivo product steps
+
+- Decision: every published Guide, Blog article, Template, Example, and Embed guide contains a visible contextual product step inside the main article content.
+- Decision: the renderer classifies the page intent as Property Showcase, Neighborhood Story, Arrival Guide, coverage check, publishing/embed, or example setup and links to the matching real Georivo screen with the relevant template/movement query where supported.
+- Decision: contextual product copy is localized in EN, DE, ES, FR, and RU. A universal repeated CTA is not an acceptable substitute.
+- Reason: useful informational content should complete the reader's answer with a concrete way to apply it in Georivo without turning every article into the same template advertisement.
+- Release gate: public typed-content audits require `product-bridge` and a valid `data-product-action`; the complete sitemap audit requires at least four distinct product-action intents.
+
 ## 2026-07-26 — Pricing uses three large plan cards
 
 - Replaced: the same-day single compact Solo card is superseded by a large three-tier grid.

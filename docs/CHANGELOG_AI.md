@@ -1,5 +1,35 @@
 # CHANGELOG_AI.md
 
+## 2026-07-26 — Connect every Georivo answer to the relevant product workflow
+
+### Summary
+
+- Audited the complete public Georivo sitemap and replaced the renderer's universal article CTA logic with six intent-specific product actions.
+- Added localized in-article application panels for Property Showcase, Neighborhood Story, Arrival Guide, real coverage checking, protected embed publishing, and example setups.
+- Kept the long-form answer intact while giving readers a concrete next step in the real Georivo product.
+- Extended the public audit so a page cannot pass with only a generic CTA or one repeated action across the content tree.
+
+### Files changed
+
+- `deploy/georivo/app.py` — contextual intent classifier, five-language product copy, exact builder/coverage/pricing destinations, and article/guide integration.
+- `deploy/georivo/georivo-blog.css` — responsive product-step panel.
+- `deploy/georivo/audit_content_plan.py` — public product-bridge and action-classification checks.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable SEO and release rules.
+
+### Decisions
+
+- Useful content remains a complete answer; the product bridge demonstrates how to apply that answer in Georivo.
+- The renderer uses reader intent, not one universal sales message, and future content inherits the same contract.
+
+### Checks run
+
+- `python3 -m py_compile deploy/georivo/app.py deploy/georivo/audit_content_plan.py`
+- `git diff --check`
+
+### Risks / TODO
+
+- Public sitemap and browser checks must run after the VPS renderer restart; production HTML cannot pass the new action audit before deployment.
+
 ## 2026-07-26 — Expand Georivo Pricing to three large subscription tiers
 
 ### Summary

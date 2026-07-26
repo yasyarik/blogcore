@@ -297,6 +297,152 @@ COMMERCIAL_ACTION_LABELS = {
         "free": "Бесплатное превью", "free_copy": "Проверьте покрытие, настройте историю и посмотрите её в браузере до оформления подписки.",
     },
 }
+
+PRODUCT_ACTION_COPY = {
+    "en": {
+        "property": {
+            "kicker": "Apply this to a real listing",
+            "title": "Build a Property Showcase for the address you are marketing.",
+            "copy": "Check the exact property in Georivo, choose the building preset and preview the approach-and-orbit sequence in live 3D before you publish.",
+            "label": "Build a Property Showcase",
+        },
+        "neighborhood": {
+            "kicker": "Turn the advice into a location story",
+            "title": "Show the places that make this location easier to understand.",
+            "copy": "Open Georivo with Neighborhood Story selected, confirm the property and add up to three real nearby places. The preview connects those places to the listing and finishes at the property.",
+            "label": "Build a Neighborhood Story",
+        },
+        "arrival": {
+            "kicker": "Make the route visible",
+            "title": "Create an Arrival Guide to this property.",
+            "copy": "Confirm the listing in Georivo, choose a real station or parking point and preview the point-to-property arrival sequence before sharing it.",
+            "label": "Build an Arrival Guide",
+        },
+        "coverage": {
+            "kicker": "Verify the real address",
+            "title": "Do not rely on a generic coverage claim.",
+            "copy": "Enter the exact property address in Georivo. The checker resolves the location and tests whether the required photorealistic 3D scene is available before you configure a story.",
+            "label": "Check this address in Georivo",
+        },
+        "embed": {
+            "kicker": "Publish the result",
+            "title": "Use the protected Georivo embed workflow.",
+            "copy": "Create and preview the location story first, then choose the plan that matches your number of published widgets and visitor-started 3D plays.",
+            "label": "See publishing plans",
+        },
+        "example": {
+            "kicker": "Use this example as a starting point",
+            "title": "Apply the same story logic to your own property.",
+            "copy": "Open the Georivo builder with the relevant template selected, enter the real listing address and adjust movement, distance, angle and duration while watching the live preview.",
+            "label": "Use this setup in Georivo",
+        },
+    },
+    "de": {
+        "property": {"kicker": "Auf ein echtes Objekt anwenden", "title": "Erstellen Sie eine Property Showcase für die vermarktete Adresse.", "copy": "Prüfen Sie das genaue Objekt in Georivo, wählen Sie den Gebäudetyp und sehen Sie die Annäherung mit anschließendem Rundflug live in 3D an.", "label": "Property Showcase erstellen"},
+        "neighborhood": {"kicker": "Aus dem Rat eine Standortgeschichte machen", "title": "Zeigen Sie die Orte, die den Standort verständlich machen.", "copy": "Öffnen Sie Georivo mit Neighborhood Story, bestätigen Sie das Objekt und fügen Sie bis zu drei reale Orte in der Nähe hinzu. Die Vorschau verbindet diese Orte mit dem Objekt.", "label": "Neighborhood Story erstellen"},
+        "arrival": {"kicker": "Die Ankunft sichtbar machen", "title": "Erstellen Sie einen Arrival Guide für dieses Objekt.", "copy": "Bestätigen Sie das Objekt, wählen Sie einen realen Bahnhof oder Parkplatz und prüfen Sie die Ankunftssequenz bis zum Gebäude.", "label": "Arrival Guide erstellen"},
+        "coverage": {"kicker": "Die echte Adresse prüfen", "title": "Verlassen Sie sich nicht auf eine pauschale Abdeckungsaussage.", "copy": "Geben Sie die genaue Objektadresse in Georivo ein. Der Prüfer löst den Standort auf und testet die benötigte fotorealistische 3D-Szene.", "label": "Adresse in Georivo prüfen"},
+        "embed": {"kicker": "Das Ergebnis veröffentlichen", "title": "Nutzen Sie den geschützten Georivo-Einbettungsablauf.", "copy": "Erstellen und prüfen Sie zuerst die Standortgeschichte. Wählen Sie danach den Tarif passend zu Widgets und von Besuchern gestarteten 3D-Aufrufen.", "label": "Tarife ansehen"},
+        "example": {"kicker": "Dieses Beispiel als Ausgangspunkt nutzen", "title": "Übertragen Sie dieselbe Story-Logik auf Ihr eigenes Objekt.", "copy": "Öffnen Sie den Georivo-Builder mit passender Vorlage, geben Sie die echte Adresse ein und passen Sie Bewegung, Abstand, Winkel und Dauer in der Live-Vorschau an.", "label": "Setup in Georivo nutzen"},
+    },
+    "es": {
+        "property": {"kicker": "Aplícalo a un inmueble real", "title": "Crea una Property Showcase para la dirección que anuncias.", "copy": "Comprueba el inmueble exacto en Georivo, elige el tipo de edificio y previsualiza en 3D la aproximación seguida del recorrido orbital.", "label": "Crear una Property Showcase"},
+        "neighborhood": {"kicker": "Convierte el consejo en una historia de ubicación", "title": "Muestra los lugares que ayudan a entender la ubicación.", "copy": "Abre Georivo con Neighborhood Story, confirma el inmueble y añade hasta tres lugares reales cercanos. La vista previa los conecta con la propiedad.", "label": "Crear una Neighborhood Story"},
+        "arrival": {"kicker": "Haz visible la llegada", "title": "Crea una Arrival Guide para este inmueble.", "copy": "Confirma el anuncio, elige una estación o aparcamiento real y previsualiza el trayecto hasta la propiedad antes de compartirlo.", "label": "Crear una Arrival Guide"},
+        "coverage": {"kicker": "Comprueba la dirección real", "title": "No dependas de una afirmación genérica de cobertura.", "copy": "Introduce la dirección exacta en Georivo. El comprobador resuelve la ubicación y verifica si está disponible la escena 3D fotorrealista necesaria.", "label": "Comprobar dirección en Georivo"},
+        "embed": {"kicker": "Publica el resultado", "title": "Usa el flujo de integración protegido de Georivo.", "copy": "Crea y revisa primero la historia de ubicación. Después elige el plan según tus widgets publicados y reproducciones 3D iniciadas por visitantes.", "label": "Ver planes de publicación"},
+        "example": {"kicker": "Usa este ejemplo como punto de partida", "title": "Aplica la misma lógica a tu propio inmueble.", "copy": "Abre el creador de Georivo con la plantilla adecuada, introduce la dirección real y ajusta movimiento, distancia, ángulo y duración en la vista previa.", "label": "Usar esta configuración"},
+    },
+    "fr": {
+        "property": {"kicker": "Appliquez ceci à un bien réel", "title": "Créez une Property Showcase pour l’adresse commercialisée.", "copy": "Vérifiez le bien exact dans Georivo, choisissez le type de bâtiment et prévisualisez en 3D l’approche suivie du mouvement orbital.", "label": "Créer une Property Showcase"},
+        "neighborhood": {"kicker": "Transformez le conseil en histoire de lieu", "title": "Montrez les lieux qui rendent l’emplacement compréhensible.", "copy": "Ouvrez Georivo avec Neighborhood Story, confirmez le bien et ajoutez jusqu’à trois lieux réels à proximité. L’aperçu les relie ensuite au bien.", "label": "Créer une Neighborhood Story"},
+        "arrival": {"kicker": "Rendez l’arrivée visible", "title": "Créez un Arrival Guide pour ce bien.", "copy": "Confirmez l’annonce, choisissez une gare ou un parking réel et prévisualisez le trajet d’arrivée jusqu’au bien avant de le partager.", "label": "Créer un Arrival Guide"},
+        "coverage": {"kicker": "Vérifiez l’adresse réelle", "title": "Ne vous fiez pas à une affirmation générale de couverture.", "copy": "Saisissez l’adresse exacte dans Georivo. Le vérificateur localise le bien et teste la disponibilité de la scène 3D photoréaliste nécessaire.", "label": "Vérifier l’adresse dans Georivo"},
+        "embed": {"kicker": "Publiez le résultat", "title": "Utilisez le processus d’intégration protégé de Georivo.", "copy": "Créez et prévisualisez d’abord l’histoire de lieu, puis choisissez l’offre adaptée aux widgets publiés et aux lectures 3D lancées par les visiteurs.", "label": "Voir les offres de publication"},
+        "example": {"kicker": "Utilisez cet exemple comme point de départ", "title": "Appliquez la même logique à votre propre bien.", "copy": "Ouvrez le créateur Georivo avec le modèle adapté, saisissez l’adresse réelle et ajustez mouvement, distance, angle et durée dans l’aperçu.", "label": "Utiliser cette configuration"},
+    },
+    "ru": {
+        "property": {"kicker": "Примените это к реальному объекту", "title": "Создайте «Показ объекта» для адреса, который вы продаёте.", "copy": "Проверьте точный объект в Georivo, выберите тип здания и посмотрите в живом 3D приближение с последующим облётом до публикации.", "label": "Создать показ объекта"},
+        "neighborhood": {"kicker": "Превратите совет в историю локации", "title": "Покажите места, которые помогают понять расположение объекта.", "copy": "Откройте Georivo с шаблоном «История района», подтвердите объект и добавьте до трёх реальных мест рядом. Превью свяжет их с объектом и завершится у здания.", "label": "Создать историю района"},
+        "arrival": {"kicker": "Покажите путь к объекту", "title": "Создайте «Маршрут прибытия» для этого объекта.", "copy": "Подтвердите объект, выберите реальный вокзал или парковку и проверьте маршрут прибытия к зданию перед публикацией.", "label": "Создать маршрут прибытия"},
+        "coverage": {"kicker": "Проверьте реальный адрес", "title": "Не полагайтесь на общее утверждение о покрытии.", "copy": "Введите точный адрес в Georivo. Сервис определит локацию и проверит, доступна ли для неё необходимая фотореалистичная 3D-сцена.", "label": "Проверить адрес в Georivo"},
+        "embed": {"kicker": "Опубликуйте результат", "title": "Используйте защищённый виджет Georivo.", "copy": "Сначала создайте и проверьте историю локации, затем выберите тариф по числу опубликованных виджетов и запусков 3D посетителями.", "label": "Посмотреть тарифы"},
+        "example": {"kicker": "Возьмите этот пример за основу", "title": "Примените тот же сценарий к своему объекту.", "copy": "Откройте конструктор Georivo с подходящим шаблоном, введите реальный адрес и настройте движение, дистанцию, угол и длительность в живом превью.", "label": "Использовать эту настройку"},
+    },
+}
+
+
+def product_action_key(content_type, slug):
+    slug = (slug or "").lower()
+    if content_type == "integration_guide":
+        return "embed"
+    if content_type == "example":
+        return "example"
+    if "arrival" in slug:
+        return "arrival"
+    if any(token in slug for token in (
+        "neighborhood", "nearby-amenities", "walkability", "remote-buyers",
+        "master-planned", "digital-twins", "off-plan-buyers",
+    )):
+        return "neighborhood"
+    if "coverage" in slug:
+        return "coverage"
+    return "property"
+
+
+def product_action_url(language, action_key, slug):
+    locale_root = "/" if language == DEFAULT_LANGUAGE else f"/{language}/"
+    if action_key == "coverage":
+        return f"{locale_root.rstrip('/')}/coverage"
+    if action_key == "embed":
+        return f"{locale_root.rstrip('/')}/pricing"
+    template = {
+        "neighborhood": "neighborhood_story",
+        "arrival": "arrival_guide",
+    }.get(action_key, "property_showcase")
+    movement = ""
+    if action_key == "example":
+        movement = {
+            "waterfront-villa-property-flyover": "zoom",
+            "urban-condo-neighborhood-story": "auto",
+            "mountain-property-location-story": "orbit",
+            "rural-estate-aerial-view": "spiral",
+        }.get(slug, "auto")
+        if slug == "urban-condo-neighborhood-story":
+            template = "neighborhood_story"
+    query = f"?template={template}"
+    if movement:
+        query += f"&movement={movement}"
+    return f"{locale_root}{query}#builder"
+
+
+def contextual_product_action(record, language):
+    content_type = record_content_type(record)
+    slug = str(record.get("slug") or "")
+    action_key = product_action_key(content_type, slug)
+    copy = PRODUCT_ACTION_COPY.get(language, PRODUCT_ACTION_COPY[DEFAULT_LANGUAGE])[action_key]
+    return {
+        **copy,
+        "key": action_key,
+        "url": product_action_url(language, action_key, slug),
+    }
+
+
+def product_bridge_html(record, language):
+    action = contextual_product_action(record, language)
+    return f"""
+    <aside class="product-bridge" data-product-action="{esc(action["key"])}">
+      <div>
+        <span>{esc(action["kicker"])}</span>
+        <strong>{esc(action["title"])}</strong>
+        <p>{esc(action["copy"])}</p>
+      </div>
+      <a href="{esc(action["url"])}" data-event="seo_cta_click"
+         data-page-type="{esc(record_content_type(record))}"
+         data-content-id="{esc(record.get("id") or record.get("slug") or "")}"
+         data-cta-location="contextual-product-step">{esc(action["label"])} <span>↗</span></a>
+    </aside>
+    """
 CONTENT_NOTICE = {
     "en": {
         "demo": "Demonstration, not a customer case. It does not claim current property condition, legal boundaries, exact routes, distances, or availability.",
@@ -836,7 +982,7 @@ def shell(
   {preload_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726m">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726n">
   {structured}
 </head>
 <body class="blog-shell">
@@ -999,6 +1145,8 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
     locale_root = "/" if language == DEFAULT_LANGUAGE else f"/{language}"
     check_url = f"{locale_root}#create"
     pricing_url = f"{locale_root.rstrip('/')}/pricing"
+    product_action = contextual_product_action(record, language)
+    product_bridge = product_bridge_html(record, language)
     if content_type == "guide":
         guide_labels = GUIDE_LAYOUT_LABELS.get(language, GUIDE_LAYOUT_LABELS[DEFAULT_LANGUAGE])
         guide_toc = (
@@ -1023,14 +1171,14 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
             <div class="guide-content-shell">
               <div class="guide-sidebar">
                 {guide_toc}
-                <a class="guide-side-action" href="{esc(check_url)}"
+                <a class="guide-side-action" href="{esc(product_action["url"])}"
                    data-event="seo_cta_click" data-page-type="guide"
                    data-content-id="{esc(record.get("id") or slug)}" data-cta-location="guide-sidebar">
-                  <small>{esc(guide_labels["action"])}</small>
-                  <strong>{esc(action_labels["check"])}</strong><span>↗</span>
+                  <small>{esc(product_action["kicker"])}</small>
+                  <strong>{esc(product_action["label"])}</strong><span>↗</span>
                 </a>
               </div>
-              <div class="article-copy guide-copy">{article_body}</div>
+              <div class="article-copy guide-copy">{article_body}{product_bridge}</div>
             </div>
             {trust_html}
             <aside class="article-cta guide-cta">
@@ -1067,7 +1215,7 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
         {notice_html}
         {toc_html}
         {hero_html}
-        <div class="article-copy">{article_body}</div>
+        <div class="article-copy">{article_body}{product_bridge}</div>
         {trust_html}
         <aside class="article-cta">
           <div><span>{esc(action_labels["subscribe_kicker"])}</span><strong>{esc(action_labels["subscribe_title"])}</strong></div>

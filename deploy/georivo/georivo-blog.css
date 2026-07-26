@@ -76,6 +76,13 @@
 .article-copy ul,.article-copy ol{margin:24px 0 34px;padding-left:26px}
 .article-copy li{margin:10px 0;padding-left:7px}
 .article-copy a{color:#344500;text-decoration:underline;text-decoration-color:#8aaa28;text-underline-offset:4px}
+.product-bridge{color:#fff;background:#1b1d1a;border-radius:24px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:28px;margin:68px 0 18px;padding:34px 36px}
+.product-bridge>div{min-width:0}
+.product-bridge>div>span{text-transform:uppercase;letter-spacing:.14em;color:var(--lime);display:block;margin-bottom:11px;font-size:9px;font-weight:800}
+.product-bridge strong{letter-spacing:-.035em;display:block;font-size:28px;font-weight:500;line-height:1.08}
+.product-bridge p{color:#b9bdb3;margin:14px 0 0;font-size:14px;line-height:1.55}
+.article-copy .product-bridge>a{color:#171914;background:var(--lime);border-radius:14px;display:flex;align-items:center;justify-content:space-between;gap:24px;min-width:218px;padding:17px 18px;text-decoration:none;font-size:11px;font-weight:900}
+.product-bridge>a>span{font-size:16px}
 .article-copy figure{margin:58px -110px}
 .article-copy figure img{object-fit:cover;background:#e1e3dc;border-radius:24px;aspect-ratio:16/9;width:100%;display:block}
 .article-copy figcaption{color:#85887f;margin-top:12px;font-size:11px;line-height:1.5}
@@ -184,6 +191,8 @@
   .article-table{table-layout:fixed}
   .article-quote{margin-left:0;margin-right:0}
   .article-cta{align-items:flex-start;flex-direction:column}
+  .product-bridge{grid-template-columns:1fr;align-items:start}
+  .article-copy .product-bridge>a{width:100%}
 }
 @media(max-width:700px){
   .guide-hub-hero{padding:135px 18px 52px;gap:32px}
@@ -227,6 +236,8 @@
   .article-copy>.article-lead{font-size:20px}
   .article-copy h2{margin-top:60px;font-size:36px}
   .article-copy h3{font-size:24px}
+  .product-bridge{border-radius:18px;margin-top:52px;padding:26px 24px}
+  .product-bridge strong{font-size:24px}
   .article-copy figure img{border-radius:16px}
   .article-quote{padding:32px 28px;font-size:24px}
   .article-recommended>div{grid-template-columns:1fr}

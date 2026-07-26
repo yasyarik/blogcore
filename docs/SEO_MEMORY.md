@@ -1,5 +1,12 @@
 # SEO_MEMORY.md
 
+## 2026-07-26 — SEO answers end in a relevant product action
+
+- Every indexable Georivo informational detail page must preserve its useful standalone answer and add a specific application path into Georivo.
+- Product paths are selected by intent: coverage content → real address coverage check; property/media content → Property Showcase builder; neighborhood/remote-buyer content → Neighborhood Story; arrival content → Arrival Guide; embed instructions → publishing plans; examples → matching builder setup.
+- Do not inject the same phrase or destination into every article. July 2026 people-first and AI-search guidance favors original, non-commodity content and clear task completion over query-variant pages or repetitive promotional blocks.
+- The product step is visible main content and its analytics metadata records both page type and contextual action.
+
 ## 2026-07-26 — Pricing exposes the complete purchasable tier set
 
 - The Pricing money page must show the three current tiers (€49, €99, €199) above its long-form decision content.
