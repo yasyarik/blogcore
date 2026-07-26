@@ -19,6 +19,7 @@ EXPECTED = {
     "/systems",
     "/workflows",
     "/build",
+    "/yas-web-studio",
 }
 RANGES = {
     "money_service": (450, 1350),

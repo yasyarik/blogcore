@@ -162,6 +162,26 @@ PAGES = [
             "forbiddenClaims": ["every problem needs custom software", "first release should include every requested feature"],
         },
     },
+    {
+        "slug": "yas-web-studio",
+        "profile": "money_hub",
+        "title": "YAS Web Studio: Business Architecture Into Working Software",
+        "meta": "Iaroslav YAS defines the business architecture; YAS Web Studio turns it into working web, Shopify, SaaS, mobile, desktop and browser-extension tools.",
+        "intent": "cross-platform business software studio",
+        "answer": "Iaroslav YAS defines the business logic, workflows, states, ownership and operating model. YAS Web Studio turns that architecture into working software for the surfaces the process actually needs: web, Shopify, SaaS, iOS, Android, macOS, Windows and browser extensions. The platform is selected after the operating model is clear, so every surface follows the same decisions and responsibilities.",
+        "outline": ["Architecture before platform", "The role split between Iaroslav YAS and YAS Web Studio", "One operating model across delivery surfaces", "How the delivery surface is selected", "Proof from working products", "Limitations and suitability"],
+        "links": ["/method", "/systems", "/workflows", "/build", "/shopify-development", "/ai-automation", "/product-development", "/my-startups", "/contact"],
+        "details": {
+            "roleSplit": {
+                "Iaroslav YAS": "defines constraints, business logic, states, decisions, ownership, handoffs and the operating model",
+                "YAS Web Studio": "implements that architecture as working software and connects the required delivery surfaces",
+            },
+            "deliverySurfaces": ["web", "Shopify", "SaaS", "iOS", "Android", "macOS", "Windows", "browser extensions"],
+            "workingPrinciples": ["architecture before platform", "one operating model across surfaces", "one verifiable end-to-end path first", "explicit state, review and exception handling"],
+            "realProductContext": ["My UGC Studio", "BellB", "SoloCruz", "Georivo", "Blog Core"],
+            "forbiddenClaims": ["one platform fits every workflow", "software replaces business ownership", "every project needs every delivery surface"],
+        },
+    },
 ]
 
 
