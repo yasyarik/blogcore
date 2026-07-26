@@ -4273,3 +4273,22 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * Existing `GENERATING` jobs are deliberately skipped and picked up by a later idempotent rerun if needed.
+
+## 2026-07-26 — Allow one localized safety section
+
+### Summary
+
+* Allowed a localized compact page to contain one additional section when the typed safety normalizer must add a language-specific limitations heading.
+
+### Files changed
+
+* `app.py` — locale-aware compact section ceiling.
+* `docs/CHANGELOG_AI.md` — this correction.
+
+### Checks run
+
+* `python3 -m py_compile app.py`.
+
+### Risks / TODO
+
+* The failed Research localization must be regenerated after deployment.

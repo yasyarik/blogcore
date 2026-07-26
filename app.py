@@ -6515,7 +6515,7 @@ def validate_structured_article_draft(draft, job=None, language="en"):
     if title and lead and normalize_topic_text(title) in normalize_topic_text(lead[:180]):
         errors.append("lead repeats the title")
     min_sections = profile["min_sections"] if profile else 6
-    max_sections = profile["max_sections"] if profile else 10
+    max_sections = (profile["max_sections"] + (1 if language != "en" else 0)) if profile else 10
     if len(usable_sections) < min_sections:
         errors.append(f"draft must include at least {min_sections} usable sections")
     if profile and len(usable_sections) > max_sections:
