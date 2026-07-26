@@ -250,6 +250,53 @@ GUIDE_LAYOUT_LABELS = {
     "fr": {"kicker": "Guide pratique", "toc": "Dans ce guide", "action": "Mettre ce guide en pratique"},
     "ru": {"kicker": "Практическое руководство", "toc": "В этом руководстве", "action": "Применить руководство"},
 }
+COMMERCIAL_ACTION_LABELS = {
+    "en": {
+        "check": "Check a property address", "subscribe": "Subscribe to Georivo Solo",
+        "subscribe_kicker": "Publish with Georivo", "subscribe_title": "Publish protected links and website embeds.",
+        "plan": "Georivo Solo", "month": "per month", "audience": "For individual agents and focused property portfolios.",
+        "widgets": "active published widgets", "plays": "visitor-started 3D plays each month",
+        "distribution": "Protected share links and domain-bound embeds", "dashboard": "Native sharing and customer dashboard",
+        "visits": "Ordinary page visits are not charged", "note": "Cancel from your dashboard. Publishing requires an active subscription.",
+        "free": "Free preview", "free_copy": "Check coverage, configure the story and watch it in this browser before subscribing.",
+    },
+    "de": {
+        "check": "Objektadresse prüfen", "subscribe": "Georivo Solo abonnieren",
+        "subscribe_kicker": "Mit Georivo veröffentlichen", "subscribe_title": "Geschützte Links und Website-Einbettungen veröffentlichen.",
+        "plan": "Georivo Solo", "month": "pro Monat", "audience": "Für einzelne Makler und überschaubare Objektportfolios.",
+        "widgets": "aktive veröffentlichte Widgets", "plays": "von Besuchern gestartete 3D-Aufrufe pro Monat",
+        "distribution": "Geschützte Freigabelinks und domaingebundene Einbettungen", "dashboard": "Natives Teilen und Kunden-Dashboard",
+        "visits": "Normale Seitenaufrufe werden nicht berechnet", "note": "Im Dashboard kündbar. Veröffentlichung erfordert ein aktives Abonnement.",
+        "free": "Kostenlose Vorschau", "free_copy": "Abdeckung prüfen, Story konfigurieren und vor dem Abonnement im Browser ansehen.",
+    },
+    "es": {
+        "check": "Comprobar una dirección", "subscribe": "Suscribirse a Georivo Solo",
+        "subscribe_kicker": "Publica con Georivo", "subscribe_title": "Publica enlaces protegidos e integraciones para tu web.",
+        "plan": "Georivo Solo", "month": "al mes", "audience": "Para agentes individuales y carteras inmobiliarias específicas.",
+        "widgets": "widgets publicados activos", "plays": "reproducciones 3D iniciadas por visitantes al mes",
+        "distribution": "Enlaces protegidos e integraciones vinculadas al dominio", "dashboard": "Compartir de forma nativa y panel de cliente",
+        "visits": "Las visitas normales a la página no se cobran", "note": "Cancela desde el panel. Publicar requiere una suscripción activa.",
+        "free": "Vista previa gratuita", "free_copy": "Comprueba la cobertura, configura la historia y mírala en el navegador antes de suscribirte.",
+    },
+    "fr": {
+        "check": "Vérifier une adresse", "subscribe": "S’abonner à Georivo Solo",
+        "subscribe_kicker": "Publiez avec Georivo", "subscribe_title": "Publiez des liens protégés et des intégrations pour votre site.",
+        "plan": "Georivo Solo", "month": "par mois", "audience": "Pour les agents indépendants et les portefeuilles immobiliers ciblés.",
+        "widgets": "widgets publiés actifs", "plays": "lectures 3D lancées par les visiteurs chaque mois",
+        "distribution": "Liens protégés et intégrations liées au domaine", "dashboard": "Partage natif et tableau de bord client",
+        "visits": "Les visites ordinaires ne sont pas facturées", "note": "Résiliez depuis le tableau de bord. La publication exige un abonnement actif.",
+        "free": "Aperçu gratuit", "free_copy": "Vérifiez la couverture, configurez l’histoire et prévisualisez-la avant de vous abonner.",
+    },
+    "ru": {
+        "check": "Проверить адрес объекта", "subscribe": "Подключить Georivo Solo",
+        "subscribe_kicker": "Публикация с Georivo", "subscribe_title": "Публикуйте защищённые ссылки и виджеты на своём сайте.",
+        "plan": "Georivo Solo", "month": "в месяц", "audience": "Для частных риэлторов и небольших портфелей объектов.",
+        "widgets": "активных опубликованных виджетов", "plays": "запусков 3D посетителями в месяц",
+        "distribution": "Защищённые ссылки и привязанные к домену виджеты", "dashboard": "Нативный шеринг и личный кабинет",
+        "visits": "Обычные просмотры страницы не оплачиваются", "note": "Отмена доступна в кабинете. Для публикации нужна активная подписка.",
+        "free": "Бесплатное превью", "free_copy": "Проверьте покрытие, настройте историю и посмотрите её в браузере до оформления подписки.",
+    },
+}
 CONTENT_NOTICE = {
     "en": {
         "demo": "Demonstration, not a customer case. It does not claim current property condition, legal boundaries, exact routes, distances, or availability.",
@@ -789,7 +836,7 @@ def shell(
   {preload_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726g">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726k">
   {structured}
 </head>
 <body class="blog-shell">
@@ -948,6 +995,10 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
     cta_url = str(primary_cta.get("url") or "/#create").strip()
     if not cta_url.startswith("/"):
         cta_url = "/#create"
+    action_labels = COMMERCIAL_ACTION_LABELS.get(language, COMMERCIAL_ACTION_LABELS[DEFAULT_LANGUAGE])
+    locale_root = "/" if language == DEFAULT_LANGUAGE else f"/{language}"
+    check_url = f"{locale_root}#create"
+    pricing_url = f"{locale_root.rstrip('/')}/pricing"
     if content_type == "guide":
         guide_labels = GUIDE_LAYOUT_LABELS.get(language, GUIDE_LAYOUT_LABELS[DEFAULT_LANGUAGE])
         guide_toc = (
@@ -972,20 +1023,20 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
             <div class="guide-content-shell">
               <div class="guide-sidebar">
                 {guide_toc}
-                <a class="guide-side-action" href="{esc(cta_url)}"
+                <a class="guide-side-action" href="{esc(check_url)}"
                    data-event="seo_cta_click" data-page-type="guide"
                    data-content-id="{esc(record.get("id") or slug)}" data-cta-location="guide-sidebar">
                   <small>{esc(guide_labels["action"])}</small>
-                  <strong>{esc(cta_label)}</strong><span>↗</span>
+                  <strong>{esc(action_labels["check"])}</strong><span>↗</span>
                 </a>
               </div>
               <div class="article-copy guide-copy">{article_body}</div>
             </div>
             {trust_html}
             <aside class="article-cta guide-cta">
-              <div><span>{esc(labels["build"])}</span><strong>{esc(labels["build_copy"])}</strong></div>
-              <a href="{esc(cta_url)}" data-event="seo_cta_click" data-page-type="guide"
-                 data-content-id="{esc(record.get("id") or slug)}" data-cta-location="guide-end">{esc(cta_label)} <span>↗</span></a>
+              <div><span>{esc(action_labels["subscribe_kicker"])}</span><strong>{esc(action_labels["subscribe_title"])}</strong></div>
+              <a href="{esc(pricing_url)}" data-event="seo_cta_click" data-page-type="guide"
+                 data-content-id="{esc(record.get("id") or slug)}" data-cta-location="guide-end">{esc(action_labels["subscribe"])} <span>↗</span></a>
             </aside>
           </article>
         </main>
@@ -1019,9 +1070,9 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
         <div class="article-copy">{article_body}</div>
         {trust_html}
         <aside class="article-cta">
-          <div><span>{esc(labels["build"])}</span><strong>{esc(labels["build_copy"])}</strong></div>
-          <a href="{esc(cta_url)}" data-event="seo_cta_click" data-page-type="{esc(content_type)}"
-             data-content-id="{esc(record.get("id") or slug)}" data-cta-location="article-end">{esc(cta_label)} <span>↗</span></a>
+          <div><span>{esc(action_labels["subscribe_kicker"])}</span><strong>{esc(action_labels["subscribe_title"])}</strong></div>
+          <a href="{esc(pricing_url)}" data-event="seo_cta_click" data-page-type="{esc(content_type)}"
+             data-content-id="{esc(record.get("id") or slug)}" data-cta-location="article-end">{esc(action_labels["subscribe"])} <span>↗</span></a>
         </aside>
       </article>
     </main>
@@ -1442,6 +1493,11 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
     cta_url = str(primary_cta.get("url") or "/#create").strip()
     if not cta_url.startswith("/"):
         cta_url = "/#create"
+    action_labels = COMMERCIAL_ACTION_LABELS.get(language, COMMERCIAL_ACTION_LABELS[DEFAULT_LANGUAGE])
+    locale_root = "/" if language == DEFAULT_LANGUAGE else f"/{language}"
+    if slug == "pricing":
+        cta_label = action_labels["subscribe"]
+        cta_url = "/dashboard?startCheckout=1"
     action = ' data-money-action="checkout"' if slug == "pricing" else ""
     content_id = str(record.get("id") or slug)
     toc_html, editorial_html = money_editorial_html(
@@ -1450,7 +1506,7 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
         cta_url,
         action,
         content_id,
-        labels["build_copy"],
+        action_labels["subscribe_title"] if slug == "pricing" else labels["build_copy"],
         language,
         hero,
         slug,
@@ -1469,7 +1525,45 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
           <small>{esc(record.get("checkerNote") or "Real provider response. No raw address is sent to analytics.")}</small>
         </form>
         """
+    pricing_summary = ""
+    if slug == "pricing":
+        pricing_summary = f"""
+        <section class="money-plan-summary" id="georivo-solo-offer" aria-labelledby="georivo-solo-title">
+          <div class="money-plan-free">
+            <span>{esc(action_labels["free"])}</span>
+            <h2>{esc(action_labels["check"])}</h2>
+            <p>{esc(action_labels["free_copy"])}</p>
+            <a href="{esc(locale_root)}#create">{esc(action_labels["check"])} <span>↗</span></a>
+          </div>
+          <div class="money-plan-card">
+            <div class="money-plan-head">
+              <h2 id="georivo-solo-title">{esc(action_labels["plan"])}</h2>
+              <div><strong>€49</strong><small>{esc(action_labels["month"])}</small></div>
+              <p>{esc(action_labels["audience"])}</p>
+            </div>
+            <ul>
+              <li><b>10</b> {esc(action_labels["widgets"])}</li>
+              <li><b>1,000</b> {esc(action_labels["plays"])}</li>
+              <li>{esc(action_labels["distribution"])}</li>
+              <li>{esc(action_labels["dashboard"])}</li>
+              <li>{esc(action_labels["visits"])}</li>
+            </ul>
+            <a class="money-plan-checkout" href="{esc(cta_url)}" data-money-action="checkout"
+               data-event="seo_cta_click" data-page-type="money_page"
+               data-content-id="{esc(record.get("id") or slug)}" data-cta-location="plan-card">
+              {esc(action_labels["subscribe"])} <span>↗</span>
+            </a>
+            <small>{esc(action_labels["note"])}</small>
+          </div>
+        </section>
+        """
     preview_badge = f'<div class="preview-banner">{esc(labels["draft"])}</div>' if preview else ""
+    final_eyebrow = action_labels["subscribe_kicker"] if slug == "pricing" else record.get("finalEyebrow") or labels["build"]
+    final_title = action_labels["subscribe_title"] if slug == "pricing" else record.get("finalTitle") or labels["build_copy"]
+    hero_offer = (
+        f'<div class="money-hero-offer"><strong>€49</strong><span>{esc(action_labels["month"])}</span></div>'
+        if slug == "pricing" else ""
+    )
     body = f"""
     {preview_badge}
     <main class="money-page" id="top" data-money-page="{esc(slug)}">
@@ -1481,6 +1575,7 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
             <div class="section-tag">{esc(eyebrow)}</div>
             <h1>{esc(title)}</h1>
             <p>{esc(description)}</p>
+            {hero_offer}
             <a class="money-primary" href="{esc(cta_url)}"{action}
                data-event="seo_cta_click" data-page-type="money_page"
                data-content-id="{esc(record.get("id") or slug)}" data-cta-location="hero">{esc(cta_label)} <span>↗</span></a>
@@ -1489,14 +1584,15 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
         </div>
       </section>
       {checker}
+      {pricing_summary}
       <section class="money-content">
         <div class="money-content-inner">
           <div class="money-editorial">{editorial_html}</div>
         </div>
       </section>
       <section class="money-final">
-        <span>{esc(record.get("finalEyebrow") or labels["build"])}</span>
-        <h2>{esc(record.get("finalTitle") or labels["build_copy"])}</h2>
+        <span>{esc(final_eyebrow)}</span>
+        <h2>{esc(final_title)}</h2>
         <a href="{esc(cta_url)}"{action}
            data-event="seo_cta_click" data-page-type="money_page"
            data-content-id="{esc(record.get("id") or slug)}" data-cta-location="page-end">{esc(cta_label)} <span>↗</span></a>
@@ -1529,6 +1625,9 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
     language = normalize_language(language)
     content_type = normalize_content_type(content_type)
     labels = copy_for(language)
+    action_labels = COMMERCIAL_ACTION_LABELS.get(language, COMMERCIAL_ACTION_LABELS[DEFAULT_LANGUAGE])
+    locale_root = "/" if language == DEFAULT_LANGUAGE else f"/{language}"
+    pricing_url = f"{locale_root.rstrip('/')}/pricing"
     section_name = section_label(language, content_type)
     posts = [
         record for record in load_records(PUBLISHED_ROOT)
@@ -1668,10 +1767,10 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
       <section class="journal-cta">
         <div class="journal-cta-wash" aria-hidden="true"></div>
         <div class="journal-cta-copy">
-          <span>{esc(labels["cta_kicker"])}</span>
-          <h2>{labels["cta_title"]}</h2>
-          <a href="/#create" data-event="seo_cta_click" data-page-type="{esc(content_type)}"
-             data-content-id="{esc(content_type)}-hub" data-cta-location="hub-end">{esc(labels["cta"])} <span>↗</span></a>
+          <span>{esc(action_labels["subscribe_kicker"])}</span>
+          <h2>{esc(action_labels["subscribe_title"])}</h2>
+          <a href="{esc(pricing_url)}" data-event="seo_cta_click" data-page-type="{esc(content_type)}"
+             data-content-id="{esc(content_type)}-hub" data-cta-location="hub-end">{esc(action_labels["subscribe"])} <span>↗</span></a>
           <p>{esc(labels["cta_note"])}</p>
         </div>
       </section>

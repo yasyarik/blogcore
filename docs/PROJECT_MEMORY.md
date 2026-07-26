@@ -1,5 +1,13 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Georivo separates preview and subscription actions
+
+- Decision: address checking is a secondary free-preview action; subscription is the primary commercial action on Pricing and at the end of Guides, Blog, and collection pages.
+- Decision: every visible commercial CTA is localized server-side for EN, DE, ES, FR, and RU.
+- Decision: Pricing exposes the Georivo Solo offer above the long-form SEO content: €49/month, 10 active widgets, 1,000 visitor-started 3D plays, protected links, domain-bound embeds, dashboard access, and the real account-aware checkout action.
+- Decision: signed-out subscription clicks use `/login?returnTo=/dashboard?startCheckout=1`; signed-in unpaid users continue through the existing `/api/billing/checkout` Stripe flow. The renderer must not simulate checkout.
+- Responsive rule: long Guide titles must fit both halves of the split hero on desktop and use natural/hyphenated word wrapping on mobile rather than arbitrary mid-word clipping.
+
 ## 2026-07-26 — Georivo Guides and Blog use different presentation systems
 
 - Decision: Georivo Guides are practical handbooks with a split guide hero, sticky in-guide navigation, numbered content sections, and a task-oriented action rail. Blog pages remain editorial journal articles.

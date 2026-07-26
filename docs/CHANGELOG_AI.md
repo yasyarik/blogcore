@@ -1,5 +1,36 @@
 # CHANGELOG_AI.md
 
+## 2026-07-26 — Localize CTAs and restore the real Pricing conversion path
+
+### Summary
+
+- Prevented long Guide hero headings from clipping on desktop and from breaking arbitrarily on mobile.
+- Localized free-preview and subscription CTAs in all five Georivo languages.
+- Replaced the universal address-check CTA pattern with an intent-specific hierarchy: address checking remains a free secondary action, while commercial CTAs lead to Pricing or the real checkout flow.
+- Added an above-the-fold Georivo Solo plan summary with €49/month pricing, allowances, benefits, and a working subscribe action.
+
+### Files changed
+
+- `deploy/georivo/app.py` — localized action vocabulary, CTA routing, Pricing plan summary, and stylesheet revision.
+- `deploy/georivo/georivo-blog.css` — Guide title containment, Pricing offer layout, and responsive first-paint refinements.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable conversion, SEO, and deployment rules.
+
+### Decisions
+
+- Checking an address and buying a subscription are separate user intents and must not share one universal CTA.
+- Pricing checkout must reuse Georivo's existing authenticated Stripe flow; no provider success is simulated.
+
+### Checks run
+
+- Python compilation and production service health passed.
+- RU Pricing and Guide pages returned HTTP 200 with localized actions and visible €49 plan data.
+- A signed-out subscription click reached `/login?returnTo=/dashboard?startCheckout=1`.
+- Desktop and 390 px Guide/Pricing screenshots were visually reviewed.
+
+### Risks / TODO
+
+- Checkout beyond the sign-in boundary depends on the existing user session and Stripe configuration; this release did not create a new payment path.
+
 ## 2026-07-26 — Split Georivo Guides from Blog and remove repeated generic image
 
 ### Summary

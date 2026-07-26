@@ -2,6 +2,8 @@
 
 ## Current SEO behavior
 
+* Georivo conversion hierarchy is intent-specific: free address checking remains available as a secondary Pricing action, while Guide/Blog/collection end CTAs and Pricing primary CTAs lead to the localized subscription page or the real account-aware checkout. Do not point every CTA to `#create`.
+* Pricing must show the confirmed Georivo Solo offer above the long-form factory content: €49/month, 10 active widgets, 1,000 visitor-started plays, publishing/share/embed/dashboard benefits, and a real checkout action. The long-form SEO sections remain intact below this commercial summary.
 * Georivo Guides and Blog have distinct collection and detail templates. Guide pages use practical-handbook navigation and action hierarchy; Blog retains the editorial article shell. This visual distinction does not change canonical, hreflang, sitemap, or structured-data contracts.
 * Georivo content hubs use the featured published record's own hero image. Do not restore `/georivo-hero.png` as a shared hub or CTA background. The featured record is excluded from the remaining card grid to avoid same-page duplication.
 * Shared header/footer navigation is localized in server-rendered HTML for all five Georivo languages. Money pages must not rely on client-side label replacement for first-paint navigation or internal-link language consistency.
