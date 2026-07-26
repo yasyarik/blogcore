@@ -62,6 +62,7 @@ UI = {
     "en": {
         "examples": "Examples", "how": "How it works", "pricing": "Pricing", "blog": "Blog",
         "guides": "Guides", "learn": "Learn", "coverage": "Coverage", "templates": "Templates",
+        "menu": "Menu", "language": "Language",
         "embed_guides": "Embed guides", "about": "About", "created_by": "Created by",
         "rights": "© 2026 Georivo. All rights reserved.",
         "disclaimer": "3D visualization generated from available licensed geospatial imagery.",
@@ -85,6 +86,7 @@ UI = {
     "de": {
         "examples": "Beispiele", "how": "So funktioniert es", "pricing": "Preise", "blog": "Magazin",
         "guides": "Leitfäden", "learn": "Ressourcen", "coverage": "Abdeckung", "templates": "Vorlagen",
+        "menu": "Menü", "language": "Sprache",
         "embed_guides": "Einbettungsanleitungen", "about": "Über Georivo", "created_by": "Erstellt von",
         "rights": "© 2026 Georivo. Alle Rechte vorbehalten.",
         "disclaimer": "3D-Visualisierung aus verfügbaren lizenzierten Geodaten.",
@@ -108,6 +110,7 @@ UI = {
     "es": {
         "examples": "Ejemplos", "how": "Cómo funciona", "pricing": "Precios", "blog": "Revista",
         "guides": "Guías", "learn": "Recursos", "coverage": "Cobertura", "templates": "Plantillas",
+        "menu": "Menú", "language": "Idioma",
         "embed_guides": "Guías de integración", "about": "Acerca de Georivo", "created_by": "Creado por",
         "rights": "© 2026 Georivo. Todos los derechos reservados.",
         "disclaimer": "Visualización 3D generada a partir de imágenes geoespaciales con licencia.",
@@ -131,6 +134,7 @@ UI = {
     "fr": {
         "examples": "Exemples", "how": "Fonctionnement", "pricing": "Tarifs", "blog": "Journal",
         "guides": "Guides", "learn": "Ressources", "coverage": "Couverture", "templates": "Modèles",
+        "menu": "Menu", "language": "Langue",
         "embed_guides": "Guides d’intégration", "about": "À propos de Georivo", "created_by": "Créé par",
         "rights": "© 2026 Georivo. Tous droits réservés.",
         "disclaimer": "Visualisation 3D générée à partir d’images géospatiales disponibles sous licence.",
@@ -154,6 +158,7 @@ UI = {
     "ru": {
         "examples": "Примеры", "how": "Как это работает", "pricing": "Тариф", "blog": "Блог",
         "guides": "Руководства", "learn": "Материалы", "coverage": "Покрытие", "templates": "Шаблоны",
+        "menu": "Меню", "language": "Язык",
         "embed_guides": "Инструкции по встраиванию", "about": "О сервисе", "created_by": "Создано",
         "rights": "© 2026 Georivo. Все права защищены.",
         "disclaimer": "3D-визуализация создаётся из доступных лицензированных геопространственных изображений.",
@@ -592,11 +597,18 @@ def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, foot
         fragment,
         count=1,
     )
-    fragment = re.sub(
-        r'(?is)(<span\b[^>]*class=(["\'])sr-only\2[^>]*>).*?(</span>)',
-        rf"\1{esc(labels['sign_in'])}\3",
-        fragment,
-        count=1,
+    fragment = fragment.replace(
+        '<span class="sr-only">Sign in</span>',
+        f'<span class="sr-only">{esc(labels["sign_in"])}</span>',
+    )
+    fragment = fragment.replace(">Menu</button>", f">{esc(labels['menu'])}</button>")
+    fragment = fragment.replace(
+        '<span class="sr-only">Language</span>',
+        f'<span class="sr-only">{esc(labels["language"])}</span>',
+    )
+    fragment = fragment.replace(
+        "Interactive 3D location stories, embedded on real-estate websites.",
+        labels["footer_copy"],
     )
     fragment = fragment.replace(">Created by <a", f">{esc(labels['created_by'])} <a")
     fragment = fragment.replace("© 2026 Georivo. All rights reserved.", esc(labels["rights"]))
