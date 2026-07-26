@@ -32,6 +32,22 @@ def tokens(html, attribute):
     return sorted(re.findall(rf'{attribute}="([^"]+)"', html or ""))
 
 
+def restore_attributes(before, after):
+    restored = after
+    for attribute in ("href", "src"):
+        approved = re.findall(rf'{attribute}="([^"]+)"', before or "")
+        seen = re.findall(rf'{attribute}="([^"]+)"', restored or "")
+        if len(approved) != len(seen):
+            raise ValueError(f"{attribute} count changed")
+        iterator = iter(approved)
+        restored = re.sub(
+            rf'{attribute}="[^"]+"',
+            lambda _match: f'{attribute}="{next(iterator)}"',
+            restored,
+        )
+    return restored
+
+
 def validate_revision(before, after, low, high, label):
     words = len(re.findall(r"\b[\w'-]+\b", plain(after)))
     if not low <= words <= high:
@@ -139,6 +155,7 @@ def run(db_path: Path, site_id: int):
         )
         if edited["title"].strip() != row["title"].strip() or edited["description"].strip() != row["description"].strip():
             raise ValueError(f"{sources['targetPath']}: editor changed approved title or description")
+        edited["html"] = restore_attributes(row["draft_html"], edited["html"])
         validate_revision(row["draft_html"], edited["html"], low, high, sources["targetPath"])
         conn.execute("update content_jobs set draft_html=?,updated_at=? where id=?", (edited["html"], blog_core.now_iso(), row["id"]))
         for language in ("ru", "de"):
@@ -151,6 +168,7 @@ def run(db_path: Path, site_id: int):
                 response_schema=HTML_SCHEMA,
                 repair=False,
             )
+            localized["html"] = restore_attributes(edited["html"], localized["html"])
             validate_revision(edited["html"], localized["html"], max(250, int(low * 0.55)), int(high * 1.35), f"{sources['targetPath']}/{language}")
             conn.execute(
                 """update content_job_localizations set title=?,description=?,draft_html=?,updated_at=?
