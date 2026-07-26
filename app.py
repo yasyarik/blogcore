@@ -1358,6 +1358,7 @@ def native_content_store_payload(site, row, published=False):
         "targetPath": content_job_target_path(row),
         "contentType": content_type,
         "canonicalRootPage": sources.get("canonicalRootPage") is True,
+        "contentProfile": str(brief.get("contentProfile") or "").strip(),
         "editorial": {
             "author": str(editorial.get("author") or "").strip(),
             "reviewer": str(editorial.get("reviewer") or "").strip(),
@@ -6404,6 +6405,71 @@ MODEL_OUTPUT_ARTIFACT_PATTERN = re.compile(
 )
 
 
+MONEY_PAGE_CONTENT_PROFILES = {
+    "money_service": {
+        "label": "commercial service page",
+        "min_words": 650,
+        "max_words": 1350,
+        "min_sections": 5,
+        "max_sections": 8,
+        "min_faq": 2,
+        "max_faq": 5,
+        "require_table": False,
+        "min_ordered": 3,
+        "lead_min": 35,
+        "lead_max": 80,
+    },
+    "money_hub": {
+        "label": "commercial topic hub",
+        "min_words": 550,
+        "max_words": 1100,
+        "min_sections": 5,
+        "max_sections": 8,
+        "min_faq": 2,
+        "max_faq": 5,
+        "require_table": False,
+        "min_ordered": 3,
+        "lead_min": 35,
+        "lead_max": 80,
+    },
+    "money_tool": {
+        "label": "tool or utility landing page",
+        "min_words": 350,
+        "max_words": 850,
+        "min_sections": 4,
+        "max_sections": 6,
+        "min_faq": 1,
+        "max_faq": 4,
+        "require_table": False,
+        "min_ordered": 3,
+        "lead_min": 30,
+        "lead_max": 75,
+    },
+    "money_proof": {
+        "label": "proof, case, or reference page",
+        "min_words": 450,
+        "max_words": 1000,
+        "min_sections": 4,
+        "max_sections": 7,
+        "min_faq": 0,
+        "max_faq": 4,
+        "require_table": False,
+        "min_ordered": 0,
+        "lead_min": 30,
+        "lead_max": 75,
+    },
+}
+
+
+def content_job_profile(job):
+    if job is None:
+        return "", None
+    sources = content_job_sources(job)
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    name = str(brief.get("contentProfile") or "").strip().lower()
+    return name, MONEY_PAGE_CONTENT_PROFILES.get(name)
+
+
 def validate_structured_article_draft(draft, job=None, language="en"):
     errors = []
     title = re.sub(r"\s+", " ", str(draft.get("title") or "")).strip()
@@ -6441,33 +6507,50 @@ def validate_structured_article_draft(draft, job=None, language="en"):
     word_count = len(re.findall(r"\b[\w'-]+\b", structured_article_plain_text(draft)))
     lead_word_count = len(re.findall(r"\b[\w'-]+\b", lead))
     plain_text = structured_article_plain_text(draft)
+    profile_name, profile = content_job_profile(job)
     if len(title) < 18:
         errors.append("title is too short")
     if description and lead and normalize_topic_text(description) == normalize_topic_text(lead):
         errors.append("description duplicates lead")
     if title and lead and normalize_topic_text(title) in normalize_topic_text(lead[:180]):
         errors.append("lead repeats the title")
-    if len(usable_sections) < 6:
-        errors.append("draft must include at least 6 usable sections")
+    min_sections = profile["min_sections"] if profile else 6
+    max_sections = profile["max_sections"] if profile else 10
+    if len(usable_sections) < min_sections:
+        errors.append(f"draft must include at least {min_sections} usable sections")
+    if profile and len(usable_sections) > max_sections:
+        errors.append(f"{profile_name} draft must not exceed {max_sections} usable sections")
     if len(images) != 3:
         errors.append("draft must include exactly 3 image specs")
-    if len(faq) < 5:
-        errors.append("draft must include at least 5 FAQ items")
-    if not table.get("headers") or len(table_rows) < 3:
+    min_faq = profile["min_faq"] if profile else 5
+    max_faq = profile["max_faq"] if profile else 7
+    if len(faq) < min_faq:
+        errors.append(f"draft must include at least {min_faq} FAQ items")
+    if profile and len(faq) > max_faq:
+        errors.append(f"{profile_name} draft must not exceed {max_faq} FAQ items")
+    if (not profile or profile["require_table"]) and (not table.get("headers") or len(table_rows) < 3):
         errors.append("draft must include a useful table")
-    if len(ordered) < 5:
-        errors.append("draft must include at least 5 ordered-list items")
-    if word_count < 1200:
-        errors.append(f"draft is too short: {word_count} words, expected at least 1200")
+    min_ordered = profile["min_ordered"] if profile else 5
+    if len(ordered) < min_ordered:
+        errors.append(f"draft must include at least {min_ordered} ordered-list items")
+    min_words = profile["min_words"] if profile else 1200
+    if word_count < min_words:
+        errors.append(f"draft is too short: {word_count} words, expected at least {min_words}")
+    if profile and word_count > profile["max_words"]:
+        errors.append(
+            f"{profile_name} draft is too long: {word_count} words, expected no more than {profile['max_words']}"
+        )
     artifact = MODEL_OUTPUT_ARTIFACT_PATTERN.search(plain_text)
     if artifact:
         errors.append(f"model control artifact leaked into article copy: {artifact.group(0)[:80]}")
     content_type = native_content_type(job) if job is not None else "blog"
     if content_type != "blog":
-        if language == "en" and not 50 <= lead_word_count <= 80:
-            errors.append(f"direct answer must be 50-80 words, got {lead_word_count}")
-        if language != "en" and not 40 <= lead_word_count <= 110:
-            errors.append(f"localized direct answer is outside the safe range: {lead_word_count} words")
+        lead_min = profile["lead_min"] if profile else (50 if language == "en" else 40)
+        lead_max = profile["lead_max"] if profile else (80 if language == "en" else 110)
+        if not lead_min <= lead_word_count <= lead_max:
+            errors.append(
+                f"direct answer must be {lead_min}-{lead_max} words, got {lead_word_count}"
+            )
         limitation_terms_by_language = {
             "en": {
                 "limitation", "limitations", "not for", "when not", "does not", "cannot",
@@ -6653,6 +6736,7 @@ def build_universal_article_prompt(site, job):
     approved_sources = brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []
     content_type = native_content_type(job)
     target_path = content_job_target_path(job)
+    profile_name, profile = content_job_profile(job)
     page_contracts = {
         "blog": "A topical editorial article that earns attention through an original, useful angle.",
         "guide": "An evergreen decision or how-to guide that answers the main question immediately, then helps the reader act with confidence.",
@@ -6682,6 +6766,20 @@ def build_universal_article_prompt(site, job):
         ),
         "Limitations and suitability",
     )
+    if profile:
+        length_contract = (
+            f"This is a {profile['label']} using profile `{profile_name}`. "
+            f"Write {profile['min_words']}-{profile['max_words']} words, "
+            f"{profile['min_sections']}-{profile['max_sections']} useful sections, "
+            f"{profile['min_faq']}-{profile['max_faq']} genuinely useful FAQ items, "
+            f"and at least {profile['min_ordered']} ordered action items. "
+            "A table is optional and must appear only when comparison data is useful."
+        )
+    else:
+        length_contract = (
+            "Write a complete long-form page of 1400-2200 words, 7-10 useful "
+            "sections, a useful table, at least 5 ordered action items, and 5-7 FAQ items."
+        )
     return f"""
 You are an expert SEO and editorial writer for a real business website.
 Write a useful, human, expert {content_type.replace('_', ' ')} page for the connected site.
@@ -6701,6 +6799,7 @@ ARTICLE JOB:
 - content type: {content_type}
 - canonical target path: {target_path}
 - page contract: {page_contract}
+- content profile: {profile_name or 'legacy_long_form'}
 - approved page brief contract: {json.dumps(brief_contract, ensure_ascii=False)}
 - required standalone section heading: {limitation_outline}
 - approved internal links: {json.dumps(approved_links, ensure_ascii=False)}
@@ -6713,14 +6812,23 @@ QUALITY RULES:
   into `description`, and the approved `directAnswer` into `lead` exactly. Blog Core
   enforces these fields after generation.
 - Write like a specialist editor for this exact site, not a generic AI assistant.
-- The article must be a complete long-form page, not a short summary. Target 1400-2200 words across the structured fields.
+- Length and structure contract: {length_contract}
+- Write in the founder's working voice: direct, specific, calm, and practical. Base the
+  page on supplied decisions, products, workflows, constraints, screenshots, tradeoffs,
+  and failure modes. Never invent a personal anecdote, client, metric, or result.
+- Every paragraph must help the reader understand, compare, verify, decide, or act.
+  Remove generic introductions, scene-setting, recap paragraphs, and text written only
+  to reach a target length.
 - Do not repeat `title` inside `lead`, `description`, section headings, or FAQ questions.
 - `description` is SEO meta copy. `lead` is the first article paragraph. They must be different.
 - Put only the opening article paragraph in `lead`; Blog Core renders the page title separately.
-- Use 7-10 section objects; headings must be useful TOC entries and each section must contain 2-4 substantial paragraphs.
-- Include at least one useful table object with 3-5 columns and 4-8 rows.
-- Include one orderedList with at least 5 practical items and one concise quote.
-- Include 5-7 FAQ items with direct answers.
+- Section headings must be useful TOC entries. Keep each section concise; use one or
+  two substantial paragraphs plus bullets where bullets communicate the decision faster.
+- Include a table only when it helps the reader compare real options. For a profiled
+  money page the table may be empty when no honest comparison belongs on the page.
+- Include one practical orderedList when required by the profile and one concise quote.
+- FAQ items are optional beyond the profile minimum. Include only questions a buyer
+  would reasonably ask before deciding.
 - Include exactly 3 image objects. Image src must be filename only, not absolute URL.
 - Image `alt` and `caption` must describe article-specific editorial visuals. Do not leave generic placeholders.
 - Do not write raw HTML. Blog Core will render HTML from your structured fields, including the page title, TOC, figures, table, ordered list, quote, and FAQ.

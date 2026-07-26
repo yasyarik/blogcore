@@ -760,3 +760,17 @@ It must be updated after every meaningful task.
 * Do not claim a site integration is native because it shares colors or fonts. Match and verify the source DOM, computed header/footer dimensions, section rhythm, typography roles, controls, and responsive behavior.
 * Do not delegate only a title and slug to a source factory. Preserve the planned task's native path, canonical group, type, and language in the source job payload.
 * An explicit Regenerate action for a source-authoritative task must call the source factory even when the previous result is `READY` or `PUBLISHED`; merely re-syncing an old result is not regeneration.
+
+### 2026-07-26 — Intent-specific compact money-page profiles
+
+* Decision: Native money pages may opt into an explicit `pageBrief.contentProfile`: `money_service`, `money_hub`, `money_tool`, or `money_proof`. Each profile enforces a bounded word, section, FAQ, and action-list range appropriate to its intent. Jobs without a profile retain the legacy long-form gates.
+* Reason: Google does not define an ideal word count. Commercial pages should contain enough specific evidence and decision support for the buyer, without forcing every page into a 1,200+ word article template.
+* Files/areas affected: `app.py`, YAS money-page plan under `deploy/yas/`, and native content-store payloads.
+* Replaced/deprecated: Applying the same minimum length, table, FAQ, and section count to every typed page.
+
+### 2026-07-26 — YAS money pages are Blog Core-owned, Next-rendered
+
+* Decision: YAS site 12 uses `native_content_store` at `/opt/yas-ooo` with `en`, `ru`, and `de`. Blog Core owns generation, Gemini localization, generated editorial media, validation, approval metadata, and publication. YAS Next.js owns the public commercial renderer and reads the published native JSON by canonical root `targetPath`.
+* Reason: This preserves the main site's design, routes, header, footer, and locale behavior while making Blog Core the durable editorial workflow.
+* Files/areas affected: site 12 settings, `deploy/yas/`, `/opt/yas-ooo/data/blog-core/`, and the YAS Next.js money-page renderer.
+* Replaced/deprecated: YAS configured as an English-only `local_path` source.

@@ -4154,3 +4154,35 @@ This file is updated by Codex after every task.
 * Gemini TTS is Preview and longer audio is generated in chunks to reduce quality drift; real content generation needs a selected article and incurs model usage.
 * WAV is reliable and avoids a new transcoding dependency. Add MP3/AAC transcode only when a distribution host requires it.
 * Native podcast pages/players on imported source sites are intentionally not changed by this implementation.
+## 2026-07-26 — Add compact multilingual YAS money-page workflow
+
+### Summary
+
+* Added intent-specific content profiles for service, hub, tool, and proof money pages while preserving legacy long-form validation for unprofiled jobs.
+* Added a verified nine-page YAS commercial content plan with founder-voice constraints, approved internal links, factual boundaries, and EN/RU/DE native publication.
+* Added sequential generation and explicit single-operator approval/publication scripts.
+* Exported the selected content profile in native content-store payloads for the YAS renderer.
+
+### Files changed
+
+* `app.py` — profile-aware generation prompt, validation, and native payload.
+* `deploy/yas/seed_money_pages.py` — YAS site configuration and approved commercial page briefs.
+* `deploy/yas/run_money_pages.py` — sequential Blog Core generation runner.
+* `deploy/yas/approve_publish_money_pages.py` — explicit approval and publish runner.
+* `docs/PROJECT_MEMORY.md` — durable profile and YAS ownership decisions.
+* `docs/CHANGELOG_AI.md` — this record.
+
+### Decisions
+
+* YAS pages use compact intent-specific ranges, not a universal 1,200-word minimum.
+* The first complete set is the four primary services plus Method, Research, Systems, Workflows, and Build.
+* No role hierarchy or multi-user CMS workflow was added; approval metadata is applied by the single operator.
+
+### Checks run
+
+* `python3 -m py_compile app.py deploy/yas/*.py`.
+* `git diff --check`.
+
+### Risks / TODO
+
+* Generation, editorial review, production publication, and browser QA are performed after deployment of this Blog Core change.
