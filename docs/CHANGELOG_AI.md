@@ -4411,3 +4411,27 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The same fixed segment count can constrain radical restructuring; structural changes belong in the approved page brief and renderer, not the prose editor.
+
+## 2026-07-26 — Correct unsupported YAS proof and implementation claims
+
+### Summary
+
+* Added deterministic editorial corrections for unsupported product-workflow attribution, Shopify migration and compatibility promises, confidence-score implementation claims, and inaccurate product-to-capability table mappings.
+* Added a `--localize-only` mode so corrected EN source is intelligently retranslated without another generative EN rewrite.
+
+### Decisions
+
+* Public YAS products prove shipped software and interfaces. They do not prove a specific internal workflow, architecture, client result, migration behavior, or performance outcome unless that evidence is explicit.
+
+### Files changed
+
+* `deploy/yas/final_edit_money_pages.py` — verified corrections and correction-only localization path.
+* `docs/CHANGELOG_AI.md` — this record.
+
+### Checks run
+
+* `python3 -m py_compile deploy/yas/final_edit_money_pages.py`.
+
+### Risks / TODO
+
+* Browser review must still confirm the corrected paragraphs and tables render naturally in all three languages.
