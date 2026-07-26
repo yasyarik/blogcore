@@ -4435,3 +4435,30 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * Browser review must still confirm the corrected paragraphs and tables render naturally in all three languages.
+
+## 2026-07-26 — Publish and verify YAS multilingual money pages
+
+### Summary
+
+* Published the nine approved YAS money-page records through the native content store in EN, RU, and DE.
+* Verified the Next.js public renderer, generated editorial media, responsive hero typography, and localized delivery.
+
+### Decisions
+
+* Publication remains explicit after generation, founder edit, factual correction, localization, and audit.
+* Text volume is not a success metric: each page must remain bounded by its intent profile and provide practical buyer decisions without generic AI filler.
+
+### Files changed
+
+* `docs/CHANGELOG_AI.md` — final publication and production verification record.
+
+### Checks run
+
+* Blog Core audit passed all nine records with zero content errors.
+* All 27 EN/RU/DE public routes returned HTTP 200 with H1 and canonical metadata.
+* A generated `/sites/12/article-assets/` image returned HTTP 200.
+* Playwright verified representative desktop EN and mobile RU pages with three inline figures, no horizontal overflow, and zero console errors.
+
+### Risks / TODO
+
+* Future edits must repeat the factual, voice, localization, media, audit, approval, and public-route gates before publication.
