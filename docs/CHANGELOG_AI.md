@@ -4365,3 +4365,26 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The pass still fails if the model changes the number of links, media elements, figures, or H2 sections.
+
+## 2026-07-26 — Localize visible segments, not HTML
+
+### Summary
+
+* Replaced model-generated localized HTML with deterministic HTML reconstruction from a fixed, ordered array of translated visible text segments.
+
+### Decisions
+
+* Gemini owns linguistic translation only. Blog Core owns every tag, class, route, media URL, section boundary, and segment position.
+
+### Files changed
+
+* `deploy/yas/final_edit_money_pages.py` — segment-based RU/DE localization.
+* `docs/CHANGELOG_AI.md` — this correction.
+
+### Checks run
+
+* `python3 -m py_compile deploy/yas/final_edit_money_pages.py`.
+
+### Risks / TODO
+
+* Localization fails closed when the model returns a different segment count or markup inside a translated segment.

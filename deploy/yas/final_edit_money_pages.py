@@ -6,7 +6,7 @@ import json
 import re
 import sqlite3
 import sys
-from html import unescape
+from html import escape, unescape
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -21,6 +21,15 @@ HTML_SCHEMA = {
         "html": {"type": "STRING"},
     },
     "required": ["title", "description", "html"],
+}
+LOCALIZATION_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "title": {"type": "STRING"},
+        "description": {"type": "STRING"},
+        "segments": {"type": "ARRAY", "items": {"type": "STRING"}},
+    },
+    "required": ["title", "description", "segments"],
 }
 
 
@@ -106,11 +115,37 @@ EDITING CONTRACT:
 """.strip()
 
 
-def localization_prompt(language, title, description, html):
+def visible_segments(html):
+    return [
+        part.strip()
+        for part in re.split(r"(<[^>]+>)", html or "")
+        if part and not part.startswith("<") and part.strip()
+    ]
+
+
+def restore_segments(html, translated):
+    parts = re.split(r"(<[^>]+>)", html or "")
+    expected = visible_segments(html)
+    if len(expected) != len(translated):
+        raise ValueError(f"visible segment count changed: {len(expected)} to {len(translated)}")
+    iterator = iter(translated)
+    output = []
+    for part in parts:
+        if part and not part.startswith("<") and part.strip():
+            value = str(next(iterator)).strip()
+            if "<" in value or ">" in value:
+                raise ValueError("localized visible segment contains markup")
+            output.append(escape(value, quote=False))
+        else:
+            output.append(part)
+    return "".join(output)
+
+
+def localization_prompt(language, title, description, segments):
     language_name = {"ru": "Russian", "de": "German"}[language]
     return f"""
 Translate and editorially localize this YAS commercial page into fluent {language_name}.
-Return JSON containing the translated title, description, and HTML.
+Return JSON containing the translated title, description, and `segments` array.
 
 TITLE:
 {title}
@@ -118,12 +153,13 @@ TITLE:
 DESCRIPTION:
 {description}
 
-HTML:
-{html}
+VISIBLE TEXT SEGMENTS IN DOCUMENT ORDER:
+{json.dumps(segments, ensure_ascii=False)}
 
 LOCALIZATION CONTRACT:
-- Preserve the exact HTML structure, tag count, class attributes, href values, src values,
-  image dimensions, and section order. Translate visible prose only.
+- Return exactly {len(segments)} translated text segments in the same order. Do not
+  combine, split, omit, or add a segment. HTML is restored deterministically outside
+  the model.
 - Preserve every fact, qualification, limitation, and illustrative label. Do not add,
   remove, strengthen, or generalize claims.
 - Write as a native editor in Iaroslav's direct, specific, calm, practical voice. Avoid
@@ -163,17 +199,18 @@ def run(db_path: Path, site_id: int):
                 "select * from content_job_localizations where job_id=? and language=?",
                 (row["id"], language),
             ).fetchone()
+            source_segments = visible_segments(edited["html"])
             localized = blog_core._gemini_text_json(
-                localization_prompt(language, row["title"], row["description"], edited["html"]),
-                response_schema=HTML_SCHEMA,
+                localization_prompt(language, row["title"], row["description"], source_segments),
+                response_schema=LOCALIZATION_SCHEMA,
                 repair=False,
             )
-            localized["html"] = restore_attributes(edited["html"], localized["html"])
-            validate_revision(edited["html"], localized["html"], max(250, int(low * 0.55)), int(high * 1.35), f"{sources['targetPath']}/{language}")
+            localized_html = restore_segments(edited["html"], localized["segments"])
+            validate_revision(edited["html"], localized_html, max(250, int(low * 0.55)), int(high * 1.35), f"{sources['targetPath']}/{language}")
             conn.execute(
                 """update content_job_localizations set title=?,description=?,draft_html=?,updated_at=?
                    where job_id=? and language=?""",
-                (localized["title"], localized["description"], localized["html"], blog_core.now_iso(), row["id"], language),
+                (localized["title"], localized["description"], localized_html, blog_core.now_iso(), row["id"], language),
             )
         conn.commit()
         print(json.dumps({"path": sources["targetPath"], "status": "edited", "locales": ["ru", "de"]}), flush=True)
