@@ -7080,6 +7080,7 @@ def build_article_fact_edit_prompt(site, job, draft):
         "contentType": native_content_type(job),
         "targetPath": content_job_target_path(job),
     }
+    voice_contract = brief.get("voiceContract") if isinstance(brief.get("voiceContract"), dict) else {}
     profile_name, profile = content_job_profile(job)
     if profile:
         length_rule = (
@@ -7096,11 +7097,28 @@ Return the complete article as valid JSON matching the provided schema.
 FACTUAL CONTRACT:
 {json.dumps(factual_contract, ensure_ascii=False)}
 
+VOICE CONTRACT:
+{json.dumps(voice_contract, ensure_ascii=False)}
+
 DRAFT TO EDIT:
 {json.dumps(draft, ensure_ascii=False)}
 
 NON-NEGOTIABLE EDIT:
 - Treat the factual contract as the complete boundary of what this page may claim.
+- Rewrite in the named founder's working voice: direct, specific, calm, practical,
+  and accountable. Use "I" only for a supplied first-person decision or practice.
+  Never switch to anonymous agency language such as "our team", "our experts",
+  "our methodology", or "we are committed".
+- Remove generic business prose and model habits, including: high-value, streamline,
+  robust solution, solid foundation, fast-paced world, ever-evolving landscape,
+  game-changer, unlock the power, seamless, revolutionize, cutting-edge, leverage
+  as a verb, and vague claims that something is proven.
+- Do not claim that a practice speeds up, improves, protects, ensures, prevents,
+  maintains absolute control, runs smoothly, or creates predictable results unless
+  that exact outcome is supplied in the factual contract. Explain the concrete
+  mechanism or delete the sentence.
+- Every paragraph must help the reader understand, compare, verify, decide, or act.
+  Delete scene-setting, recap, filler, and repeated explanations.
 - Keep the approved H1, meta description, direct answer, content type, and target
   path unchanged.
 - Preserve the useful depth, structure, table, ordered list, 3 image specs, FAQ,
@@ -7141,6 +7159,9 @@ RULES:
 - Preserve every factual claim, section, paragraph, bullet, table row, ordered-list item, quote, image, and FAQ item.
 - Do not summarize, shorten, add claims, or change the editorial intent.
 - Write fluent native editorial copy, not literal machine translation.
+- Preserve the founder voice: direct, specific, calm, practical, and accountable.
+  Do not introduce anonymous agency language, inflated marketing phrases, generic
+  introductions, filler, invented experience, or stronger claims than the EN source.
 - Keep the same article depth and approximately the same amount of information.
 - Translate title, description, category, lead, headings, paragraphs, bullets, table text, ordered-list text, quote, image alt/caption, and FAQ.
 - Keep `heroImage` and every image `src` filename exactly unchanged.
@@ -7277,14 +7298,17 @@ def generate_content_job(site_id, job_id):
         if not table.get("headers") or len(table.get("rows") if isinstance(table.get("rows"), list) else []) < 3:
             draft["table"] = pre_fact_draft.get("table")
         current_ordered = draft.get("orderedList") if isinstance(draft.get("orderedList"), list) else []
-        if len([item for item in current_ordered if str(item or "").strip()]) < 5:
+        _, profile = content_job_profile(job)
+        required_ordered = profile["min_ordered"] if profile else 5
+        if len([item for item in current_ordered if str(item or "").strip()]) < required_ordered:
             draft["orderedList"] = pre_fact_draft.get("orderedList")
             draft["orderedListTitle"] = pre_fact_draft.get("orderedListTitle")
         current_images = draft.get("images") if isinstance(draft.get("images"), list) else []
         if len([item for item in current_images if isinstance(item, dict)]) != 3:
             draft["images"] = pre_fact_draft.get("images")
         current_faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
-        if len([item for item in current_faq if isinstance(item, dict)]) < 5:
+        required_faq = profile["min_faq"] if profile else 5
+        if len([item for item in current_faq if isinstance(item, dict)]) < required_faq:
             draft["faq"] = pre_fact_draft.get("faq")
         draft = apply_approved_page_brief(
             draft,

@@ -32,6 +32,11 @@ BANNED = re.compile(
     r"revolutioni[sz]e|seamless(?:ly)? integrate|one-stop solution)\b",
     re.I,
 )
+AGENCY_VOICE = re.compile(
+    r"\b(?:our team|our experts|our methodology|we are committed|"
+    r"high-value|solid foundation|robust solution|cutting-edge)\b",
+    re.I,
+)
 
 
 def plain(html):
@@ -71,6 +76,8 @@ def audit(db_path: Path, site_id: int):
             errors.append(f"{path}: expected RU and DE localizations")
         if (match := BANNED.search(text)):
             errors.append(f"{path}: generic phrase `{match.group(0)}`")
+        if (match := AGENCY_VOICE.search(text)):
+            errors.append(f"{path}: anonymous agency phrase `{match.group(0)}`")
         if row["draft_html"].count('class="article-figure"') != 3:
             errors.append(f"{path}: expected exactly 3 inline figures")
         if row["draft_html"].count("<h2") < 4:

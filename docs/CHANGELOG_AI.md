@@ -4228,3 +4228,29 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * Automated phrase checks supplement rather than replace browser and editorial review.
+
+## 2026-07-26 — Enforce the YAS founder voice in the final edit
+
+### Summary
+
+* Tightened the final factual-editor and localization prompts after editorial sampling found generic agency phrases in a formally valid draft.
+* Made profile-aware FAQ and action-list restoration honor compact profile minima.
+* Expanded the publication audit to reject anonymous agency voice.
+
+### Files changed
+
+* `app.py` — founder-voice final edit, localization rule, and compact structure preservation.
+* `deploy/yas/audit_money_pages.py` — agency-voice rejection.
+* `docs/CHANGELOG_AI.md` — this correction.
+
+### Decisions
+
+* Formal length and schema validation is insufficient; sampled generic agency prose blocks publication.
+
+### Checks run
+
+* `python3 -m py_compile app.py deploy/yas/audit_money_pages.py`.
+
+### Risks / TODO
+
+* The complete YAS set must be regenerated under the corrected editor before approval.
