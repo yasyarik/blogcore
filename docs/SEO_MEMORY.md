@@ -2,6 +2,7 @@
 
 ## Current SEO behavior
 
+* Shared header/footer navigation is localized in server-rendered HTML for all five Georivo languages. Money pages must not rely on client-side label replacement for first-paint navigation or internal-link language consistency.
 * Georivo root SEO money pages `/how-it-works`, `/coverage`, and `/pricing` are genuine Blog Core factory `seo_money_page`/`use_case` records for site 14. EN is unprefixed; DE/ES/FR/RU use locale prefixes. Each page emits its exact canonical, the complete five-language hreflang set with EN as `x-default`, one H1, `WebPage` plus breadcrumb structured data, and one unique factory-generated thematic hero.
 * Their validated long-form factory HTML is rendered through a money-page-only commercial section system rather than the article shell. Each top-level content section becomes a distinct product section; the generated TOC becomes a compact sticky side rail, and conversion CTAs appear between the narrative stages and at page end. This presentation change must not shorten or duplicate the canonical SEO content.
 * The commercial renderer may regroup generated markup into heading/body/media regions and a separate related/recommended/FAQ utility section for visual rhythm. This is presentation-only: visible factory prose, headings, figures, table, internal links, FAQ content, canonicals, and hreflang must remain intact.

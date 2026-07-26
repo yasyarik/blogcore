@@ -61,6 +61,10 @@ LANGUAGE_FLAGS = {
 UI = {
     "en": {
         "examples": "Examples", "how": "How it works", "pricing": "Pricing", "blog": "Blog",
+        "guides": "Guides", "learn": "Learn", "coverage": "Coverage", "templates": "Templates",
+        "embed_guides": "Embed guides", "about": "About", "created_by": "Created by",
+        "rights": "© 2026 Georivo. All rights reserved.",
+        "disclaimer": "3D visualization generated from available licensed geospatial imagery.",
         "sign_in": "Sign in", "create": "Create a widget", "product": "Product", "company": "Company",
         "contact": "Contact", "terms": "Terms", "privacy": "Privacy",
         "footer_copy": "Interactive 3D location stories,<br>embedded on real-estate websites.",
@@ -80,6 +84,10 @@ UI = {
     },
     "de": {
         "examples": "Beispiele", "how": "So funktioniert es", "pricing": "Preise", "blog": "Magazin",
+        "guides": "Leitfäden", "learn": "Ressourcen", "coverage": "Abdeckung", "templates": "Vorlagen",
+        "embed_guides": "Einbettungsanleitungen", "about": "Über Georivo", "created_by": "Erstellt von",
+        "rights": "© 2026 Georivo. Alle Rechte vorbehalten.",
+        "disclaimer": "3D-Visualisierung aus verfügbaren lizenzierten Geodaten.",
         "sign_in": "Anmelden", "create": "Widget erstellen", "product": "Produkt", "company": "Unternehmen",
         "contact": "Kontakt", "terms": "Bedingungen", "privacy": "Datenschutz",
         "footer_copy": "Interaktive 3D-Standortgeschichten,<br>eingebettet in Immobilien-Websites.",
@@ -99,6 +107,10 @@ UI = {
     },
     "es": {
         "examples": "Ejemplos", "how": "Cómo funciona", "pricing": "Precios", "blog": "Revista",
+        "guides": "Guías", "learn": "Recursos", "coverage": "Cobertura", "templates": "Plantillas",
+        "embed_guides": "Guías de integración", "about": "Acerca de Georivo", "created_by": "Creado por",
+        "rights": "© 2026 Georivo. Todos los derechos reservados.",
+        "disclaimer": "Visualización 3D generada a partir de imágenes geoespaciales con licencia.",
         "sign_in": "Iniciar sesión", "create": "Crear un widget", "product": "Producto", "company": "Empresa",
         "contact": "Contacto", "terms": "Términos", "privacy": "Privacidad",
         "footer_copy": "Historias interactivas de ubicación en 3D,<br>integradas en sitios inmobiliarios.",
@@ -118,6 +130,10 @@ UI = {
     },
     "fr": {
         "examples": "Exemples", "how": "Fonctionnement", "pricing": "Tarifs", "blog": "Journal",
+        "guides": "Guides", "learn": "Ressources", "coverage": "Couverture", "templates": "Modèles",
+        "embed_guides": "Guides d’intégration", "about": "À propos de Georivo", "created_by": "Créé par",
+        "rights": "© 2026 Georivo. Tous droits réservés.",
+        "disclaimer": "Visualisation 3D générée à partir d’images géospatiales disponibles sous licence.",
         "sign_in": "Connexion", "create": "Créer un widget", "product": "Produit", "company": "Entreprise",
         "contact": "Contact", "terms": "Conditions", "privacy": "Confidentialité",
         "footer_copy": "Des histoires de localisation 3D interactives,<br>intégrées aux sites immobiliers.",
@@ -136,7 +152,11 @@ UI = {
         "not_found": "Ce lieu n'est pas sur la carte.", "not_found_copy": "La page demandée n'existe pas.",
     },
     "ru": {
-        "examples": "Примеры", "how": "Как это работает", "pricing": "Цены", "blog": "Блог",
+        "examples": "Примеры", "how": "Как это работает", "pricing": "Тариф", "blog": "Блог",
+        "guides": "Руководства", "learn": "Материалы", "coverage": "Покрытие", "templates": "Шаблоны",
+        "embed_guides": "Инструкции по встраиванию", "about": "О сервисе", "created_by": "Создано",
+        "rights": "© 2026 Georivo. Все права защищены.",
+        "disclaimer": "3D-визуализация создаётся из доступных лицензированных геопространственных изображений.",
         "sign_in": "Войти", "create": "Создать виджет", "product": "Продукт", "company": "Компания",
         "contact": "Контакты", "terms": "Условия", "privacy": "Конфиденциальность",
         "footer_copy": "Интерактивные 3D-истории о локации,<br>встроенные в сайты недвижимости.",
@@ -536,6 +556,13 @@ def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, foot
     replacements = {
         "Examples": labels["examples"],
         "How it works": labels["how"],
+        "Guides": labels["guides"],
+        "Learn": labels["learn"],
+        "Coverage": labels["coverage"],
+        "Templates": labels["templates"],
+        "Embed guides": labels["embed_guides"],
+        "About": labels["about"],
+        "Created by": labels["created_by"],
         "Pricing": labels["pricing"],
         "Sign in": labels["sign_in"],
         "Create a widget": labels["create"],
@@ -544,10 +571,39 @@ def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, foot
         "Contact": labels["contact"],
         "Terms": labels["terms"],
         "Privacy": labels["privacy"],
+        "Check a property address": labels["create"],
     }
     for source, translated in replacements.items():
         fragment = fragment.replace(f">{source}</a>", f">{esc(translated)}</a>")
         fragment = fragment.replace(f">{source}</b>", f">{esc(translated)}</b>")
+    fragment = re.sub(
+        r'(?is)(<a\b[^>]*class=(["\'])nav-cta\2[^>]*>).*?(<span>↗</span></a>)',
+        rf"\1{esc(labels['create'])} \3",
+        fragment,
+        count=1,
+    )
+    fragment = re.sub(
+        r'(?is)(<a\b[^>]*class=(["\'])nav-account\2[^>]*)(>)',
+        lambda match: re.sub(
+            r'\s(?:aria-label|title)=(["\']).*?\1',
+            "",
+            match.group(1),
+        ) + f' aria-label="{esc(labels["sign_in"])}" title="{esc(labels["sign_in"])}"' + match.group(3),
+        fragment,
+        count=1,
+    )
+    fragment = re.sub(
+        r'(?is)(<span\b[^>]*class=(["\'])sr-only\2[^>]*>).*?(</span>)',
+        rf"\1{esc(labels['sign_in'])}\3",
+        fragment,
+        count=1,
+    )
+    fragment = fragment.replace(">Created by <a", f">{esc(labels['created_by'])} <a")
+    fragment = fragment.replace("© 2026 Georivo. All rights reserved.", esc(labels["rights"]))
+    fragment = fragment.replace(
+        "3D visualization generated from available licensed geospatial imagery.",
+        esc(labels["disclaimer"]),
+    )
     prefix = "" if language == DEFAULT_LANGUAGE else f"/{language}"
     fragment = re.sub(
         r'href=(["\'])/(?:[a-z]{2}/)?how-it-works/?\1',
@@ -557,6 +613,21 @@ def adapt_native_chrome(fragment, language, slug=None, preview_job_id=None, foot
     fragment = re.sub(
         r'href=(["\'])/(?:[a-z]{2}/)?pricing/?\1',
         f'href="{prefix}/pricing"',
+        fragment,
+    )
+    fragment = re.sub(
+        r'href=(["\'])/(?:[a-z]{2}/)?coverage/?\1',
+        f'href="{prefix}/coverage"',
+        fragment,
+    )
+    fragment = re.sub(
+        r'href=(["\'])/(?:[a-z]{2}/)?about/?\1',
+        f'href="{prefix}/about"',
+        fragment,
+    )
+    fragment = re.sub(
+        r'href=(["\'])/(contact|terms|privacy)\?lang=[a-z]{2}\1',
+        rf'href="/\2?lang={language}"',
         fragment,
     )
     for native_content_type in CONTENT_SECTIONS:

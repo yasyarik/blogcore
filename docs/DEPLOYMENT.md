@@ -2,6 +2,7 @@
 
 ## Runtime
 
+* 2026-07-26 shared-chrome release: `georivo-blog.service` localizes the current Georivo header/footer server-side across five languages and consumes the compact three-column footer layout from the current Sites product stylesheet. Rollback: `/var/backups/georivo-blogcore/20260726-shared-footer`.
 * App: Flask in `app.py`.
 * Launcher: `run.sh`.
 * `run.sh` sources `/var/www/blog.yas.ooo/.env` when present before starting Gunicorn.

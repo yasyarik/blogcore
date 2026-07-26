@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Shared Georivo chrome is localized server-side
+
+- Decision: Blog Core money pages continue to reuse `LiveSiteChrome`, while `adapt_native_chrome` localizes every visible header/footer label, CTA, legal line, and route for EN, RU, DE, ES, FR.
+- Decision: the shared footer information architecture is three balanced navigation groups: Product, Resources, and Company. Blog Core does not own a separate footer layout.
+- Reason: client-side insertion left untranslated first-paint HTML and could show a stale or visually inconsistent shell during navigation.
+
 ## 2026-07-26 — Georivo money-page heroes are distinct from first paint
 
 - Decision: `/how-it-works`, `/coverage`, and `/pricing` use three separate same-origin WebP hero assets served by `georivo-blog.service`.

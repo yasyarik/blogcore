@@ -1,5 +1,31 @@
 # CHANGELOG_AI.md
 
+## 2026-07-26 — Reuse the compact localized Georivo chrome
+
+### Summary
+
+- Extended the shared-chrome adapter so header and footer navigation, calls to action, legal labels, and route targets are localized consistently across EN, RU, DE, ES, and FR.
+- Kept Blog Core money pages on the single Georivo header/footer and the current compact three-column footer layout supplied by the product stylesheet.
+
+### Files changed
+
+- `deploy/georivo/app.py` — complete shared-chrome localization and localized route rewriting.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable shared-chrome release record.
+
+### Decisions
+
+- Blog Core must adapt the current shared product chrome server-side; it must not recreate a separate money-page footer.
+- Footer information architecture is Product, Resources, and Company, with localized labels and destinations.
+
+### Checks run
+
+- Python compilation and `georivo-blog` health passed.
+- Production response checks passed for all five languages.
+
+### Risks / TODO
+
+- The live header/footer capture remains dependent on the current Georivo source markup; keep the server-side adapter covered whenever the source chrome changes.
+
 ## 2026-07-26 — Make Georivo money-page heroes distinct from first paint
 
 ### Summary
