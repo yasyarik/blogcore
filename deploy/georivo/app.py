@@ -669,6 +669,7 @@ def shell(
     slug=None,
     preview_job_id=None,
     content_type="blog",
+    preload_image=None,
 ):
     language = normalize_language(language)
     robots = '<meta name="robots" content="noindex,nofollow">' if noindex else '<meta name="robots" content="index,follow,max-image-preview:large">'
@@ -681,6 +682,10 @@ def shell(
     )
     if DEFAULT_LANGUAGE in alternates:
         alternate_markup += f'<link rel="alternate" hreflang="x-default" href="{esc(alternates[DEFAULT_LANGUAGE])}">'
+    preload_markup = (
+        f'<link rel="preload" as="image" href="{esc(preload_image)}" fetchpriority="high">'
+        if preload_image else ""
+    )
     return f"""<!doctype html>
 <html lang="{esc(language)}">
 <head>
@@ -691,9 +696,10 @@ def shell(
   {robots}
   <link rel="canonical" href="{esc(canonical)}">
   {alternate_markup}
+  {preload_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726d">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726e">
   {structured}
 </head>
 <body class="blog-shell">
@@ -941,8 +947,9 @@ MONEY_EXPLORE_LABELS = {
 }
 
 MONEY_HERO_OVERRIDES = {
-    "coverage": "/brand/georivo-money-coverage.webp",
-    "pricing": "/brand/georivo-money-pricing.webp",
+    "how-it-works": "/blog-assets/money-hero-how-it-works.webp",
+    "coverage": "/blog-assets/money-hero-coverage.webp",
+    "pricing": "/blog-assets/money-hero-pricing.webp",
 }
 
 
@@ -1363,6 +1370,7 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
         slug=slug,
         preview_job_id=record.get("id") if preview else None,
         content_type="money_page",
+        preload_image=hero,
     )
 
 

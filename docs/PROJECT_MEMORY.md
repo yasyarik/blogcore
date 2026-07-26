@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Georivo money-page heroes are distinct from first paint
+
+- Decision: `/how-it-works`, `/coverage`, and `/pricing` use three separate same-origin WebP hero assets served by `georivo-blog.service`.
+- Decision: each money page preloads its own hero and has a page-specific CSS background fallback using that same asset, plus a page-specific wash/object position.
+- Reason: distinct `<img>` URLs alone were insufficient because the shared neutral placeholder could occupy the first visible frame while the image loaded, making all three pages appear to use the same hero.
+- Release gate: the 15-page audit must report three different hero paths; production HTML must include a matching hero preload for each page.
+
 ## 2026-07-26 — Root money pages own disjoint visual libraries
 
 - Decision: image uniqueness is global across `/how-it-works`, `/coverage`, and `/pricing`, not merely local to one page. A main-content image used by one root money page may not appear in either of the other two in the same language.

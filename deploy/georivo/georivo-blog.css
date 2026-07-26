@@ -171,9 +171,18 @@
 .money-page{background:var(--cream);color:#171914}
 .money-hero{min-height:900px;position:relative;overflow:hidden;display:grid;align-items:end}
 .money-hero-media,.money-hero-wash{position:absolute;inset:0}
-.money-hero-media{background:#cfd9d2}
+.money-hero-media{background:#cfd9d2 center/cover no-repeat}
 .money-hero-media img{width:100%;height:100%;object-fit:cover;display:block}
 .money-hero-wash{background:linear-gradient(90deg,rgba(246,244,235,.97) 0%,rgba(246,244,235,.88) 36%,rgba(246,244,235,.24) 68%,rgba(16,19,14,.15)),linear-gradient(0deg,rgba(17,20,15,.7),transparent 55%)}
+.money-page[data-money-page="how-it-works"] .money-hero-media{background-color:#d8d8d1;background-image:url("/blog-assets/money-hero-how-it-works.webp")}
+.money-page[data-money-page="coverage"] .money-hero-media{background-color:#a9c8ce;background-image:url("/blog-assets/money-hero-coverage.webp")}
+.money-page[data-money-page="pricing"] .money-hero-media{background-color:#1c272b;background-image:url("/blog-assets/money-hero-pricing.webp")}
+.money-page[data-money-page="how-it-works"] .money-hero-media img{object-position:center 48%}
+.money-page[data-money-page="coverage"] .money-hero-media img{object-position:center 50%}
+.money-page[data-money-page="pricing"] .money-hero-media img{object-position:center 52%}
+.money-page[data-money-page="how-it-works"] .money-hero-wash{background:linear-gradient(90deg,rgba(246,244,235,.96) 0%,rgba(246,244,235,.82) 35%,rgba(246,244,235,.12) 65%,rgba(16,19,14,.1)),linear-gradient(0deg,rgba(17,20,15,.55),transparent 52%)}
+.money-page[data-money-page="coverage"] .money-hero-wash{background:linear-gradient(90deg,rgba(246,244,235,.95) 0%,rgba(246,244,235,.77) 35%,rgba(246,244,235,.08) 62%,rgba(16,19,14,.08)),linear-gradient(0deg,rgba(17,20,15,.48),transparent 50%)}
+.money-page[data-money-page="pricing"] .money-hero-wash{background:linear-gradient(90deg,rgba(246,244,235,.96) 0%,rgba(246,244,235,.82) 37%,rgba(246,244,235,.1) 64%,rgba(16,19,14,.16)),linear-gradient(0deg,rgba(17,20,15,.58),transparent 52%)}
 .money-hero-frame{position:relative;z-index:2;width:min(1500px,100%);max-width:100%;min-width:0;margin:0 auto;padding:190px max(3vw,28px) 34px;box-sizing:border-box}
 .money-hero-copy{min-width:0;padding:0 max(2vw,12px)}
 .money-hero .section-tag{justify-content:flex-start;color:#555a51}
