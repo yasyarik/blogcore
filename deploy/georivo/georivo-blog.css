@@ -1,13 +1,18 @@
 .blog-shell{background:var(--paper);color:var(--ink);margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;letter-spacing:0}
 .blog-shell .nav a[aria-current=page]{opacity:.55}
 .journal-hero{color:#151612;background:#cfd9d2;height:min(900px,100vh);min-height:720px;position:relative;overflow:hidden}
-.journal-hero-image{background:#cfd9d2 url("/georivo-hero.png") center/cover no-repeat;position:absolute;inset:0}
+.journal-hero-image{background:#cfd9d2;position:absolute;inset:0}
+.journal-hero-image img{object-fit:cover;width:100%;height:100%;display:block}
 .journal-hero-wash{background:linear-gradient(90deg,#f6f4ebf5 0%,#f6f4ebc7 34%,#f6f4eb26 64%,#12151012),linear-gradient(#0000 68%,#1a1e184d);position:absolute;inset:0}
 .journal-hero-content{z-index:2;max-width:1160px;padding:clamp(190px,20vh,240px) 7vw 100px;position:relative}
 .journal-hero .section-tag{color:#53564e;justify-content:flex-start}
 .journal-hero h1{letter-spacing:-.068em;max-width:900px;margin:25px 0 28px;font-size:clamp(68px,8.7vw,132px);font-weight:600;line-height:.84}
 .journal-hero h1 em,.journal-intro h2 em,.journal-cta h2 em{font-family:Georgia,"Times New Roman",serif;font-weight:400}
 .journal-hero p{color:#4f514b;max-width:610px;margin:0;font-size:18px;line-height:1.55}
+.journal-featured-link{color:#f8f8f3;background:#181a17e8;border:1px solid #ffffff2e;border-radius:17px;flex-direction:column;gap:8px;max-width:430px;margin-top:42px;padding:18px 20px;display:flex;backdrop-filter:blur(12px)}
+.journal-featured-link small{text-transform:uppercase;letter-spacing:.14em;color:var(--lime);font-size:9px;font-weight:800}
+.journal-featured-link strong{letter-spacing:-.025em;font-size:20px;line-height:1.15}
+.journal-featured-link>span{color:#d6d9d0;font-size:11px;font-weight:700}
 .journal-intro{text-align:center;background:var(--cream);padding:120px max(5vw,32px)}
 .journal-intro .section-tag{color:#8a8c85;justify-content:center}
 .journal-intro h2{letter-spacing:-.055em;max-width:930px;margin:28px auto 0;font-size:clamp(48px,5.6vw,80px);font-weight:500;line-height:.98}
@@ -42,9 +47,9 @@
 .empty-state>span{color:var(--lime)}
 .empty-state h2{letter-spacing:-.05em;max-width:760px;margin:22px auto 18px;font-size:clamp(42px,5vw,70px);font-weight:500;line-height:.96}
 .empty-state p{color:#aaada5;max-width:650px;margin:0 auto;font-size:15px;line-height:1.65}
-.journal-cta{color:#fff;place-items:center;min-height:700px;display:grid;position:relative;overflow:hidden}
-.journal-cta-image{background:url("/georivo-hero.png") center 68%/cover no-repeat;position:absolute;inset:0;transform:scale(1.03)}
-.journal-cta-wash{background:#10130c85;position:absolute;inset:0}
+.journal-cta{color:#fff;background:radial-gradient(circle at 82% 18%,#caff3840 0 7%,transparent 28%),linear-gradient(140deg,#11130f 0%,#1c2118 62%,#303923 100%);place-items:center;min-height:620px;display:grid;position:relative;overflow:hidden}
+.journal-cta:before{content:"";border:1px solid #caff3866;border-radius:50%;width:min(60vw,760px);aspect-ratio:1;position:absolute;right:-24%;top:-78%;box-shadow:0 0 0 70px #caff3808,0 0 0 140px #caff3805}
+.journal-cta-wash{background:linear-gradient(90deg,#11130f4d,transparent 55%);position:absolute;inset:0}
 .journal-cta-copy{z-index:2;text-align:center;padding:80px 24px;position:relative}
 .journal-cta-copy>span{text-transform:uppercase;letter-spacing:.16em;color:#ffffffad;font-size:10px;font-weight:700}
 .journal-cta h2{letter-spacing:-.055em;margin:24px 0 34px;font-size:clamp(48px,6vw,84px);font-weight:500;line-height:.92}
@@ -106,6 +111,53 @@
 .article-cta div span{text-transform:uppercase;letter-spacing:.14em;color:var(--lime);font-size:9px}
 .article-cta div strong{letter-spacing:-.035em;max-width:560px;font-size:29px;font-weight:500;line-height:1.08}
 .article-cta a{flex:none;margin:0}
+
+/* Guides are practical product handbooks, not journal articles. */
+.guide-hub-hero{color:#f7f7f2;background:#171914;min-height:760px;padding:170px max(5vw,32px) 72px;display:grid;grid-template-columns:minmax(300px,.78fr) minmax(520px,1.22fr);align-items:stretch;gap:clamp(36px,5vw,84px)}
+.guide-hub-copy{align-self:center}
+.guide-hub-copy .section-tag{color:var(--lime);justify-content:flex-start}
+.guide-hub-copy h1{letter-spacing:-.062em;max-width:620px;margin:28px 0 30px;font-size:clamp(56px,4.8vw,68px);font-weight:500;line-height:.9;overflow-wrap:anywhere}
+.guide-hub-copy p{color:#b7bbb1;max-width:520px;margin:0;font-size:18px;line-height:1.62}
+.guide-featured{color:#fff;background:#242721;border:1px solid #3b4037;border-radius:28px;min-height:510px;display:grid;grid-template-rows:minmax(0,1fr) auto;overflow:hidden}
+.guide-featured-media{background:#30342c;min-height:0;display:block;overflow:hidden}
+.guide-featured-media img{object-fit:cover;width:100%;height:100%;display:block;transition:transform .6s}
+.guide-featured:hover .guide-featured-media img{transform:scale(1.025)}
+.guide-featured-copy{grid-template-columns:minmax(0,1fr) auto;gap:9px 28px;align-items:end;padding:28px 30px;display:grid}
+.guide-featured-copy small{text-transform:uppercase;letter-spacing:.14em;color:var(--lime);font-size:9px;font-weight:800}
+.guide-featured-copy strong{letter-spacing:-.035em;grid-column:1;font-size:clamp(27px,2.4vw,39px);font-weight:500;line-height:1}
+.guide-featured-copy>span{color:#d9ddd3;grid-area:1/2/3/3;align-self:center;font-size:11px;font-weight:800}
+.guide-layout{color:#171914;background:#ebece5;padding:160px max(4vw,28px) 120px}
+.guide-layout>article{max-width:1360px;margin:0 auto}
+.guide-header{background:#171914;border-radius:32px;min-height:650px;display:grid;grid-template-columns:minmax(390px,.84fr) minmax(0,1.16fr);overflow:hidden}
+.guide-heading{color:#f8f8f3;padding:clamp(48px,5vw,78px);display:flex;flex-direction:column;justify-content:center}
+.guide-heading .back-link{color:#afb3a9;margin-bottom:auto}
+.guide-heading .eyebrow{text-transform:uppercase;letter-spacing:.16em;color:var(--lime);font-size:9px;font-weight:800}
+.guide-heading h1{letter-spacing:-.06em;margin:25px 0 26px;font-size:clamp(48px,5vw,78px);font-weight:500;line-height:.9}
+.guide-heading .dek{color:#c2c5bd;max-width:590px;font-size:18px;line-height:1.55}
+.guide-heading .article-meta{color:#8d9287;margin:28px 0 0}
+.guide-heading .content-notice{color:#dce0d4;background:#292d26;border-color:var(--lime);margin:30px 0 0}
+.guide-heading .content-notice strong{color:#fff}
+.guide-hero{background:#343831;min-height:650px;margin:0;overflow:hidden}
+.guide-hero img{object-fit:cover;width:100%;height:100%;display:block}
+.guide-content-shell{max-width:1120px;margin:94px auto 0;display:grid;grid-template-columns:260px minmax(0,760px);gap:clamp(52px,7vw,100px);align-items:start}
+.guide-sidebar{position:sticky;top:118px;display:flex;flex-direction:column;gap:14px}
+.guide-toc-panel{background:#f6f6f1;border:1px solid #d1d5ca;border-radius:20px;padding:24px 22px}
+.guide-toc-panel>span{text-transform:uppercase;letter-spacing:.14em;color:#7b8075;font-size:9px;font-weight:800}
+.guide-toc-panel .article-toc{background:transparent;border:0;border-radius:0;margin:18px 0 0;padding:0}
+.guide-toc-panel .article-toc h2{display:none}
+.guide-toc-panel .article-toc ol{margin:0;padding-left:20px}
+.guide-toc-panel .article-toc li{color:#545950;margin:11px 0;font-size:12px;line-height:1.4}
+.guide-toc-panel .article-toc a{text-decoration:none}
+.guide-side-action{color:#171914;background:var(--lime);border-radius:20px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 20px;padding:22px}
+.guide-side-action small{text-transform:uppercase;letter-spacing:.13em;font-size:8px;font-weight:800}
+.guide-side-action strong{grid-column:1;font-size:16px;line-height:1.2}
+.guide-side-action>span{grid-area:1/2/3/3;align-self:center;font-size:18px}
+.guide-copy{max-width:none;margin:0;counter-reset:guide-section}
+.guide-copy h2{counter-increment:guide-section;position:relative}
+.guide-copy h2:before{content:"0" counter(guide-section);color:#7e9d26;letter-spacing:.12em;margin-bottom:15px;font:800 9px var(--font-geist-mono),monospace;display:block}
+.guide-copy figure,.guide-copy .article-table{width:100%;margin-left:0;margin-right:0}
+.guide-layout .article-trust{max-width:1120px;margin-left:auto;margin-right:auto}
+.guide-cta{max-width:1120px;margin-left:auto;margin-right:auto}
 .preview-banner{z-index:20;text-align:center;color:#171914;background:var(--lime);width:100%;padding:10px 20px;font-size:11px;font-weight:700;position:relative}
 .language-select{display:inline-flex;align-items:center}
 .language-select select{color:inherit;background:#fff;border:1px solid #1719142b;border-radius:7px;padding:8px 7px;font:700 10px/1 var(--font-geist-mono),monospace;cursor:pointer}
@@ -116,6 +168,14 @@
 .not-found p{color:#6d7069}
 .not-found a{border-bottom:1px solid #829f26;margin-top:20px;padding-bottom:4px;font-size:12px}
 @media(max-width:900px){
+  .guide-hub-hero{grid-template-columns:1fr;min-height:0;padding-top:150px}
+  .guide-hub-copy h1{font-size:76px}
+  .guide-featured{min-height:560px}
+  .guide-header{grid-template-columns:1fr}
+  .guide-heading{min-height:540px}
+  .guide-hero{min-height:0;aspect-ratio:16/10}
+  .guide-content-shell{grid-template-columns:1fr;margin-top:70px}
+  .guide-sidebar{position:static;display:grid;grid-template-columns:minmax(0,1fr) 260px}
   .journal-hero{height:800px;min-height:720px}
   .journal-hero-content{padding:170px 24px 90px}
   .journal-hero h1{font-size:clamp(58px,12vw,88px)}
@@ -126,6 +186,22 @@
   .article-cta{align-items:flex-start;flex-direction:column}
 }
 @media(max-width:700px){
+  .guide-hub-hero{padding:135px 18px 52px;gap:32px}
+  .guide-hub-copy h1{font-size:58px}
+  .guide-hub-copy p{font-size:16px}
+  .guide-featured{border-radius:20px;min-height:450px}
+  .guide-featured-copy{padding:22px}
+  .guide-featured-copy strong{font-size:28px}
+  .guide-layout{padding:132px 12px 82px}
+  .guide-header{border-radius:22px}
+  .guide-heading{min-height:0;padding:38px 24px 42px}
+  .guide-heading .back-link{margin-bottom:54px}
+  .guide-heading h1{font-size:48px}
+  .guide-heading .dek{font-size:17px}
+  .guide-content-shell{margin-top:48px;gap:48px;padding:0 10px}
+  .guide-sidebar{display:flex}
+  .guide-toc-panel,.guide-side-action{border-radius:16px}
+  .guide-cta{margin-left:10px;margin-right:10px}
   .journal-hero{height:720px;min-height:720px}
   .journal-hero-image{background-position:62% center}
   .journal-hero-wash{background:linear-gradient(90deg,#f6f4ebf2 0%,#f6f4ebc9 62%,#f6f4eb63),linear-gradient(#0000 65%,#1a1e183b)}

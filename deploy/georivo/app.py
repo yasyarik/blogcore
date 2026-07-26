@@ -243,6 +243,13 @@ TRUST_LABELS = {
     "fr": {"author": "Rédigé par", "reviewer": "Relu par", "updated": "Mis à jour", "sources": "Sources"},
     "ru": {"author": "Автор", "reviewer": "Проверено", "updated": "Обновлено", "sources": "Источники"},
 }
+GUIDE_LAYOUT_LABELS = {
+    "en": {"kicker": "Practical guide", "toc": "In this guide", "action": "Put this guide into practice"},
+    "de": {"kicker": "Praxisleitfaden", "toc": "In diesem Leitfaden", "action": "Diesen Leitfaden anwenden"},
+    "es": {"kicker": "Guía práctica", "toc": "En esta guía", "action": "Pon esta guía en práctica"},
+    "fr": {"kicker": "Guide pratique", "toc": "Dans ce guide", "action": "Mettre ce guide en pratique"},
+    "ru": {"kicker": "Практическое руководство", "toc": "В этом руководстве", "action": "Применить руководство"},
+}
 CONTENT_NOTICE = {
     "en": {
         "demo": "Demonstration, not a customer case. It does not claim current property condition, legal boundaries, exact routes, distances, or availability.",
@@ -279,10 +286,10 @@ HUB_COPY = {
         "use_case": ("Real-estate use cases", "Match a location-story workflow to a concrete marketing or buyer-information problem."),
     },
 }
-HUB_COPY["de"] = HUB_COPY["en"]
-HUB_COPY["es"] = HUB_COPY["en"]
-HUB_COPY["fr"] = HUB_COPY["en"]
-HUB_COPY["ru"] = HUB_COPY["en"]
+HUB_COPY["de"] = {**HUB_COPY["en"], "guide": ("Entscheidungshilfen", "Wählen Sie den passenden Ansatz für Objekt, Zielgruppe und Veröffentlichung.")}
+HUB_COPY["es"] = {**HUB_COPY["en"], "guide": ("Guías de decisión", "Elija el enfoque adecuado para la propiedad, el público y el flujo de publicación.")}
+HUB_COPY["fr"] = {**HUB_COPY["en"], "guide": ("Guides de décision", "Choisissez l’approche adaptée au bien, au public et au processus de publication.")}
+HUB_COPY["ru"] = {**HUB_COPY["en"], "guide": ("Практические руководства", "Выберите подходящую 3D-историю для объекта, аудитории и сценария публикации.")}
 
 GUIDE_GROUPS = {
     "en": {
@@ -782,7 +789,7 @@ def shell(
   {preload_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726e">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726f">
   {structured}
 </head>
 <body class="blog-shell">
@@ -941,6 +948,62 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
     cta_url = str(primary_cta.get("url") or "/#create").strip()
     if not cta_url.startswith("/"):
         cta_url = "/#create"
+    if content_type == "guide":
+        guide_labels = GUIDE_LAYOUT_LABELS.get(language, GUIDE_LAYOUT_LABELS[DEFAULT_LANGUAGE])
+        guide_toc = (
+            f'<aside class="guide-toc-panel"><span>{esc(guide_labels["toc"])}</span>{toc_html}</aside>'
+            if toc_html else ""
+        )
+        body = f"""
+        {preview_badge}
+        <main class="guide-layout">
+          <article>
+            <header class="guide-header">
+              <div class="guide-heading">
+                <a class="back-link" href="{esc(content_path(language, content_type))}">← {esc(section_label(language, content_type))}</a>
+                <div class="eyebrow">{esc(guide_labels["kicker"])}</div>
+                <h1>{esc(title)}</h1>
+                <p class="dek">{esc(description)}</p>
+                <div class="article-meta">{esc(labels["editorial"])} · {esc(read_minutes)} {esc(labels["minutes"])}</div>
+                {notice_html}
+              </div>
+              {hero_html.replace('article-hero', 'guide-hero')}
+            </header>
+            <div class="guide-content-shell">
+              <div class="guide-sidebar">
+                {guide_toc}
+                <a class="guide-side-action" href="{esc(cta_url)}"
+                   data-event="seo_cta_click" data-page-type="guide"
+                   data-content-id="{esc(record.get("id") or slug)}" data-cta-location="guide-sidebar">
+                  <small>{esc(guide_labels["action"])}</small>
+                  <strong>{esc(cta_label)}</strong><span>↗</span>
+                </a>
+              </div>
+              <div class="article-copy guide-copy">{article_body}</div>
+            </div>
+            {trust_html}
+            <aside class="article-cta guide-cta">
+              <div><span>{esc(labels["build"])}</span><strong>{esc(labels["build_copy"])}</strong></div>
+              <a href="{esc(cta_url)}" data-event="seo_cta_click" data-page-type="guide"
+                 data-content-id="{esc(record.get("id") or slug)}" data-cta-location="guide-end">{esc(cta_label)} <span>↗</span></a>
+            </aside>
+          </article>
+        </main>
+        """
+        return shell(
+            f"{title} | Georivo",
+            description,
+            body,
+            canonical,
+            article_schema(record, canonical),
+            noindex=preview,
+            language=language,
+            alternate_urls=alternate_urls,
+            slug=slug,
+            preview_job_id=record.get("id") if preview else None,
+            content_type=content_type,
+            preload_image=hero,
+        )
     body = f"""
     {preview_badge}
     <main class="article-layout">
@@ -1498,7 +1561,7 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
               <a class="read-link" href="{esc(url)}">{esc(labels["read"])} <span>↗</span></a>
             </div>
           </article>
-        """))
+        """, title, description, url, hero))
     if not cards:
         cards.append(("", f"""
           <div class="empty-state">
@@ -1506,7 +1569,7 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
             <h2>{esc(labels["empty_title"])}</h2>
             <p>{esc(labels["empty_copy"])}</p>
           </div>
-        """))
+        """, "", "", "", ""))
     hub_title, hub_intro = HUB_COPY.get(language, HUB_COPY["en"]).get(
         content_type,
         (section_name, labels["hero_copy"]),
@@ -1528,10 +1591,12 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
           </table></div>
         </section>
         """
-    cards_html = "".join(card for _, card in cards)
+    featured = cards[0] if posts and cards else None
+    visible_cards = cards[1:] if featured and content_type in {"blog", "guide"} else cards
+    cards_html = "".join(card for _, card, *_ in visible_cards)
     if content_type == "guide" and posts:
         grouped = {key: [] for key in ("understand", "compare", "plan", "implement")}
-        for slug, card in cards:
+        for slug, card, *_ in visible_cards:
             grouped[GUIDE_SLUG_GROUPS.get(slug, "plan")].append(card)
         group_copy = GUIDE_GROUPS.get(language, GUIDE_GROUPS["en"])
         cards_html = "".join(
@@ -1550,17 +1615,49 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
         cards_html = f'<div class="guide-groups section-pad">{cards_html}</div>'
     else:
         cards_html = f'<section class="journal-grid section-pad" aria-label="{esc(labels["latest"])}">{cards_html}</section>'
+    featured_title = featured[2] if featured else ""
+    featured_description = featured[3] if featured else ""
+    featured_url = featured[4] if featured else ""
+    featured_image = featured[5] if featured else ""
+    featured_media = (
+        f'<img src="{esc(featured_image)}" alt="" width="1376" height="768" fetchpriority="high">'
+        if featured_image else ""
+    )
+    if content_type == "guide":
+        guide_labels = GUIDE_LAYOUT_LABELS.get(language, GUIDE_LAYOUT_LABELS[DEFAULT_LANGUAGE])
+        hero_markup = f"""
+        <section class="guide-hub-hero">
+          <div class="guide-hub-copy">
+            <div class="section-tag">{esc(section_name)}</div>
+            <h1>{esc(section_name)}</h1>
+            <p>{esc(hub_intro)}</p>
+          </div>
+          <a class="guide-featured" href="{esc(featured_url)}">
+            <span class="guide-featured-media">{featured_media}</span>
+            <span class="guide-featured-copy">
+              <small>{esc(guide_labels["kicker"])}</small>
+              <strong>{esc(featured_title)}</strong>
+              <span>{esc(labels["read"])} ↗</span>
+            </span>
+          </a>
+        </section>
+        """
+    else:
+        hero_markup = f"""
+        <section class="journal-hero journal-hero--featured">
+          <div class="journal-hero-image" aria-hidden="true">{featured_media}</div>
+          <div class="journal-hero-wash" aria-hidden="true"></div>
+          <div class="journal-hero-content">
+            <div class="section-tag">{esc(section_name)}</div>
+            <h1>{labels["hero_title"] if content_type == "blog" else esc(section_name)}</h1>
+            <p>{esc(labels["hero_copy"])}</p>
+            {f'<a class="journal-featured-link" href="{esc(featured_url)}"><small>{esc(labels["latest"])}</small><strong>{esc(featured_title)}</strong><span>{esc(labels["read"])} ↗</span></a>' if featured_url else ''}
+          </div>
+        </section>
+        """
     body = f"""
     <main id="top">
-      <section class="journal-hero">
-        <div class="journal-hero-image" aria-hidden="true"></div>
-        <div class="journal-hero-wash" aria-hidden="true"></div>
-        <div class="journal-hero-content">
-          <div class="section-tag">{esc(section_name)}</div>
-          <h1>{labels["hero_title"] if content_type == "blog" else esc(section_name)}</h1>
-          <p>{esc(labels["hero_copy"])}</p>
-        </div>
-      </section>
+      {hero_markup}
       <section class="journal-intro">
         <div class="section-tag">{esc(labels["perspective"])}</div>
         <h2>{labels["intro"] if content_type == "blog" else esc(hub_title)}</h2>
@@ -1569,7 +1666,6 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
       {template_comparison}
       {cards_html}
       <section class="journal-cta">
-        <div class="journal-cta-image" aria-hidden="true"></div>
         <div class="journal-cta-wash" aria-hidden="true"></div>
         <div class="journal-cta-copy">
           <span>{esc(labels["cta_kicker"])}</span>

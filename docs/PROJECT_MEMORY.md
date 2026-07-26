@@ -1,5 +1,13 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Georivo Guides and Blog use different presentation systems
+
+- Decision: Georivo Guides are practical handbooks with a split guide hero, sticky in-guide navigation, numbered content sections, and a task-oriented action rail. Blog pages remain editorial journal articles.
+- Decision: Collection heroes use the featured record's own `heroImage`; the former universal `/georivo-hero.png` CSS background is not a Blog Core fallback or CTA image.
+- Decision: The featured record is omitted from the collection card grid to avoid showing the same story image twice on one hub.
+- Reason: Guides serve task completion and Blog serves editorial discovery. Reusing one article shell and one generic product image made the content types indistinguishable and caused visible media repetition.
+- Files/areas affected: `deploy/georivo/app.py`, `deploy/georivo/georivo-blog.css`.
+
 ## 2026-07-26 — Shared Georivo chrome is localized server-side
 
 - Decision: Blog Core money pages continue to reuse `LiveSiteChrome`, while `adapt_native_chrome` localizes every visible header/footer label, CTA, legal line, and route for EN, RU, DE, ES, FR.

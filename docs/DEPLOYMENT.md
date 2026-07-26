@@ -2,6 +2,7 @@
 
 ## Runtime
 
+* 2026-07-26 content-template release: `georivo-blog.service` owns separate Blog and Guides templates. Verify `/ru/blog/`, `/ru/guides/`, and one `/ru/guides/<slug>/` route after deployment, and confirm the legacy `/georivo-hero.png` generic background is absent from the renderer stylesheet. Rollback: `/var/backups/georivo-blogcore/20260726-guide-template-split`.
 * 2026-07-26 shared-chrome release: `georivo-blog.service` localizes the current Georivo header/footer server-side across five languages and consumes the compact three-column footer layout from the current Sites product stylesheet. Rollback: `/var/backups/georivo-blogcore/20260726-shared-footer`.
 * App: Flask in `app.py`.
 * Launcher: `run.sh`.

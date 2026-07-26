@@ -1,5 +1,37 @@
 # CHANGELOG_AI.md
 
+## 2026-07-26 — Split Georivo Guides from Blog and remove repeated generic image
+
+### Summary
+
+- Replaced the shared Guides/Blog presentation with a practical Guides hub and handbook detail layout while preserving Blog's editorial journal layout.
+- Removed the hard-coded `/georivo-hero.png` backgrounds from both the collection hero and final CTA.
+- Collection heroes now use the first published record's own image, and that featured record is omitted from the card grid.
+- Localized the Guides hub proposition in EN, DE, ES, FR, and RU.
+
+### Files changed
+
+- `deploy/georivo/app.py` — content-type-specific hub/detail markup, localized Guides copy, featured-record handling, and stylesheet cache bump.
+- `deploy/georivo/georivo-blog.css` — separate Guides visual system, content-linked Blog hero media, solid final CTA, and responsive layouts.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable rendering, SEO, and deployment rules.
+
+### Decisions
+
+- Guides are practical handbooks; Blog is an editorial journal. They must not share one detail template.
+- A universal product hero must not be used as a fallback throughout content pages.
+
+### Checks run
+
+- `python3 -m py_compile` passed locally and on the VPS.
+- `georivo-blog.service` restarted and its loopback health endpoint returned OK.
+- Public RU Blog hub, Guides hub, and Guide detail returned HTTP 200 with the expected distinct layout classes.
+- Production HTML/CSS contained neither `/georivo-hero.png` nor `.journal-cta-image`.
+- Desktop and 390px mobile screenshots were visually reviewed.
+
+### Risks / TODO
+
+- Existing article-specific images remain editorial assets supplied by their records; localization variants intentionally share the same asset for the same content identity.
+
 ## 2026-07-26 — Reuse the compact localized Georivo chrome
 
 ### Summary
