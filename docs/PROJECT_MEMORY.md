@@ -8,6 +8,12 @@
 - Reason: useful informational content should complete the reader's answer with a concrete way to apply it in Georivo without turning every article into the same template advertisement.
 - Release gate: public typed-content audits require `product-bridge` and a valid `data-product-action`; the complete sitemap audit requires at least four distinct product-action intents.
 
+## 2026-07-26 — Embed indexation follows real-editor verification
+
+- Decision: only WordPress is currently a verified integration guide. Webflow, Wix, and Squarespace remain public for review/use but are `noindex` and excluded from sitemap until each is verified in its current authenticated editor.
+- Decision: the `/embed/` hub remains `noindex` and outside sitemap while fewer than three platform guides are verified.
+- Reason: a generated `versionCheckedAt` field is not proof of real-editor verification and must not make unverified operational instructions indexable.
+
 ## 2026-07-26 — Pricing uses three large plan cards
 
 - Replaced: the same-day single compact Solo card is superseded by a large three-tier grid.

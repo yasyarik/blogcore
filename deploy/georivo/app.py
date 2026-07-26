@@ -214,6 +214,7 @@ CONTENT_SECTIONS = {
 }
 SECTION_CONTENT_TYPES = {section: content_type for content_type, section in CONTENT_SECTIONS.items()}
 MONEY_PAGE_SLUGS = ("how-it-works", "coverage", "pricing")
+VERIFIED_INTEGRATION_SLUGS = frozenset({"wordpress"})
 SECTION_LABELS = {
     "en": {
         "blog": "Georivo journal", "guides": "Guides", "templates": "Templates",
@@ -1109,6 +1110,10 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
     description = record.get("description") or "Practical guidance for presenting real estate locations with interactive 3D."
     slug = record.get("slug") or ""
     content_type = record_content_type(record)
+    unverified_integration = (
+        content_type == "integration_guide"
+        and slug not in VERIFIED_INTEGRATION_SLUGS
+    )
     canonical = f"{SITE_ORIGIN}{article_path(language, slug, content_type)}"
     alternate_urls = {
         item: f"{SITE_ORIGIN}{article_path(item, slug, content_type)}"
@@ -1195,7 +1200,7 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
             body,
             canonical,
             article_schema(record, canonical),
-            noindex=preview,
+            noindex=preview or unverified_integration,
             language=language,
             alternate_urls=alternate_urls,
             slug=slug,
@@ -1231,7 +1236,7 @@ def article_page(record, language=DEFAULT_LANGUAGE, preview=False):
         body,
         canonical,
         article_schema(record, canonical),
-        noindex=preview,
+        noindex=preview or unverified_integration,
         language=language,
         alternate_urls=alternate_urls,
         slug=slug,
@@ -1783,6 +1788,10 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
         if record_content_type(record) == content_type
         and not is_money_page_record(record)
     ]
+    verified_integration_count = sum(
+        1 for record in posts
+        if str(record.get("slug") or "").strip("/") in VERIFIED_INTEGRATION_SLUGS
+    )
     cards = []
     for post in posts:
         localized = localized_record(post, language)
@@ -1940,7 +1949,11 @@ def render_content_index(language=DEFAULT_LANGUAGE, content_type="blog"):
         body,
         canonical,
         schema,
-        noindex=(len(posts) < 3 if content_type == "integration_guide" else not bool(posts)),
+        noindex=(
+            verified_integration_count < 3
+            if content_type == "integration_guide"
+            else not bool(posts)
+        ),
         language=language,
         alternate_urls=alternate_urls,
         content_type=content_type,
@@ -2099,6 +2112,11 @@ def sitemap():
         )
         for content_type in CONTENT_SECTIONS
     }
+    type_counts["integration_guide"] = sum(
+        1 for record in records
+        if record_content_type(record) == "integration_guide"
+        and str(record.get("slug") or "").strip("/") in VERIFIED_INTEGRATION_SLUGS
+    )
     available_types = {content_type for content_type, count in type_counts.items() if count}
     available_types.add("blog")
     for content_type in CONTENT_SECTIONS:
@@ -2115,6 +2133,11 @@ def sitemap():
         slug = str(record.get("slug") or "").strip("/")
         if slug and not is_money_page_record(record):
             content_type = record_content_type(record)
+            if (
+                content_type == "integration_guide"
+                and slug not in VERIFIED_INTEGRATION_SLUGS
+            ):
+                continue
             article_alternates = {
                 language: f"{SITE_ORIGIN}{article_path(language, slug, content_type)}"
                 for language in record_languages(record)

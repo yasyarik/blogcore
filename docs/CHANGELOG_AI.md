@@ -8,10 +8,12 @@
 - Added localized in-article application panels for Property Showcase, Neighborhood Story, Arrival Guide, real coverage checking, protected embed publishing, and example setups.
 - Kept the long-form answer intact while giving readers a concrete next step in the real Georivo product.
 - Extended the public audit so a page cannot pass with only a generic CTA or one repeated action across the content tree.
+- Restored the fail-closed indexation gate for unverified Webflow, Wix, and Squarespace instructions and for the Embed hub.
 
 ### Files changed
 
 - `deploy/georivo/app.py` — contextual intent classifier, five-language product copy, exact builder/coverage/pricing destinations, and article/guide integration.
+- `deploy/georivo/app.py` — also limits integration-guide sitemap/indexation to real-editor-verified platform slugs.
 - `deploy/georivo/georivo-blog.css` — responsive product-step panel.
 - `deploy/georivo/audit_content_plan.py` — public product-bridge and action-classification checks.
 - `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable SEO and release rules.

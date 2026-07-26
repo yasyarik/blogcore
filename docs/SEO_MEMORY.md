@@ -6,6 +6,7 @@
 - Product paths are selected by intent: coverage content → real address coverage check; property/media content → Property Showcase builder; neighborhood/remote-buyer content → Neighborhood Story; arrival content → Arrival Guide; embed instructions → publishing plans; examples → matching builder setup.
 - Do not inject the same phrase or destination into every article. July 2026 people-first and AI-search guidance favors original, non-commodity content and clear task completion over query-variant pages or repetitive promotional blocks.
 - The product step is visible main content and its analytics metadata records both page type and contextual action.
+- Verification gate: WordPress is the only currently indexable Embed guide. Webflow, Wix, Squarespace, and the Embed hub stay out of sitemap and use `noindex` until the real-editor threshold is satisfied.
 
 ## 2026-07-26 — Pricing exposes the complete purchasable tier set
 
