@@ -1,5 +1,36 @@
 # CHANGELOG_AI.md
 
+## 2026-07-26 — Simplify the Georivo Pricing offer card
+
+### Summary
+
+- Removed the hero price/button that was visually covered by the following plan card.
+- Removed the adjacent free-preview column and its competing address-check action.
+- Reduced the plan summary to €49/month, three essential benefits, and one subscription button.
+- Moved the card into normal document flow with explicit spacing.
+
+### Files changed
+
+- `deploy/georivo/app.py` — single-card Pricing summary and one above-the-fold checkout action.
+- `deploy/georivo/georivo-blog.css` — compact plan typography, positive spacing, and responsive card layout.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable Pricing hierarchy and release record.
+
+### Decisions
+
+- A Pricing first screen should present one purchase decision, not adjacent free and paid actions.
+- Plan details above the long-form SEO content must be scannable and limited to purchase essentials.
+
+### Checks run
+
+- Python compilation and production service health passed.
+- Desktop 1440 px and mobile 390 px screenshots were visually reviewed.
+- Production HTML contains one plan card, no free-preview plan column, and no hero CTA.
+- The plan CTA still reaches `/login?returnTo=/dashboard?startCheckout=1` for a signed-out visitor.
+
+### Risks / TODO
+
+- The long-form Pricing content intentionally remains below the concise offer card for SEO and decision support.
+
 ## 2026-07-26 — Localize CTAs and restore the real Pricing conversion path
 
 ### Summary

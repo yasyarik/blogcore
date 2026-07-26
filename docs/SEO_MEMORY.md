@@ -2,6 +2,7 @@
 
 ## Current SEO behavior
 
+* Pricing first paint uses one compact Georivo Solo offer card and one checkout action. The hero must not repeat the price/button immediately above it, and the offer card must not overlap hero controls. Long-form factory content remains below the concise commercial summary.
 * Georivo conversion hierarchy is intent-specific: free address checking remains available as a secondary Pricing action, while Guide/Blog/collection end CTAs and Pricing primary CTAs lead to the localized subscription page or the real account-aware checkout. Do not point every CTA to `#create`.
 * Pricing must show the confirmed Georivo Solo offer above the long-form factory content: €49/month, 10 active widgets, 1,000 visitor-started plays, publishing/share/embed/dashboard benefits, and a real checkout action. The long-form SEO sections remain intact below this commercial summary.
 * Georivo Guides and Blog have distinct collection and detail templates. Guide pages use practical-handbook navigation and action hierarchy; Blog retains the editorial article shell. This visual distinction does not change canonical, hreflang, sitemap, or structured-data contracts.

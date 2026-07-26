@@ -836,7 +836,7 @@ def shell(
   {preload_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726k">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726l">
   {structured}
 </head>
 <body class="blog-shell">
@@ -1529,41 +1529,33 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
     if slug == "pricing":
         pricing_summary = f"""
         <section class="money-plan-summary" id="georivo-solo-offer" aria-labelledby="georivo-solo-title">
-          <div class="money-plan-free">
-            <span>{esc(action_labels["free"])}</span>
-            <h2>{esc(action_labels["check"])}</h2>
-            <p>{esc(action_labels["free_copy"])}</p>
-            <a href="{esc(locale_root)}#create">{esc(action_labels["check"])} <span>↗</span></a>
-          </div>
           <div class="money-plan-card">
             <div class="money-plan-head">
               <h2 id="georivo-solo-title">{esc(action_labels["plan"])}</h2>
               <div><strong>€49</strong><small>{esc(action_labels["month"])}</small></div>
-              <p>{esc(action_labels["audience"])}</p>
             </div>
             <ul>
               <li><b>10</b> {esc(action_labels["widgets"])}</li>
               <li><b>1,000</b> {esc(action_labels["plays"])}</li>
-              <li>{esc(action_labels["distribution"])}</li>
-              <li>{esc(action_labels["dashboard"])}</li>
-              <li>{esc(action_labels["visits"])}</li>
+              <li class="money-plan-wide">{esc(action_labels["distribution"])}</li>
             </ul>
             <a class="money-plan-checkout" href="{esc(cta_url)}" data-money-action="checkout"
                data-event="seo_cta_click" data-page-type="money_page"
                data-content-id="{esc(record.get("id") or slug)}" data-cta-location="plan-card">
               {esc(action_labels["subscribe"])} <span>↗</span>
             </a>
-            <small>{esc(action_labels["note"])}</small>
           </div>
         </section>
         """
     preview_badge = f'<div class="preview-banner">{esc(labels["draft"])}</div>' if preview else ""
     final_eyebrow = action_labels["subscribe_kicker"] if slug == "pricing" else record.get("finalEyebrow") or labels["build"]
     final_title = action_labels["subscribe_title"] if slug == "pricing" else record.get("finalTitle") or labels["build_copy"]
-    hero_offer = (
-        f'<div class="money-hero-offer"><strong>€49</strong><span>{esc(action_labels["month"])}</span></div>'
-        if slug == "pricing" else ""
-    )
+    hero_offer = ""
+    hero_primary = "" if slug == "pricing" else f"""
+            <a class="money-primary" href="{esc(cta_url)}"{action}
+               data-event="seo_cta_click" data-page-type="money_page"
+               data-content-id="{esc(record.get("id") or slug)}" data-cta-location="hero">{esc(cta_label)} <span>↗</span></a>
+    """
     body = f"""
     {preview_badge}
     <main class="money-page" id="top" data-money-page="{esc(slug)}">
@@ -1576,9 +1568,7 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
             <h1>{esc(title)}</h1>
             <p>{esc(description)}</p>
             {hero_offer}
-            <a class="money-primary" href="{esc(cta_url)}"{action}
-               data-event="seo_cta_click" data-page-type="money_page"
-               data-content-id="{esc(record.get("id") or slug)}" data-cta-location="hero">{esc(cta_label)} <span>↗</span></a>
+            {hero_primary}
           </div>
           <aside class="money-toc-rail">{toc_html}</aside>
         </div>

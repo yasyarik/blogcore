@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Pricing first paint uses one plan card and one action
+
+- Decision: the Pricing hero does not repeat the price or subscription button immediately above the plan card.
+- Decision: the first plan summary is one compact Georivo Solo card, not a side-by-side free-preview/paid comparison. It contains only €49/month, 10 active widgets, 1,000 visitor-started plays, protected distribution, and one checkout CTA.
+- Layout rule: the plan card follows the hero in normal document flow with positive spacing. Negative overlap that can cover hero controls is prohibited.
+- Reason: adjacent free/paid actions and repeated subscribe controls diluted the purchase hierarchy, while small explanatory copy obscured the plan essentials.
+
 ## 2026-07-26 — Georivo separates preview and subscription actions
 
 - Decision: address checking is a secondary free-preview action; subscription is the primary commercial action on Pricing and at the end of Guides, Blog, and collection pages.
