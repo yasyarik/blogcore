@@ -2,6 +2,7 @@
 """Generate pending YAS money pages sequentially through Blog Core."""
 
 import argparse
+import concurrent.futures
 import json
 import sqlite3
 import time
@@ -31,18 +32,19 @@ def state(db_path, job_id):
     return {"status": row[0], "error": row[1], "locales": locales}
 
 
-def run(db_path, site_id, base_url):
-    for index, job in enumerate(jobs(db_path, site_id), 1):
-        if job["status"] in {"DRAFT", "PUBLISHED"}:
-            print(f"SKIP {index} {job['target_path']} {job['status']}", flush=True)
-            continue
+def run_one(db_path, site_id, base_url, job):
+    current = state(db_path, job["id"])
+    if current["status"] in {"DRAFT", "PUBLISHED", "GENERATING"}:
+        print(f"SKIP {job['target_path']} {current['status']}", flush=True)
+        return
+    try:
         request = urllib.request.Request(
             f"{base_url}/api/sites/{site_id}/content-jobs/{job['id']}/generate",
             method="POST",
             data=b"",
         )
         with urllib.request.urlopen(request, timeout=30) as response:
-            print(f"START {index} {job['target_path']} {response.status}", flush=True)
+            print(f"START {job['target_path']} {response.status}", flush=True)
         deadline = time.time() + 2700
         while time.time() < deadline:
             current = state(db_path, job["id"])
@@ -52,6 +54,16 @@ def run(db_path, site_id, base_url):
             time.sleep(15)
         if current["status"] != "DRAFT" or current["locales"] != 2:
             raise SystemExit(f"Generation failed for {job['target_path']}: {current}")
+    except Exception as error:
+        raise RuntimeError(f"{job['target_path']}: {error}") from error
+
+
+def run(db_path, site_id, base_url, workers):
+    pending = jobs(db_path, site_id)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(run_one, db_path, site_id, base_url, job) for job in pending]
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
 
 
 if __name__ == "__main__":
@@ -59,5 +71,6 @@ if __name__ == "__main__":
     parser.add_argument("--db", default="/var/www/blog.yas.ooo/data/blog_core.sqlite3")
     parser.add_argument("--site-id", type=int, default=12)
     parser.add_argument("--base-url", default="http://127.0.0.1:3299")
+    parser.add_argument("--workers", type=int, default=2, choices=(1, 2, 3))
     args = parser.parse_args()
-    run(Path(args.db), args.site_id, args.base_url.rstrip("/"))
+    run(Path(args.db), args.site_id, args.base_url.rstrip("/"), args.workers)

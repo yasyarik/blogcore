@@ -4254,3 +4254,22 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The complete YAS set must be regenerated under the corrected editor before approval.
+
+## 2026-07-26 — Run YAS generation with bounded concurrency
+
+### Summary
+
+* Added a two-worker default to the YAS generation runner with a fresh status check before each job.
+
+### Files changed
+
+* `deploy/yas/run_money_pages.py` — bounded concurrent runner.
+* `docs/CHANGELOG_AI.md` — this record.
+
+### Checks run
+
+* `python3 -m py_compile deploy/yas/run_money_pages.py`.
+
+### Risks / TODO
+
+* Existing `GENERATING` jobs are deliberately skipped and picked up by a later idempotent rerun if needed.
