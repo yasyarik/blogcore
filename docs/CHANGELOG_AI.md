@@ -1,5 +1,33 @@
 # CHANGELOG_AI.md
 
+## 2026-07-26 — Restore all three Pricing tiers with safe checkout gating
+
+### Summary
+
+- Restored the visible Solo (€49), Pro (€99), and Agency (€199) plan cards on the Georivo Pricing page.
+- Kept Solo connected to the real checkout while routing Pro and Agency to an honest localized request action until their Stripe recurring Prices are configured.
+- Added an environment-controlled purchase gate so a tier cannot expose a broken or simulated checkout.
+
+### Files changed
+
+- `deploy/georivo/app.py` — three-plan rendering, localized request labels, and `GEORIVO_PURCHASABLE_PLANS` checkout gate.
+- `deploy/georivo/georivo-blog.css` — distinct request-action styling and stylesheet revision.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable catalogue and deployment rules.
+
+### Decisions
+
+- Pricing always shows the complete three-tier catalogue.
+- Only tiers backed by configured Stripe Prices may use checkout; unavailable tiers remain visible and lead to contact.
+
+### Checks run
+
+- `python3 -m py_compile deploy/georivo/app.py`
+- `git diff --check`
+
+### Risks / TODO
+
+- Pro and Agency remain request-only until Stripe access is reauthorized and their recurring Price IDs are configured.
+
 ## 2026-07-26 — Connect every Georivo answer to the relevant product workflow
 
 ### Summary

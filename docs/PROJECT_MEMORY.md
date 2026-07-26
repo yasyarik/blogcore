@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Complete Pricing catalogue is independent from checkout readiness
+
+- Decision: Pricing always displays Solo (€49), Pro (€99), and Agency (€199); an unconfigured tier must not disappear from the commercial page.
+- Decision: `GEORIVO_PURCHASABLE_PLANS` controls which visible tiers may enter checkout. It defaults to `solo`.
+- Decision: a tier without a confirmed Stripe recurring Price uses a localized contact/request action and must never expose a broken or simulated checkout.
+- Replaced: the earlier rule that every visible paid tier must already be directly purchasable. Visibility and checkout readiness are now separate, while purchase claims remain fail-closed.
+
 ## 2026-07-26 — Informational content uses intent-specific Georivo product steps
 
 - Decision: every published Guide, Blog article, Template, Example, and Embed guide contains a visible contextual product step inside the main article content.

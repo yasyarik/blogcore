@@ -313,6 +313,8 @@
 .money-plan-card li.money-plan-wide{grid-column:auto;border-left:0;padding-left:0}
 .money-plan-checkout{color:#171914;background:var(--lime);border-radius:16px;min-height:72px;margin-top:auto;padding:0 24px;display:flex;align-items:center;justify-content:space-between;font-size:17px;font-weight:900}
 .money-plan-checkout span{font-size:22px}
+.money-plan-card.is-request .money-plan-checkout{color:#fff;background:transparent;border:1px solid #697064}
+.money-plan-card.is-request .money-plan-checkout span{color:var(--lime)}
 .money-plan-card>small{color:#858a80;margin-top:14px;font-size:9px;line-height:1.5;display:block}
 .money-page[data-money-page=pricing] .money-hero{min-height:720px}
 .money-page[data-money-page=pricing] .money-hero-frame{width:min(1680px,100%)}

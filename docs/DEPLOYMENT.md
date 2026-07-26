@@ -2,6 +2,7 @@
 
 ## Runtime
 
+* 2026-07-26 three-tier safe Pricing release: `georivo-blog.service` always renders Solo, Pro, and Agency. `GEORIVO_PURCHASABLE_PLANS` is a comma-separated allowlist of tiers with confirmed Stripe recurring Prices and defaults to `solo`; non-enabled tiers use localized contact/request actions. Never enable a tier before its real billing configuration is verified.
 * 2026-07-26 contextual SEO-action release: `georivo-blog.service` renders one intent-specific, localized Georivo product step inside every informational detail page. Stylesheet revision: `20260726n`. Rollback target: `/var/backups/georivo-blogcore/20260726-contextual-seo-actions`.
 * 2026-07-26 compact Pricing-card release: `georivo-blog.service` removes the overlapping/repeated hero checkout action and the side-by-side free-preview column. Pricing now uses one concise Georivo Solo card in normal flow with one checkout CTA. Stylesheet revision: `20260726l`. Rollback: `/var/backups/georivo-blogcore/20260726-pricing-card-compact`.
 * 2026-07-26 CTA/pricing release: `georivo-blog.service` localizes informational and subscription actions, exposes the €49 Georivo Solo plan above Pricing SEO content, and keeps the real auth-to-Stripe checkout path. Guide title wrapping and mobile Pricing first paint were corrected in stylesheet revision `20260726k`. Rollback: `/var/backups/georivo-blogcore/20260726-cta-pricing`.

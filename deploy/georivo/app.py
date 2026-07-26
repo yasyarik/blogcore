@@ -30,6 +30,11 @@ SOURCE_CHROME = LiveSiteChrome(
     ),
 )
 DEFAULT_LANGUAGE = "en"
+PURCHASABLE_PLAN_KEYS = frozenset(
+    plan.strip().lower()
+    for plan in os.environ.get("GEORIVO_PURCHASABLE_PLANS", "solo").split(",")
+    if plan.strip().lower() in {"solo", "pro", "agency"}
+)
 LANGUAGES = tuple(
     dict.fromkeys(
         language.strip().lower()
@@ -260,6 +265,7 @@ COMMERCIAL_ACTION_LABELS = {
         "distribution": "Protected share links and domain-bound embeds", "dashboard": "Native sharing and customer dashboard",
         "visits": "Ordinary page visits are not charged", "note": "Cancel from your dashboard. Publishing requires an active subscription.",
         "free": "Free preview", "free_copy": "Check coverage, configure the story and watch it in this browser before subscribing.",
+        "request_plan": "Request",
     },
     "de": {
         "check": "Objektadresse prüfen", "subscribe": "Georivo Solo abonnieren",
@@ -269,6 +275,7 @@ COMMERCIAL_ACTION_LABELS = {
         "distribution": "Geschützte Freigabelinks und domaingebundene Einbettungen", "dashboard": "Natives Teilen und Kunden-Dashboard",
         "visits": "Normale Seitenaufrufe werden nicht berechnet", "note": "Im Dashboard kündbar. Veröffentlichung erfordert ein aktives Abonnement.",
         "free": "Kostenlose Vorschau", "free_copy": "Abdeckung prüfen, Story konfigurieren und vor dem Abonnement im Browser ansehen.",
+        "request_plan": "Anfragen",
     },
     "es": {
         "check": "Comprobar una dirección", "subscribe": "Suscribirse a Georivo Solo",
@@ -278,6 +285,7 @@ COMMERCIAL_ACTION_LABELS = {
         "distribution": "Enlaces protegidos e integraciones vinculadas al dominio", "dashboard": "Compartir de forma nativa y panel de cliente",
         "visits": "Las visitas normales a la página no se cobran", "note": "Cancela desde el panel. Publicar requiere una suscripción activa.",
         "free": "Vista previa gratuita", "free_copy": "Comprueba la cobertura, configura la historia y mírala en el navegador antes de suscribirte.",
+        "request_plan": "Solicitar",
     },
     "fr": {
         "check": "Vérifier une adresse", "subscribe": "S’abonner à Georivo Solo",
@@ -287,6 +295,7 @@ COMMERCIAL_ACTION_LABELS = {
         "distribution": "Liens protégés et intégrations liées au domaine", "dashboard": "Partage natif et tableau de bord client",
         "visits": "Les visites ordinaires ne sont pas facturées", "note": "Résiliez depuis le tableau de bord. La publication exige un abonnement actif.",
         "free": "Aperçu gratuit", "free_copy": "Vérifiez la couverture, configurez l’histoire et prévisualisez-la avant de vous abonner.",
+        "request_plan": "Demander",
     },
     "ru": {
         "check": "Проверить адрес объекта", "subscribe": "Подключить Georivo Solo",
@@ -296,6 +305,7 @@ COMMERCIAL_ACTION_LABELS = {
         "distribution": "Защищённые ссылки и привязанные к домену виджеты", "dashboard": "Нативный шеринг и личный кабинет",
         "visits": "Обычные просмотры страницы не оплачиваются", "note": "Отмена доступна в кабинете. Для публикации нужна активная подписка.",
         "free": "Бесплатное превью", "free_copy": "Проверьте покрытие, настройте историю и посмотрите её в браузере до оформления подписки.",
+        "request_plan": "Запросить",
     },
 }
 
@@ -983,7 +993,7 @@ def shell(
   {preload_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726n">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726o">
   {structured}
 </head>
 <body class="blog-shell">
@@ -1685,9 +1695,19 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
             ("pro", "Georivo Pro", "99", "30", "5,000"),
             ("agency", "Georivo Agency", "199", "100", "20,000"),
         )
-        plan_cards = "".join(
-            f"""
-          <article class="money-plan-card{' is-featured' if key == 'pro' else ''}">
+        plan_cards = []
+        for key, name, price, widgets, plays in plans:
+            purchasable = key in PURCHASABLE_PLAN_KEYS
+            checkout_url = (
+                f"/dashboard?startCheckout=1&amp;plan={esc(key)}"
+                if purchasable
+                else f"{locale_root.rstrip('/')}/contact?plan={esc(key)}"
+            )
+            checkout_action = ' data-money-action="checkout"' if purchasable else ""
+            button_label = name if purchasable else f'{action_labels["request_plan"]} {name}'
+            plan_cards.append(
+                f"""
+          <article class="money-plan-card{' is-featured' if key == 'pro' else ''}{' is-request' if not purchasable else ''}">
             <div class="money-plan-head">
               <h2 id="georivo-{esc(key)}-title">{esc(name)}</h2>
               <div><strong>€{esc(price)}</strong><small>{esc(action_labels["month"])}</small></div>
@@ -1697,18 +1717,17 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
               <li><b>{esc(plays)}</b> {esc(action_labels["plays"])}</li>
               <li class="money-plan-wide">{esc(action_labels["distribution"])}</li>
             </ul>
-            <a class="money-plan-checkout" href="/dashboard?startCheckout=1&amp;plan={esc(key)}"
+            <a class="money-plan-checkout" href="{checkout_url}"{checkout_action}
                data-event="seo_cta_click" data-page-type="money_page" data-plan-key="{esc(key)}"
                data-content-id="{esc(record.get("id") or slug)}" data-cta-location="plan-card">
-              {esc(name)} <span>↗</span>
+              {esc(button_label)} <span>↗</span>
             </a>
           </article>
-            """
-            for key, name, price, widgets, plays in plans
-        )
+                """
+            )
         pricing_summary = f"""
         <section class="money-plan-summary" id="georivo-plans" aria-label="{esc(action_labels["subscribe_title"])}">
-          {plan_cards}
+          {"".join(plan_cards)}
         </section>
         """
     preview_badge = f'<div class="preview-banner">{esc(labels["draft"])}</div>' if preview else ""

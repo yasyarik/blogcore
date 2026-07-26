@@ -1,5 +1,11 @@
 # SEO_MEMORY.md
 
+## 2026-07-26 — Pricing shows the complete offer during staged billing rollout
+
+- The commercial Pricing page must visibly compare Solo, Pro, and Agency; hiding Pro and Agency because checkout is not ready makes the offer incomplete.
+- Only plans enabled through `GEORIVO_PURCHASABLE_PLANS` may carry checkout intent. Other plans use a localized request/contact action.
+- Search-visible price and limit copy may remain published when accurate, but the CTA must not imply instant purchase until a real Stripe recurring Price exists.
+
 ## 2026-07-26 — SEO answers end in a relevant product action
 
 - Every indexable Georivo informational detail page must preserve its useful standalone answer and add a specific application path into Georivo.
