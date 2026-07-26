@@ -789,7 +789,7 @@ def shell(
   {preload_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726f">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726g">
   {structured}
 </head>
 <body class="blog-shell">
