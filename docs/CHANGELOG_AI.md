@@ -4316,3 +4316,29 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The script fails closed if Gemini changes routes, media URLs, section count, or the compact word range.
+
+## 2026-07-26 — Let the final edit remove filler below diagnostic ranges
+
+### Summary
+
+* Lowered compact-profile minimums after the final founder edit reduced a complete service page from 958 to 581 words by removing repetition and generic prose.
+* Kept every profile maximum unchanged.
+
+### Decisions
+
+* Profile minimums are safety bounds, not SEO targets. The page stops when its decision, evidence, boundaries, and next action are complete.
+
+### Files changed
+
+* `app.py` — compact profile minima.
+* `deploy/yas/audit_money_pages.py` — matching publication audit ranges.
+* `docs/PROJECT_MEMORY.md` — durable range contract.
+* `docs/CHANGELOG_AI.md` — this correction.
+
+### Checks run
+
+* `python3 -m py_compile app.py deploy/yas/audit_money_pages.py`.
+
+### Risks / TODO
+
+* Final EN/RU/DE editorial pass and browser review remain required.

@@ -6408,7 +6408,7 @@ MODEL_OUTPUT_ARTIFACT_PATTERN = re.compile(
 MONEY_PAGE_CONTENT_PROFILES = {
     "money_service": {
         "label": "commercial service page",
-        "min_words": 650,
+        "min_words": 450,
         "max_words": 1350,
         "min_sections": 5,
         "max_sections": 8,
@@ -6421,7 +6421,7 @@ MONEY_PAGE_CONTENT_PROFILES = {
     },
     "money_hub": {
         "label": "commercial topic hub",
-        "min_words": 550,
+        "min_words": 400,
         "max_words": 1100,
         "min_sections": 5,
         "max_sections": 8,
@@ -6434,7 +6434,7 @@ MONEY_PAGE_CONTENT_PROFILES = {
     },
     "money_tool": {
         "label": "tool or utility landing page",
-        "min_words": 350,
+        "min_words": 300,
         "max_words": 850,
         "min_sections": 4,
         "max_sections": 6,
@@ -6447,7 +6447,7 @@ MONEY_PAGE_CONTENT_PROFILES = {
     },
     "money_proof": {
         "label": "proof, case, or reference page",
-        "min_words": 450,
+        "min_words": 350,
         "max_words": 1000,
         "min_sections": 4,
         "max_sections": 7,

@@ -767,6 +767,7 @@ It must be updated after every meaningful task.
 * Reason: Google does not define an ideal word count. Commercial pages should contain enough specific evidence and decision support for the buyer, without forcing every page into a 1,200+ word article template.
 * Files/areas affected: `app.py`, YAS money-page plan under `deploy/yas/`, and native content-store payloads.
 * Replaced/deprecated: Applying the same minimum length, table, FAQ, and section count to every typed page.
+* Current hard ranges: service 450-1,350 words, hub 400-1,100, tool 300-850, and proof 350-1,000. These are safety bounds, not writing targets; the editorial pass should stop as soon as the decision is complete.
 
 ### 2026-07-26 — YAS money pages are Blog Core-owned, Next-rendered
 

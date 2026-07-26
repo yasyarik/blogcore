@@ -21,10 +21,10 @@ EXPECTED = {
     "/build",
 }
 RANGES = {
-    "money_service": (650, 1350),
-    "money_hub": (550, 1100),
-    "money_tool": (350, 850),
-    "money_proof": (450, 1000),
+    "money_service": (450, 1350),
+    "money_hub": (400, 1100),
+    "money_tool": (300, 850),
+    "money_proof": (350, 1000),
 }
 BANNED = re.compile(
     r"\b(?:in today'?s (?:fast-paced|digital|ever-changing) world|"
