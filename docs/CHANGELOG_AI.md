@@ -4186,3 +4186,26 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * Generation, editorial review, production publication, and browser QA are performed after deployment of this Blog Core change.
+
+## 2026-07-26 — Preserve compact profile during factual editing
+
+### Summary
+
+* Made the final factual-editor pass honor the selected money-page profile instead of expanding every generated page back to the legacy 1,400-2,200 word range.
+
+### Files changed
+
+* `app.py` — profile-aware factual-editor length contract.
+* `docs/CHANGELOG_AI.md` — this correction.
+
+### Decisions
+
+* The profile maximum is a hard limit across the complete structured payload.
+
+### Checks run
+
+* `python3 -m py_compile app.py`.
+
+### Risks / TODO
+
+* Failed pre-fix YAS jobs must be regenerated.

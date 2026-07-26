@@ -7080,6 +7080,15 @@ def build_article_fact_edit_prompt(site, job, draft):
         "contentType": native_content_type(job),
         "targetPath": content_job_target_path(job),
     }
+    profile_name, profile = content_job_profile(job)
+    if profile:
+        length_rule = (
+            f"Keep the complete structured page between {profile['min_words']} and "
+            f"{profile['max_words']} words across all fields. This is a hard maximum. "
+            "Remove repetition and generic explanation before returning JSON."
+        )
+    else:
+        length_rule = "Keep 1400-2200 words."
     return f"""
 You are the final factual editor for a universal website content factory.
 Return the complete article as valid JSON matching the provided schema.
@@ -7114,8 +7123,7 @@ NON-NEGOTIABLE EDIT:
 - Do not claim that a visualization proves or shows a legal/property boundary.
 - Do not claim conversion, engagement, qualification, time, cost, compliance, or
   performance improvement unless the factual contract explicitly provides it.
-- Keep 1400-2200 words. Use cautious, useful explanation instead of unsupported
-  specificity.
+- {length_rule} Use cautious, useful explanation instead of unsupported specificity.
 - Output JSON only. This is factual editing, not JSON repair.
 """.strip()
 
