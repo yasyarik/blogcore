@@ -70,7 +70,7 @@ def validate_revision(before, after, low, high, label):
         raise ValueError(f"{label}: H2 contract changed")
 
 
-def edit_prompt(brief, title, description, html, low, high):
+def edit_prompt(brief, title, description, segments, low, high):
     facts = {
         "directAnswer": brief.get("directAnswer"),
         "contentDetails": brief.get("contentDetails"),
@@ -79,7 +79,7 @@ def edit_prompt(brief, title, description, html, low, high):
     }
     return f"""
 You are the final editorial reviewer for Iaroslav YAS.
-Return JSON with the unchanged title, unchanged description, and fully edited HTML.
+Return JSON with the unchanged title, unchanged description, and an edited `segments` array.
 
 VERIFIED FACT BOUNDARY:
 {json.dumps(facts, ensure_ascii=False)}
@@ -90,12 +90,12 @@ TITLE:
 DESCRIPTION:
 {description}
 
-HTML:
-{html}
+VISIBLE TEXT SEGMENTS IN DOCUMENT ORDER:
+{json.dumps(segments, ensure_ascii=False)}
 
 EDITING CONTRACT:
-- Preserve the exact HTML structure, tag count, class attributes, href values, src values,
-  image dimensions, and section order. Edit visible prose only.
+- Return exactly {len(segments)} edited text segments in the same order. Do not combine,
+  split, omit, or add a segment. HTML is restored deterministically outside the model.
 - Keep {low}-{high} words. Prefer shorter, denser copy.
 - Use Iaroslav's working voice: direct, specific, calm, practical, accountable.
 - Use I only for a practice or decision supported by the verified facts. Never use our
@@ -184,29 +184,30 @@ def run(db_path: Path, site_id: int):
         brief = sources["pageBrief"]
         profile = blog_core.MONEY_PAGE_CONTENT_PROFILES[brief["contentProfile"]]
         low, high = profile["min_words"], profile["max_words"]
+        source_segments = visible_segments(row["draft_html"])
         edited = blog_core._gemini_text_json(
-            edit_prompt(brief, row["title"], row["description"], row["draft_html"], low, high),
-            response_schema=HTML_SCHEMA,
+            edit_prompt(brief, row["title"], row["description"], source_segments, low, high),
+            response_schema=LOCALIZATION_SCHEMA,
             repair=False,
         )
         if edited["title"].strip() != row["title"].strip() or edited["description"].strip() != row["description"].strip():
             raise ValueError(f"{sources['targetPath']}: editor changed approved title or description")
-        edited["html"] = restore_attributes(row["draft_html"], edited["html"])
-        validate_revision(row["draft_html"], edited["html"], low, high, sources["targetPath"])
-        conn.execute("update content_jobs set draft_html=?,updated_at=? where id=?", (edited["html"], blog_core.now_iso(), row["id"]))
+        edited_html = restore_segments(row["draft_html"], edited["segments"])
+        validate_revision(row["draft_html"], edited_html, low, high, sources["targetPath"])
+        conn.execute("update content_jobs set draft_html=?,updated_at=? where id=?", (edited_html, blog_core.now_iso(), row["id"]))
         for language in ("ru", "de"):
             localized_row = conn.execute(
                 "select * from content_job_localizations where job_id=? and language=?",
                 (row["id"], language),
             ).fetchone()
-            source_segments = visible_segments(edited["html"])
+            source_segments = visible_segments(edited_html)
             localized = blog_core._gemini_text_json(
                 localization_prompt(language, row["title"], row["description"], source_segments),
                 response_schema=LOCALIZATION_SCHEMA,
                 repair=False,
             )
-            localized_html = restore_segments(edited["html"], localized["segments"])
-            validate_revision(edited["html"], localized_html, max(250, int(low * 0.55)), int(high * 1.35), f"{sources['targetPath']}/{language}")
+            localized_html = restore_segments(edited_html, localized["segments"])
+            validate_revision(edited_html, localized_html, max(250, int(low * 0.55)), int(high * 1.35), f"{sources['targetPath']}/{language}")
             conn.execute(
                 """update content_job_localizations set title=?,description=?,draft_html=?,updated_at=?
                    where job_id=? and language=?""",

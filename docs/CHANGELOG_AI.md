@@ -4388,3 +4388,26 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * Localization fails closed when the model returns a different segment count or markup inside a translated segment.
+
+## 2026-07-26 — Edit EN visible segments, not HTML
+
+### Summary
+
+* Applied the same deterministic segment boundary to the final EN founder edit after a model response removed a related-reading link.
+
+### Decisions
+
+* The model never rewrites page HTML. It may edit only the ordered visible-text array for EN, RU, and DE.
+
+### Files changed
+
+* `deploy/yas/final_edit_money_pages.py` — segment-based EN edit.
+* `docs/CHANGELOG_AI.md` — this correction.
+
+### Checks run
+
+* `python3 -m py_compile deploy/yas/final_edit_money_pages.py`.
+
+### Risks / TODO
+
+* The same fixed segment count can constrain radical restructuring; structural changes belong in the approved page brief and renderer, not the prose editor.
