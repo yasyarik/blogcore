@@ -836,7 +836,7 @@ def shell(
   {preload_markup}
   <link rel="icon" href="/brand/georivo-on-light.webp" type="image/webp">
   <link rel="stylesheet" href="{esc(native_stylesheet)}">
-  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726l">
+  <link rel="stylesheet" href="/blog-assets/georivo-blog.css?v=20260726m">
   {structured}
 </head>
 <body class="blog-shell">
@@ -1527,24 +1527,35 @@ def money_page(record, language=DEFAULT_LANGUAGE, preview=False):
         """
     pricing_summary = ""
     if slug == "pricing":
-        pricing_summary = f"""
-        <section class="money-plan-summary" id="georivo-solo-offer" aria-labelledby="georivo-solo-title">
-          <div class="money-plan-card">
+        plans = (
+            ("solo", "Georivo Solo", "49", "10", "1,000"),
+            ("pro", "Georivo Pro", "99", "30", "5,000"),
+            ("agency", "Georivo Agency", "199", "100", "20,000"),
+        )
+        plan_cards = "".join(
+            f"""
+          <article class="money-plan-card{' is-featured' if key == 'pro' else ''}">
             <div class="money-plan-head">
-              <h2 id="georivo-solo-title">{esc(action_labels["plan"])}</h2>
-              <div><strong>€49</strong><small>{esc(action_labels["month"])}</small></div>
+              <h2 id="georivo-{esc(key)}-title">{esc(name)}</h2>
+              <div><strong>€{esc(price)}</strong><small>{esc(action_labels["month"])}</small></div>
             </div>
             <ul>
-              <li><b>10</b> {esc(action_labels["widgets"])}</li>
-              <li><b>1,000</b> {esc(action_labels["plays"])}</li>
+              <li><b>{esc(widgets)}</b> {esc(action_labels["widgets"])}</li>
+              <li><b>{esc(plays)}</b> {esc(action_labels["plays"])}</li>
               <li class="money-plan-wide">{esc(action_labels["distribution"])}</li>
             </ul>
-            <a class="money-plan-checkout" href="{esc(cta_url)}" data-money-action="checkout"
-               data-event="seo_cta_click" data-page-type="money_page"
+            <a class="money-plan-checkout" href="/dashboard?startCheckout=1&amp;plan={esc(key)}"
+               data-event="seo_cta_click" data-page-type="money_page" data-plan-key="{esc(key)}"
                data-content-id="{esc(record.get("id") or slug)}" data-cta-location="plan-card">
-              {esc(action_labels["subscribe"])} <span>↗</span>
+              {esc(name)} <span>↗</span>
             </a>
-          </div>
+          </article>
+            """
+            for key, name, price, widgets, plays in plans
+        )
+        pricing_summary = f"""
+        <section class="money-plan-summary" id="georivo-plans" aria-label="{esc(action_labels["subscribe_title"])}">
+          {plan_cards}
         </section>
         """
     preview_badge = f'<div class="preview-banner">{esc(labels["draft"])}</div>' if preview else ""

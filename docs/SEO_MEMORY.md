@@ -1,5 +1,11 @@
 # SEO_MEMORY.md
 
+## 2026-07-26 — Pricing exposes the complete purchasable tier set
+
+- The Pricing money page must show the three current tiers (€49, €99, €199) above its long-form decision content.
+- Plan cards stay large, scannable, and semantically separate. Each has one purchase CTA and carries a stable plan key into the product checkout flow.
+- Do not publish a price or tier that is not backed by a real configured Stripe recurring Price.
+
 ## Current SEO behavior
 
 * Pricing first paint uses one compact Georivo Solo offer card and one checkout action. The hero must not repeat the price/button immediately above it, and the offer card must not overlap hero controls. Long-form factory content remains below the concise commercial summary.

@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-07-26 — Pricing uses three large plan cards
+
+- Replaced: the same-day single compact Solo card is superseded by a large three-tier grid.
+- Decision: Pricing presents Georivo Solo (€49; 10 widgets; 1,000 monthly 3D starts), Pro (€99; 30; 5,000), and Agency (€199; 100; 20,000).
+- Decision: every card has one account-aware CTA carrying its explicit plan key; the Pricing hero must not duplicate those purchase buttons.
+- Release gate: the renderer and product app must agree on plan keys and limits, and every visible paid tier must map to a real configured Stripe recurring Price. Decorative or simulated paid plans are prohibited.
+
 ## 2026-07-26 — Pricing first paint uses one plan card and one action
 
 - Decision: the Pricing hero does not repeat the price or subscription button immediately above the plan card.

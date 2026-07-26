@@ -1,5 +1,34 @@
 # CHANGELOG_AI.md
 
+## 2026-07-26 — Expand Georivo Pricing to three large subscription tiers
+
+### Summary
+
+- Replaced the single compact Solo offer with three equally prominent plans: Solo €49, Pro €99, and Agency €199.
+- Restored large price, benefit, and CTA typography without reintroducing the removed duplicate hero action.
+- Routed every plan card to the account-aware dashboard with its explicit plan key.
+
+### Files changed
+
+- `deploy/georivo/app.py` — renders three real plan choices and carries `solo`, `pro`, or `agency` into checkout continuation.
+- `deploy/georivo/georivo-blog.css` — large three-column desktop offer grid and readable stacked responsive layout.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable Pricing hierarchy and rollout constraint.
+
+### Decisions
+
+- Pricing must expose at least three purchase tiers, not repeat a single package throughout the site.
+- The plan grid has one CTA per tier and no competing hero CTA.
+- A plan card may be published only when the product app recognizes the same plan key and Stripe has a configured recurring Price for it.
+
+### Checks run
+
+- `python3 -m py_compile deploy/georivo/app.py`
+- `git diff --check`
+
+### Risks / TODO
+
+- Production publication is blocked until Stripe authorization is restored and real recurring Prices for Pro and Agency are configured.
+
 ## 2026-07-26 — Simplify the Georivo Pricing offer card
 
 ### Summary
