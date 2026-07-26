@@ -4292,3 +4292,27 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The failed Research localization must be regenerated after deployment.
+
+## 2026-07-26 — Add final founder edit and locale editorial pass
+
+### Summary
+
+* Added a final HTML-preserving founder-voice edit for YAS money pages after structured generation.
+* Added intelligent Gemini RU/DE localization from the approved final EN copy, with exact link, image, section, and markup preservation.
+
+### Files changed
+
+* `deploy/yas/final_edit_money_pages.py` — final editorial and localization pass.
+* `docs/CHANGELOG_AI.md` — this record.
+
+### Decisions
+
+* Structured generation is not the publication-ready copy boundary. YAS requires a second, HTML-preserving editorial pass that can only edit visible prose.
+
+### Checks run
+
+* `python3 -m py_compile deploy/yas/final_edit_money_pages.py`.
+
+### Risks / TODO
+
+* The script fails closed if Gemini changes routes, media URLs, section count, or the compact word range.
