@@ -1,5 +1,34 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Publish GEO traffic-loss and AI SEO service pages
+
+### Summary
+
+- Generated and published the two remaining distinct commercial GEO pages: an evidence-led AI-search traffic-loss audit/recovery page and an AI SEO services page.
+- Kept the existing `/use-cases/` route contract. The public collection now contains 11 pages, with the new entries on page one and five existing entries on page two.
+
+### Files changed
+
+- GEO native content store — two reviewed, published `seo_money_page` records with hero and inline assets.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable scope, editorial boundaries, and validation lesson.
+
+### Decisions
+
+- Traffic-loss content must not assert that AI search caused a decline without evidence.
+- AI SEO service content must describe verifiable work and limitations, never guarantee rankings or citations.
+- Typed commercial briefs need at least six explicit decision sections so generation satisfies the existing structural validator without relaxing it.
+
+### Checks run
+
+- Both public URLs, `/use-cases/`, and `/use-cases/?page=2` return HTTP 200.
+- Both new URLs are in `https://geo.yas.ooo/sitemap.xml`; each page exposes TOC, FAQ, hero, and inline generated images.
+- Both hero assets return HTTP 200 with `image/png` content type.
+
+### Risks / TODO
+
+- The approved remaining GEO Insights stay queued and unpublished.
+- Future `/comparisons` or `/tools` taxonomy requires a separate migration and redirects; these pages correctly remain in the current `/use-cases/` collection.
+
 ## 2026-08-05 — Publish the initial GEO Insights collection
 
 ### Summary

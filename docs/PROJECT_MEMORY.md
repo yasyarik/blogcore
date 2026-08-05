@@ -1,5 +1,14 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — GEO covers the remaining distinct commercial demand clusters
+
+- Decision: GEO now has two additional published typed pages under the existing `/use-cases/` contract: `AI Search Traffic Loss Audit: Diagnose Zero-Click Risk and Recovery Options` and `AI SEO Services: Build an Evidence-Led AI Search Visibility Program`.
+- Reason: these were the two remaining commercial-intent clusters in the approved GEO demand map after the initial nine-page release. They serve different decisions and must not be collapsed into generic GEO/AEO/LLMO definition pages.
+- Editorial boundary: a traffic-loss page distinguishes observed decline, zero-click risk, and causation that cannot be proven. An AI SEO services page explains an evidence-led engagement without promising rankings, citations, or engine behavior.
+- Generation rule: typed commercial briefs need an explicit six-or-more-section decision plan before generation. This supplies the structured renderer with enough useful coverage to pass the page contract without weakening validation.
+- Release state: both URLs, hero assets, TOC/FAQ/inline-image contracts, the public `/use-cases/` collection, and the GEO sitemap were verified after publication. The collection now has 11 published use cases and paginates as 6 plus 5 cards.
+- Replaced/deprecated: the earlier GEO demand-map state that listed AI Search Traffic Loss/Recovery and AI SEO Services as uncovered clusters.
+
 ## 2026-08-05 — Native SEO money pages require a pre-generation page brief
 
 - Decision: A queued native SEO money page may carry a structured `pageBrief` through `POST /api/sites/<site_id>/article-ideas/queue`; Blog Core preserves it in `sources_json` for generation.
