@@ -22,6 +22,13 @@
 - GEO release: all 9 approved SEO money pages are published below `/use-cases/`, return HTTP 200, and appear in the GEO sitemap. The 15 supporting blog tasks remain queued.
 - Replaced/deprecated: trusting a model-returned slug for typed native pages.
 
+## 2026-08-05 — GEO launch blog starts with four published Insights
+
+- Decision: after the approved money-page release, GEO has four foundational, public EN Insights under `/blog/`: AI mentions versus citations, robots.txt and AI answer engines, schema markup in AI search, and why an AI-readable page may still not be cited.
+- Reason: the public editorial hub must not be empty while the remaining research series stays in the controlled queue.
+- Publishing contract: ordinary native `blog` records may publish after a validated draft; the structured approval gates apply to typed money pages, not to informational Insights.
+- Card contract: generated `hero_image` remains part of the native payload. GEO's product renderer displays it on the published collection card when available.
+
 ## 2026-08-05 — YAS AI Visibility is a separate Blog Core product
 
 - Decision: `geo.yas.ooo` is registered as an independent `native_content_store` product, with its own content context, topic strategy, manual publishing lifecycle, and dedicated native store under the GEO runtime.

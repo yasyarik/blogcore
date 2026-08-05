@@ -1,5 +1,27 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Publish the initial GEO Insights collection
+
+### Summary
+
+- Generated and published four foundational GEO editorial posts to make the native `/blog/` hub operational: citations, robots.txt, schema, and the AI-read/citation gap.
+- Verified each generated draft includes the native hero asset, then confirmed the GEO index exposes the four entries after renderer deployment.
+
+### Files changed
+
+- Native GEO content store — four published `blog` records and associated generated image assets.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — record the editorial-release and card-rendering contract.
+
+### Checks run
+
+- Every article URL and `https://geo.yas.ooo/blog` return HTTP 200.
+- All four titles appear on the public hub; all four hero assets return HTTP 200 with an image content type.
+
+### Risks / TODO
+
+- Eleven planned GEO Insights remain queued and unpublished.
+- Current money pages remain under `/use-cases/`; a separate approved taxonomy migration is needed before creating `/comparisons` or `/tools` routes and redirects.
+
 ## 2026-08-05 — Publish the GEO SEO money-page release
 
 ### Summary
