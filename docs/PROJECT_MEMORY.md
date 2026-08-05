@@ -2,7 +2,7 @@
 
 ## 2026-08-05 — Blog Core reconciles migrated source-job route contracts before generation
 
-- Decision: Before Blog Core asks a source-authoritative factory to generate a migrated job, it compares the source job's `contentType`, `pageKind`, `locale`, and `targetPath` with Blog Core's canonical contract. A mismatch is repaired through the source factory API and resets only that unpublished source draft before regeneration.
+- Decision: Before Blog Core asks a source-authoritative factory to generate a migrated job, it compares the source job's `contentType`, `pageKind`, `locale`, and `targetPath` with Blog Core's canonical contract. A mismatch resets only an unpublished source draft before regeneration. If the legacy source job is already published, Blog Core creates a new source job for the canonical contract and repoints only its own unpublished queue record.
 - Reason: legacy source jobs may retain an obsolete translated route even though the connected site and the Blog Core queue own an existing canonical EN URL. Generating against the obsolete route produces a non-native preview and risks a wrong public target.
 - Boundary: reconciliation never changes a published source job, never publishes content, and does not create a generic fallback page. The exact canonical source template remains required for preview.
 

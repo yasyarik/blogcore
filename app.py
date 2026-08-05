@@ -7768,8 +7768,15 @@ def legacy_factory_generate_and_sync(site_id, job_id, factory_name, old_job_id, 
         with db() as conn:
             dashboard_job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
         sources = content_job_sources(dashboard_job)
+        target_prefix = "/" + str(sources.get("targetPath") or "").strip("/").split("/", 1)[0]
+        route_content_type = {
+            "/features": "feature",
+            "/use-cases": "use_case",
+            "/comparisons": "comparison",
+            "/industries": "industry",
+        }.get(target_prefix, "")
         expected_contract = {
-            "contentType": str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower(),
+            "contentType": route_content_type or str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower(),
             "pageKind": str(sources.get("pageKind") or "blog").strip().lower(),
             "locale": content_job_language(dashboard_job),
             "targetPath": str(sources.get("targetPath") or "").strip(),
@@ -7785,14 +7792,38 @@ def legacy_factory_generate_and_sync(site_id, job_id, factory_name, old_job_id, 
             }.items()
         )
         if contract_mismatch and str(legacy.get("status") or "").upper() != "GENERATING":
-            legacy_factory_request_json(
-                f"{base_url}/api/jobs/{quoted_job_id}",
-                method="PUT",
-                timeout=60,
-                data={**expected_contract, "resetForRegeneration": True},
-            )
-            detail = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}")
-            legacy = legacy_job_payload(detail)
+            if legacy.get("publishedUrl") or legacy.get("published_url"):
+                create_payload = {
+                    "topic": dashboard_job["topic"],
+                    "slug": dashboard_job["slug"] or "",
+                    "category": dashboard_job["category"] or "",
+                    "visibility": dashboard_job["visibility"] or "public",
+                    "productMode": bool(dashboard_job["product_mode"] or 0),
+                    **expected_contract,
+                }
+                created = legacy_factory_request_json(f"{base_url}/api/jobs", method="POST", timeout=60, data=create_payload)
+                new_job_id = str(created.get("id") or created.get("jobId") or "").strip()
+                if not new_job_id:
+                    raise RuntimeError("Source factory did not create a replacement route-contract job")
+                old_job_id = new_job_id
+                quoted_job_id = urllib.parse.quote(old_job_id)
+                sources.update({"oldFactoryJobId": old_job_id, **expected_contract})
+                with db() as conn:
+                    conn.execute(
+                        "update content_jobs set sources_json=?, updated_at=? where site_id=? and id=?",
+                        (json.dumps(sources, ensure_ascii=False), now_iso(), site_id, job_id),
+                    )
+                detail = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}")
+                legacy = legacy_job_payload(detail)
+            else:
+                legacy_factory_request_json(
+                    f"{base_url}/api/jobs/{quoted_job_id}",
+                    method="PUT",
+                    timeout=60,
+                    data={**expected_contract, "resetForRegeneration": True},
+                )
+                detail = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}")
+                legacy = legacy_job_payload(detail)
         # An explicit Blog Core regenerate must invoke the source factory even when
         # the last native result was READY or PUBLISHED. Only an already-running
         # source job is polled instead of being started twice.
