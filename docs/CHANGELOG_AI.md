@@ -1,5 +1,40 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Run the first AIREP24 money-page generation in preview-first mode
+
+### Summary
+
+- Selected the fully linked `Product Recommendations` feature task for `/features/product-recommendations/` as the single safe AIREP24 test.
+- Stopped the source factory from auto-publishing after generation. The setting is persisted in PM2 as `FACTORY_V3_AUTO_PUBLISH=0`.
+- Corrected the test job's stale ES source contract (`/es/features/...`) to the intended EN `/features/product-recommendations/` route before attempting generation.
+- Added Gemini response-schema enforcement and an explicit long-form output budget to the AIREP24 source generator. The old generator was producing malformed JSON from long HTML content.
+- The test draft was intentionally stopped as `ERROR` after the source model call exceeded the preview-first test window. No preview was approved, published page written, or sitemap changed.
+
+### Files changed
+
+- `/var/www/content-factory-airep24/factory/generate.py` — source-factory JSON schema/output-budget guard for all AIREP24 article/page generations.
+- Live AIREP24 and Blog Core SQLite job records — repaired the test record's EN target contract, then recorded the failed non-public test state.
+- PM2 `content-factory-airep24` environment — disables automatic v3 publication and persists the setting.
+- `docs/PROJECT_MEMORY.md` — records preview-first and generation safety contracts.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+- AIREP24 drafts require a native noindex preview before any explicit publish action.
+- Do not solve source-factory generation failures by substituting Blog Core's generic HTML or by publishing a failed draft.
+
+### Checks run
+
+- Verified the target source-factory binding and corrected source job contract: EN, `feature`, `money`, `/features/product-recommendations/`.
+- Confirmed the PM2 factory process is online with automatic publication disabled.
+- `python3 -m py_compile /var/www/content-factory-airep24/factory/generate.py` passed after the schema/output-budget change.
+- Verified the test job is `ERROR` in both factory and Blog Core and its public URL remains only the pre-existing target path; no publish result or sitemap update was recorded.
+
+### Risks / TODO
+
+- The source editor still needs deterministic normalization for title length and forbidden typography, plus stronger prevention of unsupported product claims, before the next preview attempt.
+- The other AIREP24 records remain untouched and unpublished.
+
 ## 2026-08-05 — Audit AIREP24 money-page publication safety
 
 ### Summary

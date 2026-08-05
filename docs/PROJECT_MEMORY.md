@@ -1,5 +1,13 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — AIREP24 source factory is preview-first, never auto-publish by default
+
+- Decision: `content-factory-airep24` now runs with `FACTORY_V3_AUTO_PUBLISH=0` in PM2. A successful AIREP24 draft is reviewable first; it may reach the public site only through an explicit publish action after native preview QA.
+- Reason: the factory's former default (`1` when env was unset) could publish a v3 target immediately after generation, which violates the control-plane requirement and makes a design/content regression harder to catch.
+- Generation contract: its Gemini writer now requests JSON with an explicit response schema and a long-form output budget. This prevents malformed JSON from unescaped HTML fields and prevents the default token limit from truncating structured v3 money-page copy.
+- AIREP24 test state: the first test task, `Product Recommendations` at `/features/product-recommendations/`, was corrected from a stale Spanish legacy source contract to EN, then stopped in `ERROR` after the source editor exceeded the preview-first test window. No preview was approved, no publish command ran, and no public page or sitemap changed.
+- Follow-up: do not retry this record until the source-editor validation feedback (title length, factual-claim guardrails, and forbidden typography) is resolved deterministically. Do not bypass it with generic Blog Core HTML.
+
 ## 2026-08-05 — AIREP24 money-page release is source-template-only and requires a complete native contract
 
 - Decision: AIREP24 money pages must publish only through `content-factory-airep24` as `source_site_authoritative` v3 target pages. Blog Core must never generate a generic page shell or replace the AIREP24 theme, header, footer, CSS, or global layout.
