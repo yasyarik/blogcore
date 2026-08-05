@@ -6308,7 +6308,7 @@ def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
         url = str(item.get("url") or "").strip()
         label = re.sub(r"\s+", " ", str(item.get("label") or "")).strip()
         context = re.sub(r"\s+", " ", str(item.get("context") or "")).strip()
-        if label and context and re.match(r"^/[a-z0-9][a-z0-9/_-]*$", url):
+        if label and context and re.match(r"^/(?:[a-z0-9][a-z0-9/_-]*)?$", url):
             internal_links.append((label, url, context))
     if internal_links:
         link_items = "".join(
@@ -6327,7 +6327,7 @@ def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
         url = str(item.get("url") or "").strip()
         label = re.sub(r"\s+", " ", str(item.get("label") or "")).strip()
         role = re.sub(r"\s+", " ", str(item.get("role") or "")).strip()
-        if label and role and re.match(r"^/[a-z0-9][a-z0-9/_-]*$", url):
+        if label and role and re.match(r"^/(?:[a-z0-9][a-z0-9/_-]*)?$", url):
             recommended.append((label, url, role))
     if recommended:
         cards = "".join(
@@ -6430,14 +6430,14 @@ def validate_structured_article_draft(draft, job=None, language="en"):
         if isinstance(item, dict)
         and str(item.get("label") or "").strip()
         and str(item.get("context") or "").strip()
-        and re.match(r"^/[a-z0-9][a-z0-9/_-]*$", str(item.get("url") or "").strip())
+        and re.match(r"^/(?:[a-z0-9][a-z0-9/_-]*)?$", str(item.get("url") or "").strip())
     ]
     recommended = [
         item for item in (draft.get("recommendedNext") if isinstance(draft.get("recommendedNext"), list) else [])
         if isinstance(item, dict)
         and str(item.get("label") or "").strip()
         and str(item.get("role") or "").strip()
-        and re.match(r"^/[a-z0-9][a-z0-9/_-]*$", str(item.get("url") or "").strip())
+        and re.match(r"^/(?:[a-z0-9][a-z0-9/_-]*)?$", str(item.get("url") or "").strip())
     ]
     word_count = len(re.findall(r"\b[\w'-]+\b", structured_article_plain_text(draft)))
     lead_word_count = len(re.findall(r"\b[\w'-]+\b", lead))
@@ -6894,7 +6894,7 @@ def sanitize_typed_image_copy(draft):
 def approved_link_label(url):
     path = urllib.parse.urlsplit(str(url or "")).path.strip("/")
     if not path:
-        return "Create a Georivo location story"
+        return "Home"
     slug = path.rsplit("/", 1)[-1]
     return re.sub(r"\s+", " ", slug.replace("-", " ")).strip().title()
 
@@ -6907,7 +6907,7 @@ def ensure_typed_navigation_contract(draft, job):
     approved = []
     for item in brief.get("approvedInternalLinks") if isinstance(brief.get("approvedInternalLinks"), list) else []:
         url = str(item.get("url") or "").strip() if isinstance(item, dict) else str(item or "").strip()
-        if re.match(r"^/[a-z0-9#][a-z0-9/_#-]*$", url) and url not in approved:
+        if re.match(r"^/(?:[a-z0-9][a-z0-9/_-]*)?$", url) and url not in approved:
             approved.append(url)
     page_links = [url for url in approved if url != "/#create"]
 
