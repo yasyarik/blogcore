@@ -1,5 +1,28 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Generate native AIREP24 SEO pages with existing URLs
+
+### Summary
+
+- Selected only unique `pageKind=money` AIREP24 records with existing canonical target paths; ordinary blog records and duplicate routes were excluded.
+- Started four distinct native draft generations: AIRep24 vs. Traditional Chatbots, AIRep24 vs. Hiring More Staff, Multi-Language Support, and Increasing Conversion Rates.
+- Three source drafts reached `READY`; the remaining comparison exposed a missing `/blog/` support link in the generated content contract.
+- Added a deterministic in-body editorial `/blog/` support link before validation so the same class of native money page no longer depends on model link selection.
+
+### Files changed
+
+- `/var/www/content-factory-airep24/app.py` — native money-page editorial support-link repair.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — generation scope and durable internal-link rule.
+
+### Checks run
+
+- Verified that the four selected records are unique canonical SEO targets; no ordinary blog task was launched.
+- Confirmed the first three are source-factory `READY`; none has been published.
+
+### Risks / TODO
+
+- The corrected comparison is retried after factory restart and then needs the same native preview review as the other drafts.
+
 ## 2026-08-05 — Restore native FAQ question labels in source previews
 
 ### Summary

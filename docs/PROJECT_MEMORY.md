@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — Every native money page carries an editorial support link
+
+- Decision: Before source-factory validation, every non-blog native money page must include at least one contextual link to the site editorial hub (`/blog/`) as well as its page-family links.
+- Reason: comparison, feature, and use-case pages need a genuine supporting-content path for readers and internal-link validation; leaving this solely to model output makes otherwise valid drafts fail unpredictably.
+- Boundary: this is one in-body editorial sentence and link. It does not create a generic CTA, change source-page visual structure, or publish the page.
+
 ## 2026-08-05 — Source-authoritative drafts must stage actual media and contextual decisions
 
 - Decision: A source-authoritative native preview may show generated editorial media only after the source factory has staged the actual image files in the source webroot. The native payload must reference those generated paths, not pre-generation model placeholders.
