@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — GEO Insight series publishes one reviewed native post every three days
+
+- Decision: the 11 remaining queued GEO `blog` tasks are scheduled at a 72-hour cadence, starting with `LLMs.txt: Useful Discovery File or SEO Myth?` on 2026-08-05T17:56:00Z and ending on 2026-09-04T17:56:00Z.
+- Scope: only site-16 native `blog` tasks were scheduled. Existing published Insights, Solutions, Tools, and Use cases were not rescheduled or changed.
+- Runtime: the PM2 worker `blog-yas-core-scheduler` evaluates explicit `scheduled_for` timestamps every minute. A due `QUEUED` post is generated first; on a later worker pass, its validated `DRAFT` is published through the native GEO content store.
+- Boundary: a cadence setting must never publish unscheduled content or create social posts.
+
 ## 2026-08-05 — Every active GEO commercial collection has a minimum viable four-page inventory
 
 - Decision: GEO's public commercial taxonomy now has at least four distinct pages in every active collection: six Solutions, four Tools, and four Use cases. The three added queue contracts are an AI Visibility Checker, an AI Readiness Checker, and an AI Citation Readiness use case.

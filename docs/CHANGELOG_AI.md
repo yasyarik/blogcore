@@ -1,5 +1,32 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Schedule the GEO Insights series every three days
+
+### Summary
+
+- Scheduled all 11 remaining queued GEO editorial blog tasks for native publication every 72 hours.
+- The first task is `LLMs.txt: Useful Discovery File or SEO Myth?` at `2026-08-05T17:56:00Z`; the final scheduled Insight is due on `2026-09-04T17:56:00Z`.
+
+### Files changed
+
+- `docs/PROJECT_MEMORY.md` — records cadence, scope, scheduler behavior, and boundary.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+- The schedule applies only to the 11 still-queued `blog` records for GEO site 16, never to commercial collections or already published pages.
+- The native scheduler remains responsible for the two-step lifecycle: generate a due task, then publish its resulting draft on the next pass.
+
+### Checks run
+
+- Confirmed 11 matching queued GEO blog tasks before scheduling.
+- Confirmed each task has an explicit timestamp exactly 72 hours after the previous task.
+- Confirmed `blog-yas-core-scheduler` is online in PM2.
+
+### Risks / TODO
+
+- A model/provider failure leaves the due item visible as `ERROR`; the operator should fix or reschedule that one record rather than allowing the cadence to silently skip it.
+
 ## 2026-08-05 — Complete GEO collection inventory from approved demand research
 
 ### Summary
