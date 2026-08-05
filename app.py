@@ -7180,9 +7180,10 @@ def generate_content_job(site_id, job_id):
             job=job,
             language=parse_languages(site["languages"])[0],
         )
-        # Imported/migrated URL paths can carry existing search value. A queued job
-        # may lock that canonical slug while still allowing its title and draft to be rewritten.
-        preserved_slug = str(job["slug"] or "").strip() if sources.get("preserveSlug") else ""
+        # Imported URLs and typed native pages own a canonical target path. Never
+        # let a model-generated JSON slug silently change that public contract.
+        preserve_canonical_slug = sources.get("preserveSlug") or native_content_type(job) != "blog"
+        preserved_slug = str(job["slug"] or "").strip() if preserve_canonical_slug else ""
         slug = preserved_slug or simple_slug(draft.get("slug") or draft.get("title") or job["topic"])
         faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
         hero_image_url, article_asset_prefix = generate_article_image_assets(site_id, job_id, site, job, draft, slug)
