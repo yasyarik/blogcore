@@ -6728,6 +6728,16 @@ QUALITY RULES:
 - No em dash, no en dash, no asterisks, no smart quotes.
 - Avoid fluff and vague marketing language.
 - Make the article clearly connect the problem/question to why {brand} is useful, but do not turn every section into an ad.
+- For a commercial or typed use-case page, include one dedicated decision section
+  explaining how the site's verified service or product can help address the
+  reader's problem. Use only the supplied site context and page brief. Do not
+  claim the brand is objectively the best option, guarantee an outcome, or
+  describe undocumented capabilities. This is explanatory product context, not
+  a sales pitch: do not add an in-article CTA button, command, or pressure.
+- For a blog page, keep commercial context subordinate to the answer. Mention
+  the site's relevant capability only where it genuinely helps a reader move
+  from understanding to action; never add a generic sales CTA to an editorial
+  answer merely because the site sells a service.
 - Answer the page's primary question directly in the first 50-80 words.
 - Include a standalone section whose heading is exactly `{limitation_outline}`. Put
   the page-specific limitations, suitability boundaries, and verification duties
