@@ -17,17 +17,20 @@
 ### Checks run
 
 - Verified that the four selected records are unique canonical SEO targets; no ordinary blog task was launched.
-- Confirmed the first three are source-factory `READY`; none has been published.
+- Confirmed all four source drafts are `READY` and their Blog Core records are `DRAFT`; none has been published. The final use-case draft was retried after the outcome-claim guardrail correctly rejected an unsupported conversion claim.
 
 ### Follow-up repair
 
 - Preview now binds the source template at the task's exact target URL before attempting a legacy v3 build. This keeps localized existing URLs from failing because a retired v3 site map lacks that locale.
 - Blog Core now reconciles a migrated source job's type, page kind, locale, and target path with its canonical dashboard contract before explicit regeneration. This corrects stale ES/FR legacy routes to the existing EN target without publishing anything.
 - When an obsolete source job is already published, reconciliation creates a separate canonical source job instead of mutating the live historical route.
+- Fixed the AIREP24 source-factory job-creation endpoint, which referenced a missing slug helper and returned HTTP 500 while creating the required replacement job.
+- Strengthened the shared money-page prompt for business-outcome topics: an outcome is a reader goal to assess, never an implied product result unless it has an exact verified claim-registry entry.
+- Refined the product-truth validator so it blocks outcome promises attributed to AiRep24, rather than blocking an editorial explanation of a reader goal such as conversion.
 
 ### Risks / TODO
 
-- The corrected comparison is retried after factory restart and then needs the same native preview review as the other drafts.
+- The four native drafts need visual/editorial review before any explicit publish action.
 
 ## 2026-08-05 — Restore native FAQ question labels in source previews
 

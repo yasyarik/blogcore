@@ -790,6 +790,13 @@ It must be updated after every meaningful task.
 * Files/areas affected: source-factory bindings and preview/publish adapters.
 * Replaced/deprecated: Assuming one generic header/footer mechanism should overwrite source-authoritative factory output.
 
+### 2026-08-05 — Preserve published source routes during contract repair
+
+* Decision: When an imported source-factory job has a stale language, type, page-kind, or target-path contract, Blog Core reconciles it before regeneration. If that source job was previously published, Blog Core creates a replacement source job with the canonical contract and updates only the unpublished dashboard task to point to it.
+* Reason: Rewriting a published historical source job can move or corrupt a live localized URL. A fresh source job preserves the live route while enabling a correct native draft at the intended existing canonical path.
+* Files/areas affected: `app.py` source-factory generation adapter and AIREP24 source-factory API.
+* Replaced/deprecated: Mutating an already published source job to repair its route contract.
+
 ### 2026-07-24 — Georivo trend-led editorial territory
 
 * Decision: Georivo's initial journal should build authority around the intersection of virtual property tours, real-estate photography, drone alternatives, interactive maps, digital twins, neighborhood context, remote-buyer decisions, and verifiable geospatial visualization. Raw Trends/search phrases are research signals, not article titles.
