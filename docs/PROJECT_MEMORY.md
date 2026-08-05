@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — Every active GEO commercial collection has a minimum viable four-page inventory
+
+- Decision: GEO's public commercial taxonomy now has at least four distinct pages in every active collection: six Solutions, four Tools, and four Use cases. The three added queue contracts are an AI Visibility Checker, an AI Readiness Checker, and an AI Citation Readiness use case.
+- Reason: the approved English-language demand map explicitly identifies these three remaining search-intent clusters. They fill the collection threshold without creating a duplicate GEO/AEO/LLMO definition page or a speculative competitor-analysis page.
+- Intent boundary: the Visibility Checker evaluates observed mentions, recommendations, and citations for selected questions; the Readiness Checker evaluates controllable on-site access and evidence conditions; Citation Readiness is an operational workflow for improving citation evidence. None may promise an AI mention, citation, recommendation, rank, or score.
+- Delivery: `deploy/seed_geo_collection_minimum.py` is idempotent and checks canonical target paths before it creates the site-16 tasks. The entries remain manual-publish native content-store tasks until all normal review gates are recorded.
+
 ## 2026-08-05 — Native commercial pages support solution, tool, and use-case routes
 
 - Decision: Blog Core native content types now include `solution`, `tool`, and `use_case` in addition to `blog`. Their canonical route prefixes are `/solutions/`, `/tools/`, and `/use-cases/`.

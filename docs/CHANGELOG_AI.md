@@ -1,5 +1,34 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Complete GEO collection inventory from approved demand research
+
+### Summary
+
+- Added the three remaining non-duplicative GEO page contracts needed to give every active commercial collection at least four pages.
+- The additions are based only on the approved AI-visibility demand map: AI Visibility Checker, AI Readiness Checker/GEO Audit, and AI Citation Readiness for ChatGPT and Google AI Overviews.
+- All three records are queued for native generation and manual publication; no synthetic checker result or automated publication is created.
+
+### Files changed
+
+- `deploy/seed_geo_collection_minimum.py` — idempotently queues the three site-16 page briefs by canonical path.
+- `docs/PROJECT_MEMORY.md` — records collection threshold, intent boundaries, and manual-publish rule.
+- `docs/SEO_MEMORY.md` — records the demand-map basis and anti-cannibalisation constraints.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+- Visibility checking, site readiness, and citation-readiness workflow are distinct user intents and must remain distinct even though all relate to AI-search visibility.
+- Do not fill taxonomy gaps with competitor-analysis speculation or overlapping GEO/AEO/LLMO definition pages that are not in the approved priority map.
+
+### Checks run
+
+- `python3 -m py_compile deploy/seed_geo_collection_minimum.py` passed.
+- The seed script was run against a copied production database and created exactly three `QUEUED` records with canonical `/tools/` and `/use-cases/` paths.
+
+### Risks / TODO
+
+- Each drafted typed page still requires editorial, product, SEO, and browser QA approval before manual publication.
+
 ## 2026-08-05 — Split GEO commercial pages into Solutions, Tools, and Use cases
 
 ### Summary

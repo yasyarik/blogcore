@@ -13,6 +13,8 @@
 
 ## Content behavior
 
+* GEO commercial collection completion follows the approved AI-visibility demand map, not generic vendor feature lists. The minimum viable public inventory is six Solutions, four Tools, and four Use cases. The final three queued contracts are: AI Visibility Checker (mentions/recommendations/citations), AI Readiness Checker (access/understanding/citation evidence), and AI Citation Readiness (the workflow for questions such as how to be cited in ChatGPT or Google AI Overviews).
+* These intents must stay separate in copy and canonical targeting: observed answer visibility is not site readiness; readiness is not a promise of an AI citation; citation readiness is not a claim that a provider will cite or recommend the site. Do not create near-duplicate GEO/AEO/AI SEO/LLMO synonym pages to meet collection volume.
 * The current sample article is placeholder content about visual chaos in product pages.
 * Topic discovery produces signals and queued article ideas as `content_jobs`; draft generation exists as a job action, but automatic final publishing is not complete.
 * Article ideas should use trend/discussion hooks to explain audience questions/problems and connect them to the site's offer, expertise, or editorial point of view.
