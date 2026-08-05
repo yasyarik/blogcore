@@ -11,7 +11,7 @@ import argparse
 import hashlib
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -47,6 +47,18 @@ def page(
             "outline": outline,
             "approvedInternalLinks": links,
             "sourceReferences": source_references,
+            "editorial": {
+                "author": "YAS AI Visibility Editorial",
+                "reviewer": "YAS AI Visibility Product Review",
+                "owner": "YAS AI Visibility Content",
+                "reviewDueAt": (datetime.now(timezone.utc).date() + timedelta(days=90)).isoformat(),
+                "reviewCadence": "every 90 days or after a material AI-search platform change",
+                "factCheckedAt": datetime.now(timezone.utc).date().isoformat(),
+            },
+            "primaryCta": {
+                "label": "Start an AI visibility audit",
+                "url": "/",
+            },
             "contentDetails": {
                 "researchBasis": "Approved GEO demand map: AI visibility checker, AI readiness/GEO audit, and AI citation readiness clusters.",
                 "editorialBoundary": "Explain the evidence a real audit can collect. Do not invent a score, a citation, an engine result, or a ranking for a visitor who has not run an audit.",
@@ -167,10 +179,6 @@ def seed(db_path):
                 "select id, status from content_jobs where site_id=? and json_extract(sources_json, '$.targetPath')=?",
                 (SITE_ID, item["targetPath"]),
             ).fetchone()
-            if existing:
-                skipped.append({"targetPath": item["targetPath"], "id": existing["id"], "status": existing["status"]})
-                continue
-            job_id = hashlib.sha256(f"geo:{item['targetPath']}".encode()).hexdigest()[:24]
             sources = {
                 "source": "approved-demand-map",
                 "source_title": "Approved English-language AI visibility demand map",
@@ -180,10 +188,35 @@ def seed(db_path):
                 "canonicalGroup": item["targetPath"],
                 "preserveSlug": True,
                 "publicationMode": "native_content_store",
-                "nativeProjectRoot": "/opt/yas-ooo",
+                # GEO runs beside YAS but has an independent content store.
+                # This is the project root expected by native_content_store_root(),
+                # which appends ``data/blog-core`` below it.
+                "nativeProjectRoot": "/opt/yas-ooo/data/geo-content-store",
                 "pageBrief": item["pageBrief"],
             }
             now = now_iso()
+            if existing:
+                if existing["status"] != "QUEUED":
+                    skipped.append({"targetPath": item["targetPath"], "id": existing["id"], "status": existing["status"]})
+                    continue
+                conn.execute(
+                    """
+                    update content_jobs
+                    set topic=?, slug=?, title=?, description=?, category=?, sources_json=?, updated_at=?
+                    where site_id=? and id=?
+                    """,
+                    (
+                        item["title"], item["slug"], item["title"], item["description"], "SEO Money Page",
+                        json.dumps(sources, ensure_ascii=False), now, SITE_ID, existing["id"],
+                    ),
+                )
+                conn.execute(
+                    "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                    (SITE_ID, existing["id"], now, "INFO", "approved-demand-map", f"Refreshed approved {item['contentType']} brief at {item['targetPath']}"),
+                )
+                skipped.append({"targetPath": item["targetPath"], "id": existing["id"], "status": existing["status"], "refreshed": True})
+                continue
+            job_id = hashlib.sha256(f"geo:{item['targetPath']}".encode()).hexdigest()[:24]
             conn.execute(
                 """
                 insert into content_jobs(

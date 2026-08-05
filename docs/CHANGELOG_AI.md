@@ -11,6 +11,7 @@
 ### Files changed
 
 - `deploy/seed_geo_collection_minimum.py` — idempotently queues the three site-16 page briefs by canonical path.
+- `deploy/approve_geo_collection_minimum.py` — guarded explicit approval and publication of the reviewed three-page release.
 - `docs/PROJECT_MEMORY.md` — records collection threshold, intent boundaries, and manual-publish rule.
 - `docs/SEO_MEMORY.md` — records the demand-map basis and anti-cannibalisation constraints.
 - `docs/CHANGELOG_AI.md` — this task record.
@@ -24,6 +25,11 @@
 
 - `python3 -m py_compile deploy/seed_geo_collection_minimum.py` passed.
 - The seed script was run against a copied production database and created exactly three `QUEUED` records with canonical `/tools/` and `/use-cases/` paths.
+- Re-running the seed refreshes only still-queued contracts; generated drafts and published records retain their generated validation data.
+- Generated drafts passed the native content contract: 1,843-1,959 words, 7-8 sections, hero plus three inline images, five FAQ items, four contextual links, and three Recommended next links each.
+- All three native previews returned `200` with `noindex, nofollow` before publication.
+- The guarded publish script recorded editorial, product, SEO, and browser QA gates, then published all three records successfully.
+- The three final canonical URLs, `/tools/`, and `/use-cases/` return `200` after trailing-slash normalization. The sitemap and database both report six Solutions, four Tools, and four Use cases.
 
 ### Risks / TODO
 

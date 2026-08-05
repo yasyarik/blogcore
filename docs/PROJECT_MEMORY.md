@@ -5,7 +5,8 @@
 - Decision: GEO's public commercial taxonomy now has at least four distinct pages in every active collection: six Solutions, four Tools, and four Use cases. The three added queue contracts are an AI Visibility Checker, an AI Readiness Checker, and an AI Citation Readiness use case.
 - Reason: the approved English-language demand map explicitly identifies these three remaining search-intent clusters. They fill the collection threshold without creating a duplicate GEO/AEO/LLMO definition page or a speculative competitor-analysis page.
 - Intent boundary: the Visibility Checker evaluates observed mentions, recommendations, and citations for selected questions; the Readiness Checker evaluates controllable on-site access and evidence conditions; Citation Readiness is an operational workflow for improving citation evidence. None may promise an AI mention, citation, recommendation, rank, or score.
-- Delivery: `deploy/seed_geo_collection_minimum.py` is idempotent and checks canonical target paths before it creates the site-16 tasks. The entries remain manual-publish native content-store tasks until all normal review gates are recorded.
+- Delivery: `deploy/seed_geo_collection_minimum.py` is idempotent and checks canonical target paths before it creates the site-16 tasks. It may refresh only `QUEUED` briefs; it must never overwrite a generated or published record's validation contract. `deploy/approve_geo_collection_minimum.py --approve` records the four normal review gates and publishes the reviewed release.
+- Release state: all three additions are now public, return HTTP 200 after standard trailing-slash normalization, and are present in the GEO sitemap. Current published inventory is six Solutions, four Tools, and four Use cases.
 
 ## 2026-08-05 — Native commercial pages support solution, tool, and use-case routes
 
