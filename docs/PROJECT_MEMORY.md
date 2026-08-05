@@ -1,5 +1,13 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — YAS AI Visibility is a separate Blog Core product
+
+- Decision: `geo.yas.ooo` is registered as an independent `native_content_store` product, with its own content context, topic strategy, manual publishing lifecycle, and dedicated native store under the GEO runtime.
+- Reason: it shares an initial Next.js runtime and design system with `yas.ooo`, but it is not a YAS marketing-content section. Its AI-visibility blog and SEO money pages must never mix with the YAS site’s queues, routes, sitemap, or editorial strategy.
+- Public route contract: GEO owns `https://geo.yas.ooo/blog/` and `https://geo.yas.ooo/use-cases/…`; the host rewrite remains internal and no public GEO URL contains `/geo`.
+- Boundary: Blog Core writes only reviewed/published GEO payloads. The GEO product owns its own Next.js rendering, global YAS shell, product navigation, sitemap, robots policy, and availability.
+- Replaced/deprecated: treating the existing shared `/opt/yas-ooo/data/blog-core` store as suitable for GEO content.
+
 ## 2026-07-26 — Georivo money-page heroes are distinct from first paint
 
 - Decision: `/how-it-works`, `/coverage`, and `/pricing` use three separate same-origin WebP hero assets served by `georivo-blog.service`.

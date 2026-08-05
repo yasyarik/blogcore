@@ -1,5 +1,31 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Register YAS AI Visibility as an independent native product
+
+### Summary
+
+- Registered `geo.yas.ooo` for an independent Blog Core content lifecycle without generating or publishing any content.
+- Native product cards now suppress design-scan, preview-build, and static-install actions that do not apply to an application-owned content store.
+
+### Files changed
+
+- `app.py` — identifies native content-store products in the dashboard site card.
+- `docs/PROJECT_MEMORY.md` — records GEO product, routing, publishing, and isolation boundaries.
+- `docs/CHANGELOG_AI.md` — records this task.
+
+### Decisions
+
+- GEO has its own content context, topic strategy, store, sitemap, and public paths even while its initial implementation shares the YAS Next.js runtime.
+- Content remains manual-publish only; this registration creates no queue items and does not alter the public product content.
+
+### Checks run
+
+- Verified GEO native store exists and GEO public `/blog/`, `/use-cases/`, `sitemap.xml`, and `robots.txt` return successfully after source deployment.
+
+### Risks / TODO
+
+- The first GEO blog or SEO money-page task still needs an operator-approved brief before any generation or publication.
+
 ## 2026-07-26 — Make Georivo money-page heroes distinct from first paint
 
 ### Summary

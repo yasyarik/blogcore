@@ -8095,7 +8095,9 @@ def render_site_row(s):
     preview = render_primary_site_link(s)
     scanned = escape(s["scanned_at"] or "Not scanned")
     imported_count = int(s["imported_count"] or 0) if "imported_count" in s.keys() else 0
-    if imported_count:
+    if (s["access_type"] or "").strip().lower() == "native_content_store":
+        technical_actions = "<span class='site-state imported'>Native product · managed content store</span>"
+    elif imported_count:
         technical_actions = f"<span class='site-state imported'>Imported live site · {imported_count} pages</span>"
     else:
         technical_actions = f"""
