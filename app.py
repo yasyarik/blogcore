@@ -8411,6 +8411,11 @@ def queue_article_ideas(site_id):
             "source_url": idea.get("source_url") or "",
             "contentType": "seo_money_page" if str(idea.get("contentType") or "").lower() in {"use_case", "use-cases", "seo_money_page", "seo-money-page"} else "blog",
         }
+        # External planning flows may prepare a reviewed SEO page brief before
+        # queueing a money page. Preserve that structured contract so generation
+        # receives the approved H1, direct answer, CTA, and internal-link plan.
+        if isinstance(idea.get("pageBrief"), dict):
+            clean["pageBrief"] = idea["pageBrief"]
         similar = find_similar_existing_topic(clean, existing_index)
         if similar:
             rejected.append({"idea": clean, "similar": similar})
