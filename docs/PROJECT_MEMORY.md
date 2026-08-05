@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — AIREP24 money-page release is source-template-only and requires a complete native contract
+
+- Decision: AIREP24 money pages must publish only through `content-factory-airep24` as `source_site_authoritative` v3 target pages. Blog Core must never generate a generic page shell or replace the AIREP24 theme, header, footer, CSS, or global layout.
+- Publication behavior: the source factory writes the reviewed page payload for one declared `targetPath`, rebuilds that single target using AIREP24's current source template, then updates the relevant sitemap. It is a content release in the native page template, not an instruction to rebuild the site design.
+- Safety gate: as of this audit, 32 of 45 queued AIREP24 SEO/money records have a source-factory ID, source-authoritative ownership, and a declared target path. The remaining 13 have no factory ID or target path and are blocked from generation/publication until their native page type and canonical target are recovered in the AIREP24 factory. They must not fall back to `/blog/` or a generic renderer.
+- Reason: a missing native contract makes the intended public route and template ambiguous. Publishing such a job could create an incorrect path or overwrite the wrong static target.
+
 ## 2026-08-05 — Demand-led queue expansion must respect each connected site's legacy inventory
 
 - Decision: Manual demand research for an imported site starts with its complete canonical content inventory, including legacy imported pages and unresolved factory jobs. Only distinct editorial intents may be added through the standard `article-ideas/queue` endpoint, which performs a second semantic similarity check.

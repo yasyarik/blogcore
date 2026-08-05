@@ -1,5 +1,34 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Audit AIREP24 money-page publication safety
+
+### Summary
+
+- Verified that AIREP24 uses a source-authoritative binding to `content-factory-airep24`, not Blog Core's generic article renderer.
+- Confirmed that the AIREP24 v3 publisher writes a page payload for one declared target path and rebuilds that target through the site's current source template; it does not create a Blog Core theme or replace the site-wide shell.
+- Audited all queued AIREP24 work. The 32 linked SEO/money tasks and all 19 blog tasks have source-factory IDs and declared paths. Thirteen legacy SEO/money tasks have neither and must be repaired before any publication attempt.
+
+### Files changed
+
+- `docs/PROJECT_MEMORY.md` — records the AIREP24 source-template release contract and blocked-record safety gate.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+- Do not schedule, generate, publish, or backfill the 13 incomplete AIREP24 legacy records until their intended native page type and canonical target path are recovered from the source factory/site inventory.
+- A mass release requires a first-page native preview and public QA of the exact target template before subsequent jobs are published.
+
+### Checks run
+
+- Confirmed site-9 binding: `content-factory-airep24`, `source_site_authoritative`, loopback source-factory endpoint.
+- Inspected Blog Core's delegated generation/publish path and AIREP24's v3 target publisher.
+- Live database audit: 45 queued SEO/money-or-other tasks, 19 queued blogs; 32 SEO/money plus all blogs are fully linked, while 13 SEO/money records have no target path or factory job ID.
+
+### Risks / TODO
+
+- Recover the native contract for the 13 incomplete records before treating the full AIREP24 queue as publishable.
+- A template-compatible renderer protects the design contract, but each first release per page family still needs preview/public browser QA for content placement and assets.
+
 ## 2026-08-05 — Queue non-duplicate Google-demand content for MyUGC and PipsAlerts
 
 ### Summary
