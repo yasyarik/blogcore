@@ -8,6 +8,14 @@
 - AIREP24 test state: the first test task, `Product Recommendations` at `/features/product-recommendations/`, was corrected from a stale Spanish legacy source contract to EN, then stopped in `ERROR` after the source editor exceeded the preview-first test window. No preview was approved, no publish command ran, and no public page or sitemap changed.
 - Follow-up: do not retry this record until the source-editor validation feedback (title length, factual-claim guardrails, and forbidden typography) is resolved deterministically. Do not bypass it with generic Blog Core HTML.
 
+## 2026-08-05 — AIREP24 now uses the same canonical structured draft contract as Blog Core
+
+- Decision: `content-factory-airep24` no longer asks Gemini for a raw `contentHtml` document and a competing `v3Page` document in the same response. It requests the Blog Core-equivalent structured article fields: lead, 6-8 sections and paragraphs, table, ordered list, quote, exactly three image specs, FAQ, internal links, Recommended next, and claim keys.
+- Adapter behavior: the AIREP24 factory deterministically renders legacy HTML for its established validator/image pipeline and derives the native `v3Page` payload from the same structured record. The model is not allowed to author either rendered representation.
+- Validation: a shared-contract gate runs before legacy HTML validation. It rejects an incomplete structure, missing images/table/list/FAQ, short copy, insufficient target-page links, absent claim key, or a direct answer outside the target-page range. Existing AIREP24 factual-claim and native-template validation remain in force.
+- Reason: the former dual-output prompt doubled the model payload, caused JSON escape failures and content drift, and made source-factory calls much more likely to stall. One normalized source prevents the public native template and the compatibility validator from disagreeing.
+- Boundary: this changes only content generation and validation. AIREP24 keeps its own source renderer, header, footer, CSS, target paths, image delivery, and explicit publish flow.
+
 ## 2026-08-05 — AIREP24 money-page release is source-template-only and requires a complete native contract
 
 - Decision: AIREP24 money pages must publish only through `content-factory-airep24` as `source_site_authoritative` v3 target pages. Blog Core must never generate a generic page shell or replace the AIREP24 theme, header, footer, CSS, or global layout.

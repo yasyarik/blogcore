@@ -1,5 +1,38 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Unify AIREP24 generation with the Blog Core article contract
+
+### Summary
+
+- Replaced AIREP24's dual Gemini response contract: it previously required a long raw HTML article and a separate `v3Page` body for the same public page.
+- The source factory now requests one Blog Core-equivalent structured document and deterministically derives both compatibility HTML and its native v3 payload from that document.
+- Added a pre-render structured validation gate for sections, images, table, ordered list, quote, FAQ, word count, target-page direct answer, internal links, Recommended next, and verified claim keys.
+- Kept AIREP24 in preview-first/manual-publish mode. The change does not write a public page or change a sitemap.
+
+### Files changed
+
+- `/var/www/content-factory-airep24/factory/generate.py` — shared schema, prompt, deterministic render adapters, and structural validator.
+- `/var/www/content-factory-airep24/app.py` — runs the structural gate before existing source-factory HTML and native-template checks.
+- `docs/PROJECT_MEMORY.md` — records the durable cross-factory generation contract.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+- Blog Core's structured document is the canonical generation shape; source factories may adapt it to their own public templates but must not ask the model to write a competing rendered version.
+- AIREP24 retains its source-authoritative renderer and its factual claim registry. This is a content-contract alignment, not a design migration.
+
+### Checks run
+
+- `python3 -m py_compile` passed for the live AIREP24 `app.py`, generator, and validator.
+- Deterministic adapter smoke test confirmed that one structured record produces three image references, six content sections, five FAQ sections in v3, and the expected native payload shape.
+- Restarted `content-factory-airep24`; its API is available and `FACTORY_V3_AUTO_PUBLISH=0` remains persisted.
+- Committed and pushed the AIREP24 factory changes as `cee2793` on `yasyarik/airep24-factory` `main`.
+
+### Risks / TODO
+
+- The repaired `Product Recommendations` task remains in `ERROR` from the earlier stopped test. It must be explicitly retried to exercise the new prompt and then reviewed in a native noindex preview before publication.
+- The new shared contract must be ported deliberately to other source factories only after their renderer/validation adapters are audited; do not copy it blindly into unrelated site-specific factories.
+
 ## 2026-08-05 — Run the first AIREP24 money-page generation in preview-first mode
 
 ### Summary
