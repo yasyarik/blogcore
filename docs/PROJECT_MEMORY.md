@@ -1,5 +1,13 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — Source-authoritative drafts must stage actual media and contextual decisions
+
+- Decision: A source-authoritative native preview may show generated editorial media only after the source factory has staged the actual image files in the source webroot. The native payload must reference those generated paths, not pre-generation model placeholders.
+- Renderer rule: every page retains its own source template. The factory may bind a page-specific primary CTA, a contextual secondary reading link, inline editorial images, and two useful internal links in the article body, but it must not replace the source header, footer, CSS system, or page layout.
+- Media runtime: Gemini image calls must pass the requested aspect ratio as `generationConfig.imageConfig`, and fallback model IDs must be currently available image-generation models. Natural-language aspect-ratio instructions alone are insufficient.
+- Validation state: the AIREP24 Product Recommendations native draft now has one staged hero and two staged inline WebP images, two body links, contextual CTA labels, and a visible gap between the existing CTA buttons. It remains `DRAFT`; no publication or sitemap update occurred.
+- Replaced/deprecated: accepting missing staged media in preview, static CTA labels unrelated to the generated page, and relying on the model's original placeholder image names after image generation.
+
 ## 2026-08-05 — AIREP24 source factory is preview-first, never auto-publish by default
 
 - Decision: `content-factory-airep24` now runs with `FACTORY_V3_AUTO_PUBLISH=0` in PM2. A successful AIREP24 draft is reviewable first; it may reach the public site only through an explicit publish action after native preview QA.

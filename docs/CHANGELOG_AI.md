@@ -1,5 +1,31 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Complete the AIREP24 native draft media and decision path
+
+### Summary
+
+- Fixed the source-factory image request so Gemini receives an explicit `1:1` image configuration and only current image fallback models are used.
+- Made native source-template previews bind a page-specific CTA pair, insert contextual internal links into the article body, and render inline figures even when the base page did not previously contain one.
+- Added the missing flex gap to the existing native `.cta-pair` class without changing the AIREP24 shell or page design.
+- Staged a generated hero and two generated inline WebP images for the Product Recommendations draft, then updated only its private draft record. No public page was published.
+
+### Files changed
+
+- `/var/www/content-factory-airep24/app.py` — contextual CTA, body-link, inline-figure, and staged-media payload behavior.
+- `/var/www/content-factory-airep24/factory/images.py` — reliable Gemini aspect-ratio request and current fallback model list.
+- `/var/www/airep24-landing/assets/css/site.css`, `/var/www/airep24-landing/assets/css/site.min.css` — native CTA spacing and contextual-link styling.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable source-preview rules and this task record.
+
+### Checks run
+
+- `python3 -m py_compile` passed for the deployed source factory.
+- Restarted `content-factory-airep24`; its OpenAPI endpoint responded.
+- Private native preview check found two inline figures, three generated media paths (hero plus two inline images), two contextual body links, contextual CTA text, no legacy CTA text, and the deployed CTA gap rule.
+
+### Risks / TODO
+
+- This draft remains review-only. Explicit source-factory publication is still required before any public page or sitemap change.
+
 ## 2026-08-05 — Regenerate the AIREP24 Product Recommendations feature preview
 
 ### Summary
