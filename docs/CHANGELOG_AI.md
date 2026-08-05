@@ -1,5 +1,20 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Restore native FAQ question labels in source previews
+
+### Summary
+
+- Restored the single FAQ `<summary>` label after the duplicate-label correction inadvertently left the card headings empty.
+
+### Files changed
+
+- `/var/www/content-factory-airep24/app.py` — renders one sanitized FAQ question per native accordion card.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+- Private preview is checked after deployment for non-empty FAQ summaries and exactly one label per card.
+
 ## 2026-08-05 — Complete the AIREP24 native draft media and decision path
 
 ### Summary
