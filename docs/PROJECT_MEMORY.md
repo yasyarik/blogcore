@@ -1,5 +1,14 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — Native SEO money pages require a pre-generation page brief
+
+- Decision: A queued native SEO money page may carry a structured `pageBrief` through `POST /api/sites/<site_id>/article-ideas/queue`; Blog Core preserves it in `sources_json` for generation.
+- Reason: typed money pages require a controlled H1, 50-80-word direct answer, CTA, source references, and approved internal-navigation contract. A title and angle alone cannot satisfy the draft validator without weakening the page standard.
+- Navigation rule: the validated internal-link contract accepts a root path (`/`) plus standard same-site paths. Anchor-only links are not treated as contextual SEO links.
+- GEO initial plan: 9 money pages and 15 supporting editorial posts are queued; the first GEO money page is generated as a `DRAFT`, never auto-published.
+- Preview contract: native content stores expose a noindex product-hosted draft route at `/content-preview/<job_id>` that reads only the site-owned `data/blog-core/drafts` record. Blog Core is still the control plane and does not render a substitute product template.
+- Replaced/deprecated: the assumption that a native money page can be safely generated from a Discovery title and angle with no page brief.
+
 ## 2026-08-05 — YAS AI Visibility is a separate Blog Core product
 
 - Decision: `geo.yas.ooo` is registered as an independent `native_content_store` product, with its own content context, topic strategy, manual publishing lifecycle, and dedicated native store under the GEO runtime.

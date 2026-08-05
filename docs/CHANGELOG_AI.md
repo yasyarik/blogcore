@@ -1,5 +1,35 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Queue and generate the first YAS AI Visibility money page
+
+### Summary
+
+- Queued the approved GEO content plan: 9 SEO money pages and 15 supporting blog posts.
+- Added controlled briefs to all queued GEO money pages and generated the first page as a reviewable native draft. No GEO content was published.
+- Added a noindex native product preview route for GEO drafts.
+
+### Files changed
+
+- `app.py` — preserves supplied `pageBrief` data when queueing ideas and validates root-path internal links consistently through native rendering and draft validation.
+- `docs/PROJECT_MEMORY.md` — records the durable brief, navigation, and native-preview contract.
+- `docs/CHANGELOG_AI.md` — records this work.
+
+### Decisions
+
+- SEO money-page generation requires a structured brief; Blog Core must not relax draft requirements when an external planning flow has supplied only a title.
+- The first GEO page remains `DRAFT` and is reviewable at the GEO product host. Publication approvals remain false until human editorial, product, SEO, and browser review.
+
+### Checks run
+
+- `python3 -m py_compile app.py`, PM2 restart, and `/health` passed.
+- Generated draft has 3 inline image assets, TOC, 6 FAQ items, 4 contextual internal links, and 3 Recommended next links.
+- Browser check confirmed the native noindex preview route and hero asset load successfully.
+
+### Risks / TODO
+
+- Review the first draft for product-specific factual claims before enabling publication approvals.
+- The remaining GEO tasks remain queued and will not generate or publish automatically.
+
 ## 2026-08-05 — Register YAS AI Visibility as an independent native product
 
 ### Summary
