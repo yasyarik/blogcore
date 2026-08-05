@@ -4377,6 +4377,8 @@ def site_live_blog_url(site):
 
 
 def render_primary_site_link(site):
+    if (site["access_type"] or "").strip().lower() == "native_content_store":
+        return f"<a class='btn ghost' target='_blank' href='{escape(site_base_url(site), quote=True)}'>Open product</a>"
     if imported_inventory_count(site["id"]):
         return f"<a class='btn ghost' target='_blank' href='{escape(site_live_blog_url(site), quote=True)}'>Open live blog</a>"
     if site["preview_path"]:
