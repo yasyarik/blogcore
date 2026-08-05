@@ -16,6 +16,13 @@
 - Reason: the former dual-output prompt doubled the model payload, caused JSON escape failures and content drift, and made source-factory calls much more likely to stall. One normalized source prevents the public native template and the compatibility validator from disagreeing.
 - Boundary: this changes only content generation and validation. AIREP24 keeps its own source renderer, header, footer, CSS, target paths, image delivery, and explicit publish flow.
 
+## 2026-08-05 — Source-authoritative previews use factory-issued private URLs
+
+- Decision: Blog Core's source-authoritative preview proxy must obtain a temporary preview URL from the source factory's `POST /api/jobs/{id}/preview-link` endpoint before it requests preview HTML. It must not call a protected `/preview/{id}` path without its token.
+- Reason: AIREP24 source previews are deliberately private and noindex. Calling the endpoint without its expiring token returns an error even when the native draft is valid.
+- Release state: after the shared-contract repair, the AIREP24 `Product Recommendations` feature task reached source status `READY` and Blog Core status `DRAFT` for EN `/features/product-recommendations/`. It has not been published.
+- Boundary: the dashboard proxy may render the token-authorized native preview for review but must never expose the token in stored job data, logs, docs, or public links.
+
 ## 2026-08-05 — AIREP24 money-page release is source-template-only and requires a complete native contract
 
 - Decision: AIREP24 money pages must publish only through `content-factory-airep24` as `source_site_authoritative` v3 target pages. Blog Core must never generate a generic page shell or replace the AIREP24 theme, header, footer, CSS, or global layout.

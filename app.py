@@ -8746,8 +8746,18 @@ def preview_content_job(site_id, job_id):
         base_url = source_factory_url_for_site(site_id, factory_name)
         if factory_name and old_job_id and base_url:
             try:
+                # Source factories issue private, expiring native previews. Do
+                # not assume their /preview/<id> endpoint is publicly readable.
+                preview_link = legacy_factory_request_json(
+                    f"{base_url}/api/jobs/{urllib.parse.quote(old_job_id)}/preview-link",
+                    method="POST",
+                    timeout=30,
+                )
+                preview_path = str(preview_link.get("url") or "").strip()
+                if not preview_path.startswith("/"):
+                    raise RuntimeError("Source factory did not return a private preview URL")
                 draft_html = legacy_factory_request_html(
-                    f"{base_url}/preview/{urllib.parse.quote(old_job_id)}",
+                    urllib.parse.urljoin(f"{base_url.rstrip('/')}/", preview_path.lstrip("/")),
                     timeout=240,
                 )
                 if source_url:

@@ -1,5 +1,33 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Regenerate the AIREP24 Product Recommendations feature preview
+
+### Summary
+
+- Reset only the prior failed test record and regenerated the EN source-authoritative feature page at `/features/product-recommendations/` through Blog Core.
+- The first shared-contract attempt correctly stopped at the structural gate because Gemini returned an incomplete table. The factory prompt now specifies non-empty table headers and rows and treats validation feedback as an explicit full-document repair pass.
+- The second attempt completed: source factory status is `READY`; Blog Core status is `DRAFT`. No explicit publish action ran and automatic v3 publication remains disabled.
+- Repaired Blog Core's source-authoritative preview proxy to request the source factory's short-lived private preview URL before fetching native draft HTML. The dashboard preview now returns HTTP 200 instead of 502.
+
+### Files changed
+
+- `/var/www/content-factory-airep24/factory/generate.py` — table-shape and repair-pass requirements for the shared structured contract.
+- `/var/www/content-factory-airep24/app.py` — carries generated article media into the native v3 payload for future previews/publications.
+- `app.py` — source-factory preview proxy uses the factory-issued private preview URL.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable preview and regenerated-draft state.
+
+### Checks run
+
+- AIREP24 source generation completed successfully: `READY` with a 15k+ character validated draft and native feature route contract.
+- Blog Core synchronized the record to `DRAFT`.
+- `GET /sites/9/content-jobs/4eb02288b51946c5a79b6717/preview` through the local Blog Core service returned HTTP 200 after the proxy fix.
+- `python3 -m py_compile` passed for deployed Blog Core and AIREP24 source-factory edits; Blog Core `/health` returned OK.
+
+### Risks / TODO
+
+- The draft still requires visual/editorial review in the native AIREP24 preview before an explicit Publish action.
+- No publish, sitemap update, or public AIREP24 page change was made during this task.
+
 ## 2026-08-05 — Unify AIREP24 generation with the Blog Core article contract
 
 ### Summary
