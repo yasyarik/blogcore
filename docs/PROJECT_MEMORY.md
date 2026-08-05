@@ -15,6 +15,13 @@
 - Boundary: no in-article CTA button, pressure language, unsupported superiority claim, outcome guarantee, or invented product capability. Editorial blog pages mention a service only when it materially helps move from understanding to action.
 - Reason: content must create commercial relevance through useful explanation and product fit, not by sacrificing reader trust or people-first quality.
 
+## 2026-08-05 — Typed pages preserve their canonical slug through generation
+
+- Decision: a non-blog typed page always retains the queued canonical slug and target path. Model JSON may improve copy but may not rename a public money-page URL.
+- Reason: a generated slug mismatch can create a published native record whose filename no longer matches its canonical URL, leaving the intended URL at 404.
+- GEO release: all 9 approved SEO money pages are published below `/use-cases/`, return HTTP 200, and appear in the GEO sitemap. The 15 supporting blog tasks remain queued.
+- Replaced/deprecated: trusting a model-returned slug for typed native pages.
+
 ## 2026-08-05 — YAS AI Visibility is a separate Blog Core product
 
 - Decision: `geo.yas.ooo` is registered as an independent `native_content_store` product, with its own content context, topic strategy, manual publishing lifecycle, and dedicated native store under the GEO runtime.

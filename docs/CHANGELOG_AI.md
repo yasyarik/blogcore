@@ -1,5 +1,34 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Publish the GEO SEO money-page release
+
+### Summary
+
+- Generated and published all 9 approved GEO SEO money pages through the native content store.
+- Kept the 15 GEO blog tasks queued and unpublished.
+- Corrected two published records whose model-returned slugs diverged from their fixed canonical paths.
+
+### Files changed
+
+- `app.py` — typed content now always retains its queued canonical slug during generation.
+- GEO native published records — 9 reviewed money pages below `/use-cases/`.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — record the release and canonical-path rule.
+
+### Decisions
+
+- Operator approval recorded all four publication gates for this specific GEO money-page release.
+- Generated prose can change, but typed pages may never change their canonical path.
+
+### Checks run
+
+- All 9 public money-page URLs and the `/use-cases` hub return HTTP 200.
+- GEO sitemap contains exactly 9 use-case URLs; the native store contains exactly 9 published use-case records.
+- Blog Core compilation, PM2 restart, and health check passed after the slug fix.
+
+### Risks / TODO
+
+- The separate 15-post editorial series remains queued and requires a later explicit generation/publishing decision.
+
 ## 2026-08-05 — Make service relevance explicit without making articles promotional
 
 ### Summary
