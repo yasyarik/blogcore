@@ -1,5 +1,30 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Split GEO commercial pages into Solutions, Tools, and Use cases
+
+### Summary
+
+- Extended Blog Core native routing with `solution` and `tool` page types alongside `use_case`.
+- Migrated all 11 published GEO commercial records: six Solutions, two Tools, and three Use cases.
+- Added a reproducible migration that updates both the Blog Core publication contract and GEO's native published records.
+
+### Files changed
+
+- `app.py` — native type aliases, route prefixes, discovery/queue normalization, typed generation contracts, and delegated-factory money-page recognition.
+- `deploy/migrate_geo_taxonomy.py` — idempotent GEO store/database taxonomy migration.
+- GEO native content store — canonical type and target-path updates for the 11 published records.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — taxonomy and migration contract.
+
+### Checks run
+
+- `python3 -m py_compile app.py deploy/migrate_geo_taxonomy.py` passed.
+- Blog Core restarted and `/health` returned OK.
+- Migration reported 11 database updates and 6 native-store file moves/updates.
+
+### Risks / TODO
+
+- `comparisons` and `services` remain page-intent labels, not hubs. Create a dedicated collection only once it has sufficient non-duplicative inventory and an approved route migration.
+
 ## 2026-08-05 — Publish GEO traffic-loss and AI SEO service pages
 
 ### Summary

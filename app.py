@@ -1241,6 +1241,10 @@ NATIVE_CONTENT_TYPE_ALIASES = {
     "use-cases": "use_case",
     "seo_money_page": "use_case",
     "seo-money-page": "use_case",
+    "solution": "solution",
+    "solutions": "solution",
+    "tool": "tool",
+    "tools": "tool",
 }
 
 NATIVE_CONTENT_TYPE_PREFIXES = {
@@ -1250,6 +1254,8 @@ NATIVE_CONTENT_TYPE_PREFIXES = {
     "example": "examples",
     "integration_guide": "embed",
     "use_case": "use-cases",
+    "solution": "solutions",
+    "tool": "tools",
 }
 
 
@@ -5447,7 +5453,7 @@ Generate article topics using this process:
 7. Title rules: natural editorial titles, not keyword-stuffed titles; serious 2026 SEO style; no obsolete years; no copied autocomplete phrases; no hype; no generic SERP clone framing; no title starting with a number unless the site is explicitly a media/listicle publication.
 8. SEO value: every idea must explain search intent, target query cluster, site-specific business relevance, unique context the site can add, and why it is not a duplicate.
 9. Topic diversity: every idea must have a distinct `topic_axis` and `audience_problem`. Do not create several ideas that differ only by title but all solve the same problem, funnel stage, objection, or business outcome.
-10. Choose `contentType` deliberately: use `blog` for editorial information pages. Use `seo_money_page` only for a durable, commercially relevant use-case or solution page that maps directly to the site's own service/product and deserves a canonical landing page. Do not create a money page merely because a keyword is commercial, and do not duplicate an existing service page.
+10. Choose `contentType` deliberately: use `blog` for editorial information pages. Use `solution`, `tool`, or `use_case` only for durable, commercially relevant pages that map directly to the site's own service/product and deserve a canonical landing page. Do not create a money page merely because a keyword is commercial, and do not duplicate an existing service page.
 
 Generation rules:
 - Generate every distinct article idea that is editorially justified by the selected signals and useful for this site.
@@ -5478,7 +5484,7 @@ Generation rules:
       "audience_problem": "Concrete audience/business problem this page solves",
       "source_title": "The audience signal that inspired the idea",
       "source": "popular_search|reddit",
-      "contentType": "blog|seo_money_page"
+      "contentType": "blog|solution|tool|use_case"
     }}
   ]
 }}
@@ -5499,7 +5505,7 @@ def sanitize_article_idea(raw_idea, signals, policy=None):
     topic_axis = re.sub(r"\s+", " ", str(raw_idea.get("topic_axis") or raw_idea.get("topicAxis") or "")).strip()
     audience_problem = re.sub(r"\s+", " ", str(raw_idea.get("audience_problem") or raw_idea.get("audienceProblem") or "")).strip()
     requested_content_type = str(raw_idea.get("contentType") or "blog").strip().lower()
-    content_type = "seo_money_page" if requested_content_type in {"use_case", "use-cases", "seo_money_page", "seo-money-page"} else "blog"
+    content_type = NATIVE_CONTENT_TYPE_ALIASES.get(requested_content_type, "blog")
     if len(title) < 28 or len(angle) < 30 or len(seo_rationale) < 35:
         return None
     if seo_intent not in {"informational", "commercial", "comparison", "transactional"}:
@@ -6660,6 +6666,8 @@ def build_universal_article_prompt(site, job):
         "template": "A reusable working template page. Explain the outcome, intended user, required inputs, step-by-step use, limitations, and a concrete worked example.",
         "example": "An evidence-led example page. Establish context, show the approach and result, explain what can be learned, and clearly distinguish verified facts from illustrative details.",
         "integration_guide": "A current platform integration guide. State prerequisites, use only verified steps from supplied context, include validation and troubleshooting, and never invent UI labels or code.",
+        "solution": "A commercial solution page that explains a durable customer problem, the evidence required to diagnose it, the controllable work, limitations, and a suitable product outcome without unsupported claims.",
+        "tool": "A product tool or checker page that states what it tests, the evidence it collects, the limits of each result, and the appropriate next action without claiming a result it cannot verify.",
         "use_case": "A decision-led use-case page connecting a real operational problem, relevant workflow, limitations, and an appropriate product outcome without unsupported claims.",
     }
     page_contract = page_contracts[content_type]
@@ -7478,7 +7486,7 @@ def backfill_source_factory_jobs(site_id):
             skipped += 1
             continue
         raw_type = str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower()
-        page_kind = "money" if raw_type in {"seo_money_page", "seo-money-page", "use_case", "use-cases", "feature", "industry", "comparison", "cluster"} else "blog"
+        page_kind = "money" if raw_type in {"seo_money_page", "seo-money-page", "solution", "solutions", "tool", "tools", "use_case", "use-cases", "feature", "industry", "comparison", "cluster"} else "blog"
         target_path = content_job_target_path(row)
         payload = {
             "topic": row["topic"] or row["title"],
@@ -7545,7 +7553,7 @@ def delegate_new_content_job_to_source_factory(site, job, binding):
         raise RuntimeError("Source factory binding has no reachable factory endpoint")
     sources = content_job_sources(job)
     content_type = str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower()
-    page_kind = "money" if content_type in {"seo_money_page", "seo-money-page", "use_case", "use-cases"} else "blog"
+    page_kind = "money" if content_type in {"seo_money_page", "seo-money-page", "solution", "solutions", "tool", "tools", "use_case", "use-cases"} else "blog"
     target_path = str(sources.get("targetPath") or source_factory_target_path(site["id"], job["slug"] or simple_slug(job["topic"]), f"/blog/{job['slug'] or simple_slug(job['topic'])}/")).strip()
     canonical_group = str(sources.get("canonicalGroup") or target_path).strip()
     locale = str(sources.get("language") or "en").strip().lower() or "en"
@@ -8420,7 +8428,7 @@ def queue_article_ideas(site_id):
             "source": idea.get("source") or "discovery",
             "source_title": idea.get("source_title") or "",
             "source_url": idea.get("source_url") or "",
-            "contentType": "seo_money_page" if str(idea.get("contentType") or "").lower() in {"use_case", "use-cases", "seo_money_page", "seo-money-page"} else "blog",
+            "contentType": NATIVE_CONTENT_TYPE_ALIASES.get(str(idea.get("contentType") or "").lower(), "blog"),
         }
         # External planning flows may prepare a reviewed SEO page brief before
         # queueing a money page. Preserve that structured contract so generation
@@ -8446,13 +8454,14 @@ def queue_article_ideas(site_id):
             job_id = secrets.token_hex(12)
             slug = simple_slug(title)
             now = now_iso()
-            is_money_page = idea.get("contentType") == "seo_money_page"
-            fallback_target_path = f"/use-cases/{slug}/" if is_money_page else f"/blog/{slug}/"
+            content_type = str(idea.get("contentType") or "blog")
+            is_money_page = content_type != "blog"
+            fallback_target_path = f"/{NATIVE_CONTENT_TYPE_PREFIXES[content_type]}/{slug}/"
             target_path = source_factory_target_path(site_id, slug, fallback_target_path)
             sources = {
                 **idea,
-                "contentType": "seo_money_page" if is_money_page else "blog",
-                "pageType": "seo_money_page" if is_money_page else "blog",
+                "contentType": content_type,
+                "pageType": content_type,
                 "targetPath": target_path,
                 "canonicalGroup": target_path,
             }

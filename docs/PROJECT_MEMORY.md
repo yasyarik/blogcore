@@ -1,12 +1,20 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — Native commercial pages support solution, tool, and use-case routes
+
+- Decision: Blog Core native content types now include `solution`, `tool`, and `use_case` in addition to `blog`. Their canonical route prefixes are `/solutions/`, `/tools/`, and `/use-cases/`.
+- Reason: a commercial page type is not synonymous with a use case. The taxonomy distinguishes a decision-led solution, an actual diagnostic utility, and an operational application scenario without creating a premature standalone services or comparisons hub.
+- GEO migration: the 11 published commercial records are classified as 6 Solutions, 2 Tools, and 3 Use cases. The reproducible migration is `deploy/migrate_geo_taxonomy.py`; it updates the site-16 job contract and native published-store filenames/paths together.
+- Compatibility: old `/use-cases/<slug>/` URLs for moved records are preserved by the GEO source renderer as permanent redirects to their new canonical route. Do not delete old URLs or re-publish duplicate records during taxonomy changes.
+- Replaced/deprecated: the earlier GEO release state in which all commercial pages, including solutions and checkers, were placed below `/use-cases/`.
+
 ## 2026-08-05 — GEO covers the remaining distinct commercial demand clusters
 
 - Decision: GEO now has two additional published typed pages under the existing `/use-cases/` contract: `AI Search Traffic Loss Audit: Diagnose Zero-Click Risk and Recovery Options` and `AI SEO Services: Build an Evidence-Led AI Search Visibility Program`.
 - Reason: these were the two remaining commercial-intent clusters in the approved GEO demand map after the initial nine-page release. They serve different decisions and must not be collapsed into generic GEO/AEO/LLMO definition pages.
 - Editorial boundary: a traffic-loss page distinguishes observed decline, zero-click risk, and causation that cannot be proven. An AI SEO services page explains an evidence-led engagement without promising rankings, citations, or engine behavior.
 - Generation rule: typed commercial briefs need an explicit six-or-more-section decision plan before generation. This supplies the structured renderer with enough useful coverage to pass the page contract without weakening validation.
-- Release state: both URLs, hero assets, TOC/FAQ/inline-image contracts, the public `/use-cases/` collection, and the GEO sitemap were verified after publication. The collection now has 11 published use cases and paginates as 6 plus 5 cards.
+- Replaced/deprecated: the earlier release state that described all 11 commercial pages as use cases. They are now distributed by the approved three-collection taxonomy.
 - Replaced/deprecated: the earlier GEO demand-map state that listed AI Search Traffic Loss/Recovery and AI SEO Services as uncovered clusters.
 
 ## 2026-08-05 — Native SEO money pages require a pre-generation page brief
