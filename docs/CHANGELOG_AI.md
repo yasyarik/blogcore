@@ -1,5 +1,25 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Make service relevance explicit without making articles promotional
+
+### Summary
+
+- Strengthened the universal article prompt for typed commercial pages.
+- Requeued the first GEO money-page draft under this rule; it remains unpublished.
+
+### Files changed
+
+- `app.py` — requires one evidence-led product decision section and explicitly forbids in-article CTA buttons and unsupported sales claims.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — record the editorial rule.
+
+### Checks run
+
+- Python compilation, PM2 restart, and health check passed.
+
+### Risks / TODO
+
+- Generated drafts still require human product and factual review before publication.
+
 ## 2026-08-05 — Queue and generate the first YAS AI Visibility money page
 
 ### Summary

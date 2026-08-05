@@ -9,6 +9,12 @@
 - Preview contract: native content stores expose a noindex product-hosted draft route at `/content-preview/<job_id>` that reads only the site-owned `data/blog-core/drafts` record. Blog Core is still the control plane and does not render a substitute product template.
 - Replaced/deprecated: the assumption that a native money page can be safely generated from a Discovery title and angle with no page brief.
 
+## 2026-08-05 — Product context is explanatory, not an in-article advertisement
+
+- Decision: every typed commercial/use-case page must contain one evidence-led decision section connecting the reader's problem with the connected site's documented capability and an appropriate next step.
+- Boundary: no in-article CTA button, pressure language, unsupported superiority claim, outcome guarantee, or invented product capability. Editorial blog pages mention a service only when it materially helps move from understanding to action.
+- Reason: content must create commercial relevance through useful explanation and product fit, not by sacrificing reader trust or people-first quality.
+
 ## 2026-08-05 — YAS AI Visibility is a separate Blog Core product
 
 - Decision: `geo.yas.ooo` is registered as an independent `native_content_store` product, with its own content context, topic strategy, manual publishing lifecycle, and dedicated native store under the GEO runtime.
