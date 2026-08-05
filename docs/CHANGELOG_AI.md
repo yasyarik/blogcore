@@ -19,6 +19,10 @@
 - Verified that the four selected records are unique canonical SEO targets; no ordinary blog task was launched.
 - Confirmed the first three are source-factory `READY`; none has been published.
 
+### Follow-up repair
+
+- Preview now binds the source template at the task's exact target URL before attempting a legacy v3 build. This keeps localized existing URLs from failing because a retired v3 site map lacks that locale.
+
 ### Risks / TODO
 
 - The corrected comparison is retried after factory restart and then needs the same native preview review as the other drafts.
