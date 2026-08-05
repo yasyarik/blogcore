@@ -1,5 +1,37 @@
 # CHANGELOG_AI.md
 
+## 2026-08-05 — Queue non-duplicate Google-demand content for MyUGC and PipsAlerts
+
+### Summary
+
+- Audited the imported English canonical inventory and unresolved factory work for My UGC Studio and PipsAlerts before expanding either queue.
+- Added three unscheduled MyUGC blog tasks: AI product background generation, product mockups versus lifestyle photography, and AI-assisted Etsy listing imagery.
+- Added five unscheduled PipsAlerts educational tasks: an economic-calendar workflow, forex backtesting, trading psychology, forex sessions, and prop-firm risk planning.
+- Confirmed that AIREP24 has 64 queued tasks: 45 SEO/money-or-other-page tasks and 19 blog tasks. None is currently scheduled.
+
+### Files changed
+
+- Live Blog Core database — created 3 `QUEUED` MyUGC tasks and 5 `QUEUED` PipsAlerts tasks through the standard queue API.
+- `docs/PROJECT_MEMORY.md` — records the reusable inventory-first demand-research and deduplication rule.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+- Search demand is an input to an original editorial brief, not a raw-query title or an automatic publication instruction.
+- PipsAlerts topics remain risk-aware education. They must not predict markets, promise returns, or frame a risk plan as financial advice.
+
+### Checks run
+
+- Queried the live inventory before queueing: MyUGC had 448 imported records and four failed legacy tasks; PipsAlerts had 61 imported records and two failed legacy tasks.
+- Checked Google autocomplete demand clusters for each queued topic family.
+- Standard queue API accepted all eight ideas with `rejectedSimilar=[]` after its semantic duplicate check.
+- Verified live state: MyUGC has 3 unscheduled queued tasks; PipsAlerts has 5 unscheduled queued tasks.
+
+### Risks / TODO
+
+- Google autocomplete expresses recurring query demand but does not provide authoritative search volumes. Use Google Trends/keyword-volume tooling when a future planning decision requires relative volume or regional prioritisation.
+- The eight tasks remain intentionally unscheduled; they require an explicit generation or publication decision.
+
 ## 2026-08-05 — Schedule the GEO Insights series every three days
 
 ### Summary

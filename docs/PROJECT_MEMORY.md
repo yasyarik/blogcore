@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — Demand-led queue expansion must respect each connected site's legacy inventory
+
+- Decision: Manual demand research for an imported site starts with its complete canonical content inventory, including legacy imported pages and unresolved factory jobs. Only distinct editorial intents may be added through the standard `article-ideas/queue` endpoint, which performs a second semantic similarity check.
+- Reason: Raw popular search phrases often map to content already present under an older URL, language variant, hub, or factory task. Queueing a surface-level variant would create cannibalisation rather than useful coverage.
+- Applied scope: My UGC Studio received three unscheduled, non-duplicate editorial tasks around AI product backgrounds, product mockups versus lifestyle photography, and Etsy listing imagery. PipsAlerts received five unscheduled, risk-aware education tasks around the economic calendar, backtesting, trading psychology, forex sessions, and prop-firm risk planning.
+- Boundary: Demand signals establish topic opportunity, not a promise about query volume, financial outcomes, product capability, or automatic publication. PipsAlerts content remains educational and must avoid signals, profit promises, or trade recommendations.
+
 ## 2026-08-05 — GEO Insight series publishes one reviewed native post every three days
 
 - Decision: the 11 remaining queued GEO `blog` tasks are scheduled at a 72-hour cadence, starting with `LLMs.txt: Useful Discovery File or SEO Myth?` on 2026-08-05T17:56:00Z and ending on 2026-09-04T17:56:00Z.
