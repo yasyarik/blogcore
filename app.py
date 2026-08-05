@@ -7604,8 +7604,12 @@ def delegate_new_content_job_to_source_factory(site, job, binding):
     return generate_legacy_factory_content_job(site, delegated_job, sources)
 
 
-def legacy_factory_request_json(url, method="GET", timeout=900):
-    req = urllib.request.Request(url, method=method, headers={"accept": "application/json"})
+def legacy_factory_request_json(url, method="GET", timeout=900, data=None):
+    body = json.dumps(data, ensure_ascii=False).encode("utf-8") if data is not None else None
+    headers = {"accept": "application/json"}
+    if body is not None:
+        headers["content-type"] = "application/json"
+    req = urllib.request.Request(url, data=body, method=method, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace"))
 
@@ -7761,6 +7765,34 @@ def legacy_factory_generate_and_sync(site_id, job_id, factory_name, old_job_id, 
         quoted_job_id = urllib.parse.quote(old_job_id)
         detail = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}")
         legacy = legacy_job_payload(detail)
+        with db() as conn:
+            dashboard_job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+        sources = content_job_sources(dashboard_job)
+        expected_contract = {
+            "contentType": str(sources.get("contentType") or sources.get("pageType") or "blog").strip().lower(),
+            "pageKind": str(sources.get("pageKind") or "blog").strip().lower(),
+            "locale": content_job_language(dashboard_job),
+            "targetPath": str(sources.get("targetPath") or "").strip(),
+        }
+        contract_mismatch = bool(expected_contract["targetPath"]) and any(
+            str(legacy.get(source_key) or "").strip().lower().rstrip("/")
+            != str(expected_value or "").strip().lower().rstrip("/")
+            for source_key, expected_value in {
+                "contentType": expected_contract["contentType"],
+                "pageKind": expected_contract["pageKind"],
+                "locale": expected_contract["locale"],
+                "targetPath": expected_contract["targetPath"],
+            }.items()
+        )
+        if contract_mismatch and str(legacy.get("status") or "").upper() != "GENERATING":
+            legacy_factory_request_json(
+                f"{base_url}/api/jobs/{quoted_job_id}",
+                method="PUT",
+                timeout=60,
+                data={**expected_contract, "resetForRegeneration": True},
+            )
+            detail = legacy_factory_request_json(f"{base_url}/api/jobs/{quoted_job_id}")
+            legacy = legacy_job_payload(detail)
         # An explicit Blog Core regenerate must invoke the source factory even when
         # the last native result was READY or PUBLISHED. Only an already-running
         # source job is polled instead of being started twice.

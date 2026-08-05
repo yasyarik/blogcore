@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-05 — Blog Core reconciles migrated source-job route contracts before generation
+
+- Decision: Before Blog Core asks a source-authoritative factory to generate a migrated job, it compares the source job's `contentType`, `pageKind`, `locale`, and `targetPath` with Blog Core's canonical contract. A mismatch is repaired through the source factory API and resets only that unpublished source draft before regeneration.
+- Reason: legacy source jobs may retain an obsolete translated route even though the connected site and the Blog Core queue own an existing canonical EN URL. Generating against the obsolete route produces a non-native preview and risks a wrong public target.
+- Boundary: reconciliation never changes a published source job, never publishes content, and does not create a generic fallback page. The exact canonical source template remains required for preview.
+
 ## 2026-08-05 — Every native money page carries an editorial support link
 
 - Decision: Before source-factory validation, every non-blog native money page must include at least one contextual link to the site editorial hub (`/blog/`) as well as its page-family links.

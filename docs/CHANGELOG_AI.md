@@ -22,6 +22,7 @@
 ### Follow-up repair
 
 - Preview now binds the source template at the task's exact target URL before attempting a legacy v3 build. This keeps localized existing URLs from failing because a retired v3 site map lacks that locale.
+- Blog Core now reconciles a migrated source job's type, page kind, locale, and target path with its canonical dashboard contract before explicit regeneration. This corrects stale ES/FR legacy routes to the existing EN target without publishing anything.
 
 ### Risks / TODO
 
