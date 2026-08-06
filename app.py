@@ -7884,7 +7884,11 @@ def validate_native_publish_contract(site, job):
 
     target_path = content_job_target_path(job)
     expected_prefix = f"/{NATIVE_CONTENT_TYPE_PREFIXES[content_type]}/"
-    if not target_path.startswith(expected_prefix):
+    native_root_route = (
+        (site["access_type"] or "").strip().lower() == "native_content_store"
+        and re.fullmatch(r"/[a-z0-9][a-z0-9-]*/", target_path)
+    )
+    if not target_path.startswith(expected_prefix) and not native_root_route:
         errors.append(f"targetPath must start with {expected_prefix}")
     if not str(job["hero_image"] or "").strip():
         errors.append("hero image is required")
@@ -8498,6 +8502,15 @@ def queue_article_ideas(site_id):
         # receives the approved H1, direct answer, CTA, and internal-link plan.
         if isinstance(idea.get("pageBrief"), dict):
             clean["pageBrief"] = idea["pageBrief"]
+        requested_target_path = str(
+            idea.get("targetPath")
+            or (idea.get("pageBrief") or {}).get("targetPath")
+            or ""
+        ).strip()
+        if requested_target_path:
+            if not re.fullmatch(r"/[a-z0-9][a-z0-9/_-]*/?", requested_target_path):
+                return jsonify({"error": f"invalid canonical targetPath: {requested_target_path}"}), 400
+            clean["targetPath"] = requested_target_path
         similar = find_similar_existing_topic(clean, existing_index)
         if similar:
             rejected.append({"idea": clean, "similar": similar})
@@ -8515,12 +8528,19 @@ def queue_article_ideas(site_id):
         for idea in clean_ideas:
             title = idea.get("title") or "Article idea"
             job_id = secrets.token_hex(12)
-            slug = simple_slug(title)
             now = now_iso()
             content_type = str(idea.get("contentType") or "blog")
             is_money_page = content_type != "blog"
-            fallback_target_path = f"/{NATIVE_CONTENT_TYPE_PREFIXES[content_type]}/{slug}/"
-            target_path = source_factory_target_path(site_id, slug, fallback_target_path)
+            title_slug = simple_slug(title)
+            fallback_target_path = f"/{NATIVE_CONTENT_TYPE_PREFIXES[content_type]}/{title_slug}/"
+            target_path = (
+                str(idea.get("targetPath") or "").strip()
+                or source_factory_target_path(site_id, title_slug, fallback_target_path)
+            )
+            # Native renderers resolve a page by the final URL segment. A reviewed
+            # canonical path therefore owns the persisted slug, rather than the
+            # possibly longer planning-title slug.
+            slug = target_path.rstrip("/").rsplit("/", 1)[-1] or title_slug
             sources = {
                 **idea,
                 "contentType": content_type,
@@ -8890,9 +8910,25 @@ def generate_content_job_route(site_id, job_id):
     def run_generation():
         try:
             generate_content_job(site_id, job_id)
-        except Exception:
-            # generate_content_job persists the full error and log before re-raising.
-            pass
+        except Exception as error:
+            # Most generator errors are recorded by generate_content_job itself,
+            # but failures before it enters its protected block must never leave
+            # the dashboard indefinitely showing GENERATING.
+            message = str(error) or error.__class__.__name__
+            with db() as conn:
+                current = conn.execute(
+                    "select status from content_jobs where site_id=? and id=?",
+                    (site_id, job_id),
+                ).fetchone()
+                if current and current["status"] == "GENERATING":
+                    conn.execute(
+                        "update content_jobs set status='ERROR', error=?, updated_at=? where site_id=? and id=?",
+                        (message, now_iso(), site_id, job_id),
+                    )
+                    conn.execute(
+                        "insert into content_job_logs(site_id,job_id,ts,level,step,message) values(?,?,?,?,?,?)",
+                        (site_id, job_id, now_iso(), "ERROR", "generate-background", message),
+                    )
 
     with db() as conn:
         conn.execute(

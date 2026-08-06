@@ -1,5 +1,13 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-06 — Native content stores may publish approved SEO pages at direct root routes
+
+- Decision: for `native_content_store` sites, a reviewed typed SEO page may own a direct canonical root route such as `/solo-sailing-holidays/`, rather than being forced below `/use-cases/`. Blog Core persists the slug from the canonical target path and permits that route only for the native-store access type.
+- Reliability: an unexpected exception outside the protected generator block must convert an in-progress job from `GENERATING` to `ERROR` with a durable task-log entry. The operator must never have to infer that a background job silently failed.
+- CabinJoin renderer contract: new direct pages use the existing CabinJoin native route/template, header, footer, image treatment, sitemap, and locale prefix routing. The adapter falls back to neutral existing chrome/recommendation metadata when a new approved slug has no hand-authored entry; it does not recreate site design per page.
+- Reason: direct product SEO routes are part of CabinJoin's native information architecture. A control plane must preserve their canonical URL and native presentation rather than remap them to its own collection taxonomy.
+- Files/areas affected: Blog Core `app.py`, CabinJoin native Next adapter on the VPS, and site-15 content-store records.
+
 ## 2026-08-05 — Blog Core reconciles migrated source-job route contracts before generation
 
 - Decision: Before Blog Core asks a source-authoritative factory to generate a migrated job, it compares the source job's `contentType`, `pageKind`, `locale`, and `targetPath` with Blog Core's canonical contract. A mismatch resets only an unpublished source draft before regeneration. If the legacy source job is already published, Blog Core creates a new source job for the canonical contract and repoints only its own unpublished queue record.

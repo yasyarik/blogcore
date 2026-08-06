@@ -1,5 +1,36 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Queue and publish CabinJoin's primary-intent SEO pages
+
+### Summary
+
+- Added eight reviewed, demand-led CabinJoin SEO page briefs for the traveller shared-trip and organiser public-trip flows; generic whole-yacht charter was kept secondary.
+- Published the native direct-route pages through CabinJoin's `native_content_store`, with complete EN/RU/FR/ES/DE variants, instead of generating a Blog Core shell or changing the product design.
+- Generalised Blog Core's native route contract: approved typed pages may preserve a direct root canonical path, and background generation now records an `ERROR` rather than remaining indefinitely in `GENERATING` if an outer failure occurs.
+- Updated the CabinJoin renderer to accept direct localized root pages and to use neutral existing chrome/recommendation fallbacks for new CMS slugs.
+
+### Files changed
+
+- `app.py` — preserves approved direct canonical target paths/slugs, validates native direct routes, and records outer background-generation errors.
+- `deploy/seed_cabinjoin_primary_intents.py` — idempotent queue seed for the eight reviewed CabinJoin page briefs.
+- `/var/www/cabinjoin-staging/lib/i18n.ts`, `/var/www/cabinjoin-staging/lib/locale-path.ts`, `/var/www/cabinjoin-staging/components/money-page.tsx` — deployed native renderer support for direct CMS pages and localized variants.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable SEO, route, and release information.
+
+### Decisions
+
+- CabinJoin's direct product SEO routes remain native site routes. Blog Core is the control plane and publisher, not a replacement page renderer.
+- Every page keeps the request-led marketplace, organiser-confirmation, and skipper/operator boundaries in its content contract.
+
+### Checks run
+
+- `python3 -m py_compile app.py deploy/seed_cabinjoin_primary_intents.py`.
+- CabinJoin `npm run build` completed and `cabinjoin-staging` was restarted after the native-route adapter update.
+- Verified published EN and RU routes return HTTP 200 with native article imagery; the CabinJoin sitemap includes newly published direct routes.
+
+### Risks / TODO
+
+- Google Autocomplete established query language but not numerical demand, geography, or seasonal priority. Use authorised Google Trends or Keyword Planner data before making those claims.
+
 ## 2026-08-06 — Research CabinJoin's two primary search-demand clusters
 
 ### Summary
