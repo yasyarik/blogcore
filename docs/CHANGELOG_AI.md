@@ -1,5 +1,30 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Research LaycanMatch demand and content gaps
+
+### Summary
+
+- Researched current search-result language around shipbroker AI and compared it with the live LaycanMatch sitemap and product positioning.
+- Confirmed the commercially relevant demand is operational: broker-email parsing, structured cargo/vessel offers, port and laycan normalization, DWT/route fit, duplicate circulars, source review, and actionable match alerts.
+- Confirmed LaycanMatch already covers the broad AI-email-parser, security, cargo-vessel-matching, laycan-extraction, productivity, data-management, feature, use-case, and generic-tool-comparison intents.
+
+### Files changed
+
+- `docs/SEO_MEMORY.md` — durable LaycanMatch demand boundary and duplicate-avoidance inventory.
+- `docs/CHANGELOG_AI.md` — this research record.
+
+### Decisions
+
+- Future topics must explain a discrete broker workflow or decision, not make LaycanMatch look like an AIS, autonomous-outreach, freight-negotiation, or fixture-guarantee platform.
+
+### Checks run
+
+- Reviewed the live LaycanMatch homepage, public sitemap, product glossary, and current search results for shipbroker AI email parsing, matching, and chartering workflows.
+
+### Risks / TODO
+
+- Search-result language is an intent signal, not verified search volume. Use an authorised keyword-volume or Trends export before making numerical demand or seasonality claims.
+
 ## 2026-08-06 — Enable LaycanMatch three-day native publication schedule
 
 ### Summary
