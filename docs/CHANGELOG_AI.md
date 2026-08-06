@@ -1,5 +1,29 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Generate every canonical AIREP24 SEO page
+
+### Summary
+
+- Generated the final canonical SEO page, `Automated Knowledge Base`, at `/features/automated-knowledge-base/` through the native AIREP24 factory.
+- The eight other active canonical SEO pages were already complete native `DRAFT` records from the prior queue run; no redundant regeneration was started.
+- The ten unique EN canonical SEO paths now have a ready native draft and private preview. Ordinary blog tasks, language duplicates, and the historical published source jobs were excluded.
+
+### Files changed
+
+- `/var/www/content-factory-airep24/factory.sqlite` — a replacement EN source job and ready draft for the canonical Automated Knowledge Base feature.
+- `/var/www/blog.yas.ooo/data/blog_core.sqlite3` — the matching Blog Core job is synchronized as `DRAFT`.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+- Confirmed all ten canonical SEO draft previews return HTTP 200 through Blog Core.
+- Confirmed Blog Core `/health` returns OK.
+- No source-factory publish endpoint was called; public pages and sitemaps were not changed.
+
+### Risks / TODO
+
+- These remain review-first drafts. Publication requires an explicit per-page or approved bulk publish action after native preview review.
+
 ## 2026-08-05 — Generate native AIREP24 SEO pages with existing URLs
 
 ### Summary
