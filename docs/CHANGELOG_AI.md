@@ -1,5 +1,22 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Verify second candidate Gemini credential for Blog Core
+
+### Summary
+
+- The second candidate credential successfully completed a real `gemini-3.5-flash` text-generation call at the standard service tier.
+- It cannot generate Blog Core article visuals: the configured `gemini-3.1-flash-image` call returned `429 too_many_requests` with zero free-tier request and input-token quota.
+- Did not install the credential as the global `GEMINI_API_KEY`. Blog Core uses that same key for text, images, and TTS; replacing the current working credential would introduce image-generation failures.
+
+### Checks run
+
+- Confirmed `generateContent` returns a successful text response with normal output capacity.
+- Confirmed the actual Blog Core image endpoint/model is blocked by provider quota, not malformed application input.
+
+### Risks / TODO
+
+- To use this credential globally, move its project to a paid tier or assign non-zero image-model quota. A future provider configuration change could support distinct text and image keys, but must not silently split credentials without an explicit configuration contract.
+
 ## 2026-08-06 — Verify candidate Gemini credential for Blog Core
 
 ### Summary
