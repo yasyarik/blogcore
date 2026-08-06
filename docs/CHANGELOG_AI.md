@@ -1,5 +1,33 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Research CabinJoin's two primary search-demand clusters
+
+### Summary
+
+- Researched live Google Autocomplete phrasing and current search results for CabinJoin's two priority flows: joining an already organised sailing trip and opening a public trip after securing a chartered yacht.
+- Confirmed that traveller demand is expressed through `solo sailing holidays`, `sailing holidays for singles`, `cabin charter sailing`, and `group sailing trips`, not primarily through the literal wording "join a yacht trip".
+- Confirmed that organiser demand is not concentrated in one mature "create a sailing trip" query. It is distributed across organising a group sailing holiday, selecting yacht/route/crew, filling a charter, publishing places, and handling participant requests.
+
+### Files changed
+
+- `docs/SEO_MEMORY.md` — records the two demand clusters, their query language, and the evidence boundary.
+- `docs/PROJECT_MEMORY.md` — records CabinJoin's durable SEO priority and the limit of Autocomplete evidence.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+- Whole-yacht charter remains a supporting topic. Future CabinJoin SEO research and queue work should lead with the traveller shared-trip and organiser trip-creation journeys.
+- Demand signals determine language and intent, not ready-made titles, numeric search volume, or publication decisions.
+
+### Checks run
+
+- Queried live Google Autocomplete for traveller and organiser phrase families.
+- Reviewed current English-language search results for solo/singles sailing, cabin charter, group sailing trips, and sailing-holiday organisation.
+
+### Risks / TODO
+
+- Google Autocomplete does not supply volumes, geography, or trend curves. Use an authorised Google Trends/Keyword Planner export before prioritising by country, season, or estimated traffic.
+
 ## 2026-08-06 — Analyse CabinJoin product and SEO positioning
 
 ### Summary
