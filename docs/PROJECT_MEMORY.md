@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-06 — LaycanMatch operational resource cluster extends the native schedule
+
+- Decision: twelve distinct source-authoritative LaycanMatch resource pages cover operational broker decisions after the existing five imported factory jobs: match scoring, port normalization, duplicate circulars, low-confidence extraction, historical search, vessel positions, cargo requirements, alerts, laycan overlap, structured circular fields, shared inbox context, and source-email review.
+- Publication: the first page is explicitly released for native factory QA; the remaining eleven publish every three days from 2026-08-22T10:00:00Z through 2026-09-21T10:00:00Z, after the existing schedule ends on 2026-08-19T10:00:00Z.
+- Boundary: all pages are `blog` records at canonical `/resources/` URLs. They explain reviewable workflow and broker judgement, never promise fixtures, negotiation, autonomous outreach, or unreviewed automation.
+
 ## 2026-08-06 — LaycanMatch native resources publish every three days
 
 - Decision: the five existing LaycanMatch source-authoritative resource tasks are explicitly scheduled at 72-hour intervals from 2026-08-07T10:00:00Z through 2026-08-19T10:00:00Z. The site setting is `every-3-days` and the existing shared scheduler owns the lifecycle.

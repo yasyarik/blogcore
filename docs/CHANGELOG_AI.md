@@ -1,5 +1,33 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Queue LaycanMatch operational resource cluster and release its first page
+
+### Summary
+
+- Added twelve demand-led operational resource briefs for LaycanMatch after checking them against the existing sitemap and five already scheduled legacy factory records.
+- Released the first new resource through `content-factory-laycanmatch`; the remaining eleven begin after the existing queue and retain an explicit 72-hour cadence.
+
+### Files changed
+
+- `deploy/seed_laycanmatch_operational_resources.py` — reproducibly queues the twelve source-authoritative `/resources/` records, schedules the following eleven, and can generate/publish the first through the native factory.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable scheduling, product-boundary, and SEO coverage record.
+
+### Decisions
+
+- The immediate first release does not displace the existing five scheduled records. The new scheduled sequence starts on 2026-08-22T10:00:00Z.
+- No generic Blog Core page is generated: the source factory remains the only renderer and publisher for LaycanMatch resources.
+
+### Checks run
+
+- `python3 -m py_compile deploy/seed_laycanmatch_operational_resources.py` passed locally and on the VPS.
+- Repaired the LaycanMatch factory's missing slug normalizer, aligned its generation structure with validation, restored its configured Gemini credential, and restarted `content-factory-laycanmatch`.
+- The first new native resource was generated and published at `https://laycanmatch.com/resources/cargo-vessel-match-scores/`; the public URL returns HTTP 200.
+- Confirmed the existing five jobs remain scheduled from 2026-08-07 through 2026-08-19 and the remaining eleven new jobs are `QUEUED` every three days from 2026-08-22 through 2026-09-21. Blog Core `/health` returns OK.
+
+### Risks / TODO
+
+- If the source factory rejects a native draft, the failed job remains visible as `ERROR` and does not fall back to generic Blog Core HTML.
+
 ## 2026-08-06 — Research LaycanMatch demand and content gaps
 
 ### Summary
