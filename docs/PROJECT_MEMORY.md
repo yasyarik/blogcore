@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-06 — LaycanMatch native resources publish every three days
+
+- Decision: the five existing LaycanMatch source-authoritative resource tasks are explicitly scheduled at 72-hour intervals from 2026-08-07T10:00:00Z through 2026-08-19T10:00:00Z. The site setting is `every-3-days` and the existing shared scheduler owns the lifecycle.
+- Publication boundary: each scheduled Blog Core job calls `content-factory-laycanmatch`, which generates and publishes to its declared native `/resources/` URL. Blog Core does not render or replace LaycanMatch's site shell.
+- Queue scope: no imported legacy record was rescheduled. The five scheduled records are the only pending source factory jobs.
+
 ## 2026-08-06 — CabinJoin recommendation cards never share a generic fallback image
 
 - Decision: a CabinJoin `Explore more` card without an explicit route thumbnail uses a deterministic fallback image chosen from a shared varied catalogue. Within one recommendation block, each fallback is unique.

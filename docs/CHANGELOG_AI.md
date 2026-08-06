@@ -1,5 +1,29 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Enable LaycanMatch three-day native publication schedule
+
+### Summary
+
+- Changed LaycanMatch from manual cadence to `Every 3 days` in the Blog Core panel.
+- Scheduled its five existing source-authoritative `/resources/` tasks from 2026-08-07T10:00:00Z to 2026-08-19T10:00:00Z at exact 72-hour intervals.
+- Added a reproducible deployment script for the approved schedule.
+
+### Files changed
+
+- `app.py` — dashboard cadence selector now supports the explicit `Every 3 days` setting.
+- `deploy/schedule_laycanmatch_resources.py` — schedules the five existing LaycanMatch jobs via the normal Blog Core API.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable schedule and native-publishing contract.
+
+### Checks run
+
+- `python3 -m py_compile app.py deploy/schedule_laycanmatch_resources.py` passed locally and on the VPS.
+- Restarted `blog-yas-core`; `/health` returns OK.
+- Confirmed five `QUEUED` site-8 jobs have the expected timestamps, `publishing_cadence=every-3-days`, and `blog-yas-core-scheduler` is online.
+
+### Risks / TODO
+
+- A source-factory generation or native validation error leaves its scheduled item in `ERROR` for review; the scheduler does not silently substitute a generic Blog Core page.
+
 ## 2026-08-06 — Prevent duplicate fallback images in CabinJoin recommendations
 
 ### Summary

@@ -4419,7 +4419,13 @@ def render_manage_site_page(site):
     cadence = site["publishing_cadence"] or "manual"
     cadence_options = "".join(
         f"<option value='{v}' {'selected' if cadence == v else ''}>{label}</option>"
-        for v, label in (("manual", "Manual"), ("weekly", "Weekly"), ("twice-weekly", "Twice weekly"), ("daily", "Daily"))
+        for v, label in (
+            ("manual", "Manual"),
+            ("daily", "Daily"),
+            ("every-3-days", "Every 3 days"),
+            ("twice-weekly", "Twice weekly"),
+            ("weekly", "Weekly"),
+        )
     )
     return (
         MANAGE_SITE_HTML.replace("__SITE_ID__", str(site["id"]))
