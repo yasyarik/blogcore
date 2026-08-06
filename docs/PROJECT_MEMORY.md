@@ -1,5 +1,14 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-06 — MyUGC source publisher requires a parity upgrade before new releases
+
+- Runtime/version: MyUGC is served by the shared legacy factory at `/var/www/content-factory` (PM2 `content-factory`, health on port 3001), not a per-site V3 factory. The checked-out Git commit is `9730c71` (`2026-03-31`, revert of a LinkedIn change), but the live worktree contains uncommitted code and backup artefacts; treat it as an unversioned production state, not a reproducible release.
+- Current behavior: the factory requests Gemini JSON with a response schema, performs research grounding, retries validation, generates a hero plus three inline WebP images, overlays the real `/var/www/landing/logo-ui.webp` asset after generation, writes EN plus enabled locale pages, updates the blog indexes/sitemaps, and commits only changed landing assets to the landing repository.
+- Quality gap: its validator checks headings, metadata, table/list, 3 images, internal links, FAQ, and product context, but has no total rendered-word minimum. New long-form work must receive an explicit prompt target and a rendered-output floor before release.
+- Native-style gap: `factory/landing.py` always renders `landing/blog/template.html`, a standalone legacy blog shell with its own inline navigation, typography, dimensions, gradients, breadcrumbs, and CTA behavior. It does not reuse the exact current `/var/www/landing` site components. Source-authoritative publishing for MyUGC must be upgraded to preserve the current native header, footer, styles, and route/template contract instead of treating the old standalone blog template as sufficient.
+- Visual-identity gap: the current image path safely composites the real logo after generation but does not supply that logo as a multimodal input when a generated image genuinely depicts an interface. Apply the shared real-logo-reference rule for interface/product-screen images; ordinary editorial photos remain logo-free.
+- Error interpretation: Blog Core's four MyUGC `ERROR` records are historic migrated states. Their canonical source articles are already live; do not regenerate or schedule them merely to clear the dashboard. The active shared factory database has 84 `PUBLISHED` jobs and no active `ERROR`/queued job at this audit.
+
 ## 2026-08-06 — Generated interface visuals use a real site-logo reference
 
 - Decision: when a generated article visual depicts an interface, dashboard, application screen, or branded product object, Blog Core extracts the scanned site's actual raster logo and sends it as a multimodal image reference. A brand name or logo description alone is not sufficient.

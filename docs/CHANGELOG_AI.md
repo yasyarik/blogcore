@@ -1,5 +1,27 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Audit MyUGC publisher version, errors, and parity
+
+### Summary
+
+- Audited the live shared `content-factory` that publishes MyUGC instead of modifying its queue or public pages.
+- Confirmed that the four Blog Core error cards are old migrated records whose source URLs are already live. The live source factory has 84 published jobs and no active error or queued source job.
+- Confirmed that generation uses Gemini response-schema JSON, research grounding, validation retries, three generated inline images, locale output, sitemap/index updates, and a landing-repository commit.
+- Identified two release-blocking parity gaps: no rendered-word-count contract, and publication through a standalone legacy `blog/template.html` rather than the exact current MyUGC page shell. Logo overlay is safe but does not meet the shared multimodal logo-reference rule for interface imagery.
+
+### Files changed
+
+- `docs/PROJECT_MEMORY.md` — recorded MyUGC publisher runtime, reproducibility state, current behavior, and parity gaps.
+- `docs/CHANGELOG_AI.md` — recorded the audit and no-change boundary.
+
+### Checks run
+
+- Inspected `/var/www/content-factory` Git state, PM2 health, writer/validator/image/renderer/publish code, source factory SQLite state and historical logs, native template, landing home/blog HTML, and latest generated article media.
+
+### Risks / TODO
+
+- Do not publish the three new MyUGC tasks until the publisher gets the shared rendered-length contract and an exact-native-template adapter. Do not change or reschedule the four migrated error records solely for dashboard hygiene.
+
 ## 2026-08-06 — Audit MyUGC Studio factory and pending queue
 
 ### Summary
