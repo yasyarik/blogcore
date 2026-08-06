@@ -1,5 +1,26 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Prevent duplicate fallback images in CabinJoin recommendations
+
+### Summary
+
+- Repaired the `Explore more` renderer after two distinct recommended routes received the same generic thumbnail.
+- A deterministic varied fallback catalogue now guarantees distinct fallback images within each recommendation block.
+
+### Files changed
+
+- `/var/www/cabinjoin-staging/components/money-page.tsx` — deployed unique recommendation-image fallback selection.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable renderer rule and this record.
+
+### Checks run
+
+- CabinJoin `npm run build` completed and `cabinjoin-staging` was restarted.
+- Verified the published CabinJoin blog now renders distinct `trips` and `boats` thumbnails in its recommendation cards; four cards render in total.
+
+### Risks / TODO
+
+- A hand-authored thumbnail map can be added later for individual destination routes, but generic fallbacks must remain unique even when that map is incomplete.
+
 ## 2026-08-06 — Publish and enable the first CabinJoin supporting blog post
 
 ### Summary

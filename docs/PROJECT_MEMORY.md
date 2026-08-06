@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-06 — CabinJoin recommendation cards never share a generic fallback image
+
+- Decision: a CabinJoin `Explore more` card without an explicit route thumbnail uses a deterministic fallback image chosen from a shared varied catalogue. Within one recommendation block, each fallback is unique.
+- Reason: one shared fallback made unrelated destination cards appear to be the same page, obscuring navigation and reducing editorial credibility.
+- Boundary: this applies only to recommendation thumbnails. It does not regenerate, replace, or reuse a page's article hero or inline editorial media.
+
 ## 2026-08-06 — CabinJoin native blog records have first-class routes and sitemap entries
 
 - Decision: CabinJoin's native adapter renders published `contentType=blog` records at `/blog/<slug>/` and each configured locale prefix using the existing product header, footer, article component, media treatment, and SEO metadata. The sitemap emits a complete localized alternate set for native blog records as well as use-case records.
