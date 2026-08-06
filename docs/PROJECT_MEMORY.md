@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-06 — CabinJoin native blog records have first-class routes and sitemap entries
+
+- Decision: CabinJoin's native adapter renders published `contentType=blog` records at `/blog/<slug>/` and each configured locale prefix using the existing product header, footer, article component, media treatment, and SEO metadata. The sitemap emits a complete localized alternate set for native blog records as well as use-case records.
+- Schema boundary: editorial blog payloads may omit a commercial primary CTA or provide an empty one. The renderer applies a neutral product fallback rather than rejecting a valid editorial payload or turning the blog schema into a money-page contract.
+- Release: `Can You Go Sailing Alone? What Solo Travellers Should Know Before Joining a Group Trip` is the first published CabinJoin blog post. All five variants are live; the remaining eleven supporting posts keep their explicit three-day schedule.
+
 ## 2026-08-06 — CabinJoin supporting blog cluster publishes every three days
 
 - Decision: the 12 CabinJoin supporting editorial posts are explicitly scheduled from 2026-08-07T10:00:00Z to 2026-09-09T10:00:00Z at a 72-hour cadence. They are `blog` jobs only; the existing direct root money pages are not regenerated or rescheduled.

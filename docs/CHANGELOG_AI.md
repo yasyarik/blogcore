@@ -1,5 +1,30 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Publish and enable the first CabinJoin supporting blog post
+
+### Summary
+
+- Generated and published `Can You Go Sailing Alone? What Solo Travellers Should Know Before Joining a Group Trip` at `/blog/can-you-go-sailing-alone/`.
+- The draft passed the native long-form contract with 2,023 EN words, seven sections, three generated media specs, six FAQ items, four inline images, and complete RU/FR/ES/DE variants.
+- Repaired the CabinJoin native adapter so every future published Blog Core `blog` record has a real `/blog/<slug>/` page, localized variants, and sitemap entries. Previously only `use_case` records had a public renderer.
+
+### Files changed
+
+- `/var/www/cabinjoin-staging/lib/money-pages.ts` — supports both native `use_case` and `blog` records; editorial CTA is optional with a neutral fallback.
+- `/var/www/cabinjoin-staging/app/blog/[slug]/page.tsx` — deployed dynamic native blog route using CabinJoin's existing chrome and article renderer.
+- `/var/www/cabinjoin-staging/lib/locale-path.ts`, `/var/www/cabinjoin-staging/app/sitemap.ts` — blog locale routing and localized sitemap alternates.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable adapter and release record.
+
+### Checks run
+
+- CabinJoin `npm run build` completed and `cabinjoin-staging` was restarted.
+- EN and RU public blog URLs return HTTP 200 and each contains six article-image blocks.
+- The live sitemap contains all five localized entries for the article.
+
+### Risks / TODO
+
+- The published first item retains its old schedule timestamp, but the scheduler selects only `QUEUED`, `GENERATING`, and `DRAFT` records, so it cannot publish it a second time.
+
 ## 2026-08-06 — Schedule CabinJoin's supporting editorial cluster
 
 ### Summary
