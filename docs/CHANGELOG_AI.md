@@ -1,5 +1,26 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Analyse CabinJoin product and SEO positioning
+
+### Summary
+
+- Audited CabinJoin's homepage and its three current canonical commercial pages: How It Works, For Yacht Trip Organisers, and For Boat Owners and Fleet Operators.
+- Confirmed the product's request-led marketplace model, its three distinct audiences, and its pre-confirmation payment/availability boundary.
+- Corrected project memory: current CabinJoin money pages are direct product routes, not `/use-cases/` pages.
+
+### Files changed
+
+- `docs/PROJECT_MEMORY.md` — current product, SEO audience, trust model, and route-positioning record.
+- `docs/CHANGELOG_AI.md` — this audit record.
+
+### Checks run
+
+- Read the public homepage and all three canonical commercial pages.
+
+### Risks / TODO
+
+- CabinJoin has no current Blog Core queue; future content should preserve the traveller, organiser, and operator intent separation rather than mix them in one generic yacht-charter topic.
+
 ## 2026-08-06 — Publish all canonical AIREP24 SEO pages
 
 ### Summary

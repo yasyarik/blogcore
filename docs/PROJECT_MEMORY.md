@@ -148,6 +148,14 @@
 - Boundary: Blog Core publishes CabinJoin SEO money pages below /use-cases/. The interactive homepage remains a native CabinJoin product page and is not managed by Blog Core.
 - Replaced/deprecated: The earlier CabinJoin-only assumption that Blog Core would be limited to a future blog tenant.
 
+## 2026-08-06 — CabinJoin product and canonical SEO positioning
+
+- Product: CabinJoin is a request-led yacht-travel marketplace. It connects solo travellers and pairs with organiser-led shared yacht trips, lets private groups request whole-yacht charters, and provides operators with a controlled listing and request workflow.
+- Trust model: no instant booking; an organiser or operator confirms availability before payment is captured. Public organiser trips require a confirmed charter first, and yacht/operator listings depend on verification and request review.
+- SEO audience split: traveller pages answer the decision between a berth/cabin on a shared crew and a private charter; organiser pages explain creating and filling a confirmed trip; operator pages explain listing, calendar control, qualified requests, and supported payment routing.
+- Current route model: the three live canonical commercial pages are direct product routes: `/how-it-works`, `/for-organizers`, and `/for-boat-owners`. The earlier 2026-07-25 route statement that CabinJoin money pages would publish below `/use-cases/` is replaced/deprecated.
+- Boundary: Blog Core remains the content lifecycle/control plane only. CabinJoin owns vessel availability, request approval, payments, verification, identity, chat, and all marketplace transactions.
+
 This file is the durable memory of the project.
 It must be updated after every meaningful task.
 
