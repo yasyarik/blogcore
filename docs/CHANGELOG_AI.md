@@ -1,5 +1,21 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Verify Gemini 2.5 Flash Image on the second credential
+
+### Summary
+
+- Tested `gemini-2.5-flash-image` with the second candidate credential using Blog Core's actual Gemini Interactions image request shape.
+- The provider returned `429 too_many_requests`: both free-tier request and input-token quota are zero for the resolved `gemini-2.5-flash-preview-image` model.
+- No production model or credential was changed.
+
+### Checks run
+
+- Sent a minimal 4:5 JPEG image request with the exact endpoint and response format used by Blog Core.
+
+### Risks / TODO
+
+- Changing the image model does not bypass the project's missing image quota. Billing or quota entitlement is required before this credential can power article images.
+
 ## 2026-08-06 — Verify second candidate Gemini credential for Blog Core
 
 ### Summary
