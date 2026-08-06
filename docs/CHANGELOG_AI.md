@@ -1,5 +1,31 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Publish and schedule MyUGC native editorial queue
+
+### Summary
+
+- Published `AI Product Background Generator: How to Create On-Brand Lifestyle Scenes Without a New Photoshoot` through the existing MyUGC source factory. The native URL returns HTTP 200, and Blog Core now records the job as `PUBLISHED`.
+- Enabled `every-3-days` for MyUGC and explicitly scheduled nine source-authoritative jobs at 72-hour intervals from 2026-08-09 through 2026-09-02 UTC.
+- Ran the generic site-context Discovery pipeline with 20 current search-demand signals. It produced 16 candidates over four passes, rejected nine duplicates/weak ideas, and added seven approved new briefs to the queue.
+- Corrected the MyUGC source publisher's sitemap/media commit behavior: the public `sitemap-blog.xml` now receives new articles along with `sitemap-en.xml`, and all local inline `/blog/` assets referenced by an article are included in its landing-repository commit.
+
+### Files changed
+
+- `/var/www/content-factory/app.py` — deployed generic public-blog sitemap synchronization and referenced-inline-media commit logic.
+- MyUGC landing repository `sitemap-blog.xml` and three generated article WebP files — committed and pushed so the live article and its inline media persist across deployments.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — recorded the schedule, discovery result, and durable source-publisher contract.
+
+### Checks run
+
+- Confirmed source factory job status `PUBLISHED`, Blog Core job status `PUBLISHED`, and public article HTTP 200.
+- Confirmed the public page has the native header, footer markup, hero, and three inline images.
+- Confirmed the article is present in the publicly declared `sitemap-blog.xml`.
+- Compiled and restarted the MyUGC source factory; confirmed its OpenAPI endpoint and Blog Core `/health` respond.
+
+### Risks / TODO
+
+- The legacy factory's publish route can complete the native release before its request finishes Search Console submission, exceeding Blog Core's 120-second synchronous request timeout. Treat a source `PUBLISHED` state plus public URL verification as authoritative and reconcile Blog Core state instead of retrying a publish blindly.
+
 ## 2026-08-06 — Visually verify MyUGC native draft preview
 
 ### Summary

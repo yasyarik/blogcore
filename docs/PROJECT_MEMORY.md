@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-06 — MyUGC publishes natively every three days with complete blog-sitemap coverage
+
+- Publication: `AI Product Background Generator: How to Create On-Brand Lifestyle Scenes Without a New Photoshoot` is live at its native MyUGC URL. Blog Core reconciled its dashboard state from the source factory after the old factory's publish request exceeded Blog Core's synchronous Gunicorn window; source status and public HTTP status were both verified before reconciliation.
+- Cadence: the prior MyUGC `manual` setting is **replaced** by `every-3-days`. Nine approved source-authoritative editorial jobs are explicitly scheduled from `2026-08-09T18:30:00Z` to `2026-09-02T18:30:00Z` in 72-hour increments. The scheduler only processes those explicit `scheduled_for` records; historic migrated errors remain excluded.
+- Discovery: the generic discovery flow used 20 current search-demand signals, generated 16 candidates across four validation passes, rejected nine duplicates or weak candidates, and queued seven new distinct editorial briefs. Topic selection remains site-context-driven rather than hard-coded for MyUGC.
+- Sitemap/media contract: the shared MyUGC source publisher must update both its internal `sitemap-en.xml` and the publicly declared `sitemap-blog.xml` on publish, unpublish, and delete. It must also commit every existing local `/blog/` asset actually referenced in rendered article HTML, including inline draft-stage images; otherwise a later deployment can break already-live media.
+
 ## 2026-08-06 — MyUGC source publisher requires a parity upgrade before new releases
 
 - Runtime/version: MyUGC is served by the shared legacy factory at `/var/www/content-factory` (PM2 `content-factory`, health on port 3001), not a per-site V3 factory. The checked-out Git commit is `9730c71` (`2026-03-31`, revert of a LinkedIn change), but the live worktree contains uncommitted code and backup artefacts; treat it as an unversioned production state, not a reproducible release.
@@ -20,7 +27,7 @@
 ## 2026-08-06 — MyUGC Studio queue is manual and separate from native V3 factories
 
 - Runtime: `myugc.studio` is site 6, connected through local webroot `/var/www/landing` and the shared online `content-factory`; it is not a `content-factory-<site>` V3 deployment.
-- Queue: three new distinct editorial tasks are `QUEUED` without dates: AI product backgrounds, product mockups versus lifestyle photography, and Etsy AI listing imagery. The site cadence is `manual`; no new MyUGC task will publish automatically until an explicit schedule is approved.
+- Replaced: three new distinct editorial tasks were initially `QUEUED` without dates while the site cadence was `manual`. The current approved schedule and expanded queue are recorded in the newer entry above.
 - Pitfall: four older migrated tasks are `ERROR` (stale generation or legacy validation), but their source URLs are already live. They must be repaired/reviewed individually, not included in a new automatic cadence.
 
 ## 2026-08-06 — LaycanMatch operational resource cluster extends the native schedule
