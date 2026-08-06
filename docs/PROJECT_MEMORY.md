@@ -6,6 +6,14 @@
 - Reason: legacy source jobs may retain an obsolete translated route even though the connected site and the Blog Core queue own an existing canonical EN URL. Generating against the obsolete route produces a non-native preview and risks a wrong public target.
 - Boundary: reconciliation never changes a published source job, never publishes content, and does not create a generic fallback page. The exact canonical source template remains required for preview.
 
+## 2026-08-06 — Published native money pages are first-class sitemap entries
+
+- Decision: A source-authoritative factory sitemap must include every `PUBLISHED`, `public`, `page_kind=money` target path whose native output exists. Routes are placed in type-aware child sitemaps such as features, comparisons, use cases, and industries.
+- Precedence: A current published native target overrides an older redirect-registry marker for the same path when building sitemap XML. The registry may describe historical migration state, but it must not remove a direct HTTP 200 canonical release from discovery.
+- Reason: A sitemap built solely from curated static blueprints omitted factory-published SEO pages even though their public URLs were valid. This blocked discovery of otherwise correctly released content.
+- Files/areas affected: `content-factory-airep24/app.py`, public `sitemap.xml`, and typed child sitemap files.
+- Replaced/deprecated: Treating curated blueprints as the only public sitemap source for a source-authoritative factory.
+
 ## 2026-08-05 — Every native money page carries an editorial support link
 
 - Decision: Before source-factory validation, every non-blog native money page must include at least one contextual link to the site editorial hub (`/blog/`) as well as its page-family links.

@@ -1,5 +1,30 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Publish all canonical AIREP24 SEO pages
+
+### Summary
+
+- Published all ten unique, existing canonical AIREP24 SEO/money-page URLs through `content-factory-airep24`; ordinary blog tasks and language duplicates were excluded.
+- Each publish used the source-authoritative v3 target renderer, preserving the native AIREP24 template, header, footer, styles, and declared URL.
+- Repaired sitemap generation so it includes all current public `page_kind=money` source targets, even when an older redirect-registry marker still exists for the same route.
+
+### Files changed
+
+- `/var/www/airep24.com/{features,comparisons,use-cases}/.../index.html` — published native target content at the ten existing SEO routes.
+- `/var/www/airep24.com/sitemap.xml`, `/var/www/airep24.com/sitemaps/{features,compare,use-cases}.xml` — rebuilt public sitemap index and typed child sitemaps.
+- `/var/www/content-factory-airep24/app.py` — sitemap registry includes published public money-page target paths and gives current native publication precedence over stale redirect metadata.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable sitemap and release record.
+
+### Checks run
+
+- All ten public canonical URLs return HTTP 200.
+- All ten URLs are present in the public typed sitemap files; the root sitemap index includes the use-case sitemap.
+- `python3 -m py_compile app.py` passed for the source factory and `content-factory-airep24` was restarted successfully.
+
+### Risks / TODO
+
+- Legacy localized imported pages remain outside this canonical EN release and were not overwritten.
+
 ## 2026-08-06 — Generate every canonical AIREP24 SEO page
 
 ### Summary
