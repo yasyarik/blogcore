@@ -1,5 +1,27 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Validate rendered V3 content and prevent invented interface marks
+
+### Summary
+
+- Corrected the previous mistaken count: the published V3 page had only about 1,052 visible words because the native renderer ignored the longer `contentHtml` and rendered `v3Page` instead.
+- V3 generation now requests 1,900-2,200 words in the rendered payload, emits a schema-constrained JSON response, and validates the actual V3 body rather than an unused HTML mirror.
+- Native V3 media is staged as page-specific assets instead of falling back to generic template images. Editorial prompts now explicitly prohibit UI devices, fake dashboards, symbols, and readable markings unless an interface was explicitly requested.
+
+### Files changed
+
+- `/var/www/content-factory-laycanmatch/app.py`, `/var/www/content-factory-laycanmatch/factory/generate.py`, `/var/www/content-factory-laycanmatch/factory/images.py` — deployed native renderer, schema, media, and visual-reference changes.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable V3 length and media contract.
+
+### Checks run
+
+- Inspected the public HTML, native V3 YAML payload, and generated WebP files directly.
+- Confirmed a ready V3 payload with 1,670 rendered section/FAQ words and published it natively at the existing URL.
+
+### Risks / TODO
+
+- The final media-only regeneration is running under the stricter no-device/no-fake-UI prompt and must be visually inspected before it replaces the current public asset set.
+
 ## 2026-08-06 — Make the LaycanMatch prompt, not rejection, control article length
 
 ### Summary

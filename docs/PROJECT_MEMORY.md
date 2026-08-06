@@ -4,7 +4,8 @@
 
 - Decision: when a generated article visual depicts an interface, dashboard, application screen, or branded product object, Blog Core extracts the scanned site's actual raster logo and sends it as a multimodal image reference. A brand name or logo description alone is not sufficient.
 - Boundary: ordinary editorial photos and illustrations do not receive a logo reference and must not invent a logo. The reference rule applies only where a logo naturally belongs in the depicted product/interface.
-- Content length: native source factories must ask Gemini for 1,500-1,800 words of body copy up front, including 150-220 words per substantive v3 section. The 1,200-word validator is a safety net against incomplete output, not the mechanism that determines desired length. LaycanMatch's former conflicting 900-word validator and 1,000-1,300-word page prompt were replaced; its first new resource was regenerated at 1,937 words and natively republished.
+- Content length: native source factories must ask Gemini for more copy than the publish minimum up front. LaycanMatch V3 pages request 1,900-2,200 rendered words with eight substantive sections and five FAQs; the rendered V3 payload, not an unused HTML mirror, is the count that matters. Its 1,400-word V3 validation floor is only a completion safeguard.
+- Media: V3 pages must stage their actual generated media beneath the native site's assets and reference those paths in the V3 payload. Template fallback images are not valid article media. For ordinary editorial imagery, explicitly forbid screens, dashboards, devices, fake UI, symbols, and readable markings; when an interface is requested, provide the real site logo as a multimodal reference rather than accepting invented iconography.
 
 ## 2026-08-06 — LaycanMatch operational resource cluster extends the native schedule
 
