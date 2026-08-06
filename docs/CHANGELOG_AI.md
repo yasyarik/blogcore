@@ -1,5 +1,29 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Make the LaycanMatch prompt, not rejection, control article length
+
+### Summary
+
+- Removed the remaining conflicting 1,000-1,300-word v3 page instruction in the LaycanMatch native factory.
+- The native generation contract now requests 1,500-1,800 words overall and 150-220 words for each substantive v3 section; the 1,200-word validator remains only a completion safeguard.
+- Regenerated and natively republished `Cargo-Vessel Match Scores` at 1,937 words without changing its public URL or site shell.
+
+### Files changed
+
+- `/var/www/content-factory-laycanmatch/factory/generate.py` — deployed source-factory prompt alignment for resource and v3 page generation.
+- `/var/www/content-factory-laycanmatch/factory/validate.py` — deployed 1,200-word safety floor retained from the prior correction.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable prompt-length and publication record.
+
+### Checks run
+
+- Compiled the deployed LaycanMatch generator, restarted `content-factory-laycanmatch`, and regenerated source job `eed8e4511d552b5958d5a842` to `READY`.
+- Counted 1,937 words after HTML stripping, natively republished to `https://laycanmatch.com/resources/cargo-vessel-match-scores/`, and confirmed HTTP 200.
+- `python3 -m py_compile app.py` and Blog Core `/health` passed after reconciling the published source state in the control panel.
+
+### Risks / TODO
+
+- The same prompt/validator alignment still needs to be carried into each separately deployed source factory; their local generators do not automatically inherit the LaycanMatch implementation.
+
 ## 2026-08-06 — Enforce real-logo references and unified long-form content minimums
 
 ### Summary
