@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-06 — Generated interface visuals use a real site-logo reference
+
+- Decision: when a generated article visual depicts an interface, dashboard, application screen, or branded product object, Blog Core extracts the scanned site's actual raster logo and sends it as a multimodal image reference. A brand name or logo description alone is not sufficient.
+- Boundary: ordinary editorial photos and illustrations do not receive a logo reference and must not invent a logo. The reference rule applies only where a logo naturally belongs in the depicted product/interface.
+- Content length: native source factories must not accept a commercial or resource page below Blog Core's 1,200-word minimum. LaycanMatch's previous 900-word money-page threshold was replaced and its first new resource is regenerating under the unified rule.
+
 ## 2026-08-06 — LaycanMatch operational resource cluster extends the native schedule
 
 - Decision: twelve distinct source-authoritative LaycanMatch resource pages cover operational broker decisions after the existing five imported factory jobs: match scoring, port normalization, duplicate circulars, low-confidence extraction, historical search, vessel positions, cargo requirements, alerts, laycan overlap, structured circular fields, shared inbox context, and source-email review.

@@ -13,6 +13,8 @@
 
 ## Content behavior
 
+* Generated product-interface visuals must use the site's scanned real logo as a multimodal reference whenever a logo is naturally visible. Editorial imagery must not invent or redraw branding; plain brand-name text is not an acceptable substitute for the visual asset.
+
 * LaycanMatch demand and content must stay anchored in an email-first shipbroker workflow: broker-email parsing, searchable cargo/vessel offers, cargo-vessel match ranking, laycan/DWT/port fit, source-email review, duplicate handling, and controlled alerts. It is not a generic maritime-intelligence, AIS, autonomous-outreach, freight-negotiation, or fixture-guarantee product.
 * Before adding LaycanMatch content, check the live sitemap: it already covers pillars for AI email parsing, parser security, cargo-vessel matching, laycan extraction, broker productivity and maritime data management, plus features, use cases, and manual-inbox/spreadsheet/CRM comparisons. New editorial tasks must not restate those page intents.
 * The approved LaycanMatch operational resource cluster expands only distinct decision-level coverage: scoring inputs, port normalization, duplicate circulars, low-confidence review, historical search, vessel/cargo setup, controlled alerts, laycan overlap, circular field capture, shared inbox context, and source-email review. These pages are source-authoritative `/resources/` records; each must preserve source provenance and describe AI as review support, not a fixture, negotiation, outreach, or execution system.

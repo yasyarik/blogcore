@@ -5770,7 +5770,7 @@ def _extract_interaction_image_b64(data):
     raise RuntimeError(f"Gemini image response did not include image data: {str(data)[:500]}")
 
 
-def _gemini_image_jpeg(prompt, aspect_ratio="4:5"):
+def _gemini_image_jpeg(prompt, aspect_ratio="4:5", reference_image=None):
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
@@ -5779,17 +5779,18 @@ def _gemini_image_jpeg(prompt, aspect_ratio="4:5"):
     image_size = os.environ.get("GEMINI_IMAGE_SIZE")
     if image_size:
         response_format["image_size"] = image_size
-    payload = {
-        "model": model,
-        "input": [{"type": "text", "text": prompt}],
-        "response_format": response_format,
-    }
-    req = urllib.request.Request(
-        "https://generativelanguage.googleapis.com/v1beta/interactions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"content-type": "application/json", "x-goog-api-key": api_key},
-        method="POST",
-    )
+    if reference_image:
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}, {"inline_data": reference_image}]}],
+            "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": aspect_ratio}},
+        }
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
+        headers = {"content-type": "application/json"}
+    else:
+        payload = {"model": model, "input": [{"type": "text", "text": prompt}], "response_format": response_format}
+        endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
+        headers = {"content-type": "application/json", "x-goog-api-key": api_key}
+    req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=240) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -6589,6 +6590,32 @@ def article_asset_url(site_id, job_id, filename):
     return f"/sites/{int(site_id)}/article-assets/{urllib.parse.quote(str(job_id), safe='')}/{urllib.parse.quote(filename, safe='')}"
 
 
+def site_logo_reference(site_id):
+    """Return the scanned site's actual raster logo for a multimodal image request."""
+    profile = get_profile(site_id)
+    header = str(profile["header_html"] or "") if profile else ""
+    candidates = re.findall(r"<img\b[^>]*\bsrc=[\"']([^\"']+)", header, flags=re.I)
+    candidates.sort(key=lambda src: 0 if re.search(r"(?:logo|brand|wordmark)", src, re.I) else 1)
+    for src in candidates:
+        if not src.startswith(("https://", "http://")):
+            continue
+        try:
+            request = urllib.request.Request(src, headers={"User-Agent": "YASBlogCore/0.1"})
+            with urllib.request.urlopen(request, timeout=20) as response:
+                mime_type = (response.headers.get_content_type() or "").lower()
+                data = response.read(1_500_000)
+            if mime_type in {"image/png", "image/jpeg", "image/webp"} and data:
+                return {"mime_type": mime_type, "data": b64encode(data).decode("ascii")}
+        except Exception:
+            continue
+    return None
+
+
+def image_requires_brand_logo(role, image):
+    details = " ".join((str(role or ""), str((image or {}).get("alt") or ""), str((image or {}).get("caption") or "")))
+    return bool(re.search(r"\b(?:interface|dashboard|software|application|app screen|product screen|platform screen|ui)\b", details, re.I))
+
+
 def build_article_image_prompt(site, job, draft, image, role):
     brand = site["brand_name"] or site["domain"]
     title = draft.get("title") or job["topic"] or "Article"
@@ -6596,13 +6623,16 @@ def build_article_image_prompt(site, job, draft, image, role):
     alt = image.get("alt") if isinstance(image, dict) else ""
     caption = image.get("caption") if isinstance(image, dict) else ""
     source_text = structured_article_plain_text(draft)[:2500]
+    logo_instruction = ""
+    if image_requires_brand_logo(role, image):
+        logo_instruction = "\n- A real brand-logo reference image is attached. Where an interface or branded object appears, use that exact supplied logo naturally. Do not redraw or invent a different logo.\n"
     return f"""
 Create one editorial raster JPEG image for a business article.
 
 FORMAT:
 - Real JPEG image, 16:9 aspect ratio.
 - Editorial/photo-realistic or polished editorial illustration, suitable for a serious website article.
-- No text overlay, no headline, no logo, no watermark, no UI screenshot, no readable text.
+- No text overlay, headline, watermark, or readable microtext. Do not invent any logo.
 - If screens, documents, labels, dashboards, packaging, or phones appear, keep them blank, blurred, turned away, or too out-of-focus to read.
 - Do not create a social media ad, poster, infographic, meme, collage, or slide.
 
@@ -6615,6 +6645,7 @@ SITE AND ARTICLE:
 - requested alt text: {alt}
 - requested caption: {caption}
 - article context: {source_text}
+{logo_instruction}
 
 VISUAL DIRECTION:
 - Make the image specific to the article's business problem and audience.
@@ -6642,7 +6673,8 @@ def generate_article_image_assets(site_id, job_id, site, job, draft, slug):
     draft["heroImage"] = hero_filename
     for role, filename, image in assets_to_generate:
         prompt = build_article_image_prompt(site, job, draft, image, role)
-        image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="16:9")
+        reference_image = site_logo_reference(site_id) if image_requires_brand_logo(role, image) else None
+        image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="16:9", reference_image=reference_image)
         if not image_bytes.startswith(b"\xff\xd8"):
             raise RuntimeError(f"Gemini image for article {role} was not JPEG")
         (target_dir / filename).write_bytes(image_bytes)

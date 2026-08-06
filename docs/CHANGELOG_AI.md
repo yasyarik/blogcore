@@ -1,5 +1,26 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Enforce real-logo references and unified long-form content minimums
+
+### Summary
+
+- Added multimodal logo-reference support to Blog Core image generation for interface, dashboard, product-screen, and branded-object visuals.
+- Restored the 1,200-word minimum in the LaycanMatch native factory and started regeneration of its first newly published resource under the unified contract.
+
+### Files changed
+
+- `app.py` — scans the existing site header for a real raster logo and supplies it as an image input only for logo-relevant generated visuals.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable visual-identity and content-length rules.
+
+### Checks run
+
+- `python3 -m py_compile app.py` passed locally and on the VPS; `blog-yas-core` was restarted and `/health` returned OK.
+- `content-factory-laycanmatch` was compiled and restarted after its 1,200-word validation update.
+
+### Risks / TODO
+
+- The current LaycanMatch page remains publicly available while its replacement completes native generation; publish the replacement only after it reaches the source factory's validated `READY` state.
+
 ## 2026-08-06 — Queue LaycanMatch operational resource cluster and release its first page
 
 ### Summary
