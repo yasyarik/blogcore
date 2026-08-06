@@ -7,6 +7,12 @@
 - Content length: native source factories must ask Gemini for more copy than the publish minimum up front. LaycanMatch V3 pages request 1,900-2,200 rendered words with eight substantive sections and five FAQs; the rendered V3 payload, not an unused HTML mirror, is the count that matters. Its 1,400-word V3 validation floor is only a completion safeguard.
 - Media: V3 pages must stage their actual generated media beneath the native site's assets and reference those paths in the V3 payload. Template fallback images are not valid article media. For ordinary editorial imagery, explicitly forbid screens, dashboards, devices, fake UI, symbols, and readable markings; when an interface is requested, provide the real site logo as a multimodal reference rather than accepting invented iconography.
 
+## 2026-08-06 — MyUGC Studio queue is manual and separate from native V3 factories
+
+- Runtime: `myugc.studio` is site 6, connected through local webroot `/var/www/landing` and the shared online `content-factory`; it is not a `content-factory-<site>` V3 deployment.
+- Queue: three new distinct editorial tasks are `QUEUED` without dates: AI product backgrounds, product mockups versus lifestyle photography, and Etsy AI listing imagery. The site cadence is `manual`; no new MyUGC task will publish automatically until an explicit schedule is approved.
+- Pitfall: four older migrated tasks are `ERROR` (stale generation or legacy validation), but their source URLs are already live. They must be repaired/reviewed individually, not included in a new automatic cadence.
+
 ## 2026-08-06 — LaycanMatch operational resource cluster extends the native schedule
 
 - Decision: twelve distinct source-authoritative LaycanMatch resource pages cover operational broker decisions after the existing five imported factory jobs: match scoring, port normalization, duplicate circulars, low-confidence extraction, historical search, vessel positions, cargo requirements, alerts, laycan overlap, structured circular fields, shared inbox context, and source-email review.

@@ -1,5 +1,24 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Audit MyUGC Studio factory and pending queue
+
+### Summary
+
+- Confirmed MyUGC Studio is connected as site 6 through `/var/www/landing` and the shared online `content-factory` process.
+- Confirmed its publishing cadence remains manual. Three new content tasks are queued without a schedule; four older migrated records are in `ERROR` and retain already-live source URLs.
+
+### Files changed
+
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — recorded the current runtime, queue, and error boundary.
+
+### Checks run
+
+- Inspected the Blog Core sites/content-job SQLite records, queued-task source contracts, PM2 process state, and shared factory health endpoint.
+
+### Risks / TODO
+
+- Do not enable MyUGC automatic publishing until the desired cadence is chosen and the four legacy error records are triaged separately.
+
 ## 2026-08-06 — Validate rendered V3 content and prevent invented interface marks
 
 ### Summary
