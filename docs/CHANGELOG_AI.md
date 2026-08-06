@@ -1,5 +1,29 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Add a dedicated Gemini text credential path
+
+### Summary
+
+- Added `GEMINI_TEXT_API_KEY` as the first-choice credential for Gemini text work in Blog Core and deployed the same routing to the six source-authoritative factories: MyUGC, YAS Wine, SoloCruz, LaycanMatch, AIREP24, and PipsAlerts.
+- Text work includes site/topic analysis, Discovery, article/page generation, translation, and social-copy generation. Gemini image and TTS calls intentionally retain `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
+- Added the secondary credential only to ignored production `.env` files; no secret was committed or documented.
+
+### Files changed
+
+- `app.py` — resolves `GEMINI_TEXT_API_KEY` before generic Gemini credentials for text generation.
+- `docs/DEPLOYMENT.md`, `docs/INTEGRATIONS.md`, `docs/PROJECT_MEMORY.md` — document the credential boundary and durable rationale.
+- `/var/www/content-factory*` source-factory runtime code — deployed equivalent text-key precedence without routing image/TTS calls through it.
+
+### Checks run
+
+- Confirmed the credential completes a live `gemini-3.5-flash` text request.
+- Ran Blog Core Discovery against one live signal: 14 validated ideas were returned; the operation did not queue or publish content.
+- Compiled Blog Core and all six source factories, restarted their PM2 processes, and confirmed Blog Core health plus all source-factory ports.
+
+### Risks / TODO
+
+- The secondary project currently has no usable Gemini image quota. Keep it text-only unless its media entitlement changes.
+
 ## 2026-08-06 — Verify Gemini 2.5 Flash Image on the second credential
 
 ### Summary

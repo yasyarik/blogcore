@@ -1,5 +1,10 @@
 # INTEGRATIONS.md
 
+## Gemini credential routing
+
+* `GEMINI_TEXT_API_KEY` is an optional text-only credential. When configured, it takes precedence for site analysis, Discovery, article/page writing, translation, and social copy in Blog Core and source-authoritative factories.
+* Gemini image and TTS calls intentionally continue to use `GEMINI_API_KEY` or `GOOGLE_API_KEY`. A text project with no image quota must never silently replace the credential used for media generation.
+
 ## Native content-store typed route contract
 
 Native JSON records preserve `contentType` and `targetPath`.

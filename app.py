@@ -5641,7 +5641,7 @@ def generate_article_ideas(site, signals, existing_index=None):
             ideas.append(idea)
         return len(ideas) - accepted_before
 
-    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+    if os.environ.get("GEMINI_TEXT_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
         try:
             generation_passes += 1
             payload = _gemini_text_json(build_journalist_article_ideas_prompt(site, usable_signals, existing_index))
@@ -5701,7 +5701,9 @@ def _parse_json_text(text):
 
 
 def _gemini_generate_text(prompt, temperature=0.55, timeout=180, response_schema=None):
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    # Text may use a separate quota/billing project; image and TTS paths retain
+    # their existing Gemini/Google key resolution below.
+    api_key = os.environ.get("GEMINI_TEXT_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
     model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"

@@ -63,7 +63,8 @@ systemctl reload nginx
 * `ADMIN_HOSTS`: default `blog.yas.ooo,127.0.0.1,localhost`.
 * `CNAME_TARGET`: default `blog.yas.ooo`.
 * `HOSTED_BLOG_IPS`: default `72.61.1.109`.
-* `GEMINI_API_KEY` or `GOOGLE_API_KEY`: enables Gemini article generation and automatic site topic-profile inference.
+* `GEMINI_TEXT_API_KEY`: optional text-only credential with precedence for Gemini planning, article generation, translation, and social-copy generation. It does not apply to images or TTS.
+* `GEMINI_API_KEY` or `GOOGLE_API_KEY`: fallback credential for Gemini text work and the credential used for Gemini image generation and TTS.
 * `GEMINI_TEXT_MODEL`, `GEMINI_MODEL_TEXT`, or `GEMINI_MODEL`: optional text-model override.
 * `GSC_SERVICE_ACCOUNT_FILE`: optional path override for deploy scripts that submit sitemaps through Google Search Console.
 * `GSC_INSPECTION_URLS`: optional comma-separated canonical URL override for the daily Search Console URL Inspection set.

@@ -1,5 +1,12 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-06 — Gemini text credentials are separate from media credentials
+
+- Decision: Blog Core and the six bound source-authoritative factories use optional `GEMINI_TEXT_API_KEY` first for site analysis, Discovery, article/page writing, translation, and social-copy generation. `GEMINI_API_KEY` and `GOOGLE_API_KEY` remain the fallback for text and the required credentials for Gemini image and TTS calls.
+- Reason: a tested secondary Gemini project can generate text but has no image quota. Splitting the credential path increases text capacity without degrading existing image or podcast generation.
+- Scope: Blog Core plus MyUGC, YAS Wine, SoloCruz, LaycanMatch, AIREP24, and PipsAlerts source factories. Credentials remain only in ignored server `.env` files.
+- Replaced/deprecated: treating one global Gemini key as necessarily responsible for every text, image, and speech call.
+
 ## 2026-08-06 — MyUGC publishes natively every three days with complete blog-sitemap coverage
 
 - Publication: `AI Product Background Generator: How to Create On-Brand Lifestyle Scenes Without a New Photoshoot` is live at its native MyUGC URL. Blog Core reconciled its dashboard state from the source factory after the old factory's publish request exceeded Blog Core's synchronous Gunicorn window; source status and public HTTP status were both verified before reconciliation.
