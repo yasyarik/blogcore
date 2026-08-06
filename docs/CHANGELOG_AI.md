@@ -7,6 +7,7 @@
 - Audited CabinJoin's homepage and its three current canonical commercial pages: How It Works, For Yacht Trip Organisers, and For Boat Owners and Fleet Operators.
 - Confirmed the product's request-led marketplace model, its three distinct audiences, and its pre-confirmation payment/availability boundary.
 - Corrected project memory: current CabinJoin money pages are direct product routes, not `/use-cases/` pages.
+- Follow-up analysis clarified the central model: a verified organiser first confirms a charter and then forms a crew; CabinJoin orchestrates the marketplace and payment/request workflow but is not the yacht-trip supplier.
 
 ### Files changed
 
