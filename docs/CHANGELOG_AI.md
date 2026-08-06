@@ -8,6 +8,7 @@
 - Confirmed the product's request-led marketplace model, its three distinct audiences, and its pre-confirmation payment/availability boundary.
 - Corrected project memory: current CabinJoin money pages are direct product routes, not `/use-cases/` pages.
 - Follow-up analysis clarified the central model: a verified organiser first confirms a charter and then forms a crew; CabinJoin orchestrates the marketplace and payment/request workflow but is not the yacht-trip supplier.
+- Product-owner correction: the three primary user flows are whole-yacht charter by any private group, joining an already organised trip, and creating a public trip from an already chartered yacht. Future SEO/content work must use this framing.
 
 ### Files changed
 

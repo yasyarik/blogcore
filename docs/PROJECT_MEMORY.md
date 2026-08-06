@@ -150,7 +150,7 @@
 
 ## 2026-08-06 — CabinJoin product and canonical SEO positioning
 
-- Product: CabinJoin is a request-led yacht-travel marketplace. It connects solo travellers and pairs with organiser-led shared yacht trips, lets private groups request whole-yacht charters, and provides operators with a controlled listing and request workflow.
+- Product: CabinJoin is a request-led yacht-travel marketplace with three primary user paths: (1) anyone can request a whole yacht for their own group, (2) a traveller can join an already organised shared yacht trip, and (3) an organiser can create a public trip on CabinJoin after securing a specific chartered yacht.
 - Marketplace model: the organiser is a distinct supply-and-community role, not merely a traveller. They first secure a specific charter, then open a real trip, define places and rules, approve travellers, and coordinate the crew. CabinJoin does not own vessels, employ skippers, or become the supplier of the voyage.
 - Trust model: no instant booking; an organiser or operator confirms availability before payment is captured. Public organiser trips require a confirmed charter first, and yacht/operator listings depend on verification and request review.
 - Transaction and responsibility boundary: CabinJoin provides discovery, requests, checkout, account tools, and crew communication. Prices are shown in EUR; Stripe processes payments and, where enabled, connected-account routing sends the supplier share to the authorised organiser/operator while CabinJoin records its disclosed fee. The organiser, owner, or named supplier remains responsible for the actual trip/yacht service and the skipper retains navigational safety authority.
