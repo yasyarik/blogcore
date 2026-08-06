@@ -1,5 +1,22 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Verify candidate Gemini credential for Blog Core
+
+### Summary
+
+- Tested the user-provided Gemini credential without logging or persisting its value.
+- Gemini accepted the credential for model discovery, but a minimal `generateContent` request against Blog Core's configured text model returned `429 RESOURCE_EXHAUSTED` because the associated project's prepaid credits are depleted.
+- Did not replace either existing ignored production key. Changing `GEMINI_API_KEY` or `GOOGLE_API_KEY` now would make Blog Core generation unavailable.
+
+### Checks run
+
+- Confirmed model-list access through the Gemini Generative Language API.
+- Confirmed a real text-generation request is blocked by provider billing/credit exhaustion.
+
+### Risks / TODO
+
+- Add prepaid Gemini API credits to the credential's associated AI Studio project, then retest generation before installing it in `/var/www/blog.yas.ooo/.env`.
+
 ## 2026-08-06 — Publish and schedule MyUGC native editorial queue
 
 ### Summary
