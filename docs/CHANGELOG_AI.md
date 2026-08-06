@@ -16,11 +16,11 @@
 ### Checks run
 
 - Inspected the public HTML, native V3 YAML payload, and generated WebP files directly.
-- Confirmed a ready V3 payload with 1,670 rendered section/FAQ words and published it natively at the existing URL.
+- Confirmed the final ready V3 payload with 1,790 rendered section/FAQ words and natively republished it at the existing URL.
 
 ### Risks / TODO
 
-- The final media-only regeneration is running under the stricter no-device/no-fake-UI prompt and must be visually inspected before it replaces the current public asset set.
+- The final image set was visually inspected before publication: it uses physical broker/port workflow scenes without fake dashboards, devices, symbols, or readable UI markings.
 
 ## 2026-08-06 — Make the LaycanMatch prompt, not rejection, control article length
 
