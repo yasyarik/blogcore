@@ -1,5 +1,34 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Bring MyUGC publisher and native preview to the shared contract
+
+### Summary
+
+- Updated the live MyUGC source factory to request 1,800-2,200 body words and reject drafts below 1,500 rendered words while retaining its existing structural SEO checks.
+- Updated its image pipeline: ordinary editorial images are logo-free; interface/product-screen images receive the real `logo-ui.webp` as Gemini image input and the same asset as the final exact overlay.
+- Updated the source renderer to use the live MyUGC blog index's current shared-header assets and footer for new factory pages.
+- Made Blog Core preview source-factory compatible: private preview links remain preferred, with a safe native `/preview/{id}` fallback only when an older compatible factory has no preview-link endpoint.
+- Generated the queued MyUGC article `AI Product Background Generator: How to Create On-Brand Lifestyle Scenes Without a New Photoshoot` as an unpublished native `DRAFT`.
+
+### Files changed
+
+- `/var/www/content-factory/factory/generate.py`, `/var/www/content-factory/factory/validate.py` — deployed long-form prompt and rendered-word validation.
+- `/var/www/content-factory/factory/images.py` — deployed conditional real-logo multimodal reference and overlay behavior.
+- `/var/www/content-factory/factory/landing.py` — deployed live shared-header/footer reuse for MyUGC factory article pages.
+- `app.py` — added source-factory preview compatibility fallback without generic Blog Core rendering.
+- `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — recorded the durable publisher and preview contract.
+
+### Checks run
+
+- Compiled the four source-factory modules, restarted `content-factory`, and confirmed its health endpoint.
+- Compiled/restarted Blog Core and confirmed `/health`.
+- Confirmed the public dashboard preview route returns HTTP 200 with the current shared-header script, `has-shared-header` body class, and live MyUGC footer.
+- Verified the generated draft has 1,906 body words, 7 H2 sections, 3 inline images, 6 internal blog links, 5 FAQ items, and one staged hero image.
+
+### Risks / TODO
+
+- The draft is intentionally not published. Review the native preview before using the explicit publish action.
+
 ## 2026-08-06 — Audit MyUGC publisher version, errors, and parity
 
 ### Summary
