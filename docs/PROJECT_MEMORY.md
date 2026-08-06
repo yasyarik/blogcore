@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-06 — CabinJoin supporting blog cluster publishes every three days
+
+- Decision: the 12 CabinJoin supporting editorial posts are explicitly scheduled from 2026-08-07T10:00:00Z to 2026-09-09T10:00:00Z at a 72-hour cadence. They are `blog` jobs only; the existing direct root money pages are not regenerated or rescheduled.
+- Content rule: each post answers a discrete traveller or organiser decision and links contextually to its relevant published direct SEO page. It must preserve CabinJoin's request-led, organiser-confirmation, supplier, and skipper-responsibility boundaries.
+- Runtime: the already-online `blog-yas-core-scheduler` processes the due native lifecycle as generation followed by explicit native publication. It does not create or publish social content.
+
 ## 2026-08-06 — Native content stores may publish approved SEO pages at direct root routes
 
 - Decision: for `native_content_store` sites, a reviewed typed SEO page may own a direct canonical root route such as `/solo-sailing-holidays/`, rather than being forced below `/use-cases/`. Blog Core persists the slug from the canonical target path and permits that route only for the native-store access type.

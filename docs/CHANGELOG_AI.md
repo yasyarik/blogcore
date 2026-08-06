@@ -1,5 +1,33 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Schedule CabinJoin's supporting editorial cluster
+
+### Summary
+
+- Queued twelve non-duplicative CabinJoin blog posts that support the published traveller shared-trip and organiser public-trip SEO pages.
+- Scheduled one native publication every three days, from 2026-08-07T10:00:00Z through 2026-09-09T10:00:00Z.
+- Each brief carries its intended direct money-page links and preserves CabinJoin's request-led marketplace and trip-responsibility boundaries.
+
+### Files changed
+
+- `deploy/seed_cabinjoin_supporting_blogs.py` — reproducibly queues the twelve `/blog/` tasks and applies their explicit UTC schedule through Blog Core's normal APIs.
+- `docs/PROJECT_MEMORY.md`, `docs/SEO_MEMORY.md`, `docs/CHANGELOG_AI.md` — schedule, supporting-cluster, and durable SEO rules.
+
+### Decisions
+
+- No additional CabinJoin money pages were added. The next layer is editorial support, not near-duplicate commercial routes.
+- The scheduler only advances these explicitly scheduled content jobs and never creates social posts.
+
+### Checks run
+
+- `python3 -m py_compile deploy/seed_cabinjoin_supporting_blogs.py` passed locally and on the VPS.
+- Confirmed all twelve site-15 jobs are `QUEUED` with timestamps at exactly 72-hour intervals.
+- Confirmed PM2 `blog-yas-core-scheduler` is online and Blog Core `/health` returns OK.
+
+### Risks / TODO
+
+- A provider or content-validation failure leaves the individual due job in `ERROR`; it requires review/reschedule and must not be silently skipped.
+
 ## 2026-08-06 — Queue and publish CabinJoin's primary-intent SEO pages
 
 ### Summary
