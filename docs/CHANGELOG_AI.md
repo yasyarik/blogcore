@@ -1,5 +1,19 @@
 # CHANGELOG_AI.md
 
+## 2026-08-06 — Visually verify MyUGC native draft preview
+
+### Summary
+
+- Investigated the report of a missing MyUGC header and media on the generated draft using the public Blog Core preview in a real browser.
+- The active native preview correctly renders the shared MyUGC header, hero image, three inline WebP images, and site footer. No browser-console errors were present.
+- No publication or further content change was made.
+
+### Checks run
+
+- Confirmed the live header has four rendered children and expected navigation/actions.
+- Confirmed the hero background and all three inline images resolve from `https://myugc.studio/blog/` with 1024x1024 natural dimensions.
+- Confirmed the native preview has no console errors.
+
 ## 2026-08-06 — Bring MyUGC publisher and native preview to the shared contract
 
 ### Summary
