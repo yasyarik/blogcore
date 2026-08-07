@@ -1,5 +1,21 @@
 # CHANGELOG_AI.md
 
+## 2026-08-07 — Preserve native Pinterest metadata in Zernio publication
+
+### Summary
+
+- Updated the shared Zernio publisher so Pinterest sends the generated Pin title, destination URL, and configured board ID as Pinterest-specific data rather than reducing a Pin to generic post text and media.
+- Corrected the external post mapping to use Zernio's required `platform` field instead of Blog Core's internal `channel` field.
+
+### Files changed
+
+- `app.py` — maps reviewed Pinterest Pin fields into the Zernio post payload.
+- `docs/INTEGRATIONS.md`, `docs/PROJECT_MEMORY.md` — record the cross-site publishing contract.
+
+### Checks run
+
+- Verified the Zernio Pinterest API requires a board and supports native title and link fields for image Pins.
+
 ## 2026-08-06 — Add a dedicated Gemini text credential path
 
 ### Summary

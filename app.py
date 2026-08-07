@@ -3197,13 +3197,22 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None):
             results.append({"channel": channel, "ok": False, "error": "Missing Zernio account mapping."})
             continue
         payload = parse_json_object(row["content_json"])
-        platform = {"channel": channel, "accountId": account_id}
+        platform = {"platform": channel, "accountId": account_id}
         if channel == "twitter":
             thread_items = ((payload.get("twitter") or {}).get("threadItems") or [])
             if len(thread_items) > 1:
                 platform["platformSpecificData"] = {"threadItems": [{"content": item} for item in thread_items]}
-        if channel == "pinterest" and credentials.get("pinterest_board_id"):
-            platform["platformSpecificData"] = {"boardId": credentials["pinterest_board_id"]}
+        if channel == "pinterest":
+            pin = payload.get("pin") if isinstance(payload.get("pin"), dict) else {}
+            pinterest_data = {}
+            if credentials.get("pinterest_board_id"):
+                pinterest_data["boardId"] = credentials["pinterest_board_id"]
+            if pin.get("pinTitle"):
+                pinterest_data["title"] = pin["pinTitle"]
+            if pin.get("destinationUrl"):
+                pinterest_data["link"] = pin["destinationUrl"]
+            if pinterest_data:
+                platform["platformSpecificData"] = pinterest_data
         if channel == "reddit":
             subreddit = str(credentials.get("reddit_subreddit") or "").strip().removeprefix("r/")
             if not subreddit:

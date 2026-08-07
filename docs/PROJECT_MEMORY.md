@@ -7,6 +7,18 @@
 - Scope: Blog Core plus MyUGC, YAS Wine, SoloCruz, LaycanMatch, AIREP24, and PipsAlerts source factories. Credentials remain only in ignored server `.env` files.
 - Replaced/deprecated: treating one global Gemini key as necessarily responsible for every text, image, and speech call.
 
+## 2026-08-07 — Pinterest Pins retain their native search and traffic metadata in Zernio
+
+- Decision: The generic Zernio adapter sends a Pinterest Pin's reviewed `pinTitle`, `destinationUrl`, and configured board ID as platform-specific data, alongside its generated 2:3 JPEG asset.
+- Reason: Pinterest is a visual search surface. Sending only generic post text and an image discards the Pin title and click destination that make it discoverable and useful as a traffic asset.
+- Scope: all Blog Core sites using the Zernio Pinterest channel; it does not alter the site article or generic social copy.
+
+## 2026-08-07 — Zernio publishing uses the provider's platform field
+
+- Decision: Blog Core maps its internal social channel name to Zernio's required `platform` field when creating a post, with the configured `accountId` and channel-specific payload.
+- Reason: `channel` is a Blog Core concept; Zernio's public API contract requires `platform`. Using the internal field risks a rejected or un-routable publication.
+- Scope: all Zernio-supported channels: X, Pinterest, Instagram, Threads, and Reddit.
+
 ## 2026-08-06 — MyUGC publishes natively every three days with complete blog-sitemap coverage
 
 - Publication: `AI Product Background Generator: How to Create On-Brand Lifestyle Scenes Without a New Photoshoot` is live at its native MyUGC URL. Blog Core reconciled its dashboard state from the source factory after the old factory's publish request exceeded Blog Core's synchronous Gunicorn window; source status and public HTTP status were both verified before reconciliation.
