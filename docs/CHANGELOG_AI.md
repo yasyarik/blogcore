@@ -17,6 +17,7 @@
 
 - Confirmed the VPS has Pillow and ImageMagick available for raster processing.
 - Identified and corrected a MyUGC scan edge case: a site with no raster `<img>` in its saved header now falls back to its standard local webroot logo asset before composition.
+- Installed the declared Pillow dependency in Blog Core's production virtual environment. Generated and visually checked an unpublished MyUGC Pin: it has a human-free source shirt above four varied applications below and the exact MyUGC logo overlay.
 
 ## 2026-08-07 — Publish a MyUGC visual Pin test
 
