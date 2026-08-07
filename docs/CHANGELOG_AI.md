@@ -1,5 +1,15 @@
 # CHANGELOG_AI.md
 
+## 2026-08-07 — Publish the structured MyUGC visual Pin
+
+### Summary
+
+- Published the reviewed source-to-variation MyUGC visual Pin through the configured Zernio Pinterest connection.
+
+### Checks run
+
+- Confirmed the provider returned `SENT`, Blog Core recorded its public URL, and the Pinterest page responds with HTTP 200.
+
 ## 2026-08-07 — Enforce source-to-variation structure for visual Pins
 
 ### Summary
