@@ -1,5 +1,17 @@
 # CHANGELOG_AI.md
 
+## 2026-08-07 — Publish a MyUGC visual Pin test
+
+### Summary
+
+- Published the reviewed MyUGC `one_outfit_many_people` visual showcase Pin through the configured per-site Zernio Pinterest account and board.
+- The Pin links to the MyUGC homepage and remains independent of article/page publication.
+
+### Checks run
+
+- Confirmed Zernio returned `SENT` with a public Pinterest URL.
+- Confirmed the public Pinterest URL responds with HTTP 200 and Blog Core stores the same provider URL.
+
 ## 2026-08-07 — Add standalone Pinterest visual showcase Pins
 
 ### Summary
