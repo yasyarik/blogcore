@@ -95,7 +95,7 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * `POST /api/sites/{site_id}/source-factory/sync` synchronizes a bound source factory's inventory into Blog Core without generating, publishing, changing a source page, or creating a public mirror. Matching is by existing source job ID, canonical URL path, then slug. It can safely be rerun.
 * `POST /api/sites/{site_id}/source-factory/backfill` is the inverse one-time migration for imported records that predate their source factory: it creates only `NEW` source jobs with the preserved type, locale, canonical group, and target path, then stores the source IDs in Blog Core. It never generates or publishes and is safe to rerun because already linked records are skipped.
 * Source-factory lifecycle requests resolve the endpoint from `site_factory_bindings` first. The old factory-name endpoint map is only a fallback for records created before bindings existed.
-* Explicitly scheduled article jobs use `content_jobs.scheduled_for` and the separate `blog-yas-core-scheduler` PM2 worker. At the scheduled UTC time it starts native generation, waits for the source factory to return a draft, then publishes through that same source factory. This worker never creates or publishes social posts. Only jobs with an explicit timestamp are eligible.
+* Explicitly scheduled article jobs use `content_jobs.scheduled_for` and the separate `blog-yas-core-scheduler` PM2 worker. At the scheduled UTC time it starts native generation, waits for the source factory to return a draft, then publishes through that same source factory. Only jobs with an explicit timestamp are eligible.
 
 ## Native content-store sites
 
@@ -150,6 +150,7 @@ Blog Core is being adapted toward feature parity with `/var/www/content-factory-
 * Zernio's post payload uses `platform` with the channel name and `accountId`; it must not use Blog Core's internal `channel` field name in the external API payload.
 * Before sending Zernio drafts, Blog Core retains only the newest `DRAFT` for each channel and marks older retries `SUPERSEDED`. Each external request has a deterministic `x-request-id`, so a transport retry for the same draft cannot create a second provider post.
 * Zernio may return the public network URL inside its per-platform result. Blog Core stores that `platformPostUrl` when available, falling back to the provider post ID only if no public URL is returned.
+* Social scheduling is independent per channel in `autopublish_settings.social_cadences_json`: each connected Zernio channel can be paused (`0`) or set to 1-12 reviewed drafts per day within the site's distribution window/timezone. The shared scheduler never creates an article, generates new media, or publishes an unreviewed social draft; it only sends the oldest reviewed `DRAFT` for the due channel slot.
 * The old YAS Wine prompt is not copied literally because it contains wine-only rules. Blog Core uses a universal prompt contract populated from connected site context and topic strategy.
 
 Pending parity work after the initial backbone:

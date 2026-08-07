@@ -1,5 +1,23 @@
 # CHANGELOG_AI.md
 
+## 2026-08-07 — Schedule reviewed social formats independently
+
+### Summary
+
+- Added per-channel social cadence settings to Distribution. Each channel can be paused or assigned 1-12 publications per day, independently of article/page publication cadence.
+- Kept blog/page schedules unchanged: they still require explicit `scheduled_for` timestamps and are never created by the social scheduler.
+- Extended the existing scheduler to publish only the oldest reviewed Zernio `DRAFT` at each due channel slot. It never generates a social creative or creates/publishes content automatically.
+
+### Files changed
+
+- `app.py` — schema migration, cadence persistence/API, Distribution controls, and social scheduling runner.
+- `scheduler.py` — invokes the social scheduling runner alongside explicit content scheduling.
+- `docs/INTEGRATIONS.md`, `docs/PROJECT_MEMORY.md` — record the operational boundary.
+
+### Risks / TODO
+
+- Direct-provider channels are intentionally excluded until their live publish adapters are implemented; current automatic cadence applies to connected Zernio channels.
+
 ## 2026-08-07 — Preserve native Pinterest metadata in Zernio publication
 
 ### Summary

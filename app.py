@@ -20,6 +20,7 @@ from hmac import new as hmac_new
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_from_directory
 from native_site_chrome import LiveSiteChrome
@@ -278,6 +279,7 @@ def init_db():
                 instagram_include_link integer not null default 0,
                 threads_include_link integer not null default 0,
                 reddit_include_link integer not null default 0,
+                social_cadences_json text not null default '{}',
                 last_slot_key text,
                 last_run_at text,
                 updated_at text not null,
@@ -398,6 +400,7 @@ def init_db():
             "alter table autopublish_settings add column instagram_include_link integer not null default 0",
             "alter table autopublish_settings add column threads_include_link integer not null default 0",
             "alter table autopublish_settings add column reddit_include_link integer not null default 0",
+            "alter table autopublish_settings add column social_cadences_json text not null default '{}'",
         ):
             try:
                 conn.execute(statement)
@@ -1910,6 +1913,38 @@ def get_autopublish_settings(site_id):
         return conn.execute("select * from autopublish_settings where site_id=?", (site_id,)).fetchone()
 
 
+def get_social_cadences(settings):
+    raw = parse_json_object(settings["social_cadences_json"] if settings and "social_cadences_json" in settings.keys() else "{}")
+    result = {}
+    for channel in SOCIAL_CHANNEL_LIMITS:
+        value = raw.get(channel) if isinstance(raw, dict) else None
+        if not isinstance(value, dict):
+            value = {}
+        try:
+            posts_per_day = int(value.get("postsPerDay") or 0)
+        except (TypeError, ValueError):
+            posts_per_day = 0
+        result[channel] = {"enabled": bool(value.get("enabled")) and posts_per_day > 0, "postsPerDay": max(0, min(posts_per_day, 12))}
+    return result
+
+
+def social_schedule_slots(posts_per_day, start_hour, end_hour):
+    posts_per_day = max(1, min(int(posts_per_day), 12))
+    start_minutes = max(0, min(int(start_hour), 23)) * 60
+    end_minutes = max(start_minutes, min(int(end_hour), 23) * 60 + 59)
+    if posts_per_day == 1:
+        return [start_minutes]
+    span = end_minutes - start_minutes
+    return sorted({round(start_minutes + (span * index / (posts_per_day - 1))) for index in range(posts_per_day)})
+
+
+def social_schedule_timezone(name):
+    try:
+        return ZoneInfo(str(name or "UTC"))
+    except Exception:
+        return timezone.utc
+
+
 def get_topic_discovery_settings(site_id):
     with db() as conn:
         row = conn.execute("select * from topic_discovery_settings where site_id=?", (site_id,)).fetchone()
@@ -3174,19 +3209,21 @@ def zernio_media_items(channel, payload):
     return []
 
 
-def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None):
+def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=None):
     connections = get_social_connections(site_id)
     zernio = connections.get("zernio")
     credentials = get_social_credentials(zernio)
     if not zernio or zernio["status"] not in {"configured", "connected"} or not social_credentials_complete("zernio", credentials):
         raise ValueError("Configure and test Zernio in Setup before publishing these channels.")
     api_key = str(credentials.get("api_key") or os.environ.get("ZERNIO_API_KEY") or "").strip()
+    requested_channels = {channel for channel in (channels or ZERNIO_SOCIAL_CHANNELS) if channel in ZERNIO_SOCIAL_CHANNELS}
     with db() as conn:
         draft_rows = conn.execute(
             """select * from social_posts where site_id=? and job_id=? and status='DRAFT'
                and channel in ('twitter','pinterest','instagram','threads','reddit') order by id asc""",
             (site_id, job_id),
         ).fetchall()
+    draft_rows = [row for row in draft_rows if row["channel"] in requested_channels]
     if not draft_rows:
         raise ValueError("No unpublished Zernio social drafts are ready for this content task.")
     # One content task may have been retried after a slow media request. Publish
@@ -4253,6 +4290,7 @@ def render_distribution_settings(site_id):
         selected = set(json.loads(auto["channels_json"] or "[]"))
     except Exception:
         selected = {"linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads"}
+    social_cadences = get_social_cadences(auto)
     channel_cards = []
     for provider in SOCIAL_CHANNEL_LIMITS:
         label = SOCIAL_CHANNEL_LABELS.get(provider, provider)
@@ -4260,6 +4298,8 @@ def render_distribution_settings(site_id):
         checked = "checked" if provider in selected else ""
         include_field = f"{provider}_include_link"
         include_checked = "checked" if int(auto[include_field] or 0) else ""
+        posts_per_day = social_cadences[provider]["postsPerDay"]
+        cadence_enabled = "checked" if social_cadences[provider]["enabled"] else ""
         status_class = "connected" if status == "connected" else ("configured" if status == "configured" else "disconnected")
         channel_cards.append(
             f"""
@@ -4268,26 +4308,27 @@ def render_distribution_settings(site_id):
                 <div><strong>{label}</strong><span class="channel-state {status_class}">{escape(status)}</span></div>
                 <span class="connect-placeholder" title="Open Setup to enter credentials and test this channel">{escape(setup_label)}</span>
               </div>
-              <label class="check compact"><input type="checkbox" name="channels" value="{provider}" {checked}> Use for autopublish</label>
+              <label class="check compact"><input type="checkbox" name="channels" value="{provider}" {checked}> Use for social publishing</label>
               <label class="check compact"><input type="checkbox" name="{include_field}" {include_checked}> Include article link</label>
+              <label class="check compact"><input type="checkbox" name="cadence_{provider}_enabled" {cadence_enabled}> Publish automatically</label>
+              <label class="field compact-field">Posts per day<input name="cadence_{provider}_posts_per_day" type="number" min="0" max="12" value="{posts_per_day}"><span class="hint">0 pauses this channel</span></label>
             </div>
             """
         )
     return f"""
     <section class="panel production-panel">
-      <div class="panel-title-row"><div><h2>Distribution and autopublish</h2><div class="muted">Same publishing controls as the YAS Wine factory, scoped to this connected site.</div></div></div>
+      <div class="panel-title-row"><div><h2>Distribution and social scheduling</h2><div class="muted">Article/page schedules stay explicit. Each social channel drains only reviewed drafts at its own cadence.</div></div></div>
       <form class="form-grid" onsubmit="saveFactorySettings(event)">
         <div class="field"><label>Discovery direction</label><input name="direction" value="{escape(disc['direction'] or '', quote=True)}" placeholder="Auto-detected from site scan"><div class="hint">Gemini fills this from the scanned site; edit only to override.</div></div>
         <div class="field"><label>Category hint</label><input name="category_hint" value="{escape(disc['category_hint'] or '', quote=True)}" placeholder="Auto-detected editorial categories"><div class="hint">Used to steer topic discovery and article categories.</div></div>
         <div class="field"><label>Topics per run</label><input name="per_run_limit" type="number" min="1" max="50" value="{int(disc['per_run_limit'] or 15)}"></div>
         <div class="field"><label>Top N to queue</label><input name="top_n" type="number" min="1" max="20" value="{int(disc['top_n'] or 3)}"></div>
         <label class="check"><input type="checkbox" name="discovery_enabled" {'checked' if int(disc['enabled'] or 0) else ''}> Auto-discover topics</label>
-        <label class="check"><input type="checkbox" name="autopublish_enabled" {'checked' if int(auto['enabled'] or 0) else ''}> Autopublish approved articles</label>
-        <div class="field"><label>Times per day</label><input name="times_per_day" type="number" min="1" max="12" value="{int(auto['times_per_day'] or 3)}"></div>
+        <label class="check"><input type="checkbox" name="autopublish_enabled" {'checked' if int(auto['enabled'] or 0) else ''}> Enable automatic social publishing</label>
         <div class="field"><label>Timezone</label><input name="timezone" value="{escape(auto['timezone'] or 'UTC', quote=True)}"></div>
         <div class="field"><label>Start hour</label><input name="start_hour" type="number" min="0" max="23" value="{int(auto['start_hour'] or 9)}"></div>
         <div class="field"><label>End hour</label><input name="end_hour" type="number" min="0" max="23" value="{int(auto['end_hour'] or 21)}"></div>
-        <div class="field full"><label>Channels</label><div class="channel-grid unified-channels">{''.join(channel_cards)}</div><div class="hint">Enter and test per-site credentials in Setup. Distribution controls decide which connected channels autopublish uses.</div></div>
+        <div class="field full"><label>Channels</label><div class="channel-grid unified-channels">{''.join(channel_cards)}</div><div class="hint">Enter and test per-site credentials in Setup. A cadence publishes only already-reviewed drafts and never creates or publishes a new article/page.</div></div>
         <div class="actions full"><button type="submit">Save factory distribution settings</button></div>
       </form>
       <div class="planned-publications-block">
@@ -8143,6 +8184,73 @@ def run_scheduled_content_publications(now=None):
     return {"due": len(due_jobs), "results": results}
 
 
+def run_scheduled_social_publications(now=None):
+    """Publish reviewed social drafts in per-channel time slots.
+
+    Article/page scheduling remains explicit in ``content_jobs.scheduled_for``.
+    This runner never generates a social creative: it only drains reviewed DRAFT
+    records for a connected Zernio channel at that channel's configured cadence.
+    """
+    current_utc = now or datetime.now(timezone.utc)
+    results = []
+    with db() as conn:
+        sites = conn.execute("select site_id, * from autopublish_settings where enabled=1").fetchall()
+    for settings in sites:
+        site_id = int(settings["site_id"])
+        timezone_name = settings["timezone"] or "UTC"
+        local_now = current_utc.astimezone(social_schedule_timezone(timezone_name))
+        now_minutes = local_now.hour * 60 + local_now.minute
+        cadences = get_social_cadences(settings)
+        for channel, cadence in cadences.items():
+            if not cadence["enabled"] or channel not in ZERNIO_SOCIAL_CHANNELS:
+                continue
+            if channel not in active_social_channels(site_id, [channel]):
+                continue
+            slots = social_schedule_slots(cadence["postsPerDay"], settings["start_hour"], settings["end_hour"])
+            due_slots = [slot for slot in slots if slot <= now_minutes]
+            if not due_slots:
+                continue
+            slot_minutes = due_slots[-1]
+            slot_key = f"social:{channel}:{local_now.date().isoformat()}:{slot_minutes:04d}"
+            with db() as conn:
+                existing = conn.execute(
+                    "select id from autopublish_runs where site_id=? and trigger=? limit 1", (site_id, slot_key)
+                ).fetchone()
+                if existing:
+                    continue
+                candidate = conn.execute(
+                    """select sp.job_id from social_posts sp
+                       join content_jobs cj on cj.id=sp.job_id and cj.site_id=sp.site_id
+                       where sp.site_id=? and sp.channel=? and sp.status='DRAFT' and cj.status='PUBLISHED'
+                       order by sp.created_at asc, sp.id asc limit 1""",
+                    (site_id, channel),
+                ).fetchone()
+                run_id = conn.execute(
+                    "insert into autopublish_runs(site_id, started_at, trigger, job_id, status) values(?,?,?,?,?)",
+                    (site_id, now_iso(), slot_key, candidate["job_id"] if candidate else None, "RUNNING" if candidate else "NO_DRAFT"),
+                ).lastrowid
+            if not candidate:
+                results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": "no_draft"})
+                continue
+            try:
+                published = publish_zernio_social_drafts(site_id, candidate["job_id"], channels=[channel])
+                status = "SENT" if published.get("ok") else "ERROR"
+                with db() as conn:
+                    conn.execute(
+                        "update autopublish_runs set finished_at=?, status=?, result_json=? where id=?",
+                        (now_iso(), status, json.dumps(published, ensure_ascii=False), run_id),
+                    )
+                results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": status.lower(), "jobId": candidate["job_id"]})
+            except Exception as error:
+                with db() as conn:
+                    conn.execute(
+                        "update autopublish_runs set finished_at=?, status=?, result_json=? where id=?",
+                        (now_iso(), "ERROR", json.dumps({"error": str(error)}, ensure_ascii=False), run_id),
+                    )
+                results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": "error", "error": str(error)})
+    return {"due": len(results), "results": results}
+
+
 def get_site_by_custom_host(host):
     host = clean_host(host)
     if not host:
@@ -8685,6 +8793,22 @@ def update_factory_settings(site_id):
     allowed_channels = [c for c in channels if c in SOCIAL_CHANNEL_LIMITS]
     topic = payload.get("topicDiscovery") or {}
     auto = payload.get("autopublish") or {}
+    incoming_cadences = auto.get("socialCadences") or {}
+    if not isinstance(incoming_cadences, dict):
+        incoming_cadences = {}
+    social_cadences = {}
+    for channel in SOCIAL_CHANNEL_LIMITS:
+        value = incoming_cadences.get(channel) or {}
+        if not isinstance(value, dict):
+            value = {}
+        try:
+            posts_per_day = int(value.get("postsPerDay") or 0)
+        except (TypeError, ValueError):
+            posts_per_day = 0
+        social_cadences[channel] = {
+            "enabled": bool(value.get("enabled")) and posts_per_day > 0,
+            "postsPerDay": max(0, min(posts_per_day, 12)),
+        }
     now = now_iso()
     with db() as conn:
         conn.execute(
@@ -8721,8 +8845,9 @@ def update_factory_settings(site_id):
             insert into autopublish_settings(
                 site_id, enabled, times_per_day, channels_json, timezone, start_hour, end_hour,
                 linkedin_include_link, telegram_include_link, twitter_include_link, tumblr_include_link,
-                pinterest_include_link, instagram_include_link, threads_include_link, reddit_include_link, updated_at
-            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                pinterest_include_link, instagram_include_link, threads_include_link, reddit_include_link,
+                social_cadences_json, updated_at
+            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             on conflict(site_id) do update set
                 enabled=excluded.enabled, times_per_day=excluded.times_per_day, channels_json=excluded.channels_json,
                 timezone=excluded.timezone, start_hour=excluded.start_hour, end_hour=excluded.end_hour,
@@ -8732,6 +8857,7 @@ def update_factory_settings(site_id):
                 instagram_include_link=excluded.instagram_include_link,
                 threads_include_link=excluded.threads_include_link,
                 reddit_include_link=excluded.reddit_include_link,
+                social_cadences_json=excluded.social_cadences_json,
                 updated_at=excluded.updated_at
             """,
             (
@@ -8750,6 +8876,7 @@ def update_factory_settings(site_id):
                 1 if auto.get("instagramIncludeLink") else 0,
                 1 if auto.get("threadsIncludeLink") else 0,
                 1 if auto.get("redditIncludeLink") else 0,
+                json.dumps(social_cadences, ensure_ascii=False),
                 now,
             ),
         )
@@ -9883,7 +10010,7 @@ function clearBulkProgress(){document.querySelectorAll('.planned-bulkbar button,
 async function bulkPlannedAction(action){const tasks=selectedPlannedTasks();const groupIds=tasks.map(item=>item.groupId);if(!groupIds.length){showToast('Select at least one planned task');return;}if(action==='generate'){if(!confirm('Generate '+tasks.length+' selected planned task groups now?')) return;let ok=0;let failed=0;for(let i=0;i<tasks.length;i++){const task=tasks[i];setBulkProgress('Generating '+(i+1)+'/'+tasks.length+'. Keep this tab open.');showToast('Generating '+(i+1)+'/'+tasks.length+'...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(task.jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);ok++;}catch(e){failed++;}}setBulkProgress('Bulk generation finished: '+ok+' ok, '+failed+' failed. Reloading...', false);showToast('Bulk generation finished: '+ok+' ok, '+failed+' failed');setTimeout(()=>location.reload(),1800);return;}if(action==='delete'&&!confirm('Delete '+groupIds.length+' selected planned task groups from Blog Core? This does not delete live site files.')) return;setBulkProgress('Deleting '+groupIds.length+' planned task groups...');showToast('Deleting '+groupIds.length+' planned task groups...');try{const res=await fetch('/api/sites/'+SITE_ID+'/planned-groups/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,groupIds})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);setBulkProgress('Deleted '+(data.deletedJobs||0)+' job rows. Reloading...', false);showToast('Deleted '+(data.deletedJobs||0)+' job rows in '+(data.groups||groupIds.length)+' groups');setTimeout(()=>location.reload(),1200);}catch(e){clearBulkProgress();showToast('Bulk delete failed: '+e.message);}}
 async function generateSocialDrafts(jobId){showToast('Preparing social drafts...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const summary=(data.drafts||[]).map(d=>d.channel+': '+d.charCount+'/'+d.maxChars).join(' · ');showToast('Social drafts ready: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Social drafts failed: '+e.message);}}
 async function publishZernioSocial(jobId){if(!confirm('Publish ready X, Pinterest, Instagram, Threads, and Reddit drafts now through Zernio?'))return;showToast('Sending social drafts through Zernio...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-publish/zernio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);const summary=(data.results||[]).map(item=>item.channel+': '+(item.ok?item.status:'failed')).join(' · ');showToast('Zernio result: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Zernio publish failed: '+e.message);}}
-async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link'),threadsIncludeLink:fd.has('threads_include_link'),redditIncludeLink:fd.has('reddit_include_link')}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
+async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const socialCadences={};for(const channel of ['linkedin','telegram','twitter','tumblr','pinterest','instagram','threads','reddit']){socialCadences[channel]={enabled:fd.has('cadence_'+channel+'_enabled'),postsPerDay:Number(fd.get('cadence_'+channel+'_posts_per_day')||0)};}const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link'),threadsIncludeLink:fd.has('threads_include_link'),redditIncludeLink:fd.has('reddit_include_link'),socialCadences}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}
 async function saveSocialCredentials(event,provider){event.preventDefault();const form=event.currentTarget;const credentials=socialCredentialsFromForm(form);showToast('Saving '+provider+' credentials...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(provider+' credentials saved: '+data.status);setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 async function testSocialConnection(provider){const form=document.querySelector('.social-credentials-card[data-provider="'+provider+'"]');const credentials=form?socialCredentialsFromForm(form):{};showToast('Testing '+provider+' connection...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider)+'/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.message||data.error||res.statusText);showToast(data.message||provider+' connected');setTimeout(()=>location.reload(),900);}catch(e){showToast('Connection test failed: '+e.message);}}

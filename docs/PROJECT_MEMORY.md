@@ -26,6 +26,12 @@
 - Limitation: Zernio cannot unpublish an already published Instagram post through its API; prevention before send is therefore required.
 - Observability: store Zernio's returned per-platform public URL when available, rather than an opaque provider post ID, so the dashboard can open the live post directly.
 
+## 2026-08-07 — Social publication cadence is independent from blog scheduling
+
+- Decision: article/page publication remains governed solely by explicit `content_jobs.scheduled_for` records. Social channels have independent per-site cadence settings, including individual posts-per-day values for Instagram carousels, Pinterest Pins, and other connected Zernio channels.
+- Runtime: the existing one-minute scheduler drains only the oldest reviewed `DRAFT` for a due social channel slot. It does not create a content job, generate a social creative, or send a draft that has not been reviewed.
+- Reason: editorial blogs may publish every three days while repurposed social formats publish at different sustainable rates. One global `times_per_day` cannot express that policy safely.
+
 ## 2026-08-06 — MyUGC publishes natively every three days with complete blog-sitemap coverage
 
 - Publication: `AI Product Background Generator: How to Create On-Brand Lifestyle Scenes Without a New Photoshoot` is live at its native MyUGC URL. Blog Core reconciled its dashboard state from the source factory after the old factory's publish request exceeded Blog Core's synchronous Gunicorn window; source status and public HTTP status were both verified before reconciliation.
