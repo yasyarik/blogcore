@@ -41,6 +41,11 @@
 - Replaced composition rule: visual product-variation Pins use a strict source-to-variation hierarchy: the upper 35-40% is a clean human-free source product, while the lower 60-65% contains three or four varied model/location applications of that exact product. This must not degrade into a free-form fashion collage.
 - Replaced logo rule: Gemini receives the scanned logo as a reference but must not draw it. Blog Core composites the same raster logo once in a restrained top-corner badge after image generation, so visual brand presence is exact and consistent. Logo lookup resolves absolute and relative header image URLs, then safely falls back to standard root-webroot `logo.*` assets for local sites.
 
+## 2026-08-07 — SoloCruz Instagram carousel cadence
+
+- Configuration: SoloCruz enables automatic social delivery for Instagram only at three reviewed carousel drafts per day within its existing `09:00-21:00 UTC` distribution window, producing slots at approximately 09:00, 15:00, and 21:00 UTC.
+- Boundary: the scheduler neither creates carousel drafts nor publishes articles. At configuration time there were no Instagram `DRAFT` records, so enabling the cadence did not send a post immediately.
+
 ## 2026-08-06 — MyUGC publishes natively every three days with complete blog-sitemap coverage
 
 - Publication: `AI Product Background Generator: How to Create On-Brand Lifestyle Scenes Without a New Photoshoot` is live at its native MyUGC URL. Blog Core reconciled its dashboard state from the source factory after the old factory's publish request exceeded Blog Core's synchronous Gunicorn window; source status and public HTTP status were both verified before reconciliation.

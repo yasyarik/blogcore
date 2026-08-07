@@ -1,5 +1,17 @@
 # CHANGELOG_AI.md
 
+## 2026-08-07 — Schedule SoloCruz Instagram carousels three times daily
+
+### Summary
+
+- Enabled SoloCruz automatic social delivery and set Instagram to three reviewed carousel drafts per day.
+- Preserved the existing `09:00-21:00 UTC` distribution window, so the scheduler uses approximately 09:00, 15:00, and 21:00 UTC slots.
+
+### Checks run
+
+- Confirmed Zernio remains connected and the Instagram channel is selected.
+- Confirmed the saved cadence is `instagram: enabled, 3`. There are currently zero Instagram `DRAFT` records, so no publication was sent by this settings change.
+
 ## 2026-08-07 — Publish the structured MyUGC visual Pin
 
 ### Summary
