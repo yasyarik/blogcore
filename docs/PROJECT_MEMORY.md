@@ -43,7 +43,7 @@
 
 ## 2026-08-07 — SoloCruz Instagram carousel cadence
 
-- Configuration: SoloCruz enables automatic social delivery for Instagram only at three reviewed carousel drafts per day within its existing `09:00-21:00 UTC` distribution window, producing slots at approximately 09:00, 15:00, and 21:00 UTC.
+- Configuration: SoloCruz enables automatic social delivery for Instagram only at three reviewed carousel drafts per day within a `09:00-21:00 America/New_York` distribution window, producing slots at approximately 09:00, 15:00, and 21:00 United States Eastern local time. The IANA timezone automatically follows EST/EDT daylight-saving changes.
 - Boundary: the scheduler neither creates carousel drafts nor publishes articles. At configuration time there were no Instagram `DRAFT` records, so enabling the cadence did not send a post immediately.
 
 ## 2026-08-06 — MyUGC publishes natively every three days with complete blog-sitemap coverage
