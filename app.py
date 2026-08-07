@@ -15,7 +15,7 @@ import wave
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from base64 import b64decode, b64encode
-from hashlib import sha1
+from hashlib import sha1, sha256
 from hmac import new as hmac_new
 from html import escape
 from html.parser import HTMLParser
@@ -3182,13 +3182,27 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None):
         raise ValueError("Configure and test Zernio in Setup before publishing these channels.")
     api_key = str(credentials.get("api_key") or os.environ.get("ZERNIO_API_KEY") or "").strip()
     with db() as conn:
-        rows = conn.execute(
+        draft_rows = conn.execute(
             """select * from social_posts where site_id=? and job_id=? and status='DRAFT'
                and channel in ('twitter','pinterest','instagram','threads','reddit') order by id asc""",
             (site_id, job_id),
         ).fetchall()
-    if not rows:
+    if not draft_rows:
         raise ValueError("No unpublished Zernio social drafts are ready for this content task.")
+    # One content task may have been retried after a slow media request. Publish
+    # only the newest draft for each destination instead of duplicating a post.
+    newest_rows = {}
+    for row in draft_rows:
+        newest_rows[row["channel"]] = row
+    superseded_ids = [row["id"] for row in draft_rows if newest_rows[row["channel"]]["id"] != row["id"]]
+    if superseded_ids:
+        placeholders = ",".join("?" for _ in superseded_ids)
+        with db() as conn:
+            conn.execute(
+                f"update social_posts set status='SUPERSEDED', updated_at=? where id in ({placeholders})",
+                [now_iso(), *superseded_ids],
+            )
+    rows = list(newest_rows.values())
     results = []
     for row in rows:
         channel = row["channel"]
@@ -3235,13 +3249,22 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None):
         try:
             response, _ = fetch_json_request(
                 f"{ZERNIO_API_BASE}/posts",
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "x-request-id": sha256(f"blog-core:{site_id}:{job_id}:{channel}:{row['id']}".encode("utf-8")).hexdigest(),
+                },
                 data=request_payload,
                 method="POST",
                 timeout=60,
             )
             post = response.get("post") if isinstance(response, dict) else {}
             remote_url = str((post or {}).get("url") or (post or {}).get("permalink") or "")
+            if not remote_url and isinstance(post, dict):
+                for platform_result in post.get("platforms") or []:
+                    if isinstance(platform_result, dict) and platform_result.get("platform") == channel:
+                        remote_url = str(platform_result.get("platformPostUrl") or platform_result.get("url") or "")
+                        if remote_url:
+                            break
             remote_id = str((post or {}).get("_id") or (post or {}).get("id") or "")
             if not remote_id and isinstance(response, dict) and response.get("error"):
                 raise RuntimeError(str(response.get("error")))

@@ -6,6 +6,8 @@
 
 - Updated the shared Zernio publisher so Pinterest sends the generated Pin title, destination URL, and configured board ID as Pinterest-specific data rather than reducing a Pin to generic post text and media.
 - Corrected the external post mapping to use Zernio's required `platform` field instead of Blog Core's internal `channel` field.
+- Added publish-time deduplication and deterministic Zernio request IDs so a slow/retried media generation cannot send multiple live posts for one task and channel.
+- Preserve Zernio's direct platform post URL in Blog Core instead of storing only a provider-side ID.
 
 ### Files changed
 

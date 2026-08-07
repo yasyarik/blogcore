@@ -19,6 +19,13 @@
 - Reason: `channel` is a Blog Core concept; Zernio's public API contract requires `platform`. Using the internal field risks a rejected or un-routable publication.
 - Scope: all Zernio-supported channels: X, Pinterest, Instagram, Threads, and Reddit.
 
+## 2026-08-07 — Zernio social drafts are idempotent per task and channel
+
+- Decision: A Zernio publish operation sends only the newest unpublished draft for each channel and marks older retry drafts `SUPERSEDED`. It includes a deterministic `x-request-id` derived from the site, task, channel, and draft ID.
+- Reason: media generation may complete after an interrupted client connection. A retry must not turn one intended social publication into duplicate live posts.
+- Limitation: Zernio cannot unpublish an already published Instagram post through its API; prevention before send is therefore required.
+- Observability: store Zernio's returned per-platform public URL when available, rather than an opaque provider post ID, so the dashboard can open the live post directly.
+
 ## 2026-08-06 — MyUGC publishes natively every three days with complete blog-sitemap coverage
 
 - Publication: `AI Product Background Generator: How to Create On-Brand Lifestyle Scenes Without a New Photoshoot` is live at its native MyUGC URL. Blog Core reconciled its dashboard state from the source factory after the old factory's publish request exceeded Blog Core's synchronous Gunicorn window; source status and public HTTP status were both verified before reconciliation.

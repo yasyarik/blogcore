@@ -148,6 +148,8 @@ Blog Core is being adapted toward feature parity with `/var/www/content-factory-
 * Threads is configured through the per-site Zernio mapping. Threads drafts select `question`, `observation`, `contrarian`, `micro_story`, or `objection_answer`; they remain short, conversational, and non-promotional with at most one hashtag. Media is one natural 4:5 JPEG with no overlay text/logo/UI screenshot under ignored `data/social_assets/{site_id}/{job_id}/threads/image-01.jpg`. The review page is `/sites/{site_id}/social-posts/{post_id}/threads`.
 * Explicit `POST /api/sites/{site_id}/content-jobs/{job_id}/social-publish/zernio` submits ready Zernio-channel drafts. It is intentionally separate from draft generation and does not send anything without an operator action. Account mappings, a Pinterest board, and a Reddit subreddit must be present where relevant.
 * Zernio's post payload uses `platform` with the channel name and `accountId`; it must not use Blog Core's internal `channel` field name in the external API payload.
+* Before sending Zernio drafts, Blog Core retains only the newest `DRAFT` for each channel and marks older retries `SUPERSEDED`. Each external request has a deterministic `x-request-id`, so a transport retry for the same draft cannot create a second provider post.
+* Zernio may return the public network URL inside its per-platform result. Blog Core stores that `platformPostUrl` when available, falling back to the provider post ID only if no public URL is returned.
 * The old YAS Wine prompt is not copied literally because it contains wine-only rules. Blog Core uses a universal prompt contract populated from connected site context and topic strategy.
 
 Pending parity work after the initial backbone:
