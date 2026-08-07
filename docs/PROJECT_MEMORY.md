@@ -32,6 +32,13 @@
 - Runtime: the existing one-minute scheduler drains only the oldest reviewed `DRAFT` for a due social channel slot. It does not create a content job, generate a social creative, or send a draft that has not been reviewed.
 - Reason: editorial blogs may publish every three days while repurposed social formats publish at different sustainable rates. One global `times_per_day` cannot express that policy safely.
 
+## 2026-08-07 — Pinterest visual showcase Pins are first-class social assets
+
+- Decision: Blog Core has a standalone `visual_pins` workflow for original Pinterest collages. It is separate from `content_jobs` and ordinary article-derived `social_posts`: a visual Pin neither creates nor edits nor publishes a site page.
+- Workflow: the text model selects a fresh, non-repeating original visual concept, then Gemini Image renders a single complete 2:3 editorial collage. Supported story modes are one outfit across many people/locations, one model across many looks, and one concept across scenes. The visual uses no generated CTA copy, UI, price, badge, or fabricated logo; the Pin description carries the capability explanation.
+- Brand identity: where the design scan can resolve a raster logo, Blog Core passes it as an image reference. It must not substitute a typed or invented approximation.
+- Publishing: a reviewable `DRAFT` can be sent manually through the existing per-site Zernio Pinterest account/board mapping. The existing Pinterest posts-per-day cadence may also send the oldest reviewed standalone visual Pin; no cadence creates a visual, article, or unreviewed publication.
+
 ## 2026-08-06 — MyUGC publishes natively every three days with complete blog-sitemap coverage
 
 - Publication: `AI Product Background Generator: How to Create On-Brand Lifestyle Scenes Without a New Photoshoot` is live at its native MyUGC URL. Blog Core reconciled its dashboard state from the source factory after the old factory's publish request exceeded Blog Core's synchronous Gunicorn window; source status and public HTTP status were both verified before reconciliation.

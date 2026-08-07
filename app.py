@@ -263,6 +263,24 @@ def init_db():
                 foreign key(site_id) references sites(id) on delete cascade
             );
             create index if not exists social_posts_site_job_channel_idx on social_posts(site_id,job_id,channel,created_at);
+            create table if not exists visual_pins (
+                id text primary key,
+                site_id integer not null,
+                mode text not null,
+                concept_json text not null default '{}',
+                title text not null,
+                description text not null,
+                alt_text text,
+                image_filename text,
+                destination_url text,
+                remote_url text,
+                status text not null default 'GENERATING',
+                error text,
+                created_at text not null,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists visual_pins_site_status_created_idx on visual_pins(site_id,status,created_at);
             create table if not exists autopublish_settings (
                 site_id integer primary key,
                 enabled integer not null default 0,
@@ -2798,6 +2816,154 @@ ARTICLE CONTEXT:
     }
 
 
+VISUAL_PIN_MODES = {
+    "auto": "Automatically choose the strongest visual story for this brand.",
+    "one_outfit_many_people": "One original garment styled on several distinct models in different real-world locations.",
+    "one_model_many_looks": "One model shown in several original garments, locations, and photographic treatments.",
+    "one_concept_many_scenes": "One product-story concept shown through varied editorial scenes and compositions.",
+}
+
+
+def visual_pin_asset_dir(site_id, pin_id):
+    return SOCIAL_ASSET_DIR / str(int(site_id)) / "visual-pins" / re.sub(r"[^A-Za-z0-9_.-]", "_", str(pin_id))
+
+
+def visual_pin_asset_url(site_id, pin_id, filename):
+    return f"/sites/{int(site_id)}/visual-pins/{urllib.parse.quote(str(pin_id), safe='')}/assets/{urllib.parse.quote(filename, safe='')}"
+
+
+def _visual_pin_fallback(site, mode):
+    brand = site["brand_name"] or site["domain"]
+    return {
+        "conceptName": "A modern editorial product-variation story",
+        "garment": "an original elevated everyday apparel look in a distinctive seasonal colour palette",
+        "models": "a diverse group of natural-looking adult models",
+        "locations": "a bright city street, a calm studio, a coastal walkway, and a lived-in interior",
+        "photoStyle": "premium natural-light fashion editorial photography",
+        "title": social_shorten_to_limit(f"One product, many visual directions with {brand}", 100),
+        "description": social_shorten_to_limit(
+            f"See how {brand} can turn one product concept into varied models, locations, styling, and campaign-ready creative without organising a separate shoot.",
+            500,
+        ),
+        "altText": "Vertical editorial collage demonstrating one product concept across varied people and settings.",
+    }
+
+
+def build_visual_pin_concept_prompt(site, mode, previous_concepts):
+    brand = site["brand_name"] or site["domain"]
+    mode_instruction = VISUAL_PIN_MODES.get(mode, VISUAL_PIN_MODES["auto"])
+    previous = "; ".join(previous_concepts[-20:]) or "none"
+    return f"""
+You are a Pinterest creative director for {brand}.
+
+Create a fresh, original fashion/product-variation concept for a single vertical Pinterest collage. This is a visual showcase of the connected site's ability to change models, clothing, locations, styling, and photo direction. Do not copy real brands, campaigns, celebrities, products, or stock-photo compositions.
+
+SELECTED STORY MODE:
+{mode_instruction}
+
+PREVIOUS CONCEPTS TO AVOID REPEATING:
+{previous}
+
+EDITORIAL RULES:
+- Pick a specific, visually interesting original apparel concept, not a generic "fashion outfit".
+- Make the variation obvious at a glance: exact garment continuity when the mode needs it; exact model continuity when the mode needs it.
+- Choose realistic, varied adult models and settings. No children, no lookalikes, no product trademarks.
+- The final Pin must explain the capability through the visual itself. The description below the image will explain the service, so do not put a paragraph, a CTA, prices, stats, badges, UI, or invented logos in the image.
+- The concept must be evergreen Pinterest creative, not a news item or a fake case study.
+
+RETURN STRICT JSON ONLY:
+{{"conceptName":"...","garment":"...","models":"...","locations":"...","photoStyle":"...","title":"<=100 chars","description":"<=500 chars","altText":"<=250 chars"}}
+""".strip()
+
+
+def generate_visual_pin(site_id, mode="auto"):
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
+    if mode not in VISUAL_PIN_MODES:
+        raise ValueError("unsupported visual Pin mode")
+    with db() as conn:
+        rows = conn.execute(
+            "select concept_json from visual_pins where site_id=? order by created_at desc limit 40", (site_id,)
+        ).fetchall()
+    previous = []
+    for row in rows:
+        concept = parse_json_object(row["concept_json"])
+        if concept.get("conceptName"):
+            previous.append(str(concept["conceptName"]))
+    try:
+        concept = _gemini_text_json(build_visual_pin_concept_prompt(site, mode, previous), repair=False)
+    except Exception:
+        concept = {}
+    fallback = _visual_pin_fallback(site, mode)
+    concept = {key: social_normalize_text((concept or {}).get(key) or fallback[key]) for key in fallback}
+    concept["title"] = social_shorten_to_limit(concept["title"], 100)
+    concept["description"] = social_shorten_to_limit(concept["description"], 500)
+    concept["altText"] = social_shorten_to_limit(concept["altText"], 250)
+    pin_id = secrets.token_hex(12)
+    now = now_iso()
+    with db() as conn:
+        conn.execute(
+            """insert into visual_pins(id,site_id,mode,concept_json,title,description,alt_text,destination_url,status,created_at,updated_at)
+               values(?,?,?,?,?,?,?,?,?,?,?)""",
+            (pin_id, site_id, mode, json.dumps(concept, ensure_ascii=False), concept["title"], concept["description"], concept["altText"], normalize_url(site["homepage_url"]), "GENERATING", now, now),
+        )
+    try:
+        reference_logo = site_logo_reference(site_id)
+        prompt = f"""
+Create one finished, original Pinterest visual showcase as a real raster JPEG.
+
+FORMAT:
+- Vertical 2:3 Pinterest composition, designed as one complete editorial collage image.
+- Build four to six intentional photographic panels into one cohesive premium fashion editorial, with balanced borders and a clear visual hierarchy.
+- Do not create a website screenshot, an app screen, a mood board with random unrelated photos, an empty template, an SVG, or a placeholder.
+- No readable copy, logo text, prices, badges, arrows, fake controls, CTA buttons, or watermarks. A real brand logo reference may be supplied only for subtle faithful brand presence; never invent or approximate one.
+
+VISUAL STORY:
+- Brand: {site['brand_name'] or site['domain']}
+- Story mode: {VISUAL_PIN_MODES[mode]}
+- Original concept: {concept['conceptName']}
+- Garment/product continuity: {concept['garment']}
+- Models: {concept['models']}
+- Locations: {concept['locations']}
+- Photography direction: {concept['photoStyle']}
+
+CONSISTENCY REQUIREMENT:
+If the story is one garment across people, preserve the same garment design, fabric, colour and distinctive details in every relevant panel while changing only model, styling, setting and camera angle. If it is one model across looks, preserve the same person while changing only the specified garments and scenes. The result must visibly demonstrate controlled product variation, not accidental repetition.
+""".strip()
+        image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="2:3", reference_image=reference_logo)
+        if not image_bytes.startswith(b"\xff\xd8"):
+            raise RuntimeError("Gemini image for visual Pinterest Pin was not JPEG")
+        directory = visual_pin_asset_dir(site_id, pin_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        filename = "showcase-pin.jpg"
+        (directory / filename).write_bytes(image_bytes)
+        with db() as conn:
+            conn.execute(
+                "update visual_pins set image_filename=?, status='DRAFT', updated_at=? where id=? and site_id=?",
+                (filename, now_iso(), pin_id, site_id),
+            )
+    except Exception as error:
+        with db() as conn:
+            conn.execute(
+                "update visual_pins set status='ERROR', error=?, updated_at=? where id=? and site_id=?",
+                (str(error)[:1000], now_iso(), pin_id, site_id),
+            )
+        raise
+    return get_visual_pin(site_id, pin_id)
+
+
+def get_visual_pin(site_id, pin_id):
+    with db() as conn:
+        return conn.execute("select * from visual_pins where site_id=? and id=?", (site_id, pin_id)).fetchone()
+
+
+def visual_pin_public_asset(pin):
+    if not pin or not pin["image_filename"]:
+        return ""
+    return visual_pin_asset_url(pin["site_id"], pin["id"], pin["image_filename"])
+
+
 def fallback_instagram_carousel(site, job, language, include_link, article_url):
     brand = site["brand_name"] or site["domain"]
     title = social_shorten_to_limit(job["title"] or job["topic"] or "New article", 90)
@@ -3326,6 +3492,70 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=N
             (site_id, job_id, now_iso(), "INFO" if successful else "ERROR", "zernio-publish", f"Zernio sent/scheduled {len(successful)} of {len(results)} social drafts"),
         )
     return {"ok": bool(successful), "jobId": job_id, "results": results}
+
+
+def publish_zernio_visual_pin(site_id, pin_id, scheduled_for=None):
+    pin = get_visual_pin(site_id, pin_id)
+    if not pin:
+        raise KeyError("visual Pin not found")
+    if pin["status"] != "DRAFT":
+        raise ValueError(f"visual Pin is {pin['status'].lower()}, not ready to publish")
+    connections = get_social_connections(site_id)
+    zernio = connections.get("zernio")
+    credentials = get_social_credentials(zernio)
+    if not zernio or zernio["status"] not in {"configured", "connected"} or not social_credentials_complete("zernio", credentials):
+        raise ValueError("Configure and test Zernio in Setup before publishing Pinterest Pins.")
+    account_id = str(credentials.get("pinterest_account_id") or "").strip()
+    board_id = str(credentials.get("pinterest_board_id") or "").strip()
+    if not account_id or not board_id:
+        raise ValueError("Map both Pinterest account and board in Setup before publishing this visual Pin.")
+    asset_url = absolute_social_asset_url(visual_pin_public_asset(pin))
+    if not asset_url:
+        raise ValueError("visual Pin image is missing")
+    api_key = str(credentials.get("api_key") or os.environ.get("ZERNIO_API_KEY") or "").strip()
+    platform = {
+        "platform": "pinterest",
+        "accountId": account_id,
+        "platformSpecificData": {"boardId": board_id, "title": pin["title"], "link": pin["destination_url"] or ""},
+    }
+    request_payload = {
+        "content": pin["description"],
+        "platforms": [platform],
+        "mediaItems": [{"type": "image", "url": asset_url}],
+        "publishNow": not bool(scheduled_for),
+    }
+    if scheduled_for:
+        request_payload["scheduledFor"] = scheduled_for
+    try:
+        response, _ = fetch_json_request(
+            f"{ZERNIO_API_BASE}/posts",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "x-request-id": sha256(f"blog-core:visual-pin:{site_id}:{pin_id}".encode("utf-8")).hexdigest(),
+            },
+            data=request_payload,
+            method="POST",
+            timeout=60,
+        )
+        post = response.get("post") if isinstance(response, dict) else {}
+        remote_url = str((post or {}).get("url") or (post or {}).get("permalink") or "")
+        for result in (post or {}).get("platforms") or []:
+            if isinstance(result, dict) and result.get("platform") == "pinterest":
+                remote_url = str(result.get("platformPostUrl") or result.get("url") or remote_url)
+                break
+        if not remote_url and isinstance(response, dict) and response.get("error"):
+            raise RuntimeError(str(response["error"]))
+        status = "SCHEDULED" if scheduled_for else "SENT"
+        with db() as conn:
+            conn.execute(
+                "update visual_pins set status=?, remote_url=?, updated_at=? where site_id=? and id=?",
+                (status, remote_url or str((post or {}).get("_id") or ""), now_iso(), site_id, pin_id),
+            )
+        return {"ok": True, "pinId": pin_id, "status": status, "remoteUrl": remote_url}
+    except Exception as error:
+        with db() as conn:
+            conn.execute("update visual_pins set status='ERROR', error=?, updated_at=? where site_id=? and id=?", (str(error)[:1000], now_iso(), site_id, pin_id))
+        raise
 
 
 def upsert_social_connection(site_id, provider, credentials=None, status=None, display_name=None, settings=None):
@@ -4279,6 +4509,39 @@ def render_content_jobs(content_page):
     return toolbar + "".join(out) + render_content_pagination(content_page)
 
 
+def render_visual_pin_panel(site_id):
+    with db() as conn:
+        pins = conn.execute("select * from visual_pins where site_id=? order by created_at desc limit 12", (site_id,)).fetchall()
+    rows = []
+    for pin in pins:
+        image = visual_pin_public_asset(pin)
+        thumbnail = f"<img src='{escape(image, quote=True)}' alt='{escape(pin['alt_text'] or '', quote=True)}'>" if image else "<div class='visual-pin-thumb empty-thumb'>No image</div>"
+        preview = f"<a class='ghost mini-action' target='_blank' href='/sites/{int(site_id)}/visual-pins/{escape(pin['id'], quote=True)}/preview'>Preview</a>" if image else ""
+        publish = f"<button class='ghost mini-action' type='button' onclick=\"publishVisualPin('{escape(pin['id'], quote=True)}')\">Publish Pin</button>" if pin["status"] == "DRAFT" else ""
+        live = f"<a class='ghost mini-action' target='_blank' href='{escape(pin['remote_url'], quote=True)}'>Open live Pin</a>" if pin["remote_url"] else ""
+        error = f"<div class='planned-error'>{escape(pin['error'])}</div>" if pin["error"] else ""
+        rows.append(f"""
+          <article class='visual-pin-row'>
+            {thumbnail}
+            <div><strong>{escape(pin['title'])}</strong><span>{escape(VISUAL_PIN_MODES.get(pin['mode'], pin['mode']))}</span><p>{escape(pin['description'])}</p>{error}</div>
+            <div class='actions'><b class='status {escape(str(pin['status']).lower())}'>{escape(pin['status'])}</b>{preview}{publish}{live}</div>
+          </article>
+        """)
+    listing = "".join(rows) or "<div class='planned-empty'>No visual showcase Pins yet. Create one as an unpublished draft for review.</div>"
+    mode_options = "".join(f"<option value='{key}'>{escape(label)}</option>" for key, label in VISUAL_PIN_MODES.items())
+    return f"""
+      <section class='visual-pin-panel'>
+        <div class='panel-title-row'><div><h3>Pinterest visual showcase Pins</h3><div class='hint'>A separate asset type for product-variation collages. It does not create, change, or publish a site article.</div></div></div>
+        <div class='visual-pin-create'>
+          <label class='field compact-field'>Visual story<select id='visualPinMode'>{mode_options}</select></label>
+          <button type='button' onclick='createVisualPin()'>Create visual Pin draft</button>
+          <div id='visualPinProgress' class='hint' hidden></div>
+        </div>
+        <div class='visual-pin-list'>{listing}</div>
+      </section>
+    """
+
+
 def render_distribution_settings(site_id):
     site = get_site(site_id)
     site_languages = parse_languages(site["languages"] if site else "[]")
@@ -4291,6 +4554,7 @@ def render_distribution_settings(site_id):
     except Exception:
         selected = {"linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads"}
     social_cadences = get_social_cadences(auto)
+    visual_pin_panel = render_visual_pin_panel(site_id)
     channel_cards = []
     for provider in SOCIAL_CHANNEL_LIMITS:
         label = SOCIAL_CHANNEL_LABELS.get(provider, provider)
@@ -4331,11 +4595,12 @@ def render_distribution_settings(site_id):
         <div class="field full"><label>Channels</label><div class="channel-grid unified-channels">{''.join(channel_cards)}</div><div class="hint">Enter and test per-site credentials in Setup. A cadence publishes only already-reviewed drafts and never creates or publishes a new article/page.</div></div>
         <div class="actions full"><button type="submit">Save factory distribution settings</button></div>
       </form>
-      <div class="planned-publications-block">
+        <div class="planned-publications-block">
         <h3>Planned publications</h3>
         <div class="hint">Queued drafts and generated article tasks waiting for the publishing pipeline.</div>
         <div class="planned-list">{planned_publications}</div>
-      </div>
+        </div>
+      {visual_pin_panel}
     </section>
     """
 
@@ -8225,22 +8490,32 @@ def run_scheduled_social_publications(now=None):
                        order by sp.created_at asc, sp.id asc limit 1""",
                     (site_id, channel),
                 ).fetchone()
+                visual_pin = None
+                if channel == "pinterest":
+                    visual_pin = conn.execute(
+                        "select id from visual_pins where site_id=? and status='DRAFT' order by created_at asc limit 1",
+                        (site_id,),
+                    ).fetchone()
+                    # Visual showcase Pins are standalone Pinterest assets. Prefer the
+                    # oldest reviewed visual when present; article Pin drafts remain the fallback.
+                    if visual_pin:
+                        candidate = None
                 run_id = conn.execute(
                     "insert into autopublish_runs(site_id, started_at, trigger, job_id, status) values(?,?,?,?,?)",
-                    (site_id, now_iso(), slot_key, candidate["job_id"] if candidate else None, "RUNNING" if candidate else "NO_DRAFT"),
+                    (site_id, now_iso(), slot_key, candidate["job_id"] if candidate else (f"visual-pin:{visual_pin['id']}" if visual_pin else None), "RUNNING" if candidate or visual_pin else "NO_DRAFT"),
                 ).lastrowid
-            if not candidate:
+            if not candidate and not visual_pin:
                 results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": "no_draft"})
                 continue
             try:
-                published = publish_zernio_social_drafts(site_id, candidate["job_id"], channels=[channel])
+                published = publish_zernio_visual_pin(site_id, visual_pin["id"]) if visual_pin else publish_zernio_social_drafts(site_id, candidate["job_id"], channels=[channel])
                 status = "SENT" if published.get("ok") else "ERROR"
                 with db() as conn:
                     conn.execute(
                         "update autopublish_runs set finished_at=?, status=?, result_json=? where id=?",
                         (now_iso(), status, json.dumps(published, ensure_ascii=False), run_id),
                     )
-                results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": status.lower(), "jobId": candidate["job_id"]})
+                results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": status.lower(), "jobId": candidate["job_id"] if candidate else None, "visualPinId": visual_pin["id"] if visual_pin else None})
             except Exception as error:
                 with db() as conn:
                     conn.execute(
@@ -9226,6 +9501,38 @@ def publish_zernio_social_drafts_route(site_id, job_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.post("/api/sites/<int:site_id>/visual-pins")
+def create_visual_pin_route(site_id):
+    payload = request.get_json(silent=True) or {}
+    try:
+        pin = generate_visual_pin(site_id, str(payload.get("mode") or "auto"))
+        return jsonify({
+            "ok": True,
+            "pinId": pin["id"],
+            "status": pin["status"],
+            "previewUrl": f"/sites/{site_id}/visual-pins/{urllib.parse.quote(pin['id'], safe='')}/preview",
+        })
+    except KeyError:
+        return jsonify({"error": "site not found"}), 404
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
+
+
+@app.post("/api/sites/<int:site_id>/visual-pins/<pin_id>/publish")
+def publish_visual_pin_route(site_id, pin_id):
+    try:
+        result = publish_zernio_visual_pin(site_id, pin_id)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except KeyError:
+        return jsonify({"error": "visual Pin not found"}), 404
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
+
+
 @app.get("/sites/<int:site_id>/social-assets/<job_id>/<channel>/<filename>")
 def serve_social_asset(site_id, job_id, channel, filename):
     if channel not in SOCIAL_CHANNEL_LIMITS:
@@ -9236,6 +9543,36 @@ def serve_social_asset(site_id, job_id, channel, filename):
     if not (directory / filename).is_file():
         abort(404)
     return send_from_directory(directory, filename)
+
+
+@app.get("/sites/<int:site_id>/visual-pins/<pin_id>/assets/<filename>")
+def serve_visual_pin_asset(site_id, pin_id, filename):
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", filename or ""):
+        abort(404)
+    pin = get_visual_pin(site_id, pin_id)
+    if not pin or pin["image_filename"] != filename:
+        abort(404)
+    directory = visual_pin_asset_dir(site_id, pin_id)
+    if not (directory / filename).is_file():
+        abort(404)
+    return send_from_directory(directory, filename)
+
+
+@app.get("/sites/<int:site_id>/visual-pins/<pin_id>/preview")
+def visual_pin_preview(site_id, pin_id):
+    with db() as conn:
+        pin = conn.execute(
+            """select vp.*, s.domain, s.brand_name from visual_pins vp join sites s on s.id=vp.site_id
+               where vp.site_id=? and vp.id=?""",
+            (site_id, pin_id),
+        ).fetchone()
+    if not pin:
+        abort(404)
+    concept = parse_json_object(pin["concept_json"])
+    image_url = visual_pin_public_asset(pin)
+    image = f"<img src='{escape(image_url, quote=True)}' alt='{escape(pin['alt_text'] or '', quote=True)}'>" if image_url else "<div class='empty'>Image is not ready.</div>"
+    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex,nofollow\"><title>Pinterest visual Pin review</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#f8fafc;font:16px/1.55 Inter,system-ui,sans-serif}}main{{max-width:860px;margin:auto;padding:34px 18px 70px}}a{{color:#c4b5fd}}article{{display:grid;grid-template-columns:minmax(0,460px) 1fr;gap:28px;margin-top:22px;padding:22px;border:1px solid #334155;border-radius:18px;background:#111827}}img{{width:100%;display:block;border-radius:12px;background:#0b1020}}h1{{line-height:1.1;margin:8px 0}}h2{{font-size:18px;line-height:1.25}}.muted{{color:#a6b0c3}}.copy{{white-space:pre-wrap}}dl{{display:grid;grid-template-columns:120px 1fr;gap:8px;font-size:13px}}dt{{color:#94a3b8}}dd{{margin:0}}@media(max-width:720px){{article{{grid-template-columns:1fr}}}}</style></head><body><main><a href=\"/sites/{int(site_id)}#distribution\">Back to dashboard</a><h1>Pinterest visual Pin draft</h1><p class=\"muted\">{escape(pin['brand_name'] or pin['domain'])} · {escape(pin['status'])}</p><article><div>{image}</div><div><h2>{escape(pin['title'])}</h2><p class=\"copy\">{escape(pin['description'])}</p><dl><dt>Story</dt><dd>{escape(VISUAL_PIN_MODES.get(pin['mode'], pin['mode']))}</dd><dt>Concept</dt><dd>{escape(concept.get('conceptName') or '')}</dd><dt>Garment</dt><dd>{escape(concept.get('garment') or '')}</dd><dt>Models</dt><dd>{escape(concept.get('models') or '')}</dd><dt>Locations</dt><dd>{escape(concept.get('locations') or '')}</dd></dl></div></article></main></body></html>"""
+    return Response(html, mimetype="text/html")
 
 
 @app.get("/sites/<int:site_id>/article-assets/<job_id>/<filename>")
@@ -9814,6 +10151,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 .social-credential-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .planned-publications-block{margin-top:18px;border-top:1px solid var(--line);padding-top:18px}
 .planned-publications-block h3{margin:0 0 4px;color:#efe9ff;font-size:15px;text-transform:uppercase;letter-spacing:.08em}
+.visual-pin-panel{margin-top:22px;padding-top:18px;border-top:1px solid var(--line)}.visual-pin-panel h3{margin:0 0 4px;color:#efe9ff;font-size:15px;text-transform:uppercase;letter-spacing:.08em}.visual-pin-create{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:14px 0}.visual-pin-create .field{min-width:min(100%,410px)}.visual-pin-list{display:grid;gap:10px}.visual-pin-row{display:grid;grid-template-columns:92px minmax(0,1fr) auto;gap:14px;align-items:center;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:10px}.visual-pin-row img,.visual-pin-thumb{width:92px;aspect-ratio:2/3;object-fit:cover;border-radius:8px;background:#111827}.empty-thumb{display:grid;place-items:center;color:var(--muted);font-size:11px;text-align:center}.visual-pin-row strong{display:block;font-size:14px}.visual-pin-row span,.visual-pin-row p{display:block;color:var(--muted);font-size:12px;line-height:1.4;margin:4px 0 0}.visual-pin-row .actions{justify-content:flex-end}@media(max-width:900px){.visual-pin-row{grid-template-columns:72px minmax(0,1fr)}.visual-pin-row img,.visual-pin-thumb{width:72px}.visual-pin-row .actions{grid-column:1 / -1;justify-content:flex-start}}
 .planned-bulkbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.28);padding:10px 12px;margin-top:12px}
 .planned-select-all,.planned-check{display:inline-flex;align-items:center;gap:8px;color:#d8cdfd;font-size:12px;font-weight:900}
 .planned-select-all input,.planned-check input{width:16px;height:16px}
@@ -10009,6 +10347,8 @@ function setBulkProgress(text, active=true){const box=document.getElementById('b
 function clearBulkProgress(){document.querySelectorAll('.planned-bulkbar button,.planned-select,.planned-select-all input').forEach(el=>{el.disabled=false;});}
 async function bulkPlannedAction(action){const tasks=selectedPlannedTasks();const groupIds=tasks.map(item=>item.groupId);if(!groupIds.length){showToast('Select at least one planned task');return;}if(action==='generate'){if(!confirm('Generate '+tasks.length+' selected planned task groups now?')) return;let ok=0;let failed=0;for(let i=0;i<tasks.length;i++){const task=tasks[i];setBulkProgress('Generating '+(i+1)+'/'+tasks.length+'. Keep this tab open.');showToast('Generating '+(i+1)+'/'+tasks.length+'...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(task.jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);ok++;}catch(e){failed++;}}setBulkProgress('Bulk generation finished: '+ok+' ok, '+failed+' failed. Reloading...', false);showToast('Bulk generation finished: '+ok+' ok, '+failed+' failed');setTimeout(()=>location.reload(),1800);return;}if(action==='delete'&&!confirm('Delete '+groupIds.length+' selected planned task groups from Blog Core? This does not delete live site files.')) return;setBulkProgress('Deleting '+groupIds.length+' planned task groups...');showToast('Deleting '+groupIds.length+' planned task groups...');try{const res=await fetch('/api/sites/'+SITE_ID+'/planned-groups/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,groupIds})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);setBulkProgress('Deleted '+(data.deletedJobs||0)+' job rows. Reloading...', false);showToast('Deleted '+(data.deletedJobs||0)+' job rows in '+(data.groups||groupIds.length)+' groups');setTimeout(()=>location.reload(),1200);}catch(e){clearBulkProgress();showToast('Bulk delete failed: '+e.message);}}
 async function generateSocialDrafts(jobId){showToast('Preparing social drafts...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const summary=(data.drafts||[]).map(d=>d.channel+': '+d.charCount+'/'+d.maxChars).join(' · ');showToast('Social drafts ready: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Social drafts failed: '+e.message);}}
+async function createVisualPin(){const mode=document.getElementById('visualPinMode')?.value||'auto';const progress=document.getElementById('visualPinProgress');let elapsed=0;const setProgress=(text)=>{if(progress){progress.hidden=false;progress.textContent=text;}};setProgress('Choosing a fresh fashion concept and creating one complete Pinterest collage. 0:00');const timer=setInterval(()=>{elapsed++;setProgress('Choosing a fresh fashion concept and creating one complete Pinterest collage. '+Math.floor(elapsed/60)+':'+String(elapsed%60).padStart(2,'0'));},1000);try{const res=await fetch('/api/sites/'+SITE_ID+'/visual-pins',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);setProgress('Visual Pin draft ready. Opening review...');showToast('Visual Pin draft ready');window.open(data.previewUrl,'_blank');setTimeout(()=>location.reload(),900);}catch(e){setProgress('Visual Pin generation failed: '+e.message);showToast('Visual Pin generation failed: '+e.message);}finally{clearInterval(timer);}}
+async function publishVisualPin(pinId){if(!confirm('Publish this reviewed visual Pin to Pinterest now through Zernio?'))return;showToast('Publishing visual Pin through Zernio...');try{const res=await fetch('/api/sites/'+SITE_ID+'/visual-pins/'+encodeURIComponent(pinId)+'/publish',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Visual Pin '+data.status);setTimeout(()=>location.reload(),900);}catch(e){showToast('Visual Pin publication failed: '+e.message);}}
 async function publishZernioSocial(jobId){if(!confirm('Publish ready X, Pinterest, Instagram, Threads, and Reddit drafts now through Zernio?'))return;showToast('Sending social drafts through Zernio...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-publish/zernio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);const summary=(data.results||[]).map(item=>item.channel+': '+(item.ok?item.status:'failed')).join(' · ');showToast('Zernio result: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Zernio publish failed: '+e.message);}}
 async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const socialCadences={};for(const channel of ['linkedin','telegram','twitter','tumblr','pinterest','instagram','threads','reddit']){socialCadences[channel]={enabled:fd.has('cadence_'+channel+'_enabled'),postsPerDay:Number(fd.get('cadence_'+channel+'_posts_per_day')||0)};}const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link'),threadsIncludeLink:fd.has('threads_include_link'),redditIncludeLink:fd.has('reddit_include_link'),socialCadences}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}

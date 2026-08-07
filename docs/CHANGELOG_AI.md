@@ -1,5 +1,26 @@
 # CHANGELOG_AI.md
 
+## 2026-08-07 — Add standalone Pinterest visual showcase Pins
+
+### Summary
+
+- Added a dedicated visual-Pin workflow for automatic product-variation collages. It picks a new original concept, supports one-outfit/many-people, one-model/many-looks, and multi-scene stories, then creates one finished 2:3 Gemini JPEG as an unpublished draft.
+- Added Distribution controls to create, review, manually publish, and open visual Pins. The visual description explains the connected product capability; the generated image is intentionally free of fabricated text, CTA buttons, UI, price claims, or invented branding.
+- Reused the existing per-site Zernio Pinterest account/board mapping and separate Pinterest cadence. Standalone Pins do not create or modify site pages or article jobs.
+
+### Files changed
+
+- `app.py` — visual Pin schema, concept/image generation, review/asset/publish routes, dashboard controls, and scheduler support.
+- `docs/INTEGRATIONS.md`, `docs/PROJECT_MEMORY.md` — document the durable Pin and publishing contract.
+
+### Checks run
+
+- Ran `python3 -m py_compile app.py` and `git diff --check` successfully.
+
+### Risks / TODO
+
+- Local isolated route testing requires Flask dependencies, which are not installed in the bare local Python interpreter. Deploy verification must run against the VPS virtual environment/runtime.
+
 ## 2026-08-07 — Schedule reviewed social formats independently
 
 ### Summary
