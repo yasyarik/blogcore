@@ -6972,10 +6972,12 @@ def article_asset_url(site_id, job_id, filename):
 def site_logo_reference(site_id):
     """Return the scanned site's actual raster logo for a multimodal image request."""
     profile = get_profile(site_id)
+    site = get_site(site_id)
     header = str(profile["header_html"] or "") if profile else ""
     candidates = re.findall(r"<img\b[^>]*\bsrc=[\"']([^\"']+)", header, flags=re.I)
     candidates.sort(key=lambda src: 0 if re.search(r"(?:logo|brand|wordmark)", src, re.I) else 1)
     for src in candidates:
+        src = absolutize((site["homepage_url"] if site else "") + "/", src)
         if not src.startswith(("https://", "http://")):
             continue
         try:
@@ -6987,6 +6989,21 @@ def site_logo_reference(site_id):
                 return {"mime_type": mime_type, "data": b64encode(data).decode("ascii")}
         except Exception:
             continue
+    root = Path(str(site["root_path"] or "")) if site and str(site["root_path"] or "").strip() else None
+    if root and root.is_dir():
+        local_candidates = []
+        for filename in ("logo.webp", "logo.png", "logo-ui.webp", "logo-email.webp", "logo.jpg", "logo.jpeg"):
+            candidate = root / filename
+            if candidate.is_file():
+                local_candidates.append(candidate)
+        for candidate in local_candidates:
+            try:
+                data = candidate.read_bytes()
+                mime_type = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(candidate.suffix.lower())
+                if mime_type and data:
+                    return {"mime_type": mime_type, "data": b64encode(data).decode("ascii")}
+            except Exception:
+                continue
     return None
 
 

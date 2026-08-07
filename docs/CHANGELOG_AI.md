@@ -16,6 +16,7 @@
 ### Checks run
 
 - Confirmed the VPS has Pillow and ImageMagick available for raster processing.
+- Identified and corrected a MyUGC scan edge case: a site with no raster `<img>` in its saved header now falls back to its standard local webroot logo asset before composition.
 
 ## 2026-08-07 — Publish a MyUGC visual Pin test
 

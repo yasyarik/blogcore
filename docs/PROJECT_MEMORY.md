@@ -39,7 +39,7 @@
 - Brand identity: where the design scan can resolve a raster logo, Blog Core passes it as an image reference. It must not substitute a typed or invented approximation.
 - Publishing: a reviewable `DRAFT` can be sent manually through the existing per-site Zernio Pinterest account/board mapping. The existing Pinterest posts-per-day cadence may also send the oldest reviewed standalone visual Pin; no cadence creates a visual, article, or unreviewed publication.
 - Replaced composition rule: visual product-variation Pins use a strict source-to-variation hierarchy: the upper 35-40% is a clean human-free source product, while the lower 60-65% contains three or four varied model/location applications of that exact product. This must not degrade into a free-form fashion collage.
-- Replaced logo rule: Gemini receives the scanned logo as a reference but must not draw it. Blog Core composites the same raster logo once in a restrained top-corner badge after image generation, so visual brand presence is exact and consistent.
+- Replaced logo rule: Gemini receives the scanned logo as a reference but must not draw it. Blog Core composites the same raster logo once in a restrained top-corner badge after image generation, so visual brand presence is exact and consistent. Logo lookup resolves absolute and relative header image URLs, then safely falls back to standard root-webroot `logo.*` assets for local sites.
 
 ## 2026-08-06 — MyUGC publishes natively every three days with complete blog-sitemap coverage
 
