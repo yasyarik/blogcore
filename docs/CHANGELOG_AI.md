@@ -16,6 +16,8 @@
 ### Checks run
 
 - Ran `python3 -m py_compile app.py` and `git diff --check` successfully.
+- Deployed to Blog Core, restarted `blog-yas-core` and `blog-yas-core-scheduler`, and confirmed `/health` plus the external visual-Pin preview return HTTP 200.
+- Generated one unpublished MyUGC `one_outfit_many_people` draft. Its 2:3 JPEG asset and preview resolve successfully; the database confirms `DRAFT` with no provider URL, so no Pinterest publication occurred.
 
 ### Risks / TODO
 
