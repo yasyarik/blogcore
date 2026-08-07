@@ -15,6 +15,7 @@ import wave
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from base64 import b64decode, b64encode
+from io import BytesIO
 from hashlib import sha1, sha256
 from hmac import new as hmac_new
 from html import escape
@@ -2832,6 +2833,40 @@ def visual_pin_asset_url(site_id, pin_id, filename):
     return f"/sites/{int(site_id)}/visual-pins/{urllib.parse.quote(str(pin_id), safe='')}/assets/{urllib.parse.quote(filename, safe='')}"
 
 
+def composite_visual_pin_logo(image_bytes, reference_image):
+    """Place the scanned logo exactly once instead of trusting an image model to redraw it."""
+    if not reference_image or not reference_image.get("data"):
+        return image_bytes
+    try:
+        from PIL import Image, ImageDraw
+
+        base = Image.open(BytesIO(image_bytes)).convert("RGBA")
+        logo = Image.open(BytesIO(b64decode(reference_image["data"]))).convert("RGBA")
+        max_width = max(72, int(base.width * 0.16))
+        max_height = max(24, int(base.height * 0.065))
+        logo.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+        if not logo.width or not logo.height:
+            return image_bytes
+        padding = max(10, int(base.width * 0.014))
+        x = base.width - logo.width - padding * 2
+        y = padding * 2
+        badge = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(badge)
+        draw.rounded_rectangle(
+            (x - padding, y - padding, x + logo.width + padding, y + logo.height + padding),
+            radius=padding,
+            fill=(255, 255, 255, 210),
+        )
+        badge.alpha_composite(logo, (x, y))
+        base.alpha_composite(badge)
+        out = BytesIO()
+        base.convert("RGB").save(out, format="JPEG", quality=93, optimize=True)
+        return out.getvalue()
+    except Exception:
+        # Image generation still succeeds when an older deployment has no Pillow.
+        return image_bytes
+
+
 def _visual_pin_fallback(site, mode):
     brand = site["brand_name"] or site["domain"]
     return {
@@ -2915,9 +2950,12 @@ Create one finished, original Pinterest visual showcase as a real raster JPEG.
 
 FORMAT:
 - Vertical 2:3 Pinterest composition, designed as one complete editorial collage image.
-- Build four to six intentional photographic panels into one cohesive premium fashion editorial, with balanced borders and a clear visual hierarchy.
+- This is a strict before/after product-variation layout, never a free-form mood board.
+- TOP 35-40%: one clean, human-free product image of the exact original garment/product alone. It must be a studio flat lay, floating packshot, hanger, or mannequin presentation on a calm background. No face, hands, body, or lifestyle scene is allowed above the divider.
+- BOTTOM 60-65%: exactly three or four equally intentional lifestyle panels. Each panel shows a different adult model in a different location wearing or using the exact same product shown above. Preserve the product's fabric, silhouette, colour, and distinctive details exactly; vary model, styling, setting, and camera angle.
+- Use a clear horizontal separation between the product source at the top and the generated variations below. The hierarchy must communicate: product first, realisable variations second.
 - Do not create a website screenshot, an app screen, a mood board with random unrelated photos, an empty template, an SVG, or a placeholder.
-- No readable copy, logo text, prices, badges, arrows, fake controls, CTA buttons, or watermarks. A real brand logo reference may be supplied only for subtle faithful brand presence; never invent or approximate one.
+- Do not create any logo, words, prices, badges, arrows, fake controls, CTA buttons, or watermarks. Blog Core places the exact supplied brand logo separately after generation; never invent or approximate it.
 
 VISUAL STORY:
 - Brand: {site['brand_name'] or site['domain']}
@@ -2934,6 +2972,7 @@ If the story is one garment across people, preserve the same garment design, fab
         image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="2:3", reference_image=reference_logo)
         if not image_bytes.startswith(b"\xff\xd8"):
             raise RuntimeError("Gemini image for visual Pinterest Pin was not JPEG")
+        image_bytes = composite_visual_pin_logo(image_bytes, reference_logo)
         directory = visual_pin_asset_dir(site_id, pin_id)
         directory.mkdir(parents=True, exist_ok=True)
         filename = "showcase-pin.jpg"

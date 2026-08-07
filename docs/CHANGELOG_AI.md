@@ -1,5 +1,22 @@
 # CHANGELOG_AI.md
 
+## 2026-08-07 — Enforce source-to-variation structure for visual Pins
+
+### Summary
+
+- Replaced the free-form showcase-collage prompt with a strict top-to-bottom product story: a clean human-free source product in the upper zone and three or four different model/location applications of that exact product below.
+- Added deterministic post-generation compositing of the scanned raster logo in a restrained top-corner badge. The model is prohibited from redrawing a logo.
+
+### Files changed
+
+- `app.py` — Pinterest visual Pin composition contract and exact logo overlay.
+- `requirements.txt` — declares Pillow for reliable server-side raster compositing.
+- `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md` — record the visual asset contract.
+
+### Checks run
+
+- Confirmed the VPS has Pillow and ImageMagick available for raster processing.
+
 ## 2026-08-07 — Publish a MyUGC visual Pin test
 
 ### Summary
