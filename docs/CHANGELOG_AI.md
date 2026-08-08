@@ -1,5 +1,28 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Complete automatic social delivery from published content
+
+### Summary
+
+- Replaced the draft-only social scheduler with a complete flow for enabled Zernio channels and direct LinkedIn: use an existing channel draft first, or generate one from the oldest eligible published article that has not already been sent to that channel.
+- Kept the boundary that social automation never creates or publishes a site article/page; it only repurposes existing published content.
+- Updated the Distribution wording to match this behavior.
+
+### Risks / TODO
+
+- A generated asset is submitted at the next configured channel slot and still requires destination-platform verification before it can be called live.
+
+## 2026-08-09 — Audit SoloCruz Instagram automatic delivery
+
+### Summary
+
+- Confirmed SoloCruz automatic Instagram delivery is enabled for one reviewed draft per day in `America/New_York` between 09:00 and 21:00.
+- Confirmed it has no eligible Instagram `DRAFT` records. The two historic records are manual 7 August submissions; the current content queue contains future article tasks only. No automated carousel could therefore be sent.
+
+### Checks run
+
+- Queried the live Blog Core SQLite schedule, social-draft state, upcoming SoloCruz content queue, and scheduler process configuration.
+
 ## 2026-08-09 — Distinguish Zernio acceptance from a live social post
 
 ### Summary

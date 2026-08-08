@@ -30,14 +30,14 @@
 
 - Decision: article/page publication remains governed solely by explicit `content_jobs.scheduled_for` records. Social channels have independent per-site cadence settings, including individual posts-per-day values for Instagram carousels, Pinterest Pins, and other connected Zernio channels.
 - Control-plane UX: Distribution exposes a separate blog/page cadence and an explicit `Schedule currently unscheduled queued tasks` action. Saving a cadence alone never moves existing task dates; applying it schedules only `QUEUED` jobs with no `scheduled_for`, preserving all already planned or published releases.
-- Runtime: the existing one-minute scheduler drains only the oldest reviewed `DRAFT` for a due social channel slot. It does not create a content job, generate a social creative, or send a draft that has not been reviewed.
+- Runtime: **replaced**. The one-minute scheduler uses the oldest channel `DRAFT` at a due slot; when none exists, it selects the oldest published page with no earlier non-error social record for that channel, generates the native creative, and submits it. It never creates or publishes a new site article/page.
 - Reason: editorial blogs may publish every three days while repurposed social formats publish at different sustainable rates. One global `times_per_day` cannot express that policy safely.
 
 ## 2026-08-09 — LinkedIn is a direct scheduled publishing channel after OAuth
 
 - Decision: Blog Core publishes reviewed LinkedIn drafts directly through LinkedIn's current Posts API after a site authorizes a member or organization. A site must have a valid OAuth token and author URN; saved app keys alone are not a connected publishing account.
 - Organization identity: Client ID and Client Secret remain server-side OAuth application credentials and are never re-entered or rendered per site. Organization posts require the LinkedIn app permission `w_organization_social` and an approved Page role for the OAuth member; the site then stores `urn:li:organization:…` as its publishing identity instead of its personal `urn:li:person:…`.
-- Delivery: LinkedIn can be selected for social-draft generation, published manually from a reviewed draft, or enabled with its own posts-per-day cadence. The same shared scheduler sends only an existing reviewed LinkedIn `DRAFT` at a due slot.
+- Delivery: LinkedIn can be selected for social-draft generation, published manually from a draft, or enabled with its own posts-per-day cadence. The shared scheduler uses an existing LinkedIn draft first, then generates one from the oldest eligible published page when no draft exists.
 - Boundary: LinkedIn is separate from Zernio. Zernio remains responsible for X, Pinterest, Instagram, Threads, and Reddit. Telegram and Tumblr stay connection-only until their direct publishing adapters are implemented.
 
 ## 2026-08-07 — Pinterest visual showcase Pins are first-class social assets
@@ -45,14 +45,14 @@
 - Decision: Blog Core has a standalone `visual_pins` workflow for original Pinterest collages. It is separate from `content_jobs` and ordinary article-derived `social_posts`: a visual Pin neither creates nor edits nor publishes a site page.
 - Workflow: the text model selects a fresh, non-repeating original visual concept, then Gemini Image renders a single complete 2:3 editorial collage. Supported story modes are one outfit across many people/locations, one model across many looks, and one concept across scenes. The visual uses no generated CTA copy, UI, price, badge, or fabricated logo; the Pin description carries the capability explanation.
 - Brand identity: where the design scan can resolve a raster logo, Blog Core passes it as an image reference. It must not substitute a typed or invented approximation.
-- Publishing: a reviewable `DRAFT` can be sent manually through the existing per-site Zernio Pinterest account/board mapping. The existing Pinterest posts-per-day cadence may also send the oldest reviewed standalone visual Pin; no cadence creates a visual, article, or unreviewed publication.
+- Publishing: a reviewable `DRAFT` can be sent manually through the existing per-site Zernio Pinterest account/board mapping. The Pinterest cadence prefers the oldest standalone visual Pin draft; otherwise it follows the shared published-article social generation rule. No cadence creates or publishes a site article/page.
 - Replaced composition rule: visual product-variation Pins use a strict source-to-variation hierarchy: the upper 35-40% is a clean human-free source product, while the lower 60-65% contains three or four varied model/location applications of that exact product. This must not degrade into a free-form fashion collage.
 - Replaced logo rule: Gemini receives the scanned logo as a reference but must not draw it. Blog Core composites the same raster logo once in a restrained top-corner badge after image generation, so visual brand presence is exact and consistent. Logo lookup resolves absolute and relative header image URLs, then safely falls back to standard root-webroot `logo.*` assets for local sites.
 
 ## 2026-08-07 — SoloCruz Instagram carousel cadence
 
-- Configuration: SoloCruz enables automatic social delivery for Instagram only at one reviewed carousel draft per day at `09:00 America/New_York`. The IANA timezone automatically follows EST/EDT daylight-saving changes.
-- Boundary: the scheduler neither creates carousel drafts nor publishes articles. At configuration time there were no Instagram `DRAFT` records, so enabling the cadence did not send a post immediately.
+- Configuration: SoloCruz enables automatic social delivery for Instagram only at one carousel per day at `09:00 America/New_York`. The IANA timezone automatically follows EST/EDT daylight-saving changes.
+- Boundary: the scheduler never publishes an article, but it creates a native carousel from the oldest eligible already-published article when no Instagram `DRAFT` exists.
 
 ## 2026-08-09 — Instagram carousels never contain a raw article link
 

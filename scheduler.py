@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run due Blog Core article and reviewed social-draft publications."""
+"""Run due Blog Core article and social publications."""
 
 import time
 

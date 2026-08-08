@@ -4811,7 +4811,7 @@ def render_distribution_settings(site_id):
         elif not can_auto_publish:
             delivery_note = "Automatic delivery is not implemented for this direct channel yet."
         elif social_cadences[provider]["enabled"]:
-            delivery_note = f"Automatic delivery is on: up to {posts_per_day} reviewed draft{'s' if posts_per_day != 1 else ''} per day."
+            delivery_note = f"Automatic delivery is on: up to {posts_per_day} native post{'s' if posts_per_day != 1 else ''} per day. A due slot uses a draft first, otherwise creates one from the oldest eligible published article."
         else:
             delivery_note = "Manual only. Enable automatic delivery and choose posts per day to create a cadence."
         if provider == "linkedin" and linkedin_oauth_configured() and status != "connected":
@@ -4839,7 +4839,7 @@ def render_distribution_settings(site_id):
         )
     return f"""
     <section class="panel production-panel">
-      <div class="panel-title-row"><div><h2>Distribution and social scheduling</h2><div class="muted">Article/page schedules stay explicit. Each social channel drains only reviewed drafts at its own cadence.</div></div></div>
+      <div class="panel-title-row"><div><h2>Distribution and social scheduling</h2><div class="muted">Article/page schedules stay explicit. Each enabled social channel uses a due slot to publish a prepared draft or create one from the oldest eligible published article.</div></div></div>
       {content_schedule_panel}
       <form class="form-grid" onsubmit="saveFactorySettings(event)">
         <div class="field"><label>Discovery direction</label><input name="direction" value="{escape(disc['direction'] or '', quote=True)}" placeholder="Auto-detected from site scan"><div class="hint">Gemini fills this from the scanned site; edit only to override.</div></div>
@@ -4851,7 +4851,7 @@ def render_distribution_settings(site_id):
         <div class="field"><label>Timezone</label><input name="timezone" value="{escape(auto['timezone'] or 'UTC', quote=True)}"></div>
         <div class="field"><label>Start hour</label><input name="start_hour" type="number" min="0" max="23" value="{int(auto['start_hour'] or 9)}"></div>
         <div class="field"><label>End hour</label><input name="end_hour" type="number" min="0" max="23" value="{int(auto['end_hour'] or 21)}"></div>
-        <div class="field full"><label>Social channels</label><div class="channel-grid unified-channels">{''.join(channel_cards)}</div><div class="hint">A social cadence sends only already-reviewed drafts. It never creates or publishes a new blog/page. LinkedIn sends directly after its OAuth account is connected; X, Pinterest, Instagram, Threads, and Reddit use Zernio.</div></div>
+        <div class="field full"><label>Social channels</label><div class="channel-grid unified-channels">{''.join(channel_cards)}</div><div class="hint">A social cadence never creates or publishes a new blog/page. It sends an existing social draft first; if none exists, it creates a channel-native post from the oldest eligible published article. LinkedIn sends directly after its OAuth account is connected; X, Pinterest, Instagram, Threads, and Reddit use Zernio.</div></div>
         <div class="actions full"><button type="submit">Save factory distribution settings</button></div>
       </form>
         <div class="planned-publications-block">
@@ -8726,11 +8726,12 @@ def run_scheduled_content_publications(now=None):
 
 
 def run_scheduled_social_publications(now=None):
-    """Publish reviewed social drafts in per-channel time slots.
+    """Create and submit one native social post for each due channel slot.
 
     Article/page scheduling remains explicit in ``content_jobs.scheduled_for``.
-    This runner never generates a social creative: it only drains reviewed DRAFT
-    records for a connected Zernio channel at that channel's configured cadence.
+    A due slot uses an existing social DRAFT first. Otherwise it selects the
+    oldest published page without an earlier non-error post for that channel,
+    generates the native creative, and submits it through the channel.
     """
     current_utc = now or datetime.now(timezone.utc)
     results = []
@@ -8766,6 +8767,21 @@ def run_scheduled_social_publications(now=None):
                        order by sp.created_at asc, sp.id asc limit 1""",
                     (site_id, channel),
                 ).fetchone()
+                create_from_article = False
+                if not candidate:
+                    candidate = conn.execute(
+                        """select cj.id as job_id from content_jobs cj
+                           where cj.site_id=? and cj.status='PUBLISHED'
+                             and not exists (
+                               select 1 from social_posts sp
+                               where sp.site_id=cj.site_id and sp.job_id=cj.id and sp.channel=?
+                                 and sp.status not in ('ERROR', 'SUPERSEDED')
+                             )
+                           order by coalesce(nullif(cj.published_url, ''), cj.created_at) asc, cj.created_at asc
+                           limit 1""",
+                        (site_id, channel),
+                    ).fetchone()
+                    create_from_article = bool(candidate)
                 visual_pin = None
                 if channel == "pinterest":
                     visual_pin = conn.execute(
@@ -8778,25 +8794,28 @@ def run_scheduled_social_publications(now=None):
                         candidate = None
                 run_id = conn.execute(
                     "insert into autopublish_runs(site_id, started_at, trigger, job_id, status) values(?,?,?,?,?)",
-                    (site_id, now_iso(), slot_key, candidate["job_id"] if candidate else (f"visual-pin:{visual_pin['id']}" if visual_pin else None), "RUNNING" if candidate or visual_pin else "NO_DRAFT"),
+                    (site_id, now_iso(), slot_key, candidate["job_id"] if candidate else (f"visual-pin:{visual_pin['id']}" if visual_pin else None), "RUNNING" if candidate or visual_pin else "NO_SOURCE"),
                 ).lastrowid
             if not candidate and not visual_pin:
-                results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": "no_draft"})
+                results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": "no_source"})
                 continue
             try:
                 if visual_pin:
                     published = publish_zernio_visual_pin(site_id, visual_pin["id"])
-                elif channel == "linkedin":
-                    published = publish_linkedin_social_drafts(site_id, candidate["job_id"])
                 else:
-                    published = publish_zernio_social_drafts(site_id, candidate["job_id"], channels=[channel])
-                status = "SENT" if published.get("ok") else "ERROR"
+                    if create_from_article:
+                        generate_social_drafts(site_id, candidate["job_id"], channels=[channel])
+                    if channel == "linkedin":
+                        published = publish_linkedin_social_drafts(site_id, candidate["job_id"])
+                    else:
+                        published = publish_zernio_social_drafts(site_id, candidate["job_id"], channels=[channel])
+                status = "SUBMITTED" if published.get("ok") else "ERROR"
                 with db() as conn:
                     conn.execute(
                         "update autopublish_runs set finished_at=?, status=?, result_json=? where id=?",
                         (now_iso(), status, json.dumps(published, ensure_ascii=False), run_id),
                     )
-                results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": status.lower(), "jobId": candidate["job_id"] if candidate else None, "visualPinId": visual_pin["id"] if visual_pin else None})
+                results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": status.lower(), "jobId": candidate["job_id"] if candidate else None, "visualPinId": visual_pin["id"] if visual_pin else None, "generated": create_from_article})
             except Exception as error:
                 with db() as conn:
                     conn.execute(
