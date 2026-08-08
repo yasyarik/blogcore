@@ -1,5 +1,25 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Stop unapproved SoloCruz logo-reference previews
+
+### Summary
+
+- Stopped the incomplete SoloCruz Instagram preview attempts before publication. Draft/preview records 21-26 for the tested article are `SUPERSEDED`; no new Zernio submission occurred.
+- Recorded that a Gemini image reference is not a pixel-exact logo placement mechanism. Future brand-reference work must validate one control image before rendering a full carousel.
+
+### Files changed
+
+- `docs/PROJECT_MEMORY.md` — documented the image-reference limitation and required control-image gate.
+- `docs/CHANGELOG_AI.md` — recorded the halted previews.
+
+### Checks run
+
+- Verified all unapproved tested Instagram records for the article are `SUPERSEDED`; the prior external submission remains unchanged.
+
+### Risks / TODO
+
+- Do not resume carousel generation until the required logo-treatment contract is explicitly approved.
+
 ## 2026-08-09 — Keep regenerated social media separate from submitted posts
 
 ### Summary
