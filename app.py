@@ -3333,6 +3333,7 @@ def generate_instagram_carousel_images(site_id, job_id, site, job, language, car
         "generator": os.environ.get("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-image",
         "brandLogo": "gemini-reference-when-contextual" if reference_logo else "not-available",
         "logoReferenceProvided": bool(reference_logo),
+        "logoReferenceSource": str((reference_logo or {}).get("source") or ""),
         "assetKey": asset_key,
     }
     return carousel
@@ -3475,6 +3476,114 @@ def zernio_media_items(channel, payload):
     return []
 
 
+def zernio_provider_post_id(post):
+    if not isinstance(post, dict):
+        return ""
+    return str(post.get("_id") or post.get("id") or "").strip()
+
+
+def zernio_provider_media_urls(post):
+    if not isinstance(post, dict):
+        return set()
+    items = post.get("mediaItems") or post.get("media") or []
+    return {
+        str(item.get("url") or "").strip()
+        for item in items
+        if isinstance(item, dict) and str(item.get("url") or "").strip()
+    }
+
+
+def zernio_local_status(provider_status):
+    normalized = str(provider_status or "").strip().lower()
+    return {
+        "published": "PUBLISHED",
+        "scheduled": "SCHEDULED",
+        "draft": "DRAFT",
+        "failed": "ERROR",
+        "cancelled": "CANCELLED",
+    }.get(normalized, "SUBMITTED")
+
+
+def sync_social_channel_status(site_id, job_id, channel):
+    """Keep the content-task summary aligned with the newest active social draft."""
+    if channel not in ZERNIO_SOCIAL_CHANNELS:
+        return
+    with db() as conn:
+        row = conn.execute(
+            """select status, remote_url from social_posts
+               where site_id=? and job_id=? and channel=? and status != 'SUPERSEDED'
+               order by id desc limit 1""",
+            (site_id, job_id, channel),
+        ).fetchone()
+        if not row:
+            return
+        conn.execute(
+            f"update content_jobs set {channel}_status=?, {channel}_post_url=?, updated_at=? where site_id=? and id=?",
+            (str(row["status"] or "").lower(), str(row["remote_url"] or ""), now_iso(), site_id, job_id),
+        )
+
+
+def reconcile_zernio_social_posts(site_id, job_id=None):
+    """Match provider posts to local drafts by their immutable generated-media URLs."""
+    connections = get_social_connections(site_id)
+    credentials = get_social_credentials(connections.get("zernio"))
+    api_key = str(credentials.get("api_key") or os.environ.get("ZERNIO_API_KEY") or "").strip()
+    if not api_key:
+        return {"matched": [], "reason": "Zernio is not configured"}
+    try:
+        response, _ = fetch_json_request(
+            f"{ZERNIO_API_BASE}/posts?limit=100",
+            headers={"Authorization": f"Bearer {api_key}"},
+            method="GET",
+            timeout=30,
+        )
+    except Exception as error:
+        return {"matched": [], "reason": str(error)[:200]}
+    provider_posts = (response.get("posts") or response.get("data") or []) if isinstance(response, dict) else []
+    if not isinstance(provider_posts, list):
+        provider_posts = []
+    provider_by_media = {}
+    for post in provider_posts:
+        for media_url in zernio_provider_media_urls(post):
+            provider_by_media.setdefault(media_url, []).append(post)
+    query = """select * from social_posts where site_id=?
+               and status != 'SUPERSEDED'
+               and channel in ('twitter','pinterest','instagram','threads','reddit')"""
+    params = [site_id]
+    if job_id:
+        query += " and job_id=?"
+        params.append(job_id)
+    with db() as conn:
+        rows = conn.execute(query, params).fetchall()
+    matched = []
+    for row in rows:
+        payload = parse_json_object(row["content_json"])
+        local_media = {item["url"] for item in zernio_media_items(row["channel"], payload) if item.get("url")}
+        if not local_media:
+            continue
+        candidates = []
+        for media_url in local_media:
+            candidates.extend(provider_by_media.get(media_url, []))
+        if not candidates:
+            continue
+        provider = max(candidates, key=lambda item: len(local_media.intersection(zernio_provider_media_urls(item))))
+        if not local_media.issubset(zernio_provider_media_urls(provider)):
+            continue
+        provider_id = zernio_provider_post_id(provider)
+        if not provider_id:
+            continue
+        status = zernio_local_status(provider.get("status"))
+        public_url = str(provider.get("url") or provider.get("permalink") or provider_id)
+        with db() as conn:
+            conn.execute(
+                "update social_posts set status=?, remote_url=?, updated_at=? where id=?",
+                (status, public_url, now_iso(), row["id"]),
+            )
+        sync_social_channel_status(site_id, row["job_id"], row["channel"])
+        matched.append({"id": row["id"], "channel": row["channel"], "status": status, "remoteUrl": public_url})
+    return {"matched": matched, "reason": ""}
+
+
 def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=None):
     connections = get_social_connections(site_id)
     zernio = connections.get("zernio")
@@ -3579,9 +3688,15 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=N
                 conn.execute("update social_posts set status=?, remote_url=?, updated_at=? where id=?", (status, remote_url or remote_id, now_iso(), row["id"]))
             results.append({"channel": channel, "ok": True, "status": status, "remoteUrl": remote_url or remote_id})
         except Exception as e:
-            with db() as conn:
-                conn.execute("update social_posts set status='ERROR', updated_at=? where id=?", (now_iso(), row["id"]))
-            results.append({"channel": channel, "ok": False, "error": str(e)[:300]})
+            reconciled = reconcile_zernio_social_posts(site_id, job_id)
+            recovered = next((item for item in reconciled["matched"] if item["id"] == row["id"]), None)
+            if recovered:
+                results.append({"channel": channel, "ok": True, "status": recovered["status"], "remoteUrl": recovered["remoteUrl"], "reconciled": True})
+            else:
+                with db() as conn:
+                    conn.execute("update social_posts set status='ERROR', updated_at=? where id=?", (now_iso(), row["id"]))
+                results.append({"channel": channel, "ok": False, "error": str(e)[:300]})
+    reconcile_zernio_social_posts(site_id, job_id)
     successful = [item for item in results if item.get("ok")]
     with db() as conn:
         for item in successful:
@@ -7206,22 +7321,55 @@ def site_logo_reference(site_id):
                 mime_type = (response.headers.get_content_type() or "").lower()
                 data = response.read(1_500_000)
             if mime_type in {"image/png", "image/jpeg", "image/webp"} and data:
-                return {"mime_type": mime_type, "data": b64encode(data).decode("ascii")}
+                return {"mime_type": mime_type, "data": b64encode(data).decode("ascii"), "source": src}
         except Exception:
             continue
     root = Path(str(site["root_path"] or "")) if site and str(site["root_path"] or "").strip() else None
     if root and root.is_dir():
+        # Prefer deliberate brand directories over a root-level logo or favicon.
+        # Local sites often retain an obsolete root logo after their visual system
+        # has moved to assets/brand or a similar source-owned directory.
         local_candidates = []
-        for filename in ("logo.webp", "logo.png", "logo-ui.webp", "logo-email.webp", "logo.jpg", "logo.jpeg"):
-            candidate = root / filename
-            if candidate.is_file():
-                local_candidates.append(candidate)
-        for candidate in local_candidates:
+        image_suffixes = {".png", ".jpg", ".jpeg", ".webp"}
+        skipped_dirs = {".git", ".next", "node_modules", "data", "previews", "backups"}
+        for directory, child_dirs, filenames in os.walk(root):
+            relative = Path(directory).relative_to(root)
+            if len(relative.parts) > 4:
+                child_dirs[:] = []
+                continue
+            child_dirs[:] = [name for name in child_dirs if name.lower() not in skipped_dirs]
+            for filename in filenames:
+                candidate = Path(directory) / filename
+                if candidate.suffix.lower() not in image_suffixes:
+                    continue
+                normalized = "/".join((*relative.parts, filename)).lower()
+                if not re.search(r"(?:logo|brand|wordmark)", normalized):
+                    continue
+                if "favicon" in normalized:
+                    continue
+                try:
+                    size = candidate.stat().st_size
+                except OSError:
+                    continue
+                if not size or size > 1_500_000:
+                    continue
+                parts = {part.lower() for part in relative.parts}
+                score = 0
+                if "brand" in parts or "branding" in parts:
+                    score -= 100
+                if "logo" in candidate.stem.lower() or "wordmark" in candidate.stem.lower():
+                    score -= 20
+                if relative == Path("."):
+                    score += 30
+                if "extension" in parts:
+                    score += 15
+                local_candidates.append((score, -size, str(candidate).lower(), candidate))
+        for _, _, _, candidate in sorted(local_candidates):
             try:
                 data = candidate.read_bytes()
                 mime_type = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(candidate.suffix.lower())
                 if mime_type and data:
-                    return {"mime_type": mime_type, "data": b64encode(data).decode("ascii")}
+                    return {"mime_type": mime_type, "data": b64encode(data).decode("ascii"), "source": str(candidate)}
             except Exception:
                 continue
     return None

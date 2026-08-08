@@ -1,5 +1,44 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Resolve the active local brand logo before social generation
+
+### Summary
+
+- Replaced the root-file-only local logo fallback with a bounded, ranked local asset search.
+- Brand directories and actual logo/wordmark files now win over root-level historic logos, favicons, and extension graphics.
+
+### Files changed
+
+- `app.py` — added universal local brand-asset ranking and source metadata.
+- `docs/PROJECT_MEMORY.md` — recorded the global asset-resolution rule.
+- `docs/INTEGRATIONS.md` — documented the local-logo lookup contract.
+- `docs/CHANGELOG_AI.md` — recorded this task.
+
+### Checks run
+
+- Verified after deployment: SoloCruz resolves `/var/www/solocruz.com/assets/brand/logo.png` as its raster reference.
+
+## 2026-08-09 — Reconcile Zernio delivery statuses from provider media
+
+### Summary
+
+- Added a provider-state reconciliation path that matches Zernio posts to Blog Core social drafts through their complete immutable media URLs.
+- A transport failure no longer automatically becomes a local `ERROR` when Zernio already holds the matching post; actual provider `published` or `scheduled` status wins.
+- Excluded `SUPERSEDED` historical attempts from reconciliation so legacy drafts that reused a media path cannot be revived as a duplicate publication.
+
+### Files changed
+
+- `app.py` — Zernio media-based reconciliation and transport-error recovery.
+- `docs/PROJECT_MEMORY.md` — recorded the external-status contract.
+- `docs/INTEGRATIONS.md` — documented Zernio as source of truth for delivery state.
+- `docs/CHANGELOG_AI.md` — recorded this task.
+
+### Checks run
+
+- Deployed the reconciliation and read SoloCruz Instagram drafts 20, 24, and 25 from Zernio without sending any post: 20 and 25 are `PUBLISHED`; 24 is `SCHEDULED` for August 10.
+- Corrected the matching task's stale aggregate `instagram_status` from `submitted` to the newest active provider-backed state.
+- `python3 -m py_compile app.py` and `GET /health` passed after restart.
+
 ## 2026-08-09 — Stop unapproved SoloCruz logo-reference previews
 
 ### Summary
