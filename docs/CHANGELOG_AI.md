@@ -1,5 +1,16 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Make Instagram carousel delivery native and reduce SoloCruz cadence
+
+### Summary
+
+- Removed the misleading Instagram `Include article link` control and enforce link-free Instagram carousel captions for every site, including saved legacy settings.
+- Reduced SoloCruz automatic Instagram cadence from three carousels per day to one reviewed carousel per day at 09:00 United States Eastern time.
+
+### Checks run
+
+- Confirmed SoloCruz's saved Zernio Instagram account mapping and new cadence after deployment.
+
 ## 2026-08-09 — Make publication schedules and LinkedIn delivery operational in Distribution
 
 ### Summary

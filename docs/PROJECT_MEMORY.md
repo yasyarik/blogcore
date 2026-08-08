@@ -50,8 +50,14 @@
 
 ## 2026-08-07 — SoloCruz Instagram carousel cadence
 
-- Configuration: SoloCruz enables automatic social delivery for Instagram only at three reviewed carousel drafts per day within a `09:00-21:00 America/New_York` distribution window, producing slots at approximately 09:00, 15:00, and 21:00 United States Eastern local time. The IANA timezone automatically follows EST/EDT daylight-saving changes.
+- Configuration: SoloCruz enables automatic social delivery for Instagram only at one reviewed carousel draft per day at `09:00 America/New_York`. The IANA timezone automatically follows EST/EDT daylight-saving changes.
 - Boundary: the scheduler neither creates carousel drafts nor publishes articles. At configuration time there were no Instagram `DRAFT` records, so enabling the cadence did not send a post immediately.
+
+## 2026-08-09 — Instagram carousels never contain a raw article link
+
+- Decision: Blog Core always generates Instagram carousel captions with `includeLink=false`, and does not expose an article-link switch in the Instagram channel card.
+- Reason: an Instagram caption URL is not a useful click destination; the carousel itself must deliver the useful framework and use a native final-slide next step rather than an inert raw link.
+- Scope: all sites and all future Instagram social drafts. Historic drafts are not modified silently.
 
 ## 2026-08-06 — MyUGC publishes natively every three days with complete blog-sitemap coverage
 

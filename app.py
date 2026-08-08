@@ -3366,7 +3366,9 @@ def generate_social_drafts(site_id, job_id, channels=None):
     status_updates = {}
     with db() as conn:
         for channel in allowed_channels:
-            include_link = bool(auto[f"{channel}_include_link"] if f"{channel}_include_link" in auto.keys() else 0)
+            # An Instagram carousel is a native in-feed asset: raw URLs in the
+            # caption add no usable interaction and weaken the editorial format.
+            include_link = False if channel == "instagram" else bool(auto[f"{channel}_include_link"] if f"{channel}_include_link" in auto.keys() else 0)
             max_chars = SOCIAL_CHANNEL_LIMITS[channel]
             extra_payload = {}
             if channel == "pinterest":
@@ -4778,6 +4780,11 @@ def render_distribution_settings(site_id):
         checked = "checked" if provider in selected else ""
         include_field = f"{provider}_include_link"
         include_checked = "checked" if int(auto[include_field] or 0) else ""
+        include_control = (
+            "<div class='hint'>Instagram carousel captions never include a raw article link. The final slide carries the useful next step instead.</div>"
+            if provider == "instagram"
+            else f"<label class=\"check compact\"><input type=\"checkbox\" name=\"{include_field}\" {include_checked}> Include article link</label>"
+        )
         posts_per_day = social_cadences[provider]["postsPerDay"]
         cadence_enabled = "checked" if social_cadences[provider]["enabled"] else ""
         can_auto_publish = provider in AUTOMATIC_SOCIAL_CHANNELS
@@ -4806,7 +4813,7 @@ def render_distribution_settings(site_id):
                 <div class="channel-setup-action"><span class="connect-placeholder" title="Open Setup to enter credentials and test this channel">{escape(setup_label)}</span>{quick_action}</div>
               </div>
               <label class="check compact"><input type="checkbox" name="channels" value="{provider}" {checked}> Use for social publishing</label>
-              <label class="check compact"><input type="checkbox" name="{include_field}" {include_checked}> Include article link</label>
+              {include_control}
               {cadence_controls}
               <div class="hint channel-delivery-note">{escape(delivery_note)}</div>
             </div>
@@ -9404,7 +9411,7 @@ def update_factory_settings(site_id):
                 1 if auto.get("twitterIncludeLink") else 0,
                 1 if auto.get("tumblrIncludeLink") else 0,
                 1 if auto.get("pinterestIncludeLink") else 0,
-                1 if auto.get("instagramIncludeLink") else 0,
+                0,
                 1 if auto.get("threadsIncludeLink") else 0,
                 1 if auto.get("redditIncludeLink") else 0,
                 json.dumps(social_cadences, ensure_ascii=False),
