@@ -1,5 +1,16 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Clarify LinkedIn organization publishing identity
+
+### Summary
+
+- Updated the LinkedIn OAuth request to include `w_organization_social` alongside member posting access.
+- Clarified in Setup that the secured Client ID and Client Secret perform OAuth once and are not per-site fields; a company page publishes through its `urn:li:organization:…` after the user has an approved Page role.
+
+### Checks run
+
+- Verified the deployed OAuth request and rendered Setup card distinguish a personal `urn:li:person:…` identity from the organization flow.
+
 ## 2026-08-09 — Make Instagram carousel delivery native and reduce SoloCruz cadence
 
 ### Summary

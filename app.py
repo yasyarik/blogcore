@@ -2100,7 +2100,7 @@ SOCIAL_PROVIDER_CONFIG = {
         "label": "LinkedIn",
         "fields": [
             ("access_token", "Access token", "password", "LinkedIn OAuth access token"),
-            ("author_urn", "Author / organization URN", "text", "urn:li:organization:123 or urn:li:person:abc"),
+            ("author_urn", "Publishing identity URN", "text", "Personal: urn:li:person:… · company page: urn:li:organization:…"),
         ],
     },
     "telegram": {
@@ -4586,8 +4586,20 @@ def render_social_credentials_setup(site_id):
             )
         meta = f" · {escape(display_name)}" if display_name else ""
         connect_action = ""
+        provider_note = ""
         if provider == "linkedin" and linkedin_oauth_configured():
-            connect_action = f"<button class='ghost mini-action' type='button' onclick=\"connectLinkedIn({int(site_id)})\">Connect LinkedIn</button>"
+            author_urn = str(credentials.get("author_urn") or "")
+            is_organization = author_urn.startswith("urn:li:organization:")
+            identity = "organization page" if is_organization else "personal profile"
+            provider_note = f"""
+              <div class='linkedin-identity-note'>
+                <strong>Publishing identity: {identity}.</strong>
+                Client ID and Client Secret are stored securely in Blog Core only to complete OAuth and are never entered per site or shown here.
+                To publish as a company page, the LinkedIn app must have <code>w_organization_social</code>, the connected member must be a Page Administrator, Content Admin, or Direct Sponsored Content Poster, then set this field to the page's <code>urn:li:organization:…</code> and test the connection.
+              </div>
+            """
+            connect_label = "Reconnect LinkedIn with page access" if status == "connected" else "Connect LinkedIn"
+            connect_action = f"<button class='ghost mini-action' type='button' onclick=\"connectLinkedIn({int(site_id)})\">{connect_label}</button>"
         cards.append(
             f"""
             <form class="social-credentials-card" data-provider="{escape(provider)}" onsubmit="saveSocialCredentials(event, '{escape(provider)}')">
@@ -4595,6 +4607,7 @@ def render_social_credentials_setup(site_id):
                 <div><strong>{escape(config['label'])}</strong><span class="channel-state {status_class}">{escape(status)}{meta}</span></div>
                 {connect_action}<button class="ghost mini-action" type="button" onclick="testSocialConnection('{escape(provider)}')">Test connect</button>
               </div>
+              {provider_note}
               <div class="social-credential-fields">{''.join(fields)}</div>
               <div class="actions">
                 <button type="submit">Save credentials</button>
@@ -9070,7 +9083,7 @@ def linkedin_connect_route(site_id):
         "client_id": os.environ["LINKEDIN_CLIENT_ID"],
         "redirect_uri": linkedin_oauth_redirect_uri(),
         "state": state,
-        "scope": "openid profile w_member_social",
+        "scope": "openid profile w_member_social w_organization_social",
     })
     return jsonify({"ok": True, "authUrl": f"https://www.linkedin.com/oauth/v2/authorization?{query}"})
 
@@ -10458,6 +10471,7 @@ MANAGE_SITE_HTML = """<!doctype html>
 .social-credentials-panel{margin-top:18px}
 .social-credentials-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
 .social-credentials-card{display:grid;gap:12px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38);padding:14px}
+.linkedin-identity-note{border:1px solid rgba(96,165,250,.3);border-radius:12px;background:rgba(96,165,250,.08);color:#dbeafe;padding:10px 12px;font-size:12px;line-height:1.45}.linkedin-identity-note strong{color:#fff}.linkedin-identity-note code{color:#bfdbfe;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .social-credential-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .planned-publications-block{margin-top:18px;border-top:1px solid var(--line);padding-top:18px}
 .planned-publications-block h3{margin:0 0 4px;color:#efe9ff;font-size:15px;text-transform:uppercase;letter-spacing:.08em}

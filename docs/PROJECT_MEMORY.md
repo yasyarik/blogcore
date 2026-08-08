@@ -36,6 +36,7 @@
 ## 2026-08-09 — LinkedIn is a direct scheduled publishing channel after OAuth
 
 - Decision: Blog Core publishes reviewed LinkedIn drafts directly through LinkedIn's current Posts API after a site authorizes a member or organization. A site must have a valid OAuth token and author URN; saved app keys alone are not a connected publishing account.
+- Organization identity: Client ID and Client Secret remain server-side OAuth application credentials and are never re-entered or rendered per site. Organization posts require the LinkedIn app permission `w_organization_social` and an approved Page role for the OAuth member; the site then stores `urn:li:organization:…` as its publishing identity instead of its personal `urn:li:person:…`.
 - Delivery: LinkedIn can be selected for social-draft generation, published manually from a reviewed draft, or enabled with its own posts-per-day cadence. The same shared scheduler sends only an existing reviewed LinkedIn `DRAFT` at a due slot.
 - Boundary: LinkedIn is separate from Zernio. Zernio remains responsible for X, Pinterest, Instagram, Threads, and Reddit. Telegram and Tumblr stay connection-only until their direct publishing adapters are implemented.
 
