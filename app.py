@@ -2554,8 +2554,9 @@ VISUAL DIRECTION:
 """.strip()
 
 
-def generate_threads_media_image(site_id, job_id, site, job, language, text):
-    target_dir = social_asset_job_dir(site_id, job_id, "threads")
+def generate_threads_media_image(site_id, job_id, site, job, language, text, asset_key=None):
+    asset_key = asset_key or str(job_id)
+    target_dir = social_asset_job_dir(site_id, asset_key, "threads")
     shutil.rmtree(target_dir, ignore_errors=True)
     target_dir.mkdir(parents=True, exist_ok=True)
     filename = "image-01.jpg"
@@ -2565,14 +2566,14 @@ def generate_threads_media_image(site_id, job_id, site, job, language, text):
         raise RuntimeError("Gemini image for Threads media was not JPEG")
     (target_dir / filename).write_bytes(image_bytes)
     return {
-        "mediaUrls": [social_asset_url(site_id, job_id, "threads", filename)],
+        "mediaUrls": [social_asset_url(site_id, asset_key, "threads", filename)],
         "mediaSource": "threadsGenerated",
         "mediaMimeType": "image/jpeg",
         "generatedAt": now_iso(),
     }
 
 
-def generate_threads_post_draft(site_id, job_id, site, job, language, include_link, article_url):
+def generate_threads_post_draft(site_id, job_id, site, job, language, include_link, article_url, asset_key=None):
     max_bytes = SOCIAL_CHANNEL_LIMITS["threads"]
     try:
         data = _gemini_text_json(build_threads_post_prompt(site, job, language, max_bytes, include_link, article_url))
@@ -2588,7 +2589,7 @@ def generate_threads_post_draft(site_id, job_id, site, job, language, include_li
         validation = validate_threads_post_text(text, max_bytes)
     if not validation["ok"]:
         raise ValueError("Threads post exceeds 500 UTF-8 bytes")
-    media = generate_threads_media_image(site_id, job_id, site, job, language, text)
+    media = generate_threads_media_image(site_id, job_id, site, job, language, text, asset_key=asset_key)
     conversation_format = str(data.get("conversationFormat") or "observation").strip().lower().replace("-", "_") if isinstance(data, dict) else "observation"
     if conversation_format not in {"question", "observation", "contrarian", "micro_story", "objection_answer"}:
         conversation_format = "observation"
@@ -2685,8 +2686,9 @@ Choose one format: sharp_insight, contrarian_take, micro_framework, statistic_ob
     return normalized[0], validation, {"twitter": {"format": fmt, "threadItems": normalized}}
 
 
-def generate_editorial_social_image(site_id, job_id, site, job, channel, aspect_ratio, visual_rule):
-    target_dir = social_asset_job_dir(site_id, job_id, channel)
+def generate_editorial_social_image(site_id, job_id, site, job, channel, aspect_ratio, visual_rule, asset_key=None):
+    asset_key = asset_key or str(job_id)
+    target_dir = social_asset_job_dir(site_id, asset_key, channel)
     shutil.rmtree(target_dir, ignore_errors=True)
     target_dir.mkdir(parents=True, exist_ok=True)
     filename = "image-01.jpg"
@@ -2702,19 +2704,19 @@ RULES: Native editorial image, not a generic ad. No logo, fake UI, unreadable mi
     if not image_bytes.startswith(b"\xff\xd8"):
         raise RuntimeError(f"Gemini image for {channel} was not JPEG")
     (target_dir / filename).write_bytes(image_bytes)
-    return {"mediaUrls": [social_asset_url(site_id, job_id, channel, filename)], "mediaMimeType": "image/jpeg", "generatedAt": now_iso()}
+    return {"mediaUrls": [social_asset_url(site_id, asset_key, channel, filename)], "mediaMimeType": "image/jpeg", "generatedAt": now_iso()}
 
 
-def generate_telegram_post_draft(site_id, job_id, site, job, language, include_link, article_url):
+def generate_telegram_post_draft(site_id, job_id, site, job, language, include_link, article_url, asset_key=None):
     text, validation = generate_social_post_text(site, job, "telegram", language, SOCIAL_CHANNEL_LIMITS["telegram"], include_link, article_url)
-    media = generate_editorial_social_image(site_id, job_id, site, job, "telegram", "16:9", "Use a clear editorial scene with no text overlay.")
+    media = generate_editorial_social_image(site_id, job_id, site, job, "telegram", "16:9", "Use a clear editorial scene with no text overlay.", asset_key=asset_key)
     return text, validation, {"telegram": {**media, "button": {"label": "Open article", "url": article_url} if include_link and article_url else None}}
 
 
-def generate_tumblr_post_draft(site_id, job_id, site, job, language, include_link, article_url):
+def generate_tumblr_post_draft(site_id, job_id, site, job, language, include_link, article_url, asset_key=None):
     text, validation = generate_social_post_text(site, job, "tumblr", language, SOCIAL_CHANNEL_LIMITS["tumblr"], include_link, article_url)
     tags = [tag for tag in re.findall(r"[a-z0-9]+", (job["category"] or job["title"] or "").lower()) if len(tag) > 2][:5]
-    media = generate_editorial_social_image(site_id, job_id, site, job, "tumblr", "4:5", "Use an expressive editorial/lifestyle visual that feels like an independent blog post, with no text overlay.")
+    media = generate_editorial_social_image(site_id, job_id, site, job, "tumblr", "4:5", "Use an expressive editorial/lifestyle visual that feels like an independent blog post, with no text overlay.", asset_key=asset_key)
     return text, validation, {"tumblr": {**media, "tags": tags}}
 
 
@@ -2851,8 +2853,9 @@ def generate_pinterest_pin_draft(site, job, language, include_link, article_url)
     return pin["description"], validation, {"pin": pin}
 
 
-def generate_pinterest_pin_image(site_id, job_id, site, job, pin):
-    target_dir = social_asset_job_dir(site_id, job_id, "pinterest")
+def generate_pinterest_pin_image(site_id, job_id, site, job, pin, asset_key=None):
+    asset_key = asset_key or str(job_id)
+    target_dir = social_asset_job_dir(site_id, asset_key, "pinterest")
     shutil.rmtree(target_dir, ignore_errors=True)
     target_dir.mkdir(parents=True, exist_ok=True)
     filename = "pin-01.jpg"
@@ -2876,7 +2879,7 @@ ARTICLE CONTEXT:
         raise RuntimeError("Gemini image for Pinterest pin was not JPEG")
     (target_dir / filename).write_bytes(image_bytes)
     return {
-        "imageUrl": social_asset_url(site_id, job_id, "pinterest", filename),
+        "imageUrl": social_asset_url(site_id, asset_key, "pinterest", filename),
         "imageMimeType": "image/jpeg",
         "generatedAt": now_iso(),
     }
@@ -3247,14 +3250,18 @@ def generate_instagram_carousel_draft(site, job, language, include_link, article
     raise ValueError("Instagram carousel generation failed its 6-8 slide contract: " + " | ".join(errors)[:500])
 
 
-def social_asset_job_dir(site_id, job_id, channel):
-    safe_job = re.sub(r"[^A-Za-z0-9_.-]", "_", str(job_id))
+def social_asset_key(job_id):
+    return f"{str(job_id)}-{secrets.token_hex(8)}"
+
+
+def social_asset_job_dir(site_id, asset_key, channel):
+    safe_job = re.sub(r"[^A-Za-z0-9_.-]", "_", str(asset_key))
     safe_channel = re.sub(r"[^A-Za-z0-9_.-]", "_", str(channel))
     return SOCIAL_ASSET_DIR / str(int(site_id)) / safe_job / safe_channel
 
 
-def social_asset_url(site_id, job_id, channel, filename):
-    return f"/sites/{int(site_id)}/social-assets/{urllib.parse.quote(str(job_id), safe='')}/{urllib.parse.quote(channel, safe='')}/{urllib.parse.quote(filename, safe='')}"
+def social_asset_url(site_id, asset_key, channel, filename):
+    return f"/sites/{int(site_id)}/social-assets/{urllib.parse.quote(str(asset_key), safe='')}/{urllib.parse.quote(channel, safe='')}/{urllib.parse.quote(filename, safe='')}"
 
 
 def build_instagram_slide_image_prompt(site, job, language, slide, slide_count, has_logo_reference=False):
@@ -3288,7 +3295,7 @@ VISUAL DIRECTION:
 {image_prompt}
 
 BRAND MARK:
-{"- The real brand logo is attached as a reference. It will be composited exactly after generation; do not redraw, approximate, or replace it." if has_logo_reference else "- No verified raster logo reference is available. Do not draw, approximate, or invent a logo."}
+{"- The real brand logo is attached as a visual reference. Use it only when a logo is naturally meaningful to this slide's story (for example, an authentic product, branded surface, or closing brand frame). If it does not serve the specific slide, omit it. Never invent, misspell, redraw approximately, or force it into a corner." if has_logo_reference else "- No verified raster logo is available. Do not draw, approximate, or invent a logo."}
 
 QUALITY RULES:
 - Keep text large, sharp, high-contrast, and centered or aligned with clear safe margins.
@@ -3298,11 +3305,12 @@ QUALITY RULES:
 """.strip()
 
 
-def generate_instagram_carousel_images(site_id, job_id, site, job, language, carousel):
+def generate_instagram_carousel_images(site_id, job_id, site, job, language, carousel, asset_key=None):
     slides = carousel.get("slides") or []
     if not slides:
         return carousel
-    target_dir = social_asset_job_dir(site_id, job_id, "instagram")
+    asset_key = asset_key or str(job_id)
+    target_dir = social_asset_job_dir(site_id, asset_key, "instagram")
     shutil.rmtree(target_dir, ignore_errors=True)
     target_dir.mkdir(parents=True, exist_ok=True)
     reference_logo = site_logo_reference(site_id)
@@ -3312,13 +3320,10 @@ def generate_instagram_carousel_images(site_id, job_id, site, job, language, car
         image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="4:5", reference_image=reference_logo)
         if not image_bytes.startswith(b"\xff\xd8"):
             raise RuntimeError(f"Gemini image for Instagram slide {index} was not JPEG")
-        # The image model gets the source asset for brand context, but the final
-        # mark is composited from that exact asset rather than model-generated.
-        image_bytes = composite_brand_logo(image_bytes, reference_logo)
         (target_dir / filename).write_bytes(image_bytes)
         slide["imageStatus"] = "generated"
         slide["imageMimeType"] = "image/jpeg"
-        slide["imageUrl"] = social_asset_url(site_id, job_id, "instagram", filename)
+        slide["imageUrl"] = social_asset_url(site_id, asset_key, "instagram", filename)
         slide["generatedAt"] = now_iso()
     carousel["visualSpec"] = {
         **(carousel.get("visualSpec") if isinstance(carousel.get("visualSpec"), dict) else {}),
@@ -3326,7 +3331,8 @@ def generate_instagram_carousel_images(site_id, job_id, site, job, language, car
         "recommendedSize": "1080x1350",
         "assetFormat": "jpeg",
         "generator": os.environ.get("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-image",
-        "brandLogo": "exact-raster-composite" if reference_logo else "not-available",
+        "brandLogo": "gemini-reference-when-contextual" if reference_logo else "not-available",
+        "assetKey": asset_key,
     }
     return carousel
 
@@ -3354,10 +3360,11 @@ def generate_social_drafts(site_id, job_id, channels=None):
             # caption add no usable interaction and weaken the editorial format.
             include_link = False if channel == "instagram" else bool(auto[f"{channel}_include_link"] if f"{channel}_include_link" in auto.keys() else 0)
             max_chars = SOCIAL_CHANNEL_LIMITS[channel]
+            asset_key = social_asset_key(job_id)
             extra_payload = {}
             if channel == "pinterest":
                 text, validation, extra_payload = generate_pinterest_pin_draft(site, job, language, include_link, article_url)
-                extra_payload["pin"].update(generate_pinterest_pin_image(site_id, job_id, site, job, extra_payload["pin"]))
+                extra_payload["pin"].update(generate_pinterest_pin_image(site_id, job_id, site, job, extra_payload["pin"], asset_key=asset_key))
                 char_count = validation["fields"]["description"]["charCount"]
             elif channel == "instagram":
                 text, validation, extra_payload = generate_instagram_carousel_draft(site, job, language, include_link, article_url)
@@ -3368,10 +3375,11 @@ def generate_social_drafts(site_id, job_id, channels=None):
                     job,
                     language,
                     extra_payload["instagramCarousel"],
+                    asset_key=asset_key,
                 )
                 char_count = validation["caption"]["charCount"]
             elif channel == "threads":
-                text, validation, extra_payload = generate_threads_post_draft(site_id, job_id, site, job, language, include_link, article_url)
+                text, validation, extra_payload = generate_threads_post_draft(site_id, job_id, site, job, language, include_link, article_url, asset_key=asset_key)
                 char_count = validation["byteCount"]
             elif channel == "reddit":
                 zernio_credentials = get_social_credentials(get_social_connections(site_id).get("zernio"))
@@ -3381,10 +3389,10 @@ def generate_social_drafts(site_id, job_id, channels=None):
                 text, validation, extra_payload = generate_twitter_post_draft(site, job, language, include_link, article_url)
                 char_count = validation["posts"][0]["charCount"]
             elif channel == "telegram":
-                text, validation, extra_payload = generate_telegram_post_draft(site_id, job_id, site, job, language, include_link, article_url)
+                text, validation, extra_payload = generate_telegram_post_draft(site_id, job_id, site, job, language, include_link, article_url, asset_key=asset_key)
                 char_count = validation["charCount"]
             elif channel == "tumblr":
-                text, validation, extra_payload = generate_tumblr_post_draft(site_id, job_id, site, job, language, include_link, article_url)
+                text, validation, extra_payload = generate_tumblr_post_draft(site_id, job_id, site, job, language, include_link, article_url, asset_key=asset_key)
                 char_count = validation["charCount"]
             else:
                 text, validation = generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
@@ -3396,6 +3404,7 @@ def generate_social_drafts(site_id, job_id, channels=None):
                 "maxChars": max_chars,
                 "includeLink": include_link,
                 "articleUrl": article_url,
+                "assetKey": asset_key,
                 "validation": validation,
                 **extra_payload,
             }
@@ -9861,13 +9870,13 @@ def publish_visual_pin_route(site_id, pin_id):
         return jsonify({"error": str(error)}), 500
 
 
-@app.get("/sites/<int:site_id>/social-assets/<job_id>/<channel>/<filename>")
-def serve_social_asset(site_id, job_id, channel, filename):
+@app.get("/sites/<int:site_id>/social-assets/<asset_key>/<channel>/<filename>")
+def serve_social_asset(site_id, asset_key, channel, filename):
     if channel not in SOCIAL_CHANNEL_LIMITS:
         abort(404)
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", filename or ""):
         abort(404)
-    directory = social_asset_job_dir(site_id, job_id, channel)
+    directory = social_asset_job_dir(site_id, asset_key, channel)
     if not (directory / filename).is_file():
         abort(404)
     return send_from_directory(directory, filename)

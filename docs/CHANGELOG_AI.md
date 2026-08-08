@@ -1,5 +1,30 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Keep regenerated social media separate from submitted posts
+
+### Summary
+
+- Replaced shared social-media folders keyed only by content job with immutable per-draft asset keys.
+- Regenerating an Instagram carousel, Pinterest Pin, Threads image, Telegram image, or Tumblr image can no longer replace files used by a previously submitted social post.
+- Replaced the forced logo-overlay experiment with the intended behavior: Gemini receives the real scanned logo as a reference and may use it only when contextually justified by the individual slide. No post-generation badge is applied.
+
+### Files changed
+
+- `app.py` — generates and stores a unique media asset key per social draft while retaining support for historic asset URLs.
+- `docs/PROJECT_MEMORY.md` — recorded the immutable-asset decision.
+- `docs/INTEGRATIONS.md` — documented the social-media path contract.
+- `docs/CHANGELOG_AI.md` — recorded this task.
+
+### Checks run
+
+- `python3 -m py_compile app.py scheduler.py` and `git diff --check` passed.
+- Deployed the targeted `app.py`, restarted Blog Core, and verified `/health`.
+- Generated a non-published SoloCruz Instagram preview with seven slides; its unique asset URL and preview page both return HTTP 200. Visual review confirmed the new run has no Blog Core-added corner badge.
+
+### Risks / TODO
+
+- An already-submitted historic draft may have been created before immutable asset keys existed. Future regenerations will no longer touch its paths.
+
 ## 2026-08-09 — Enforce 6-8 slide Instagram carousel contracts
 
 ### Summary

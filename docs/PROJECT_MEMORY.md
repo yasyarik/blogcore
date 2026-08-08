@@ -60,10 +60,10 @@
 - Reason: an Instagram caption URL is not a useful click destination; the carousel itself must deliver the useful framework and use a native final-slide next step rather than an inert raw link.
 - Scope: all sites and all future Instagram social drafts. Historic drafts are not modified silently.
 
-## 2026-08-09 — Instagram slides use the exact scanned brand logo
+## 2026-08-09 — Instagram slides use a contextual scanned-logo reference
 
-- Decision: Instagram carousel slide generation receives the site's resolved raster logo as a Gemini image reference when available, then Blog Core composites that exact asset into every final JPEG.
-- Reason: a text-only brand instruction can make an image model invent or misspell a logo. The generated slide must never substitute a fabricated mark for the real site identity.
+- Decision: Instagram carousel generation supplies the site's resolved raster logo to Gemini as a visual reference. The prompt allows the model to use it only if it is meaningful for that particular slide, such as an authentic product view or final brand frame; it must otherwise omit it. Blog Core does not force or overlay a logo after generation.
+- Reason: branding must be native to the creative's story, not an obligatory corner badge. A text-only instruction can make an image model invent or misspell a logo, so any logo usage must start from the real scanned reference.
 - Boundary: this is a social-slide branding rule. If a site scan cannot resolve a raster logo, the model is explicitly told not to invent one.
 
 ## 2026-08-09 — Instagram carousel generation has no generic fallback
@@ -71,6 +71,12 @@
 - Decision: Instagram generation must return exactly 6-8 substantive slides through Gemini structured JSON. Blog Core retries once on a failed contract, then records an error and sends nothing.
 - Reason: a generic local fallback can create a technically complete but editorially weak carousel, which is worse than surfacing a failed automated run.
 - Scope: all future Instagram carousels. The code does not silently rewrite, pad, or truncate the model's editorial claims.
+
+## 2026-08-09 — Generated social-media assets are immutable per draft
+
+- Decision: every social-draft generation receives a unique asset key, even when it is regenerated from the same content job and channel. The generated files and their public URLs are stored below that unique key.
+- Reason: a review regeneration must never overwrite assets already attached to a submitted or published social post. This applies to Instagram slides, Pinterest images, Threads media, Telegram, and Tumblr.
+- Compatibility: historic URLs that used the content-job ID still resolve through the same route. New drafts record their asset key in the stored payload.
 
 ## 2026-08-09 — Zernio acceptance is not destination-platform verification
 
