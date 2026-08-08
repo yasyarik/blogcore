@@ -60,6 +60,12 @@
 - Reason: an Instagram caption URL is not a useful click destination; the carousel itself must deliver the useful framework and use a native final-slide next step rather than an inert raw link.
 - Scope: all sites and all future Instagram social drafts. Historic drafts are not modified silently.
 
+## 2026-08-09 — Zernio acceptance is not destination-platform verification
+
+- Decision: Blog Core records a successful immediate Zernio request as `SUBMITTED`, not as a confirmed live publication. Existing historic `SENT` records are displayed with the same pending-verification meaning.
+- Reason: Zernio can acknowledge a request before the connected social network makes it visible. A provider acknowledgement, even with a returned URL, must not be reported to an operator as proof that it appears in the account feed.
+- Scope: X, Pinterest, Instagram, Threads, and Reddit. A verifiable public URL or destination API status is required before calling an item live in operator-facing language.
+
 ## 2026-08-06 — MyUGC publishes natively every three days with complete blog-sitemap coverage
 
 - Publication: `AI Product Background Generator: How to Create On-Brand Lifestyle Scenes Without a New Photoshoot` is live at its native MyUGC URL. Blog Core reconciled its dashboard state from the source factory after the old factory's publish request exceeded Blog Core's synchronous Gunicorn window; source status and public HTTP status were both verified before reconciliation.

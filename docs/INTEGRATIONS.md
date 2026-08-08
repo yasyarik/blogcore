@@ -5,6 +5,11 @@
 * `GEMINI_TEXT_API_KEY` is an optional text-only credential. When configured, it takes precedence for site analysis, Discovery, article/page writing, translation, and social copy in Blog Core and source-authoritative factories.
 * Gemini image and TTS calls intentionally continue to use `GEMINI_API_KEY` or `GOOGLE_API_KEY`. A text project with no image quota must never silently replace the credential used for media generation.
 
+## Zernio delivery status
+
+* A successful Zernio POST means the intermediary accepted or scheduled the requested social draft. Blog Core records an immediate request as `SUBMITTED` and must not describe that state as a confirmed platform publication.
+* A public destination URL or destination API verification is the evidence required to call a post live. Historic `SENT` rows have the same unverified meaning.
+
 ## Native content-store typed route contract
 
 Native JSON records preserve `contentType` and `targetPath`.

@@ -1,5 +1,17 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Distinguish Zernio acceptance from a live social post
+
+### Summary
+
+- Replaced the misleading immediate Zernio status `SENT` with `SUBMITTED` for future social delivery. It now explicitly means the intermediary accepted the request, not that Instagram, Pinterest, X, Threads, or Reddit visibly published it.
+- Updated historic `SENT` status presentation, hover text, action confirmation, and toast language to require destination verification before treating the post as live.
+- Audited SoloCruz: the database has two 7 August Instagram requests accepted in one manual Zernio batch, each with a different returned Instagram URL. The later one-per-day cadence did not send a new carousel because there are no reviewed Instagram drafts waiting.
+
+### Checks run
+
+- Verified both returned Instagram URLs respond over HTTPS, while preserving the distinction between an address resolving and an operator-confirmed account-feed publication.
+
 ## 2026-08-09 — Clarify LinkedIn organization publishing identity
 
 ### Summary
