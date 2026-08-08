@@ -3332,6 +3332,7 @@ def generate_instagram_carousel_images(site_id, job_id, site, job, language, car
         "assetFormat": "jpeg",
         "generator": os.environ.get("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-image",
         "brandLogo": "gemini-reference-when-contextual" if reference_logo else "not-available",
+        "logoReferenceProvided": bool(reference_logo),
         "assetKey": asset_key,
     }
     return carousel
@@ -6372,8 +6373,14 @@ def _gemini_image_jpeg(prompt, aspect_ratio="4:5", reference_image=None):
     if image_size:
         response_format["image_size"] = image_size
     if reference_image:
+        inline_reference = {
+            "mimeType": reference_image.get("mime_type") or reference_image.get("mimeType") or "image/png",
+            "data": reference_image.get("data") or "",
+        }
+        if not inline_reference["data"]:
+            raise RuntimeError("Gemini image reference is missing data")
         payload = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}, {"inline_data": reference_image}]}],
+            "contents": [{"role": "user", "parts": [{"text": prompt}, {"inlineData": inline_reference}]}],
             "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": aspect_ratio}},
         }
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"

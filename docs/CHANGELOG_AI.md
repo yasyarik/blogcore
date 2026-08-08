@@ -7,6 +7,7 @@
 - Replaced shared social-media folders keyed only by content job with immutable per-draft asset keys.
 - Regenerating an Instagram carousel, Pinterest Pin, Threads image, Telegram image, or Tumblr image can no longer replace files used by a previously submitted social post.
 - Replaced the forced logo-overlay experiment with the intended behavior: Gemini receives the real scanned logo as a reference and may use it only when contextually justified by the individual slide. No post-generation badge is applied.
+- Corrected reference transport to Gemini's canonical `inlineData`/`mimeType` schema and persist a `logoReferenceProvided` flag for each generated carousel.
 
 ### Files changed
 
@@ -20,6 +21,7 @@
 - `python3 -m py_compile app.py scheduler.py` and `git diff --check` passed.
 - Deployed the targeted `app.py`, restarted Blog Core, and verified `/health`.
 - Generated a non-published SoloCruz Instagram preview with seven slides; its unique asset URL and preview page both return HTTP 200. Visual review confirmed the new run has no Blog Core-added corner badge.
+- Added a transport-level test that captures the Gemini request and confirms a non-empty canonical `inlineData` reference with `mimeType=image/png`. A subsequent non-published SoloCruz preview has six slides and `visualSpec.logoReferenceProvided=true`.
 
 ### Risks / TODO
 

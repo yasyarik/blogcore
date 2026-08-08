@@ -64,7 +64,7 @@
 
 - Decision: Instagram carousel generation supplies the site's resolved raster logo to Gemini as a visual reference. The prompt allows the model to use it only if it is meaningful for that particular slide, such as an authentic product view or final brand frame; it must otherwise omit it. Blog Core does not force or overlay a logo after generation.
 - Reason: branding must be native to the creative's story, not an obligatory corner badge. A text-only instruction can make an image model invent or misspell a logo, so any logo usage must start from the real scanned reference.
-- Boundary: this is a social-slide branding rule. If a site scan cannot resolve a raster logo, the model is explicitly told not to invent one.
+- Contract: Gemini image requests carrying a reference must use canonical `inlineData` and `mimeType` fields, and the stored carousel records whether a reference was provided. If a site scan cannot resolve a raster logo, the model is explicitly told not to invent one.
 
 ## 2026-08-09 — Instagram carousel generation has no generic fallback
 
