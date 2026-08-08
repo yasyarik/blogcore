@@ -2898,7 +2898,7 @@ def visual_pin_asset_url(site_id, pin_id, filename):
     return f"/sites/{int(site_id)}/visual-pins/{urllib.parse.quote(str(pin_id), safe='')}/assets/{urllib.parse.quote(filename, safe='')}"
 
 
-def composite_visual_pin_logo(image_bytes, reference_image):
+def composite_brand_logo(image_bytes, reference_image):
     """Place the scanned logo exactly once instead of trusting an image model to redraw it."""
     if not reference_image or not reference_image.get("data"):
         return image_bytes
@@ -3037,7 +3037,7 @@ If the story is one garment across people, preserve the same garment design, fab
         image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="2:3", reference_image=reference_logo)
         if not image_bytes.startswith(b"\xff\xd8"):
             raise RuntimeError("Gemini image for visual Pinterest Pin was not JPEG")
-        image_bytes = composite_visual_pin_logo(image_bytes, reference_logo)
+        image_bytes = composite_brand_logo(image_bytes, reference_logo)
         directory = visual_pin_asset_dir(site_id, pin_id)
         directory.mkdir(parents=True, exist_ok=True)
         filename = "showcase-pin.jpg"
@@ -3068,48 +3068,6 @@ def visual_pin_public_asset(pin):
     return visual_pin_asset_url(pin["site_id"], pin["id"], pin["image_filename"])
 
 
-def fallback_instagram_carousel(site, job, language, include_link, article_url):
-    brand = site["brand_name"] or site["domain"]
-    title = social_shorten_to_limit(job["title"] or job["topic"] or "New article", 90)
-    description = social_shorten_to_limit(job["description"] or "", 240)
-    caption = social_text_with_optional_link(
-        f"{title}\n\n{description}\n\nSave this carousel for later.",
-        article_url,
-        include_link,
-        SOCIAL_CHANNEL_TARGET_CHARS["instagram"],
-    )
-    slide_templates = [
-        ("cover", title, "Swipe for the practical breakdown."),
-        ("problem", "The core question", description or "What readers need to understand before they decide."),
-        ("insight", "What matters first", "Start with the decision criteria, not generic advice."),
-        ("insight", "What to compare", "Look at tradeoffs, timing, cost, and practical fit."),
-        ("checklist", "Quick checklist", "Use these points before taking the next step."),
-        ("cta", f"Read the full guide", f"More context from {brand}."),
-    ]
-    slides = []
-    for index, (role, headline, subtext) in enumerate(slide_templates, start=1):
-        headline = social_shorten_to_limit(headline, 70)
-        subtext = social_shorten_to_limit(subtext, 140)
-        slides.append({
-            "index": index,
-            "role": role,
-            "headline": headline,
-            "subtext": subtext,
-            "imagePrompt": social_shorten_to_limit(
-                f"Create an Instagram carousel slide background for '{headline}'. "
-                f"Brand: {brand}. Editorial, polished, high-contrast, mobile-first 4:5 layout with room for text.",
-                700,
-            ),
-            "altText": social_shorten_to_limit(f"Instagram carousel slide: {headline}. {subtext}", 250),
-        })
-    return {
-        "caption": caption,
-        "slides": slides,
-        "visualSpec": {"aspectRatio": "4:5", "recommendedSize": "1080x1350", "maxSlides": 10},
-        "destinationUrl": article_url if include_link and article_url else "",
-    }
-
-
 def build_instagram_carousel_prompt(site, job, language, include_link, article_url):
     brand = site["brand_name"] or site["domain"]
     language_name = LANGUAGE_NAMES.get(language, language.upper())
@@ -3121,7 +3079,7 @@ def build_instagram_carousel_prompt(site, job, language, include_link, article_u
 You are turning an article into a native Instagram carousel for {brand}.
 
 GOAL:
-- Create one Instagram carousel draft with 5 to 8 slides.
+- Create one Instagram carousel draft with 6 to 8 slides.
 - This must feel native to Instagram: short slide text, visual storytelling, useful saveable content.
 - Do not copy long article paragraphs onto slides.
 
@@ -3138,7 +3096,7 @@ ARTICLE:
 CAROUSEL RULES:
 - Choose exactly one carouselType: checklist, myth_reality, framework, before_after, mistakes, or decision_guide.
 - Use 4:5 portrait format, recommended 1080x1350.
-- Make 5 to 8 slides, never more than 10.
+- Make 6 to 8 slides. This is mandatory; never return fewer or more.
 - Slide 1 must be a cover.
 - Slide 1 must state a specific tension, outcome, or decision. It cannot merely repeat the article title.
 - Each following slide must carry one distinct claim. Do not restate the cover or another slide.
@@ -3160,7 +3118,7 @@ RETURN STRICT JSON ONLY:
 {{
   "caption":"...",
   "carouselType":"checklist",
-  "visualSpec":{{"aspectRatio":"4:5","recommendedSize":"1080x1350","maxSlides":10}},
+  "visualSpec":{{"aspectRatio":"4:5","recommendedSize":"1080x1350","maxSlides":8}},
   "destinationUrl":"{article_url if include_link and article_url else ''}",
   "slides":[
     {{"index":1,"role":"cover","headline":"...","subtext":"...","imagePrompt":"...","altText":"..."}}
@@ -3169,44 +3127,60 @@ RETURN STRICT JSON ONLY:
 """.strip()
 
 
-def normalize_instagram_carousel(carousel, site, job, language, include_link, article_url):
-    fallback = fallback_instagram_carousel(site, job, language, include_link, article_url)
+INSTAGRAM_CAROUSEL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "caption": {"type": "string"},
+        "carouselType": {"type": "string", "enum": ["checklist", "myth_reality", "framework", "before_after", "mistakes", "decision_guide"]},
+        "visualSpec": {"type": "object"},
+        "destinationUrl": {"type": "string"},
+        "slides": {
+            "type": "array", "minItems": 6, "maxItems": 8,
+            "items": {"type": "object", "properties": {
+                "index": {"type": "integer"}, "role": {"type": "string"}, "headline": {"type": "string"},
+                "subtext": {"type": "string"}, "imagePrompt": {"type": "string"}, "altText": {"type": "string"},
+            }, "required": ["index", "role", "headline", "subtext", "imagePrompt", "altText"]},
+        },
+    },
+    "required": ["caption", "carouselType", "slides"],
+}
+
+
+def normalize_instagram_carousel(carousel, article_url):
     if not isinstance(carousel, dict):
-        carousel = {}
-    caption = social_normalize_text(carousel.get("caption") or fallback["caption"])
-    caption = social_text_with_optional_link(caption, article_url, include_link, SOCIAL_CHANNEL_TARGET_CHARS["instagram"])
-    raw_slides = carousel.get("slides") if isinstance(carousel.get("slides"), list) else fallback["slides"]
+        raise ValueError("Instagram carousel response must be a JSON object")
+    caption = social_normalize_text(carousel.get("caption"))
+    if not caption:
+        raise ValueError("Instagram carousel response is missing a caption")
+    raw_slides = carousel.get("slides")
+    if not isinstance(raw_slides, list):
+        raise ValueError("Instagram carousel response is missing slides")
+    if not 6 <= len(raw_slides) <= 8:
+        raise ValueError("Instagram carousel must contain exactly 6 to 8 slides")
     slides = []
-    for idx, raw in enumerate(raw_slides[:10], start=1):
+    for idx, raw in enumerate(raw_slides, start=1):
         if not isinstance(raw, dict):
-            continue
-        headline = social_shorten_to_limit(raw.get("headline") or fallback["slides"][min(idx - 1, len(fallback["slides"]) - 1)]["headline"], 70)
-        subtext = social_shorten_to_limit(raw.get("subtext") or "", 140)
-        image_prompt = social_shorten_to_limit(raw.get("imagePrompt") or raw.get("visualPrompt") or "", 700)
-        if not image_prompt:
-            image_prompt = social_shorten_to_limit(
-                f"Instagram carousel 4:5 editorial slide for '{headline}', clean mobile composition, strong contrast, room for overlay text.",
-                700,
-            )
+            raise ValueError(f"Instagram slide {idx} is not an object")
+        headline = social_normalize_text(raw.get("headline"))
+        subtext = social_normalize_text(raw.get("subtext"))
+        image_prompt = social_normalize_text(raw.get("imagePrompt") or raw.get("visualPrompt"))
+        alt_text = social_normalize_text(raw.get("altText"))
+        if not all((headline, subtext, image_prompt, alt_text)):
+            raise ValueError(f"Instagram slide {idx} is missing required content")
         slides.append({
-            "index": len(slides) + 1,
-            "role": social_shorten_to_limit(raw.get("role") or ("cover" if idx == 1 else "insight"), 32).lower(),
+            "index": idx,
+            "role": social_normalize_text(raw.get("role")).lower(),
             "headline": headline,
             "subtext": subtext,
             "imagePrompt": image_prompt,
-            "altText": social_shorten_to_limit(raw.get("altText") or f"{headline}. {subtext}", 250),
+            "altText": alt_text,
         })
-    if len(slides) < 5:
-        for raw in fallback["slides"][len(slides):]:
-            slides.append({**raw, "index": len(slides) + 1})
-            if len(slides) >= 5:
-                break
     return {
         "caption": caption,
-        "carouselType": str(carousel.get("carouselType") or "framework").strip().lower().replace("-", "_")[:32],
-        "slides": slides[:10],
-        "visualSpec": {"aspectRatio": "4:5", "recommendedSize": "1080x1350", "maxSlides": 10},
-        "destinationUrl": article_url if include_link and article_url else "",
+        "carouselType": social_normalize_text(carousel.get("carouselType")).lower().replace("-", "_"),
+        "slides": slides,
+        "visualSpec": {"aspectRatio": "4:5", "recommendedSize": "1080x1350", "maxSlides": 8},
+        "destinationUrl": "",
     }
 
 
@@ -3220,12 +3194,12 @@ def validate_instagram_carousel(carousel):
         },
         "slides": [],
         "slideCount": len(carousel.get("slides") or []),
-        "maxSlides": 10,
+        "maxSlides": 8,
         "carouselType": carousel.get("carouselType") or "",
     }
     if result["caption"]["charCount"] > SOCIAL_CHANNEL_LIMITS["instagram"]:
         result["ok"] = False
-    if result["slideCount"] < 2 or result["slideCount"] > 10:
+    if result["slideCount"] < 6 or result["slideCount"] > 8:
         result["ok"] = False
     if result["carouselType"] not in {"checklist", "myth_reality", "framework", "before_after", "mistakes", "decision_guide"}:
         result["ok"] = False
@@ -3257,18 +3231,20 @@ def validate_instagram_carousel(carousel):
 
 
 def generate_instagram_carousel_draft(site, job, language, include_link, article_url):
-    try:
-        data = _gemini_text_json(build_instagram_carousel_prompt(site, job, language, include_link, article_url))
-    except Exception:
-        data = {}
-    carousel = normalize_instagram_carousel(data if isinstance(data, dict) else {}, site, job, language, include_link, article_url)
-    validation = validate_instagram_carousel(carousel)
-    if not validation["ok"]:
-        carousel = normalize_instagram_carousel(carousel, site, job, language, include_link, article_url)
-        validation = validate_instagram_carousel(carousel)
-    if not validation["ok"]:
-        raise ValueError("Instagram carousel draft exceeds slide or caption limits")
-    return carousel["caption"], validation, {"instagramCarousel": carousel}
+    prompt = build_instagram_carousel_prompt(site, job, language, include_link, article_url)
+    errors = []
+    for attempt in range(2):
+        retry_note = "" if attempt == 0 else "\nYour previous response failed validation. Return a complete valid JSON object with exactly 6 to 8 substantive slides; do not use a generic template.\n"
+        try:
+            data = _gemini_text_json(prompt + retry_note, response_schema=INSTAGRAM_CAROUSEL_SCHEMA, repair=False)
+            carousel = normalize_instagram_carousel(data, article_url)
+            validation = validate_instagram_carousel(carousel)
+            if validation["ok"]:
+                return carousel["caption"], validation, {"instagramCarousel": carousel}
+            errors.append("carousel contract validation failed")
+        except Exception as error:
+            errors.append(str(error))
+    raise ValueError("Instagram carousel generation failed its 6-8 slide contract: " + " | ".join(errors)[:500])
 
 
 def social_asset_job_dir(site_id, job_id, channel):
@@ -3281,7 +3257,7 @@ def social_asset_url(site_id, job_id, channel, filename):
     return f"/sites/{int(site_id)}/social-assets/{urllib.parse.quote(str(job_id), safe='')}/{urllib.parse.quote(channel, safe='')}/{urllib.parse.quote(filename, safe='')}"
 
 
-def build_instagram_slide_image_prompt(site, job, language, slide, slide_count):
+def build_instagram_slide_image_prompt(site, job, language, slide, slide_count, has_logo_reference=False):
     brand = site["brand_name"] or site["domain"]
     language_name = LANGUAGE_NAMES.get(language, language.upper())
     title = job["title"] or job["topic"] or "Article"
@@ -3311,6 +3287,9 @@ VISIBLE TEXT TO PLACE ON THE IMAGE:
 VISUAL DIRECTION:
 {image_prompt}
 
+BRAND MARK:
+{"- The real brand logo is attached as a reference. It will be composited exactly after generation; do not redraw, approximate, or replace it." if has_logo_reference else "- No verified raster logo reference is available. Do not draw, approximate, or invent a logo."}
+
 QUALITY RULES:
 - Keep text large, sharp, high-contrast, and centered or aligned with clear safe margins.
 - Do not add extra small paragraphs or unreadable microtext.
@@ -3326,12 +3305,16 @@ def generate_instagram_carousel_images(site_id, job_id, site, job, language, car
     target_dir = social_asset_job_dir(site_id, job_id, "instagram")
     shutil.rmtree(target_dir, ignore_errors=True)
     target_dir.mkdir(parents=True, exist_ok=True)
+    reference_logo = site_logo_reference(site_id)
     for index, slide in enumerate(slides, start=1):
         filename = f"slide-{index:02d}.jpg"
-        prompt = build_instagram_slide_image_prompt(site, job, language, slide, len(slides))
-        image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="4:5")
+        prompt = build_instagram_slide_image_prompt(site, job, language, slide, len(slides), bool(reference_logo))
+        image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="4:5", reference_image=reference_logo)
         if not image_bytes.startswith(b"\xff\xd8"):
             raise RuntimeError(f"Gemini image for Instagram slide {index} was not JPEG")
+        # The image model gets the source asset for brand context, but the final
+        # mark is composited from that exact asset rather than model-generated.
+        image_bytes = composite_brand_logo(image_bytes, reference_logo)
         (target_dir / filename).write_bytes(image_bytes)
         slide["imageStatus"] = "generated"
         slide["imageMimeType"] = "image/jpeg"
@@ -3343,6 +3326,7 @@ def generate_instagram_carousel_images(site_id, job_id, site, job, language, car
         "recommendedSize": "1080x1350",
         "assetFormat": "jpeg",
         "generator": os.environ.get("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-image",
+        "brandLogo": "exact-raster-composite" if reference_logo else "not-available",
     }
     return carousel
 

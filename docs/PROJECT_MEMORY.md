@@ -60,6 +60,18 @@
 - Reason: an Instagram caption URL is not a useful click destination; the carousel itself must deliver the useful framework and use a native final-slide next step rather than an inert raw link.
 - Scope: all sites and all future Instagram social drafts. Historic drafts are not modified silently.
 
+## 2026-08-09 — Instagram slides use the exact scanned brand logo
+
+- Decision: Instagram carousel slide generation receives the site's resolved raster logo as a Gemini image reference when available, then Blog Core composites that exact asset into every final JPEG.
+- Reason: a text-only brand instruction can make an image model invent or misspell a logo. The generated slide must never substitute a fabricated mark for the real site identity.
+- Boundary: this is a social-slide branding rule. If a site scan cannot resolve a raster logo, the model is explicitly told not to invent one.
+
+## 2026-08-09 — Instagram carousel generation has no generic fallback
+
+- Decision: Instagram generation must return exactly 6-8 substantive slides through Gemini structured JSON. Blog Core retries once on a failed contract, then records an error and sends nothing.
+- Reason: a generic local fallback can create a technically complete but editorially weak carousel, which is worse than surfacing a failed automated run.
+- Scope: all future Instagram carousels. The code does not silently rewrite, pad, or truncate the model's editorial claims.
+
 ## 2026-08-09 — Zernio acceptance is not destination-platform verification
 
 - Decision: Blog Core records a successful immediate Zernio request as `SUBMITTED`, not as a confirmed live publication. Existing historic `SENT` records are displayed with the same pending-verification meaning.

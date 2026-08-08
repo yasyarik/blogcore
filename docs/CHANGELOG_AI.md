@@ -1,5 +1,30 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Enforce 6-8 slide Instagram carousel contracts
+
+### Summary
+
+- Replaced the former 5-8 slide guidance with a hard 6-8 slide requirement in the Gemini prompt, JSON schema, normalizer, and validator.
+- Removed the generic local carousel fallback. An invalid model response gets one structured retry; a second failure leaves the task in error rather than publishing padded generic slides.
+
+## 2026-08-09 — Assess Instagram carousel length for organic distribution
+
+### Summary
+
+- Confirmed Instagram supports up to 20 carousel media items, but that platform maximum is not a creative target.
+- Recommended an editorial default of 6 slides for Blog Core: five only for one tight takeaway, seven or eight only when each extra slide carries distinct evidence or a distinct decision step. Long 10-20 slide decks are reserved for genuine visual stories, not article repurposing.
+
+## 2026-08-09 — Preserve exact logos in Instagram carousel slides
+
+### Summary
+
+- Added the missing shared logo-reference and exact raster-compositing pipeline to Instagram slide generation.
+- Gemini now receives the real scanned logo for context, while Blog Core overlays that same source asset in the final JPEG so an invented model logo cannot reach a new carousel.
+
+### Risks / TODO
+
+- A carousel already accepted by an external intermediary cannot be modified in place; this protects all newly generated slides.
+
 ## 2026-08-09 — Complete automatic social delivery from published content
 
 ### Summary
