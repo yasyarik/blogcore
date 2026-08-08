@@ -1,5 +1,22 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Make publication schedules and LinkedIn delivery operational in Distribution
+
+### Summary
+
+- Added a standalone blog/page release planner in Distribution. It stores a site's cadence and, only on explicit confirmation, assigns that cadence to currently unscheduled `QUEUED` task groups without moving existing release dates.
+- Clarified every social channel card as manual-only or active automatic delivery, surfaced Setup/LinkedIn OAuth actions in place, and kept Pinterest disabled until its own posts-per-day setting is deliberately enabled.
+- Added direct LinkedIn Posts API delivery for reviewed drafts, including manual publishing and per-channel scheduler support after OAuth has produced a member or organization author identity.
+
+### Files changed
+
+- `app.py` — content cadence planner, clearer Distribution controls, LinkedIn direct publisher and scheduler/route wiring.
+- `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md` — record the scheduler and LinkedIn ownership boundaries.
+
+### Checks run
+
+- Ran `python3 -m py_compile app.py` and `git diff --check`.
+
 ## 2026-08-07 — Target SoloCruz Instagram timing to US Eastern time
 
 ### Summary

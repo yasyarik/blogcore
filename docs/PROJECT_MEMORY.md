@@ -29,8 +29,15 @@
 ## 2026-08-07 — Social publication cadence is independent from blog scheduling
 
 - Decision: article/page publication remains governed solely by explicit `content_jobs.scheduled_for` records. Social channels have independent per-site cadence settings, including individual posts-per-day values for Instagram carousels, Pinterest Pins, and other connected Zernio channels.
+- Control-plane UX: Distribution exposes a separate blog/page cadence and an explicit `Schedule currently unscheduled queued tasks` action. Saving a cadence alone never moves existing task dates; applying it schedules only `QUEUED` jobs with no `scheduled_for`, preserving all already planned or published releases.
 - Runtime: the existing one-minute scheduler drains only the oldest reviewed `DRAFT` for a due social channel slot. It does not create a content job, generate a social creative, or send a draft that has not been reviewed.
 - Reason: editorial blogs may publish every three days while repurposed social formats publish at different sustainable rates. One global `times_per_day` cannot express that policy safely.
+
+## 2026-08-09 — LinkedIn is a direct scheduled publishing channel after OAuth
+
+- Decision: Blog Core publishes reviewed LinkedIn drafts directly through LinkedIn's current Posts API after a site authorizes a member or organization. A site must have a valid OAuth token and author URN; saved app keys alone are not a connected publishing account.
+- Delivery: LinkedIn can be selected for social-draft generation, published manually from a reviewed draft, or enabled with its own posts-per-day cadence. The same shared scheduler sends only an existing reviewed LinkedIn `DRAFT` at a due slot.
+- Boundary: LinkedIn is separate from Zernio. Zernio remains responsible for X, Pinterest, Instagram, Threads, and Reddit. Telegram and Tumblr stay connection-only until their direct publishing adapters are implemented.
 
 ## 2026-08-07 — Pinterest visual showcase Pins are first-class social assets
 

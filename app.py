@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 import wave
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from base64 import b64decode, b64encode
 from io import BytesIO
 from hashlib import sha1, sha256
@@ -1964,6 +1964,69 @@ def social_schedule_timezone(name):
         return timezone.utc
 
 
+CONTENT_CADENCE_LABELS = {
+    "manual": "Manual scheduling",
+    "daily": "Every day",
+    "every-3-days": "Every 3 days",
+    "twice-weekly": "Twice weekly",
+    "weekly": "Every week",
+}
+
+
+def content_cadence_interval(cadence):
+    return {
+        "daily": timedelta(days=1),
+        "every-3-days": timedelta(days=3),
+        "twice-weekly": timedelta(days=3, hours=12),
+        "weekly": timedelta(days=7),
+    }.get(str(cadence or "manual"), None)
+
+
+def content_schedule_counts(site_id):
+    with db() as conn:
+        row = conn.execute(
+            """select
+                 sum(case when status='QUEUED' and (scheduled_for is null or scheduled_for='') then 1 else 0 end) as unscheduled,
+                 sum(case when scheduled_for is not null and scheduled_for<>'' and status in ('QUEUED','GENERATING','DRAFT') then 1 else 0 end) as scheduled
+               from content_jobs where site_id=?""",
+            (site_id,),
+        ).fetchone()
+    return {"unscheduled": int((row and row["unscheduled"]) or 0), "scheduled": int((row and row["scheduled"]) or 0)}
+
+
+def schedule_unscheduled_content_jobs(site_id, cadence, start_at):
+    interval = content_cadence_interval(cadence)
+    if not interval:
+        raise ValueError("Choose a recurring cadence before applying it to the queue.")
+    with db() as conn:
+        rows = conn.execute(
+            """select id, sources_json from content_jobs
+               where site_id=? and status='QUEUED' and (scheduled_for is null or scheduled_for='')
+               order by created_at asc, id asc""",
+            (site_id,),
+        ).fetchall()
+        grouped = {}
+        for row in rows:
+            sources = parse_json_object(row["sources_json"])
+            group = str(sources.get("canonicalGroup") or row["id"])
+            grouped.setdefault(group, []).append(row["id"])
+        scheduled = []
+        for index, ids in enumerate(grouped.values()):
+            when = (start_at + interval * index).astimezone(timezone.utc).isoformat(timespec="seconds")
+            placeholders = ",".join("?" for _ in ids)
+            conn.execute(
+                f"update content_jobs set scheduled_for=?, updated_at=? where site_id=? and id in ({placeholders})",
+                (when, now_iso(), site_id, *ids),
+            )
+            for job_id in ids:
+                conn.execute(
+                    "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                    (site_id, job_id, now_iso(), "INFO", "scheduled-publish", f"Scheduled native publication for {when} by {cadence} queue plan"),
+                )
+            scheduled.append({"jobIds": ids, "scheduledFor": when})
+    return scheduled
+
+
 def get_topic_discovery_settings(site_id):
     with db() as conn:
         row = conn.execute("select * from topic_discovery_settings where site_id=?", (site_id,)).fetchone()
@@ -2100,6 +2163,8 @@ SOCIAL_CHANNEL_LIMITS = {
 }
 
 ZERNIO_SOCIAL_CHANNELS = {"twitter", "pinterest", "instagram", "threads", "reddit"}
+AUTOMATIC_SOCIAL_CHANNELS = ZERNIO_SOCIAL_CHANNELS | {"linkedin"}
+LINKEDIN_API_VERSION = os.environ.get("LINKEDIN_API_VERSION", "202606").strip() or "202606"
 SOCIAL_CHANNEL_LABELS = {
     "linkedin": "LinkedIn", "telegram": "Telegram", "twitter": "X / Twitter", "tumblr": "Tumblr",
     "pinterest": "Pinterest", "instagram": "Instagram", "threads": "Threads", "reddit": "Reddit",
@@ -3533,6 +3598,80 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=N
     return {"ok": bool(successful), "jobId": job_id, "results": results}
 
 
+def publish_linkedin_social_drafts(site_id, job_id):
+    """Publish the newest reviewed LinkedIn draft as an organic member/Page post."""
+    connections = get_social_connections(site_id)
+    linkedin = connections.get("linkedin")
+    credentials = get_social_credentials(linkedin)
+    token = str(credentials.get("access_token") or "").strip()
+    author = str(credentials.get("author_urn") or "").strip()
+    if not linkedin or linkedin["status"] != "connected" or not token or not author:
+        raise ValueError("Connect a LinkedIn member or organization in Setup before publishing LinkedIn drafts.")
+    with db() as conn:
+        rows = conn.execute(
+            """select * from social_posts where site_id=? and job_id=? and channel='linkedin' and status='DRAFT'
+               order by id asc""",
+            (site_id, job_id),
+        ).fetchall()
+    if not rows:
+        raise ValueError("No unpublished LinkedIn draft is ready for this content task.")
+    row = rows[-1]
+    superseded_ids = [item["id"] for item in rows[:-1]]
+    if superseded_ids:
+        placeholders = ",".join("?" for _ in superseded_ids)
+        with db() as conn:
+            conn.execute(
+                f"update social_posts set status='SUPERSEDED', updated_at=? where id in ({placeholders})",
+                [now_iso(), *superseded_ids],
+            )
+    payload = {
+        "author": author,
+        "commentary": social_shorten_to_limit(row["content_text"] or "", SOCIAL_CHANNEL_LIMITS["linkedin"]),
+        "visibility": "PUBLIC",
+        "distribution": {
+            "feedDistribution": "MAIN_FEED",
+            "targetEntities": [],
+            "thirdPartyDistributionChannels": [],
+        },
+        "lifecycleState": "PUBLISHED",
+        "isReshareDisabledByAuthor": False,
+    }
+    try:
+        response, _ = fetch_json_request(
+            "https://api.linkedin.com/rest/posts",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Linkedin-Version": LINKEDIN_API_VERSION,
+                "X-Restli-Protocol-Version": "2.0.0",
+            },
+            data=payload,
+            method="POST",
+            timeout=60,
+        )
+        if isinstance(response, dict) and response.get("error"):
+            raise RuntimeError(str(response.get("error")))
+        remote_id = str((response or {}).get("id") or (response or {}).get("urn") or "LinkedIn post")
+        with db() as conn:
+            conn.execute("update social_posts set status='SENT', remote_url=?, updated_at=? where id=?", (remote_id, now_iso(), row["id"]))
+            conn.execute(
+                "update content_jobs set linkedin_status='sent', linkedin_post_url=?, linkedin_posted_at=?, updated_at=? where site_id=? and id=?",
+                (remote_id, now_iso(), now_iso(), site_id, job_id),
+            )
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (site_id, job_id, now_iso(), "INFO", "linkedin-publish", "Published reviewed LinkedIn draft through the Posts API"),
+            )
+        return {"ok": True, "jobId": job_id, "results": [{"channel": "linkedin", "ok": True, "status": "SENT", "remoteUrl": remote_id}]}
+    except Exception as error:
+        with db() as conn:
+            conn.execute("update social_posts set status='ERROR', updated_at=? where id=?", (now_iso(), row["id"]))
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (site_id, job_id, now_iso(), "ERROR", "linkedin-publish", str(error)[:500]),
+            )
+        raise
+
+
 def publish_zernio_visual_pin(site_id, pin_id, scheduled_for=None):
     pin = get_visual_pin(site_id, pin_id)
     if not pin:
@@ -4346,6 +4485,22 @@ def zernio_publish_button(site_id, job_id):
     return f"<button class='ghost mini-action publish-action' type='button' onclick=\"publishZernioSocial('{escape(job_id, quote=True)}')\" title='Publish ready social drafts through Zernio'>Publish social</button>"
 
 
+def linkedin_publish_button(site_id, job_id):
+    connections = get_social_connections(site_id)
+    linkedin = connections.get("linkedin")
+    credentials = get_social_credentials(linkedin)
+    if not linkedin or linkedin["status"] != "connected" or not credentials.get("access_token") or not credentials.get("author_urn"):
+        return ""
+    with db() as conn:
+        row = conn.execute(
+            "select 1 from social_posts where site_id=? and job_id=? and channel='linkedin' and status='DRAFT' limit 1",
+            (site_id, job_id),
+        ).fetchone()
+    if not row:
+        return ""
+    return f"<button class='ghost mini-action publish-action' type='button' onclick=\"publishLinkedInSocial('{escape(job_id, quote=True)}')\" title='Publish ready LinkedIn draft'>Publish LinkedIn</button>"
+
+
 def social_review_button(site_id, job_id):
     with db() as conn:
         row = conn.execute(
@@ -4487,7 +4642,7 @@ def render_planned_publications(rows, site_languages=None):
         elif status == "GENERATING":
             action = generating_progress_panel(row["id"])
         elif status == "DRAFT":
-            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"])
+            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + linkedin_publish_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"])
         items.append(
             f"""
             <div class="planned-row {status_class}" data-group-id="{escape(group['id'], quote=True)}" data-job-id="{escape(row['id'], quote=True)}" data-status="{status_class}">
@@ -4525,7 +4680,7 @@ def render_content_jobs(content_page):
             descriptor = "Generation in progress"
         elif status == "DRAFT":
             status_label = "DRAFT"
-            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"])
+            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + linkedin_publish_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"])
             descriptor = "Draft ready for review"
         elif status == "PUBLISHED":
             status_label = "PUBLISHED"
@@ -4581,6 +4736,27 @@ def render_visual_pin_panel(site_id):
     """
 
 
+def render_content_schedule_panel(site):
+    cadence = str(site["publishing_cadence"] or "manual")
+    counts = content_schedule_counts(site["id"])
+    options = "".join(
+        f"<option value='{value}' {'selected' if cadence == value else ''}>{escape(label)}</option>"
+        for value, label in CONTENT_CADENCE_LABELS.items()
+    )
+    return f"""
+      <section class="content-schedule-panel">
+        <div class="panel-title-row"><div><h3>Blog and page publication schedule</h3><div class="hint">This schedules native article/page releases. It is independent from social posts and never changes a site template or design.</div></div></div>
+        <form class="content-schedule-form" onsubmit="saveContentSchedule(event)">
+          <label class="field compact-field">Release cadence<select name="publishing_cadence">{options}</select></label>
+          <label class="field compact-field">First release in site timezone<input name="start_at" type="datetime-local"></label>
+          <label class="check compact schedule-apply"><input type="checkbox" name="apply_to_queue"> Schedule the {counts['unscheduled']} currently unscheduled queued task{'s' if counts['unscheduled'] != 1 else ''}</label>
+          <button type="submit">Save blog/page schedule</button>
+        </form>
+        <div class="hint">{counts['scheduled']} task{'s' if counts['scheduled'] != 1 else ''} already have an exact release date and will not be moved. Choose a cadence and check the box only when you want Blog Core to place the remaining queue.</div>
+      </section>
+    """
+
+
 def render_distribution_settings(site_id):
     site = get_site(site_id)
     site_languages = parse_languages(site["languages"] if site else "[]")
@@ -4593,6 +4769,7 @@ def render_distribution_settings(site_id):
     except Exception:
         selected = {"linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads"}
     social_cadences = get_social_cadences(auto)
+    content_schedule_panel = render_content_schedule_panel(site)
     visual_pin_panel = render_visual_pin_panel(site_id)
     channel_cards = []
     for provider in SOCIAL_CHANNEL_LIMITS:
@@ -4603,24 +4780,42 @@ def render_distribution_settings(site_id):
         include_checked = "checked" if int(auto[include_field] or 0) else ""
         posts_per_day = social_cadences[provider]["postsPerDay"]
         cadence_enabled = "checked" if social_cadences[provider]["enabled"] else ""
+        can_auto_publish = provider in AUTOMATIC_SOCIAL_CHANNELS
+        if provider == "linkedin" and status != "connected":
+            delivery_note = "Connect the LinkedIn member or organization in Setup before this channel can create or publish drafts."
+        elif not can_auto_publish:
+            delivery_note = "Automatic delivery is not implemented for this direct channel yet."
+        elif social_cadences[provider]["enabled"]:
+            delivery_note = f"Automatic delivery is on: up to {posts_per_day} reviewed draft{'s' if posts_per_day != 1 else ''} per day."
+        else:
+            delivery_note = "Manual only. Enable automatic delivery and choose posts per day to create a cadence."
+        if provider == "linkedin" and linkedin_oauth_configured() and status != "connected":
+            quick_action = f"<button class='ghost mini-action' type='button' onclick=\"connectLinkedIn({int(site_id)})\">Connect LinkedIn</button>"
+        else:
+            quick_action = "<button class='ghost mini-action' type='button' onclick=\"showTab('setup')\">Open Setup</button>"
+        cadence_controls = f"""
+              <label class="check compact"><input type="checkbox" name="cadence_{provider}_enabled" {cadence_enabled}> Publish automatically</label>
+              <label class="field compact-field">Posts per day<input name="cadence_{provider}_posts_per_day" type="number" min="0" max="12" value="{posts_per_day}"><span class="hint">0 pauses this channel</span></label>
+        """ if can_auto_publish else "<div class='hint'>Automatic delivery is unavailable for this direct connector.</div>"
         status_class = "connected" if status == "connected" else ("configured" if status == "configured" else "disconnected")
         channel_cards.append(
             f"""
             <div class="channel-card unified-channel">
-              <div class="channel-head">
+                <div class="channel-head">
                 <div><strong>{label}</strong><span class="channel-state {status_class}">{escape(status)}</span></div>
-                <span class="connect-placeholder" title="Open Setup to enter credentials and test this channel">{escape(setup_label)}</span>
+                <div class="channel-setup-action"><span class="connect-placeholder" title="Open Setup to enter credentials and test this channel">{escape(setup_label)}</span>{quick_action}</div>
               </div>
               <label class="check compact"><input type="checkbox" name="channels" value="{provider}" {checked}> Use for social publishing</label>
               <label class="check compact"><input type="checkbox" name="{include_field}" {include_checked}> Include article link</label>
-              <label class="check compact"><input type="checkbox" name="cadence_{provider}_enabled" {cadence_enabled}> Publish automatically</label>
-              <label class="field compact-field">Posts per day<input name="cadence_{provider}_posts_per_day" type="number" min="0" max="12" value="{posts_per_day}"><span class="hint">0 pauses this channel</span></label>
+              {cadence_controls}
+              <div class="hint channel-delivery-note">{escape(delivery_note)}</div>
             </div>
             """
         )
     return f"""
     <section class="panel production-panel">
       <div class="panel-title-row"><div><h2>Distribution and social scheduling</h2><div class="muted">Article/page schedules stay explicit. Each social channel drains only reviewed drafts at its own cadence.</div></div></div>
+      {content_schedule_panel}
       <form class="form-grid" onsubmit="saveFactorySettings(event)">
         <div class="field"><label>Discovery direction</label><input name="direction" value="{escape(disc['direction'] or '', quote=True)}" placeholder="Auto-detected from site scan"><div class="hint">Gemini fills this from the scanned site; edit only to override.</div></div>
         <div class="field"><label>Category hint</label><input name="category_hint" value="{escape(disc['category_hint'] or '', quote=True)}" placeholder="Auto-detected editorial categories"><div class="hint">Used to steer topic discovery and article categories.</div></div>
@@ -4631,7 +4826,7 @@ def render_distribution_settings(site_id):
         <div class="field"><label>Timezone</label><input name="timezone" value="{escape(auto['timezone'] or 'UTC', quote=True)}"></div>
         <div class="field"><label>Start hour</label><input name="start_hour" type="number" min="0" max="23" value="{int(auto['start_hour'] or 9)}"></div>
         <div class="field"><label>End hour</label><input name="end_hour" type="number" min="0" max="23" value="{int(auto['end_hour'] or 21)}"></div>
-        <div class="field full"><label>Channels</label><div class="channel-grid unified-channels">{''.join(channel_cards)}</div><div class="hint">Enter and test per-site credentials in Setup. A cadence publishes only already-reviewed drafts and never creates or publishes a new article/page.</div></div>
+        <div class="field full"><label>Social channels</label><div class="channel-grid unified-channels">{''.join(channel_cards)}</div><div class="hint">A social cadence sends only already-reviewed drafts. It never creates or publishes a new blog/page. LinkedIn sends directly after its OAuth account is connected; X, Pinterest, Instagram, Threads, and Reddit use Zernio.</div></div>
         <div class="actions full"><button type="submit">Save factory distribution settings</button></div>
       </form>
         <div class="planned-publications-block">
@@ -8523,7 +8718,7 @@ def run_scheduled_social_publications(now=None):
         now_minutes = local_now.hour * 60 + local_now.minute
         cadences = get_social_cadences(settings)
         for channel, cadence in cadences.items():
-            if not cadence["enabled"] or channel not in ZERNIO_SOCIAL_CHANNELS:
+            if not cadence["enabled"] or channel not in AUTOMATIC_SOCIAL_CHANNELS:
                 continue
             if channel not in active_social_channels(site_id, [channel]):
                 continue
@@ -8564,7 +8759,12 @@ def run_scheduled_social_publications(now=None):
                 results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": "no_draft"})
                 continue
             try:
-                published = publish_zernio_visual_pin(site_id, visual_pin["id"]) if visual_pin else publish_zernio_social_drafts(site_id, candidate["job_id"], channels=[channel])
+                if visual_pin:
+                    published = publish_zernio_visual_pin(site_id, visual_pin["id"])
+                elif channel == "linkedin":
+                    published = publish_linkedin_social_drafts(site_id, candidate["job_id"])
+                else:
+                    published = publish_zernio_social_drafts(site_id, candidate["job_id"], channels=[channel])
                 status = "SENT" if published.get("ok") else "ERROR"
                 with db() as conn:
                     conn.execute(
@@ -8760,7 +8960,7 @@ def update_site_settings(site_id):
                 payload.get("brand_name") or domain.split(".")[0].replace("-", " ").title(),
                 payload.get("content_context") or "",
                 form_bool(payload.get("factory_enabled")),
-                payload.get("publishing_cadence") or "manual",
+                payload.get("publishing_cadence") or site["publishing_cadence"] or "manual",
                 payload.get("topic_strategy") or "",
                 now,
                 site_id,
@@ -9526,6 +9726,37 @@ def schedule_content_job_route(site_id, job_id):
     return jsonify({"ok": True, "jobId": job_id, "scheduledFor": scheduled_for})
 
 
+@app.put("/api/sites/<int:site_id>/content-schedule")
+def update_content_schedule_route(site_id):
+    site = get_site(site_id)
+    if not site:
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    cadence = str(payload.get("cadence") or "manual").strip()
+    if cadence not in CONTENT_CADENCE_LABELS:
+        return jsonify({"error": "unsupported publication cadence"}), 400
+    apply_to_queue = bool(payload.get("applyToQueue"))
+    scheduled = []
+    if apply_to_queue:
+        raw_start = str(payload.get("startAt") or "").strip()
+        timezone_name = str(payload.get("timezone") or "UTC").strip()
+        if not raw_start:
+            return jsonify({"error": "choose the first release date and time before applying a queue cadence"}), 400
+        try:
+            local_start = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
+            if local_start.tzinfo is None:
+                local_start = local_start.replace(tzinfo=social_schedule_timezone(timezone_name))
+        except ValueError:
+            return jsonify({"error": "startAt must be an ISO-8601 date and time"}), 400
+        try:
+            scheduled = schedule_unscheduled_content_jobs(site_id, cadence, local_start)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+    with db() as conn:
+        conn.execute("update sites set publishing_cadence=?, updated_at=? where id=?", (cadence, now_iso(), site_id))
+    return jsonify({"ok": True, "cadence": cadence, "scheduledGroups": len(scheduled), "scheduled": scheduled})
+
+
 @app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/social-drafts")
 def generate_social_drafts_route(site_id, job_id):
     payload = request.get_json(silent=True) or {}
@@ -9534,6 +9765,19 @@ def generate_social_drafts_route(site_id, job_id):
         return jsonify({"error": "channels must be a list"}), 400
     try:
         return jsonify(generate_social_drafts(site_id, job_id, channels=channels))
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/social-publish/linkedin")
+def publish_linkedin_social_drafts_route(site_id, job_id):
+    try:
+        result = publish_linkedin_social_drafts(site_id, job_id)
+        return jsonify(result), (200 if result.get("ok") else 400)
     except KeyError:
         return jsonify({"error": "job not found"}), 404
     except ValueError as e:
@@ -10196,11 +10440,14 @@ MANAGE_SITE_HTML = """<!doctype html>
 .unified-channels{grid-template-columns:repeat(2,minmax(0,1fr))}
 .unified-channel{display:grid;gap:10px}
 .channel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.channel-setup-action{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
 .channel-state{display:inline-flex;margin-top:5px;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:900;text-transform:uppercase;border:1px solid var(--line);color:var(--muted)}
 .channel-state.connected{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.14);color:#bbf7d0}
 .channel-state.configured{border-color:rgba(245,158,11,.48);background:rgba(245,158,11,.13);color:#fde68a}
 .channel-state.disconnected{opacity:.72}
 .connect-placeholder{display:inline-flex;align-items:center;min-height:30px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);font-size:11px;font-weight:900;text-transform:uppercase;padding:6px 9px;white-space:nowrap}
+.channel-delivery-note{min-height:32px}
+.content-schedule-panel{margin:0 0 20px;padding:0 0 18px;border-bottom:1px solid var(--line)}.content-schedule-panel h3{margin:0 0 4px;color:#efe9ff;font-size:15px;text-transform:uppercase;letter-spacing:.08em}.content-schedule-form{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-top:14px}.content-schedule-form .field{min-width:190px}.content-schedule-form .schedule-apply{min-height:42px;max-width:330px}
 .social-credentials-panel{margin-top:18px}
 .social-credentials-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
 .social-credentials-card{display:grid;gap:12px;border:1px solid var(--line);border-radius:16px;background:rgba(8,13,29,.38);padding:14px}
@@ -10245,7 +10492,7 @@ button[disabled]{opacity:.55;cursor:not-allowed}
 .tab-panel{display:grid;gap:18px}
 .tab-panel>.panel:first-child{margin-top:0}
 .podcast-create{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end;margin:20px 0 16px;padding-top:18px;border-top:1px solid var(--line)}.podcast-progress{grid-column:1 / -1;border:1px solid rgba(139,92,246,.42);border-radius:14px;background:rgba(139,92,246,.14);color:#ddd6fe;padding:10px 12px;font-size:13px;font-weight:800}.podcast-list{display:grid;gap:10px}.podcast-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;border:1px solid var(--line);border-radius:14px;background:rgba(8,13,29,.38);padding:12px}.podcast-row strong{display:block;font-size:14px}.podcast-row span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.podcast-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.podcast-actions audio{height:34px;max-width:260px}
-@media(max-width:900px){.content-toolbar{justify-content:flex-start;align-items:flex-start}.type-switcher{justify-content:flex-start}.content-pagination{flex-wrap:wrap}.social-credentials-grid,.social-credential-fields,.podcast-create{grid-template-columns:1fr}.podcast-row{grid-template-columns:1fr}.podcast-actions{justify-content:flex-start}}
+@media(max-width:900px){.content-toolbar{justify-content:flex-start;align-items:flex-start}.type-switcher{justify-content:flex-start}.content-pagination{flex-wrap:wrap}.social-credentials-grid,.social-credential-fields,.podcast-create{grid-template-columns:1fr}.podcast-row{grid-template-columns:1fr}.podcast-actions{justify-content:flex-start}.content-schedule-form{align-items:stretch}.content-schedule-form .field{width:100%}.channel-setup-action{justify-content:flex-start}}
 </style>
 </head>
 <body>
@@ -10289,7 +10536,6 @@ button[disabled]{opacity:.55;cursor:not-allowed}
             <label class="check full"><input type="checkbox" name="hosted_blog_enabled" __HOSTED_CHECKED__> Enable hosted CNAME blog for this site</label>
             <div class="field full"><label>Local webroot</label><input name="root_path" value="__ROOT__" placeholder="/var/www/site-root"></div>
             <div class="field"><label>Languages</label><input name="languages" value="__LANGUAGES__" placeholder="en, ru, de"></div>
-            <div class="field"><label>Publishing cadence</label><select name="publishing_cadence">__CADENCE_OPTIONS__</select></div>
             <div class="field full"><label>Site/product context</label><textarea name="content_context" placeholder="What this site sells, audience, positioning, internal links...">__CONTENT_CONTEXT__</textarea></div>
             <div class="field full"><label>Topic strategy</label><textarea name="topic_strategy" placeholder="Topics, clusters, tone, forbidden claims, CTA rules...">__TOPIC_STRATEGY__</textarea></div>
             <label class="check full"><input type="checkbox" name="factory_enabled" __FACTORY_CHECKED__> Enable article factory for this site</label>
@@ -10406,6 +10652,8 @@ async function generateSocialDrafts(jobId){showToast('Preparing social drafts...
 async function createVisualPin(){const mode=document.getElementById('visualPinMode')?.value||'auto';const progress=document.getElementById('visualPinProgress');let elapsed=0;const setProgress=(text)=>{if(progress){progress.hidden=false;progress.textContent=text;}};setProgress('Choosing a fresh fashion concept and creating one complete Pinterest collage. 0:00');const timer=setInterval(()=>{elapsed++;setProgress('Choosing a fresh fashion concept and creating one complete Pinterest collage. '+Math.floor(elapsed/60)+':'+String(elapsed%60).padStart(2,'0'));},1000);try{const res=await fetch('/api/sites/'+SITE_ID+'/visual-pins',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);setProgress('Visual Pin draft ready. Opening review...');showToast('Visual Pin draft ready');window.open(data.previewUrl,'_blank');setTimeout(()=>location.reload(),900);}catch(e){setProgress('Visual Pin generation failed: '+e.message);showToast('Visual Pin generation failed: '+e.message);}finally{clearInterval(timer);}}
 async function publishVisualPin(pinId){if(!confirm('Publish this reviewed visual Pin to Pinterest now through Zernio?'))return;showToast('Publishing visual Pin through Zernio...');try{const res=await fetch('/api/sites/'+SITE_ID+'/visual-pins/'+encodeURIComponent(pinId)+'/publish',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Visual Pin '+data.status);setTimeout(()=>location.reload(),900);}catch(e){showToast('Visual Pin publication failed: '+e.message);}}
 async function publishZernioSocial(jobId){if(!confirm('Publish ready X, Pinterest, Instagram, Threads, and Reddit drafts now through Zernio?'))return;showToast('Sending social drafts through Zernio...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-publish/zernio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);const summary=(data.results||[]).map(item=>item.channel+': '+(item.ok?item.status:'failed')).join(' · ');showToast('Zernio result: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Zernio publish failed: '+e.message);}}
+async function publishLinkedInSocial(jobId){if(!confirm('Publish this reviewed LinkedIn draft now?'))return;showToast('Publishing LinkedIn draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-publish/linkedin',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('LinkedIn post sent');setTimeout(()=>location.reload(),1000);}catch(e){showToast('LinkedIn publication failed: '+e.message);}}
+async function saveContentSchedule(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const cadence=String(fd.get('publishing_cadence')||'manual');const applyToQueue=fd.has('apply_to_queue');const startAt=String(fd.get('start_at')||'');if(applyToQueue&&!startAt){showToast('Choose the first release date and time');return;}if(applyToQueue&&!confirm('Schedule all currently unscheduled queued blog/page tasks using this cadence? Already scheduled tasks will not move.'))return;showToast(applyToQueue?'Placing queued releases...':'Saving blog/page schedule...');try{const timezone=document.querySelector('input[name="timezone"]')?.value||'UTC';const res=await fetch('/api/sites/'+SITE_ID+'/content-schedule',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({cadence,startAt,timezone,applyToQueue})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast(applyToQueue?'Scheduled '+data.scheduledGroups+' publication group(s)':'Blog/page schedule saved');setTimeout(()=>location.reload(),850);}catch(e){showToast('Blog/page schedule failed: '+e.message);}}
 async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const socialCadences={};for(const channel of ['linkedin','telegram','twitter','tumblr','pinterest','instagram','threads','reddit']){socialCadences[channel]={enabled:fd.has('cadence_'+channel+'_enabled'),postsPerDay:Number(fd.get('cadence_'+channel+'_posts_per_day')||0)};}const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link'),threadsIncludeLink:fd.has('threads_include_link'),redditIncludeLink:fd.has('reddit_include_link'),socialCadences}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}
 async function saveSocialCredentials(event,provider){event.preventDefault();const form=event.currentTarget;const credentials=socialCredentialsFromForm(form);showToast('Saving '+provider+' credentials...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(provider+' credentials saved: '+data.status);setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
