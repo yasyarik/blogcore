@@ -1,5 +1,27 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Clean replaced SoloCruz carousel drafts and schedule the approved variant
+
+### Summary
+
+- Deleted local-only, superseded Instagram carousel drafts 21, 22, and 23 at the operator's request.
+- Submitted carousel draft 26 to Zernio as a scheduled Instagram post for 2026-08-16 09:00 America/New_York; it remains a distinct scheduled post and was not republished immediately.
+- Generated one new unpublished Instagram carousel draft (27) for the next unused SoloCruz article, “The First 24 Hours of a Solo Cruise: A Calm Plan for Embarkation, Dining, and Meeting People”.
+
+### Files changed
+
+- Blog Core SQLite runtime data (ignored) — removed three replaced drafts, scheduled draft 26, and created draft 27.
+- `docs/CHANGELOG_AI.md` — recorded the operator-requested queue changes.
+
+### Checks run
+
+- Zernio accepted draft 26 as `SCHEDULED` with a new provider post ID.
+- Verified draft 27 has six JPEG slides, its `visualSpec` records `logoReferenceProvided=true` and `/var/www/solocruz.com/assets/brand/logo.png`, and visually inspected its first rendered slide.
+
+### Risks / TODO
+
+- Draft 27 remains unpublished for review. Its connected Instagram cadence can submit it at a future configured slot unless the operator pauses that cadence.
+
 ## 2026-08-09 — Resolve the active local brand logo before social generation
 
 ### Summary
