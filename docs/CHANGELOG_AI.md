@@ -1,5 +1,21 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Restore archived SoloCruz carousel previews
+
+### Summary
+
+- Restored deleted duplicate carousel records 28 and 29 as `SUPERSEDED` image-only archives after the operator requested to compare their complete visual versions.
+- The restored records contain only the already-generated seven-slide asset sets and cannot enter delivery or automatic publication.
+
+### Files changed
+
+- Blog Core SQLite runtime data (ignored) — restored two non-deliverable archive records for visual review.
+- `docs/CHANGELOG_AI.md` — recorded the archive restoration.
+
+### Checks run
+
+- Verified both archive preview routes return HTTP 200 and render all seven stored slide images.
+
 ## 2026-08-09 — Require a truthful Instagram cover hook
 
 ### Summary
