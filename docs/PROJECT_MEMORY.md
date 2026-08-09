@@ -67,6 +67,12 @@
 - Contract: Gemini image requests carrying a reference must use canonical `inlineData` and `mimeType` fields, and the stored carousel records whether a reference was provided. If a site scan cannot resolve a raster logo, the model is explicitly told not to invent one.
 - Known limitation: an image reference is a generative instruction, not an exact asset-placement API. It can guide Gemini to redraw a mark but cannot prove pixel-identical logo output. Do not generate a full carousel merely to test this behavior; validate the brand treatment through a single approved control image first. Pixel-exact logo use requires deterministic compositing, which is a separate explicitly approved design decision.
 
+## 2026-08-09 — Instagram cover must earn the first swipe
+
+- Decision: the first Instagram carousel slide must use a precise, audience-specific scroll-stopping hook grounded in the article: a real tension, surprising payoff, recognisable problem, or decision. It cannot repeat the H1, use vague questions, generic guide language, or empty clickbait.
+- Reason: a visually strong carousel still fails if its cover does not give the audience a reason to swipe. The hook must be editorially truthful, not a marketing exaggeration.
+- Scope: all future Instagram carousel drafts for every connected site.
+
 ## 2026-08-09 — Brand-logo discovery prefers source-owned brand assets
 
 - Decision: when a scanned header has no image logo, Blog Core searches local webroots for raster filenames containing `logo`, `brand`, or `wordmark` and prioritizes purpose-built brand directories above root-level files. Favicons, extension assets, and common generated/cache directories are excluded.

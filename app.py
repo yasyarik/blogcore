@@ -3101,7 +3101,9 @@ CAROUSEL RULES:
 - Use 4:5 portrait format, recommended 1080x1350.
 - Make 6 to 8 slides. This is mandatory; never return fewer or more.
 - Slide 1 must be a cover.
-- Slide 1 must state a specific tension, outcome, or decision. It cannot merely repeat the article title.
+- Slide 1 must open with a scroll-stopping, audience-specific hook. Use a concrete tension, unexpected payoff, recognisable problem, or decision that earns the swipe; it must create curiosity while remaining truthful to the article.
+- The hook cannot merely repeat or lightly reword the article title. Never use empty clickbait, a vague question, or a generic "ultimate guide" promise.
+- The cover must make the reader understand why the carousel matters to them before they read slide 2.
 - Each following slide must carry one distinct claim. Do not restate the cover or another slide.
 - Order slides so the reader gets increasing value: context, insight/framework, application, then CTA.
 - Last slide must be a soft CTA or save/share cue.

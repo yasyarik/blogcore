@@ -1,5 +1,45 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Require a truthful Instagram cover hook
+
+### Summary
+
+- Strengthened the universal Instagram carousel prompt: cover slide text must earn the swipe through a concrete audience tension, payoff, problem, or decision.
+- Explicitly rejects repeated H1s, vague questions, generic guide language, and empty clickbait.
+
+### Files changed
+
+- `app.py` — strengthened first-slide hook requirements.
+- `docs/PROJECT_MEMORY.md` — recorded the durable cover rule.
+- `docs/INTEGRATIONS.md` — documented the carousel cover contract.
+- `docs/CHANGELOG_AI.md` — recorded this task.
+
+### Checks run
+
+- `python3 -m py_compile app.py` passed locally and on the VPS.
+- Restarted `blog-yas-core`; `GET /health` returned `ok`.
+- Generated one seven-slide SoloCruz draft using the new cover rule and visually checked its cover: it uses the hook and remains logo-free because a logo is not relevant to that scene.
+
+## 2026-08-09 — Sequence SoloCruz Instagram drafts without duplicate delivery
+
+### Summary
+
+- Scheduled draft 27 for the nearest Zernio slot, 2026-08-09 09:00 America/New_York.
+- A short-lived SSH generation attempt created two duplicate local drafts. They were removed before any Zernio submission; only draft 30 remains for the next article.
+
+### Files changed
+
+- Blog Core SQLite runtime data (ignored) — scheduled draft 27, removed duplicate drafts 28 and 29, retained draft 30 for review.
+- `docs/CHANGELOG_AI.md` — recorded the queue correction.
+
+### Checks run
+
+- Verified draft 30 has seven JPEG slides, a contextual-logo reference, and an unpublished `DRAFT` status.
+
+### Risks / TODO
+
+- The source assets for removed drafts 28 and 29 remain in ignored runtime storage but are not referenced by a dashboard record; they can be cleaned later as a storage-only maintenance task.
+
 ## 2026-08-09 — Make Instagram logo use an explicit Gemini decision
 
 ### Summary
