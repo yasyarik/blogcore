@@ -62,7 +62,7 @@
 
 ## 2026-08-09 — Instagram slides use a contextual scanned-logo reference
 
-- Decision: Instagram carousel generation supplies the site's resolved raster logo to Gemini as a visual reference. The prompt allows the model to use it only if it is meaningful for that particular slide, such as an authentic product view or final brand frame; it must otherwise omit it. Blog Core does not force or overlay a logo after generation.
+- Decision: Instagram carousel generation supplies the site's resolved raster logo to Gemini as an optional visual reference. Gemini independently decides slide by slide; the default is a logo-free creative, and it may use the reference only where a real product surface, branded environment, or closing frame makes it materially truthful. Blog Core does not force or overlay a logo after generation.
 - Reason: branding must be native to the creative's story, not an obligatory corner badge. A text-only instruction can make an image model invent or misspell a logo, so any logo usage must start from the real scanned reference.
 - Contract: Gemini image requests carrying a reference must use canonical `inlineData` and `mimeType` fields, and the stored carousel records whether a reference was provided. If a site scan cannot resolve a raster logo, the model is explicitly told not to invent one.
 - Known limitation: an image reference is a generative instruction, not an exact asset-placement API. It can guide Gemini to redraw a mark but cannot prove pixel-identical logo output. Do not generate a full carousel merely to test this behavior; validate the brand treatment through a single approved control image first. Pixel-exact logo use requires deterministic compositing, which is a separate explicitly approved design decision.

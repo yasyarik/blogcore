@@ -3295,7 +3295,11 @@ VISUAL DIRECTION:
 {image_prompt}
 
 BRAND MARK:
-{"- The real brand logo is attached as a visual reference. Use it only when a logo is naturally meaningful to this slide's story (for example, an authentic product, branded surface, or closing brand frame). If it does not serve the specific slide, omit it. Never invent, misspell, redraw approximately, or force it into a corner." if has_logo_reference else "- No verified raster logo is available. Do not draw, approximate, or invent a logo."}
+{"""- A real brand logo is attached only as an optional visual reference.
+- Decide independently for THIS slide whether the logo makes the visual more truthful and useful. The default is to omit it.
+- Use it only when this specific scene genuinely calls for a brand mark, such as a real product surface, a branded environment, or an editorial closing frame. Do not assume that a cover, a CTA, or any particular slide needs it.
+- When it is not materially relevant, ignore the attached reference completely and create a logo-free image.
+- Never invent, misspell, redraw approximately, or force a logo into a corner.""" if has_logo_reference else "- No verified raster logo is available. Do not draw, approximate, or invent a logo."}
 
 QUALITY RULES:
 - Keep text large, sharp, high-contrast, and centered or aligned with clear safe margins.

@@ -1,5 +1,24 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Make Instagram logo use an explicit Gemini decision
+
+### Summary
+
+- Reworded the per-slide Gemini Image prompt so an attached logo is an optional visual reference, not an implied branding instruction.
+- The model is explicitly told to decide independently for each scene, omit the logo by default, and use it only where it materially improves the truthfulness of that particular visual.
+
+### Files changed
+
+- `app.py` — strengthened the optional per-slide logo decision policy in the Instagram image prompt.
+- `docs/PROJECT_MEMORY.md` — clarified the durable logo-reference decision.
+- `docs/INTEGRATIONS.md` — documented default logo-free carousel imagery.
+- `docs/CHANGELOG_AI.md` — recorded this change.
+
+### Checks run
+
+- `python3 -m py_compile app.py` passed locally and on the VPS.
+- Restarted `blog-yas-core`; `GET /health` returned `ok`.
+
 ## 2026-08-09 — Clean replaced SoloCruz carousel drafts and schedule the approved variant
 
 ### Summary
