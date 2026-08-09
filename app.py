@@ -3098,6 +3098,9 @@ ARTICLE:
 
 CAROUSEL RULES:
 - Choose exactly one carouselType: checklist, myth_reality, framework, before_after, mistakes, or decision_guide.
+- Choose one carousel-wide primary visual treatment: photographic_editorial, illustrated_editorial, or graphic_editorial.
+- Every slide must belong to that same visual system: consistent palette, lighting or texture, typography treatment, and composition rhythm.
+- Do not switch styles arbitrarily. A `supporting_graphic` treatment is allowed only where a diagram, comparison, or framework materially explains the point; use it on at most two slides and keep it visually tied to the primary treatment. Cover and closing slides must use the primary treatment.
 - Use 4:5 portrait format, recommended 1080x1350.
 - Make 6 to 8 slides. This is mandatory; never return fewer or more.
 - Slide 1 must be a cover.
@@ -3123,10 +3126,11 @@ RETURN STRICT JSON ONLY:
 {{
   "caption":"...",
   "carouselType":"checklist",
+  "visualSystem":{"primaryTreatment":"photographic_editorial","styleBrief":"..."},
   "visualSpec":{{"aspectRatio":"4:5","recommendedSize":"1080x1350","maxSlides":8}},
   "destinationUrl":"{article_url if include_link and article_url else ''}",
   "slides":[
-    {{"index":1,"role":"cover","headline":"...","subtext":"...","imagePrompt":"...","altText":"..."}}
+    {{"index":1,"role":"cover","visualTreatment":"photographic_editorial","headline":"...","subtext":"...","imagePrompt":"...","altText":"..."}}
   ]
 }}
 """.strip()
@@ -3137,17 +3141,21 @@ INSTAGRAM_CAROUSEL_SCHEMA = {
     "properties": {
         "caption": {"type": "string"},
         "carouselType": {"type": "string", "enum": ["checklist", "myth_reality", "framework", "before_after", "mistakes", "decision_guide"]},
+        "visualSystem": {"type": "object", "properties": {
+            "primaryTreatment": {"type": "string", "enum": ["photographic_editorial", "illustrated_editorial", "graphic_editorial"]},
+            "styleBrief": {"type": "string"},
+        }, "required": ["primaryTreatment", "styleBrief"]},
         "visualSpec": {"type": "object"},
         "destinationUrl": {"type": "string"},
         "slides": {
             "type": "array", "minItems": 6, "maxItems": 8,
             "items": {"type": "object", "properties": {
-                "index": {"type": "integer"}, "role": {"type": "string"}, "headline": {"type": "string"},
+                "index": {"type": "integer"}, "role": {"type": "string"}, "visualTreatment": {"type": "string", "enum": ["photographic_editorial", "illustrated_editorial", "graphic_editorial", "supporting_graphic"]}, "headline": {"type": "string"},
                 "subtext": {"type": "string"}, "imagePrompt": {"type": "string"}, "altText": {"type": "string"},
-            }, "required": ["index", "role", "headline", "subtext", "imagePrompt", "altText"]},
+            }, "required": ["index", "role", "visualTreatment", "headline", "subtext", "imagePrompt", "altText"]},
         },
     },
-    "required": ["caption", "carouselType", "slides"],
+    "required": ["caption", "carouselType", "visualSystem", "slides"],
 }
 
 
@@ -3162,6 +3170,11 @@ def normalize_instagram_carousel(carousel, article_url):
         raise ValueError("Instagram carousel response is missing slides")
     if not 6 <= len(raw_slides) <= 8:
         raise ValueError("Instagram carousel must contain exactly 6 to 8 slides")
+    visual_system = carousel.get("visualSystem") if isinstance(carousel.get("visualSystem"), dict) else {}
+    primary_treatment = social_normalize_text(visual_system.get("primaryTreatment")).lower().replace("-", "_")
+    style_brief = social_normalize_text(visual_system.get("styleBrief"))
+    if primary_treatment not in {"photographic_editorial", "illustrated_editorial", "graphic_editorial"} or not style_brief:
+        raise ValueError("Instagram carousel must define one complete visual system")
     slides = []
     for idx, raw in enumerate(raw_slides, start=1):
         if not isinstance(raw, dict):
@@ -3170,11 +3183,15 @@ def normalize_instagram_carousel(carousel, article_url):
         subtext = social_normalize_text(raw.get("subtext"))
         image_prompt = social_normalize_text(raw.get("imagePrompt") or raw.get("visualPrompt"))
         alt_text = social_normalize_text(raw.get("altText"))
-        if not all((headline, subtext, image_prompt, alt_text)):
+        visual_treatment = social_normalize_text(raw.get("visualTreatment")).lower().replace("-", "_")
+        if not all((headline, subtext, image_prompt, alt_text, visual_treatment)):
             raise ValueError(f"Instagram slide {idx} is missing required content")
+        if visual_treatment not in {primary_treatment, "supporting_graphic"}:
+            raise ValueError(f"Instagram slide {idx} breaks the carousel visual system")
         slides.append({
             "index": idx,
             "role": social_normalize_text(raw.get("role")).lower(),
+            "visualTreatment": visual_treatment,
             "headline": headline,
             "subtext": subtext,
             "imagePrompt": image_prompt,
@@ -3184,7 +3201,7 @@ def normalize_instagram_carousel(carousel, article_url):
         "caption": caption,
         "carouselType": social_normalize_text(carousel.get("carouselType")).lower().replace("-", "_"),
         "slides": slides,
-        "visualSpec": {"aspectRatio": "4:5", "recommendedSize": "1080x1350", "maxSlides": 8},
+        "visualSpec": {"aspectRatio": "4:5", "recommendedSize": "1080x1350", "maxSlides": 8, "primaryTreatment": primary_treatment, "styleBrief": style_brief},
         "destinationUrl": "",
     }
 
@@ -3212,6 +3229,12 @@ def validate_instagram_carousel(carousel):
     if slides and str(slides[0].get("role") or "").lower() != "cover":
         result["ok"] = False
     if slides and str(slides[-1].get("role") or "").lower() not in {"cta", "save", "share"}:
+        result["ok"] = False
+    primary_treatment = str((carousel.get("visualSpec") or {}).get("primaryTreatment") or "")
+    supporting_graphics = [slide for slide in slides if slide.get("visualTreatment") == "supporting_graphic"]
+    if primary_treatment not in {"photographic_editorial", "illustrated_editorial", "graphic_editorial"} or len(supporting_graphics) > 2:
+        result["ok"] = False
+    if slides and (slides[0].get("visualTreatment") != primary_treatment or slides[-1].get("visualTreatment") != primary_treatment):
         result["ok"] = False
     normalized_claims = []
     for slide in slides:
@@ -3266,13 +3289,16 @@ def social_asset_url(site_id, asset_key, channel, filename):
     return f"/sites/{int(site_id)}/social-assets/{urllib.parse.quote(str(asset_key), safe='')}/{urllib.parse.quote(channel, safe='')}/{urllib.parse.quote(filename, safe='')}"
 
 
-def build_instagram_slide_image_prompt(site, job, language, slide, slide_count, has_logo_reference=False):
+def build_instagram_slide_image_prompt(site, job, language, slide, slide_count, visual_spec=None, has_logo_reference=False):
     brand = site["brand_name"] or site["domain"]
     language_name = LANGUAGE_NAMES.get(language, language.upper())
     title = job["title"] or job["topic"] or "Article"
     headline = slide.get("headline") or title
     subtext = slide.get("subtext") or ""
     image_prompt = slide.get("imagePrompt") or ""
+    visual_spec = visual_spec if isinstance(visual_spec, dict) else {}
+    primary_treatment = visual_spec.get("primaryTreatment") or "photographic_editorial"
+    style_brief = visual_spec.get("styleBrief") or "coherent premium editorial visual series"
     return f"""
 Create one finished Instagram carousel slide as a real raster JPEG image.
 
@@ -3295,6 +3321,13 @@ VISIBLE TEXT TO PLACE ON THE IMAGE:
 
 VISUAL DIRECTION:
 {image_prompt}
+
+CAROUSEL-WIDE VISUAL SYSTEM:
+- Primary treatment for the whole series: {primary_treatment}.
+- Shared art direction: {style_brief}
+- This slide's permitted treatment: {slide.get('visualTreatment') or primary_treatment}.
+- Preserve the same visual family as the other slides. Do not switch randomly between photography, illustration, and abstract graphics.
+- A supporting graphic is only an explanatory exception and must retain the same palette, typography, and editorial tone as the primary treatment.
 
 BRAND MARK:
 {"""- A real brand logo is attached only as an optional visual reference.
@@ -3322,7 +3355,7 @@ def generate_instagram_carousel_images(site_id, job_id, site, job, language, car
     reference_logo = site_logo_reference(site_id)
     for index, slide in enumerate(slides, start=1):
         filename = f"slide-{index:02d}.jpg"
-        prompt = build_instagram_slide_image_prompt(site, job, language, slide, len(slides), bool(reference_logo))
+        prompt = build_instagram_slide_image_prompt(site, job, language, slide, len(slides), carousel.get("visualSpec"), bool(reference_logo))
         image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="4:5", reference_image=reference_logo)
         if not image_bytes.startswith(b"\xff\xd8"):
             raise RuntimeError(f"Gemini image for Instagram slide {index} was not JPEG")
@@ -3590,7 +3623,7 @@ def reconcile_zernio_social_posts(site_id, job_id=None):
     return {"matched": matched, "reason": ""}
 
 
-def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=None):
+def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=None, post_ids=None):
     connections = get_social_connections(site_id)
     zernio = connections.get("zernio")
     credentials = get_social_credentials(zernio)
@@ -3598,6 +3631,7 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=N
         raise ValueError("Configure and test Zernio in Setup before publishing these channels.")
     api_key = str(credentials.get("api_key") or os.environ.get("ZERNIO_API_KEY") or "").strip()
     requested_channels = {channel for channel in (channels or ZERNIO_SOCIAL_CHANNELS) if channel in ZERNIO_SOCIAL_CHANNELS}
+    requested_post_ids = {int(post_id) for post_id in (post_ids or []) if str(post_id).isdigit()}
     with db() as conn:
         draft_rows = conn.execute(
             """select * from social_posts where site_id=? and job_id=? and status='DRAFT'
@@ -3605,6 +3639,8 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=N
             (site_id, job_id),
         ).fetchall()
     draft_rows = [row for row in draft_rows if row["channel"] in requested_channels]
+    if requested_post_ids:
+        draft_rows = [row for row in draft_rows if int(row["id"]) in requested_post_ids]
     if not draft_rows:
         raise ValueError("No unpublished Zernio social drafts are ready for this content task.")
     # One content task may have been retried after a slow media request. Publish
@@ -9988,8 +10024,11 @@ def publish_linkedin_social_drafts_route(site_id, job_id):
 def publish_zernio_social_drafts_route(site_id, job_id):
     payload = request.get_json(silent=True) or {}
     scheduled_for = str(payload.get("scheduledFor") or "").strip() or None
+    post_ids = payload.get("socialPostIds")
+    if post_ids is not None and not isinstance(post_ids, list):
+        return jsonify({"error": "socialPostIds must be a list"}), 400
     try:
-        result = publish_zernio_social_drafts(site_id, job_id, scheduled_for=scheduled_for)
+        result = publish_zernio_social_drafts(site_id, job_id, scheduled_for=scheduled_for, post_ids=post_ids)
         return jsonify(result), (200 if result.get("ok") else 400)
     except KeyError:
         return jsonify({"error": "job not found"}), 404

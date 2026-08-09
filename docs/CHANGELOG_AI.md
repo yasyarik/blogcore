@@ -1,5 +1,44 @@
 # CHANGELOG_AI.md
 
+## 2026-08-09 — Schedule selected SoloCruz carousel variants
+
+### Summary
+
+- Added explicit social-post targeting to Zernio publication so a chosen reviewed carousel can be scheduled without replacing it with a newer draft from the same article.
+- Scheduled archived visual variant 28 for 2026-08-17 09:00 America/New_York and variant 29 for 2026-08-23 09:00 America/New_York. The one-day shift for 28 avoids colliding with carousel 26 already scheduled for August 16.
+
+### Files changed
+
+- `app.py` — supports optional `socialPostIds` in Zernio publication calls.
+- `docs/PROJECT_MEMORY.md` — recorded explicit variant scheduling.
+- `docs/INTEGRATIONS.md` — documented the targeted API field.
+- `docs/CHANGELOG_AI.md` — recorded this task.
+
+### Checks run
+
+- Zernio confirmed both selected variants as `SCHEDULED`.
+- `python3 -m py_compile app.py` and `GET /health` passed after deployment.
+
+## 2026-08-09 — Give every Instagram carousel one coherent visual system
+
+### Summary
+
+- Added a structured carousel-wide visual treatment and shared art-direction brief to the Gemini text contract.
+- The image prompt now carries that shared system to every slide. Arbitrary photo/graphic switching is rejected; only up to two explanation-driven supporting graphics are allowed.
+
+### Files changed
+
+- `app.py` — visual-system schema, validation, and image-prompt propagation.
+- `docs/PROJECT_MEMORY.md` — recorded the series-level art-direction contract.
+- `docs/INTEGRATIONS.md` — documented the visual-system behavior.
+- `docs/CHANGELOG_AI.md` — recorded this task.
+
+### Checks run
+
+- `python3 -m py_compile app.py` passed locally and on the VPS.
+- The structured carousel normalization/validation contract passed with a coherent six-slide visual system.
+- Restarted `blog-yas-core`; `GET /health` returned `ok`.
+
 ## 2026-08-09 — Restore archived SoloCruz carousel previews
 
 ### Summary

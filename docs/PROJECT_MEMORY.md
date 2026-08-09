@@ -73,6 +73,12 @@
 - Reason: a visually strong carousel still fails if its cover does not give the audience a reason to swipe. The hook must be editorially truthful, not a marketing exaggeration.
 - Scope: all future Instagram carousel drafts for every connected site.
 
+## 2026-08-09 — Instagram carousel visual system is series-level
+
+- Decision: Gemini must choose one primary carousel treatment (`photographic_editorial`, `illustrated_editorial`, or `graphic_editorial`) and a shared art-direction brief before slide-image generation. Cover and closing frames use the primary treatment; at most two explanatory supporting graphics are permitted where a framework, comparison, or diagram materially needs them.
+- Reason: unconstrained per-slide prompting caused arbitrary switches between photographic and graphic imagery, making a carousel look assembled rather than designed as one sequence.
+- Scope: all future Instagram carousel drafts. Existing reviewed/published creatives are not silently regenerated.
+
 ## 2026-08-09 — Brand-logo discovery prefers source-owned brand assets
 
 - Decision: when a scanned header has no image logo, Blog Core searches local webroots for raster filenames containing `logo`, `brand`, or `wordmark` and prioritizes purpose-built brand directories above root-level files. Favicons, extension assets, and common generated/cache directories are excluded.
@@ -85,6 +91,12 @@
 - Reason: several drafts for one article can be created close together. A request can reach Zernio while Blog Core misses or misattributes the immediate response; relying on the local request result alone can show the wrong status or provider ID.
 - Boundary: reconciliation never creates or publishes a post. It only reads Zernio and corrects the dashboard state. Unique per-draft asset paths make the match deterministic for new media drafts.
 - Guardrail: `SUPERSEDED` records are immutable historical attempts and must never be revived by reconciliation, especially for legacy drafts that predate unique media asset keys.
+
+## 2026-08-09 — Schedule a reviewed social variant explicitly
+
+- Decision: Zernio publication accepts an optional list of exact Blog Core social-post IDs. When a content task has several reviewed variants, an operator can schedule the chosen version without the “newest draft per channel” rule silently substituting another one.
+- Reason: variant review and future scheduling are separate from automatic retry de-duplication.
+- Scope: Zernio-backed social channels only; a targeted request still requires the selected record to be a publishable draft.
 
 ## 2026-08-09 — Instagram carousel generation has no generic fallback
 
