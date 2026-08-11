@@ -26,6 +26,13 @@
 * Replaced/deprecated: a fixed English verb list as the validator for `visibleAction`. That is a language-specific implementation shortcut; the universal scene brief requires the action semantically and later review evaluates whether it truly carries the beat.
 * Replaced/deprecated: accepting generic scenic travel images as a visual plan because the on-screen copy happens to carry the real meaning.
 
+## 2026-08-11 - Reel stage two is a Gemini-owned master-frame production plan
+
+* Stage two is the only text-only bridge between the approved editorial brief and image generation. Gemini, not an operator-authored substitute, must return one master-frame production plan for every locked editorial beat.
+* Each planned scene explicitly contains: the complete coherent master frame, the identical clean plate created by removing only approved movable groups, the master-frame state and entrance of every movable group, purposeful whole-scene camera work after all entries settle, locked overlay copy, and a high-contrast quiet text zone.
+* The master frame is the source of truth. The clean plate cannot become a separately invented scene and movable groups cannot be described as unrelated stock assets.
+* Replaced/deprecated: stage-two fields that merely named a generic visual moment or visible action while withholding the master frame, clean plate, exact groups, entrance mechanics, camera plan, and text placement needed to assess the actual downstream production plan.
+
 ## 2026-08-11 - Reel layerability is owned by story architecture
 
 * The first text pass must choose physical visual worlds whose meaningful people are complete unobstructed free-standing groups. Seated, furniture-supported, cropped, small-prop-led, or extraction-oriented visual worlds are rejected before the visual skeleton is generated.

@@ -4924,18 +4924,29 @@ INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
                 "properties": {
                     "beatId": {"type": "string"},
                     "sceneObjective": {"type": "string"},
-                    "visualMoment": {"type": "string"},
-                    "visibleAction": {"type": "string"},
-                    "openingState": {"type": "string"},
-                    "endingState": {"type": "string"},
-                    "integratedFrame": {"type": "string"},
-                    "foregroundGroups": {"type": "array", "items": {"type": "string"}},
+                    "masterFrame": {"type": "string"},
+                    "cleanPlate": {"type": "string"},
+                    "movableGroups": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "masterFrameState": {"type": "string"},
+                                "entrance": {"type": "string"},
+                                "finalPosition": {"type": "string"},
+                            },
+                            "required": ["name", "masterFrameState", "entrance", "finalPosition"],
+                        },
+                    },
+                    "cameraAfterEntrance": {"type": "string"},
+                    "overlayText": {"type": "string"},
+                    "textPlacement": {"type": "string"},
                     "continuityFromPrevious": {"type": "string"},
                     "retentionIntoNext": {"type": "string"},
                     "transitionIntent": {"type": "string"},
-                    "textSafeZone": {"type": "string"},
                 },
-                "required": ["beatId", "sceneObjective", "visualMoment", "visibleAction", "openingState", "endingState", "integratedFrame", "foregroundGroups", "continuityFromPrevious", "retentionIntoNext", "transitionIntent", "textSafeZone"],
+                "required": ["beatId", "sceneObjective", "masterFrame", "cleanPlate", "movableGroups", "cameraAfterEntrance", "overlayText", "textPlacement", "continuityFromPrevious", "retentionIntoNext", "transitionIntent"],
             },
         },
     },
@@ -5002,18 +5013,17 @@ YOUR ONLY JOB:
 For every supplied beat, design one coherent, photographable scene concept that makes that beat understandable and carries the viewer into the next beat. Preserve the supplied order, problem, retention question, source grounding, and final payoff. Do not add, remove, merge, reorder, or rewrite editorial beats.
 
 SCENE-CONCEPT CONTRACT:
-- This is still text planning. Do not write image-generation prompts, assets, layers, masks, crop instructions, camera moves, text animation, voice, music, captions, rendering instructions, or a technical production manifest.
-- `sceneObjective` says what single idea the scene makes clear. `visualMoment` describes one observable source-grounded moment, not a fictional customer journey or dating drama.
-- `openingState` and `endingState` describe a meaningful change in what the viewer understands inside this same scene. They do not invent a decision, booking, discovery, transaction, or reaction that the article does not state.
-- `integratedFrame` describes one complete 9:16 photographed world: real location, time/light, viewpoint, depth, important spatial relationship, and a clear low-detail text-safe area. It must be an integrated moment, not a collage of unrelated symbols.
-- `foregroundGroups` lists one to four meaningful complete people or cohesive groups that belong naturally in that same moment. They must be large enough to read, fully in frame, mutually separated by visible background space, free-standing, and not touching or hidden by fixed furniture, railings, counters, tables, walls, doors, or screens. The frame contains no other humans in its background, middle ground, distance, reflection, or silhouette.
-- `visibleAction` names the single concrete physical event or spatial relationship that makes this beat visible. It begins with who is acting and what they physically do. A person merely standing, smiling, walking decoratively, or looking at something is not a scene. The action must communicate the article's factual condition without claiming that anyone learns, books, pays, discovers, succeeds, or forms a romance.
-- `visualMoment` then explains the coherent photographed moment created by that visible action. For an abstract claim such as price, risk, or safety, the action may express the human condition while the locked editorial overlay carries the abstract fact; never invent a device, receipt, sign, or symbol to make an abstract number visible.
-- The concepts must read as one editorial visual progression inside the article's real domain, not as unrelated stock-travel images. Recurring performers may provide visual continuity, but they are only neutral anchors for source-grounded conditions, never protagonists in an invented personal success or romance story.
-- Use only places, roles, actions, and conditions that the supplied beat or article supports. Do not add airports, terminals, check-in procedures, passports, boarding, or any other travel-process scene merely because the topic is cruising. Do not say a scene `symbolizes`, `represents`, or `highlights` an idea: describe the actual observable moment instead.
-- The viewer must see why the current scene answers its exact beat. Avoid generic smiling, posing, travel glamour, romance, couple-coded staging, or scenes that would fit any article.
-- `continuityFromPrevious` explains how this scene develops the prior idea rather than resetting the story. `retentionIntoNext` states exactly what useful answer is still awaited. The final resolution scene must say that the main question is resolved.
-- `transitionIntent` describes the editorial handoff in plain language, not an editing effect. `textSafeZone` names a naturally quiet part of the actual frame where later text could remain readable.
+- This is text-only pre-production. Do not generate image prompts, images, voice, music, captions, video, or rendering instructions.
+- Each beat becomes one source-grounded 9:16 photographed scene. The required `masterFrame` is the complete final composition before animation: location, light, viewpoint, every person/group, meaningful spatial relationship, and intentionally empty space for copy. It is a real cohesive moment, never a collage, stock-travel filler, or a fictional customer journey.
+- `cleanPlate` describes the derivative of that exact master frame after removing only the named `movableGroups`. It must say that architecture, light, camera position, perspective, scale, and every non-movable pixel stay identical. Never propose a separately invented background.
+- `movableGroups` contains one to four complete people, cohesive people-with-owned-item groups, or substantial objects that already exist in the master frame. `masterFrameState` states exactly what is visible in the full composition. `entrance` says how that complete group moves into its final master-frame position: for example, enters from left/right/bottom, drops from above, or resolves in focus in place. Use a directional entrance only when a whole, standing group can plausibly move that way. Do not make a seated person, furniture-supported person, table setting, or fixed architecture slide. `finalPosition` gives the group’s exact relationship to the fixed scene and other groups.
+- Every human group must be large, complete from head through feet, visually separated by clear background space, and free from occlusion. If people naturally overlap, name them as one cohesive group. There must be no unplanned humans in the background, middle distance, reflections, or silhouettes.
+- The still master must itself explain the beat through a concrete spatial condition. For an abstract fact such as price, risk, or safety, show the source-grounded physical condition and let `overlayText` carry the abstract claim. Do not invent devices, receipts, signs, UI, or symbolic props.
+- `cameraAfterEntrance` starts only after all named groups have reached their final positions. State a purposeful whole-scene move: focus transfer, push toward the relevant group, pull back to reveal a relationship, or lateral follow across the assembled composition. Do not describe camera motion before entries settle.
+- `overlayText` is the exact short on-screen copy locked by the editorial beat. `textPlacement` names the largest naturally quiet part of the master frame and why its local contrast supports large readable type. Do not put text into crowded or low-contrast space.
+- The concepts must progress within the article's real domain. A performer may recur only as a neutral visual anchor, never as a fictional protagonist who learns, books, pays, discovers, succeeds, or forms a romance. Use only places, roles, actions, and conditions supported by the source. Do not add airports, terminals, check-in procedures, passports, boarding, or travel-process scenes merely because the topic is cruising.
+- The viewer must see why the frame answers this exact beat. Avoid generic posing, smiling, travel glamour, romance/couple-coded staging, or scenes that could fit any unrelated article. Do not say a scene symbolizes, represents, or highlights an idea: describe what is literally visible.
+- `continuityFromPrevious` explains how this scene develops the prior idea rather than resetting the story. `retentionIntoNext` states the exact useful answer still awaited. The final resolution scene must explicitly say the main question is resolved. `transitionIntent` describes the editorial handoff, not an editing effect.
 - Write in {language_name}. Do not use readable signage, labels, boards, menus, interfaces, phones, tablets, laptops, maps, price cards, symbols, or visual metaphors to carry the answer.
 """.strip()
 
@@ -5032,21 +5042,25 @@ def normalize_instagram_reel_scene_concepts(data, editorial_beats):
         scene = {
             "beatId": _reel_copy(raw_scene.get("beatId"), 32).lower(),
             "sceneObjective": _reel_copy(raw_scene.get("sceneObjective"), 500),
-            "visualMoment": _reel_copy(raw_scene.get("visualMoment"), 700),
-            "visibleAction": _reel_copy(raw_scene.get("visibleAction"), 500),
-            "openingState": _reel_copy(raw_scene.get("openingState"), 500),
-            "endingState": _reel_copy(raw_scene.get("endingState"), 500),
-            "integratedFrame": _reel_copy(raw_scene.get("integratedFrame"), 1200),
-            "foregroundGroups": [_reel_copy(value, 500) for value in (raw_scene.get("foregroundGroups") if isinstance(raw_scene.get("foregroundGroups"), list) else [])],
+            "masterFrame": _reel_copy(raw_scene.get("masterFrame"), 1400),
+            "cleanPlate": _reel_copy(raw_scene.get("cleanPlate"), 700),
+            "movableGroups": [{
+                "name": _reel_copy(group.get("name"), 160),
+                "masterFrameState": _reel_copy(group.get("masterFrameState"), 600),
+                "entrance": _reel_copy(group.get("entrance"), 500),
+                "finalPosition": _reel_copy(group.get("finalPosition"), 500),
+            } for group in (raw_scene.get("movableGroups") if isinstance(raw_scene.get("movableGroups"), list) else []) if isinstance(group, dict)],
+            "cameraAfterEntrance": _reel_copy(raw_scene.get("cameraAfterEntrance"), 700),
+            "overlayText": _reel_copy(raw_scene.get("overlayText"), 160),
+            "textPlacement": _reel_copy(raw_scene.get("textPlacement"), 500),
             "continuityFromPrevious": _reel_copy(raw_scene.get("continuityFromPrevious"), 500),
             "retentionIntoNext": _reel_copy(raw_scene.get("retentionIntoNext"), 500),
             "transitionIntent": _reel_copy(raw_scene.get("transitionIntent"), 400),
-            "textSafeZone": _reel_copy(raw_scene.get("textSafeZone"), 300),
         }
-        if scene["beatId"] != expected_ids[index] or not all([scene["sceneObjective"], scene["visualMoment"], scene["visibleAction"], scene["openingState"], scene["endingState"], scene["integratedFrame"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"], scene["textSafeZone"]]) or not 1 <= len(scene["foregroundGroups"]) <= 4:
+        if scene["beatId"] != expected_ids[index] or not all([scene["sceneObjective"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], scene["overlayText"], scene["textPlacement"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"]]) or not 1 <= len(scene["movableGroups"]) <= 4 or any(not all(group.values()) for group in scene["movableGroups"]):
             raise ValueError(f"Instagram Reel scene concept {index + 1} is incomplete or out of sequence")
-        visual_text = " ".join([scene["visualMoment"], scene["integratedFrame"], *scene["foregroundGroups"]])
-        disallowed = re.search(r"\b(?:prompt|asset|layer|mask|crop|voice|music|caption|render|phone|tablet|laptop|screen|display|dashboard|map|sign|signage|label|board|menu|interface|ui|crowd|background people|mid-?ground people|distant people|couple)\b", visual_text, re.I)
+        visual_text = " ".join([scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], *[" ".join(group.values()) for group in scene["movableGroups"]]])
+        disallowed = re.search(r"\b(?:prompt|asset|mask|crop|voice|music|caption|render|phone|tablet|laptop|screen|display|dashboard|map|sign|signage|label|board|menu|interface|ui|crowd|background people|mid-?ground people|distant people|couple)\b", visual_text, re.I)
         if disallowed:
             raise ValueError(f"Instagram Reel scene concept {index + 1} contains forbidden stage-two instruction: {disallowed.group(0)}")
         scenes.append(scene)
