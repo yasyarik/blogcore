@@ -33,6 +33,7 @@
 * The master frame is the source of truth. The clean plate cannot become a separately invented scene and movable groups cannot be described as unrelated stock assets.
 * Replaced/deprecated: stage-two fields that merely named a generic visual moment or visible action while withholding the master frame, clean plate, exact groups, entrance mechanics, camera plan, and text placement needed to assess the actual downstream production plan.
 * Every Stage 2 scene must state `evidenceInMasterFrame`: the visible source-grounded spatial condition, interaction, or before/after relationship that makes the current editorial beat legible. A themed location or a person merely posing in it is not evidence and is rejected at the contract level.
+* Prompt and validator responsibilities are distinct: the prompt forbids inappropriate visual content, while the lexical validator must permit a negative statement that such content is absent. A word-only rejection of a compliant negative quality constraint is a validator defect, not a reason to spend another model call.
 
 ## 2026-08-11 - Reel layerability is owned by story architecture
 

@@ -5025,6 +5025,7 @@ SCENE-CONCEPT CONTRACT:
 - `overlayText` is the exact short on-screen copy locked by the editorial beat. `textPlacement` names the largest naturally quiet part of the master frame and why its local contrast supports large readable type. Do not put text into crowded or low-contrast space.
 - The concepts must progress within the article's real domain. A performer may recur only as a neutral visual anchor, never as a fictional protagonist who learns, books, pays, discovers, succeeds, or forms a romance. Use only places, roles, actions, and conditions supported by the source. Do not add airports, terminals, check-in procedures, passports, boarding, or travel-process scenes merely because the topic is cruising.
 - Privately audit every scene before returning JSON: (1) could this master frame fit a different article in the same category? If yes, rebuild it around the beat's actual evidence; (2) is every human/group required to make that evidence visible? If not, remove or replace it; (3) does the clean plate differ from the master only by the approved movable groups? If not, rebuild it.
+- Never mention prohibited devices, interfaces, readable objects, crowds, or signage in a returned field, even to say that they are absent. Describe only what is actually present in the planned frame.
 - The viewer must see why the frame answers this exact beat. Avoid generic posing, smiling, travel glamour, romance/couple-coded staging, or scenes that could fit any unrelated article. Do not say a scene symbolizes, represents, or highlights an idea: describe what is literally visible.
 - `continuityFromPrevious` explains how this scene develops the prior idea rather than resetting the story. `retentionIntoNext` states the exact useful answer still awaited. The final resolution scene must explicitly say the main question is resolved. `transitionIntent` describes the editorial handoff, not an editing effect.
 - Write in {language_name}. Do not use readable signage, labels, boards, menus, interfaces, phones, tablets, laptops, maps, price cards, symbols, or visual metaphors to carry the answer.
@@ -5064,6 +5065,14 @@ def normalize_instagram_reel_scene_concepts(data, editorial_beats):
         if scene["beatId"] != expected_ids[index] or not all([scene["sceneObjective"], scene["evidenceInMasterFrame"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], scene["overlayText"], scene["textPlacement"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"]]) or not 1 <= len(scene["movableGroups"]) <= 4 or any(not all(group.values()) for group in scene["movableGroups"]):
             raise ValueError(f"Instagram Reel scene concept {index + 1} is incomplete or out of sequence")
         visual_text = " ".join([scene["evidenceInMasterFrame"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], *[" ".join(group.values()) for group in scene["movableGroups"]]])
+        # Negative quality statements (for example, "without signage") do not introduce
+        # visual content and must not invalidate an otherwise compliant scene plan.
+        visual_text = re.sub(
+            r"\b(?:no|without|free of|with no)\s+(?:readable\s+)?(?:phone|tablet|laptop|screen|display|dashboard|map|sign|signage|label|board|menu|interface|ui|crowd|background people|mid-?ground people|distant people|couple)s?\b",
+            "",
+            visual_text,
+            flags=re.I,
+        )
         disallowed = re.search(r"\b(?:prompt|asset|mask|crop|voice|music|caption|render|phone|tablet|laptop|screen|display|dashboard|map|sign|signage|label|board|menu|interface|ui|crowd|background people|mid-?ground people|distant people|couple)\b", visual_text, re.I)
         if disallowed:
             raise ValueError(f"Instagram Reel scene concept {index + 1} contains forbidden stage-two instruction: {disallowed.group(0)}")

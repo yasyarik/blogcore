@@ -40,6 +40,23 @@
 ### Risks / TODO
 * Run the corrected text-only Stage 2 contract against the real article and review its full seven-scene plan before any media generation.
 
+## 2026-08-11 - Preserve compliant negative scene constraints
+
+### Summary
+* Corrected the Stage 2 validator so a candidate that says a prohibited visual element is absent is not rejected merely for naming it.
+
+### Files changed
+* `app.py` - Removes negative quality constraints from lexical forbidden-content checks while retaining checks for prohibited visual content that the model actually proposes.
+
+### Decisions
+* Prompt contracts should prevent prohibited content; validators must distinguish that content from a negative statement about its absence.
+
+### Checks run
+* `python3 -m py_compile app.py`
+
+### Risks / TODO
+* The next Stage 2 call must be reviewed for source-specific evidence, not treated as accepted merely because the lexical validator passes.
+
 ## 2026-08-11 - Add checkpointed Reel scene-concept planning
 
 ### Summary
