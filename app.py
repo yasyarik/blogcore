@@ -4924,6 +4924,7 @@ INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
                 "properties": {
                     "beatId": {"type": "string"},
                     "sceneObjective": {"type": "string"},
+                    "evidenceInMasterFrame": {"type": "string"},
                     "masterFrame": {"type": "string"},
                     "cleanPlate": {"type": "string"},
                     "movableGroups": {
@@ -4946,7 +4947,7 @@ INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
                     "retentionIntoNext": {"type": "string"},
                     "transitionIntent": {"type": "string"},
                 },
-                "required": ["beatId", "sceneObjective", "masterFrame", "cleanPlate", "movableGroups", "cameraAfterEntrance", "overlayText", "textPlacement", "continuityFromPrevious", "retentionIntoNext", "transitionIntent"],
+                "required": ["beatId", "sceneObjective", "evidenceInMasterFrame", "masterFrame", "cleanPlate", "movableGroups", "cameraAfterEntrance", "overlayText", "textPlacement", "continuityFromPrevious", "retentionIntoNext", "transitionIntent"],
             },
         },
     },
@@ -5014,14 +5015,16 @@ For every supplied beat, design one coherent, photographable scene concept that 
 
 SCENE-CONCEPT CONTRACT:
 - This is text-only pre-production. Do not generate image prompts, images, voice, music, captions, video, or rendering instructions.
-- Each beat becomes one source-grounded 9:16 photographed scene. The required `masterFrame` is the complete final composition before animation: location, light, viewpoint, every person/group, meaningful spatial relationship, and intentionally empty space for copy. It is a real cohesive moment, never a collage, stock-travel filler, or a fictional customer journey.
+- Each beat becomes one source-grounded 9:16 photographed scene. Before writing it, identify the concrete `evidenceInMasterFrame`: the exact visible spatial condition, interaction, or before/after relationship that proves this beat without relying on a generic themed location. If you cannot name such evidence, choose a different scene. The abstract part of a cost, risk, or consequence may remain in the overlay, but the physical condition causing it must be visible.
+- The required `masterFrame` is the complete final composition before animation: location, light, viewpoint, every person/group, the named evidence, and intentionally empty space for copy. It is a real cohesive moment, never a collage, stock-travel filler, or a fictional customer journey. A person merely standing, looking, smiling, laughing, or walking is never evidence by itself; every named person/group must be necessary to the visible proof of the current beat.
 - `cleanPlate` describes the derivative of that exact master frame after removing only the named `movableGroups`. It must say that architecture, light, camera position, perspective, scale, and every non-movable pixel stay identical. Never propose a separately invented background.
-- `movableGroups` contains one to four complete people, cohesive people-with-owned-item groups, or substantial objects that already exist in the master frame. `masterFrameState` states exactly what is visible in the full composition. `entrance` says how that complete group moves into its final master-frame position: for example, enters from left/right/bottom, drops from above, or resolves in focus in place. Use a directional entrance only when a whole, standing group can plausibly move that way. Do not make a seated person, furniture-supported person, table setting, or fixed architecture slide. `finalPosition` gives the group’s exact relationship to the fixed scene and other groups.
+- `movableGroups` contains one to four complete people, cohesive people-with-owned-item groups, or substantial objects that already exist in the master frame. Every listed group must take part in `evidenceInMasterFrame`; do not add atmospheric people. `masterFrameState` states the group's specific physical relationship that is visible in the full composition, not a passive pose. `entrance` says how that complete group moves into its final master-frame position: for example, enters from left/right/bottom, drops from above, or resolves in focus in place. Use a directional entrance only when a whole, standing group can plausibly move that way. Do not make a seated person, furniture-supported person, table setting, or fixed architecture slide. `finalPosition` gives the group’s exact relationship to the fixed scene and other groups.
 - Every human group must be large, complete from head through feet, visually separated by clear background space, and free from occlusion. If people naturally overlap, name them as one cohesive group. There must be no unplanned humans in the background, middle distance, reflections, or silhouettes.
-- The still master must itself explain the beat through a concrete spatial condition. For an abstract fact such as price, risk, or safety, show the source-grounded physical condition and let `overlayText` carry the abstract claim. Do not invent devices, receipts, signs, UI, or symbolic props.
+- The still master must itself explain the beat through `evidenceInMasterFrame`. Do not use empty decks, empty lounges, generic cabins, scenic horizons, or a themed interior as a substitute for evidence. For an abstract fact such as price, risk, or safety, show the source-grounded physical condition and let `overlayText` carry the abstract claim. Do not invent devices, receipts, signs, UI, or symbolic props.
 - `cameraAfterEntrance` starts only after all named groups have reached their final positions. State a purposeful whole-scene move: focus transfer, push toward the relevant group, pull back to reveal a relationship, or lateral follow across the assembled composition. Do not describe camera motion before entries settle.
 - `overlayText` is the exact short on-screen copy locked by the editorial beat. `textPlacement` names the largest naturally quiet part of the master frame and why its local contrast supports large readable type. Do not put text into crowded or low-contrast space.
 - The concepts must progress within the article's real domain. A performer may recur only as a neutral visual anchor, never as a fictional protagonist who learns, books, pays, discovers, succeeds, or forms a romance. Use only places, roles, actions, and conditions supported by the source. Do not add airports, terminals, check-in procedures, passports, boarding, or travel-process scenes merely because the topic is cruising.
+- Privately audit every scene before returning JSON: (1) could this master frame fit a different article in the same category? If yes, rebuild it around the beat's actual evidence; (2) is every human/group required to make that evidence visible? If not, remove or replace it; (3) does the clean plate differ from the master only by the approved movable groups? If not, rebuild it.
 - The viewer must see why the frame answers this exact beat. Avoid generic posing, smiling, travel glamour, romance/couple-coded staging, or scenes that could fit any unrelated article. Do not say a scene symbolizes, represents, or highlights an idea: describe what is literally visible.
 - `continuityFromPrevious` explains how this scene develops the prior idea rather than resetting the story. `retentionIntoNext` states the exact useful answer still awaited. The final resolution scene must explicitly say the main question is resolved. `transitionIntent` describes the editorial handoff, not an editing effect.
 - Write in {language_name}. Do not use readable signage, labels, boards, menus, interfaces, phones, tablets, laptops, maps, price cards, symbols, or visual metaphors to carry the answer.
@@ -5042,6 +5045,7 @@ def normalize_instagram_reel_scene_concepts(data, editorial_beats):
         scene = {
             "beatId": _reel_copy(raw_scene.get("beatId"), 32).lower(),
             "sceneObjective": _reel_copy(raw_scene.get("sceneObjective"), 500),
+            "evidenceInMasterFrame": _reel_copy(raw_scene.get("evidenceInMasterFrame"), 700),
             "masterFrame": _reel_copy(raw_scene.get("masterFrame"), 1400),
             "cleanPlate": _reel_copy(raw_scene.get("cleanPlate"), 700),
             "movableGroups": [{
@@ -5057,9 +5061,9 @@ def normalize_instagram_reel_scene_concepts(data, editorial_beats):
             "retentionIntoNext": _reel_copy(raw_scene.get("retentionIntoNext"), 500),
             "transitionIntent": _reel_copy(raw_scene.get("transitionIntent"), 400),
         }
-        if scene["beatId"] != expected_ids[index] or not all([scene["sceneObjective"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], scene["overlayText"], scene["textPlacement"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"]]) or not 1 <= len(scene["movableGroups"]) <= 4 or any(not all(group.values()) for group in scene["movableGroups"]):
+        if scene["beatId"] != expected_ids[index] or not all([scene["sceneObjective"], scene["evidenceInMasterFrame"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], scene["overlayText"], scene["textPlacement"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"]]) or not 1 <= len(scene["movableGroups"]) <= 4 or any(not all(group.values()) for group in scene["movableGroups"]):
             raise ValueError(f"Instagram Reel scene concept {index + 1} is incomplete or out of sequence")
-        visual_text = " ".join([scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], *[" ".join(group.values()) for group in scene["movableGroups"]]])
+        visual_text = " ".join([scene["evidenceInMasterFrame"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], *[" ".join(group.values()) for group in scene["movableGroups"]]])
         disallowed = re.search(r"\b(?:prompt|asset|mask|crop|voice|music|caption|render|phone|tablet|laptop|screen|display|dashboard|map|sign|signage|label|board|menu|interface|ui|crowd|background people|mid-?ground people|distant people|couple)\b", visual_text, re.I)
         if disallowed:
             raise ValueError(f"Instagram Reel scene concept {index + 1} contains forbidden stage-two instruction: {disallowed.group(0)}")

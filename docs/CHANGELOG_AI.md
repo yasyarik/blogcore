@@ -21,6 +21,25 @@
 ### Risks / TODO
 * Run the new text-only Stage 2 contract against a real source article and review all scene plans before generating any media.
 
+## 2026-08-11 - Require visible evidence in every Reel scene
+
+### Summary
+* Strengthened Stage 2 after a real Gemini result returned generic people in category-appropriate locations rather than visual proof of editorial beats.
+
+### Files changed
+* `app.py` - Requires `evidenceInMasterFrame` and makes Gemini audit every scene for source-specific visual evidence, necessary groups, and a truly identical clean plate.
+* `docs/PROJECT_MEMORY.md` - Records the durable rule that passive poses and thematic scenery are not scene evidence.
+
+### Decisions
+* The shared prompt is corrected at the planning boundary. The service must never cure generic scene concepts through a site- or article-specific post-processing rule.
+
+### Checks run
+* `python3 -m py_compile app.py`
+* `git diff --check`
+
+### Risks / TODO
+* Run the corrected text-only Stage 2 contract against the real article and review its full seven-scene plan before any media generation.
+
 ## 2026-08-11 - Add checkpointed Reel scene-concept planning
 
 ### Summary
