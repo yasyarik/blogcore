@@ -16,9 +16,11 @@
 
 ### Checks run
 * Confirmed the failed run stopped during text-only planning and generated no image, audio, music, or video file.
+* Repeated the text-only run after deployment. It completed seven scenes in 517 seconds and created zero media files.
+* Reviewed the resulting architecture, scene directions, backgrounds, layer actions, copy, camera instructions, and technical manifest.
 
 ### Risks / TODO
-* Repeat the same text-only production-plan run after deployment and review its complete storyboard before any media generation.
+* The completed plan is blocked from media generation: it invents a fictional recurring protagonist, uses screen/device-dependent imagery, leaves most layer motion static, and its step-three manifest still describes deprecated separately generated transparent foregrounds. Align all text stages with the master-derived contract before another production run.
 
 ## 2026-08-11 — Audit the production Reel image contract
 

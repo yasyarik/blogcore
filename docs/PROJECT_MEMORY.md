@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-11 — Text-only Reel planning remains blocked before media production
+
+* A full text-only production plan for the published SoloCruz article `What Makes a Cruise Truly Solo-Friendly? A Checklist Beyond the Single Cabin` completed with seven scenes and no media generation.
+* The plan is not approved for image generation. It invented a recurring fictional protagonist and chronology for an informational guide, relied on laptops/phones/readable screens and contact furniture, produced mostly static layer directions, and emitted a technical manifest describing separately generated transparent foregrounds instead of the active master-derived scene contract.
+* Operational rule: do not generate images, voice, music, or video from this plan. The storyboard and step-three prompts must be aligned end to end with source-grounded editorial scenes and the master/clean-plate/extracted-layer architecture before another production run.
+
 ## 2026-08-11 — Reel scene planning matches master-derived contact groups
 
 * A movable character group may walk, turn, gesture, or interact naturally. When a source-grounded action requires another person or a movable contact/owned item, every touching person and complete contacting item belongs to the same extraction-safe group and is described as one combined silhouette.
