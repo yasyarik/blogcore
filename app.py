@@ -4706,6 +4706,50 @@ INSTAGRAM_REEL_STORY_ARCHITECTURE_SCHEMA = {
 }
 
 
+# This is intentionally the only mandatory first step of a Reel.  It is an
+# editorial brief, not a storyboard: no visuals, camera, assets, voice, or
+# rendering may be derived until this brief has been reviewed and accepted.
+INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "centralProblem": {"type": "string"},
+        "problemSourceGrounding": {"type": "string"},
+        "hook": {
+            "type": "object",
+            "properties": {
+                "overlayText": {"type": "string"},
+                "narration": {"type": "string"},
+                "whyItHooks": {"type": "string"},
+            },
+            "required": ["overlayText", "narration", "whyItHooks"],
+        },
+        "solutionSteps": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "rank": {"type": "number"},
+                    "step": {"type": "string"},
+                    "sourceGrounding": {"type": "string"},
+                    "whyItMatters": {"type": "string"},
+                },
+                "required": ["rank", "step", "sourceGrounding", "whyItMatters"],
+            },
+        },
+        "finalResolution": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "brandRole": {"type": "string"},
+                "sourceGrounding": {"type": "string"},
+            },
+            "required": ["answer", "brandRole", "sourceGrounding"],
+        },
+    },
+    "required": ["centralProblem", "problemSourceGrounding", "hook", "solutionSteps", "finalResolution"],
+}
+
+
 def instagram_reel_source_outline(job):
     source_html = str(job["draft_html"] or "") if "draft_html" in job.keys() else ""
     headings = []
@@ -4720,6 +4764,93 @@ def instagram_reel_source_outline(job):
     if not headings:
         headings.append({"id": "section-01", "title": _reel_copy(job["title"] or job["topic"], 220)})
     return headings
+
+
+def build_instagram_reel_editorial_brief_prompt(site, job, language):
+    brand = site["brand_name"] or site["domain"]
+    language_name = LANGUAGE_NAMES.get(language, language.upper())
+    source_text = social_source_text(job, limit=16000)
+    return f"""
+You are the editorial strategist for a 30-second Instagram Reel based on one finished article.
+Return JSON only using the supplied schema. This is STEP ONE ONLY.
+
+SOURCE:
+- brand: {brand}
+- website: {site['domain']}
+- language: {language_name}
+- title: {job['title'] or job['topic']}
+- description: {job['description'] or ''}
+- full article material: {source_text}
+
+YOUR ONLY JOB IN THIS STEP:
+1. Identify the article's ONE central reader problem.
+2. Write one source-grounded, attention-grabbing hook about that problem.
+3. Extract 3 to 5 source-grounded solution steps or decision criteria that solve the problem. Put them in the order that creates the clearest escalation of value. Use a countdown only when the article itself provides a real bounded ranking.
+4. State the final answer: how the brand's real offer, workflow, or platform resolves the problem. Explain its practical role without turning this into an ad or inventing capabilities.
+
+STRICT RULES:
+- Do not write scenes, visual concepts, characters, photographs, layers, camera moves, text animation, audio, captions, or a production plan.
+- Do not turn the article into a dating story, personal drama, or fictional customer journey. The Reel must remain about the article's actual reader problem and solution.
+- The hook must interrupt a mistaken assumption, expose a cost/risk, or frame a consequential unresolved question found in the article. It must not be a polite topic introduction, generic title, or unsupported claim.
+- Every solution step must add a distinct part of the answer. Do not repeat article headings or create vague advice.
+- The final resolution must close the hook's question. `brandRole` says exactly what the brand enables in this solution; it must be factual and source-grounded.
+- Write in {language_name}. Keep the hook overlay mobile-readable: 3 to 8 words. Keep hook narration: 5 to 14 words.
+""".strip()
+
+
+def normalize_instagram_reel_editorial_brief(data):
+    if not isinstance(data, dict):
+        raise ValueError("Instagram Reel editorial brief must be a JSON object")
+    hook_raw = data.get("hook") if isinstance(data.get("hook"), dict) else {}
+    resolution_raw = data.get("finalResolution") if isinstance(data.get("finalResolution"), dict) else {}
+    brief = {
+        "centralProblem": _reel_copy(data.get("centralProblem"), 700),
+        "problemSourceGrounding": _reel_copy(data.get("problemSourceGrounding"), 700),
+        "hook": {
+            "overlayText": _reel_copy(hook_raw.get("overlayText"), 100),
+            "narration": _reel_copy(hook_raw.get("narration"), 260),
+            "whyItHooks": _reel_copy(hook_raw.get("whyItHooks"), 600),
+        },
+        "solutionSteps": [],
+        "finalResolution": {
+            "answer": _reel_copy(resolution_raw.get("answer"), 700),
+            "brandRole": _reel_copy(resolution_raw.get("brandRole"), 700),
+            "sourceGrounding": _reel_copy(resolution_raw.get("sourceGrounding"), 700),
+        },
+    }
+    raw_steps = data.get("solutionSteps") if isinstance(data.get("solutionSteps"), list) else []
+    if not 3 <= len(raw_steps) <= 5:
+        raise ValueError("Instagram Reel editorial brief requires 3-5 distinct solution steps")
+    for index, raw_step in enumerate(raw_steps, start=1):
+        if not isinstance(raw_step, dict):
+            raise ValueError(f"Instagram Reel editorial brief step {index} is invalid")
+        step = {
+            "rank": int(raw_step.get("rank") or 0),
+            "step": _reel_copy(raw_step.get("step"), 500),
+            "sourceGrounding": _reel_copy(raw_step.get("sourceGrounding"), 700),
+            "whyItMatters": _reel_copy(raw_step.get("whyItMatters"), 500),
+        }
+        if step["rank"] != index or not all([step["step"], step["sourceGrounding"], step["whyItMatters"]]):
+            raise ValueError(f"Instagram Reel editorial brief step {index} is incomplete or out of order")
+        brief["solutionSteps"].append(step)
+    if not all([
+        brief["centralProblem"], brief["problemSourceGrounding"], brief["hook"]["overlayText"],
+        brief["hook"]["narration"], brief["hook"]["whyItHooks"], brief["finalResolution"]["answer"],
+        brief["finalResolution"]["brandRole"], brief["finalResolution"]["sourceGrounding"],
+    ]):
+        raise ValueError("Instagram Reel editorial brief is incomplete")
+    if not 3 <= len(brief["hook"]["overlayText"].split()) <= 8 or not 5 <= len(brief["hook"]["narration"].split()) <= 14:
+        raise ValueError("Instagram Reel editorial brief hook is not mobile-readable")
+    return brief
+
+
+def generate_instagram_reel_editorial_brief(site, job, language):
+    return normalize_instagram_reel_editorial_brief(_gemini_text_json(
+        build_instagram_reel_editorial_brief_prompt(site, job, language),
+        response_schema=INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA,
+        temperature=0.35,
+        repair=False,
+    ))
 
 
 def build_instagram_reel_story_architecture_prompt(site, job, language, source_outline):
@@ -5621,11 +5752,11 @@ def elaborate_instagram_reel_scenes(
     return detailed
 
 
-def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=None, checkpoint_callback=None):
+def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=None, checkpoint_callback=None, stop_after_editorial_brief=False):
     checkpoint = dict(resume_checkpoint) if isinstance(resume_checkpoint, dict) else {}
 
     def save_checkpoint(phase, scene=0, total=0):
-        checkpoint["version"] = 13
+        checkpoint["version"] = 14
         checkpoint["phase"] = phase
         checkpoint["scene"] = scene
         checkpoint["totalScenes"] = total
@@ -5657,6 +5788,21 @@ def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=No
         checkpoint.pop("manifestScenes", None)
         checkpoint.pop("storyboard", None)
         save_checkpoint("scene_details_truncated", scene=completed, total=total)
+
+    stored_editorial_brief = checkpoint.get("editorialBrief")
+    if isinstance(stored_editorial_brief, dict):
+        try:
+            editorial_brief = normalize_instagram_reel_editorial_brief(stored_editorial_brief)
+        except Exception:
+            for key in ("editorialBrief", "architecture", "skeleton", "detailedScenes", "manifestScenes", "storyboard"):
+                checkpoint.pop(key, None)
+            stored_editorial_brief = None
+    if not isinstance(stored_editorial_brief, dict):
+        editorial_brief = generate_instagram_reel_editorial_brief(site, job, language)
+        checkpoint["editorialBrief"] = editorial_brief
+        save_checkpoint("editorial_brief_ready", total=len(editorial_brief["solutionSteps"]))
+    if stop_after_editorial_brief:
+        return {"editorialBrief": editorial_brief, "planningCheckpoint": checkpoint}
 
     source_outline = instagram_reel_source_outline(job)
     checkpoint["sourceOutline"] = source_outline
@@ -6647,7 +6793,7 @@ def queue_instagram_reel(site_id, job_id):
             "instagramReel": {
                 "progress": {"phase": "queued", "scene": 0, "totalScenes": 0, "message": "Waiting for Gemini to derive the story structure"},
                 "motionSystem": "validated coherent master frame, identical clean plate, master-derived registered layers, subject-focused camera beats, and quiet-zone kinetic type",
-                "version": 13,
+                "version": 14,
             },
         }
         cursor = conn.execute(
@@ -6683,9 +6829,9 @@ def regenerate_instagram_reel(site_id, post_id):
         payload["instagramReel"] = {
             "progress": {"phase": "queued", "scene": 0, "totalScenes": 0, "message": "Waiting for Gemini to derive the story structure"},
             "motionSystem": "validated coherent master frame, identical clean plate, master-derived registered layers, subject-focused camera beats, and quiet-zone kinetic type",
-            "version": 13,
+            "version": 14,
         }
-        if prior_checkpoint and int(prior_checkpoint.get("version") or 0) == 13:
+        if prior_checkpoint and int(prior_checkpoint.get("version") or 0) == 14:
             payload["instagramReel"]["planningCheckpoint"] = prior_checkpoint
         conn.execute(
             "update social_posts set content_text='',content_json=?,remote_url='',status='GENERATING',validation_json='{}',char_count=0,updated_at=? where id=?",
@@ -6721,6 +6867,7 @@ def generate_instagram_reel_post(site_id, post_id):
 
     def planning_checkpoint(phase, checkpoint, scene, total):
         messages = {
+            "editorial_brief_ready": "Core problem, hook, solution steps, and brand resolution validated and saved",
             "architecture_ready": "Article analysis and editorial architecture validated and saved",
             "skeleton_ready": "Visual story structure validated and saved",
             "scene_detail_ready": f"Scene {scene} production detail validated and saved",
@@ -6761,17 +6908,32 @@ def generate_instagram_reel_post(site_id, post_id):
                 storyboard = None
         if storyboard is None:
             stored_checkpoint = reel.get("planningCheckpoint") if isinstance(reel.get("planningCheckpoint"), dict) else None
-            if stored_checkpoint and int(stored_checkpoint.get("version") or 0) != 13:
+            if stored_checkpoint and int(stored_checkpoint.get("version") or 0) != 14:
                 stored_checkpoint = None
-            storyboard = generate_instagram_reel_storyboard(
+            editorial_stage = generate_instagram_reel_storyboard(
                 site,
                 job,
                 language,
                 resume_checkpoint=stored_checkpoint,
                 checkpoint_callback=planning_checkpoint,
+                stop_after_editorial_brief=True,
             )
-            reel["storyboard"] = storyboard
-            _save_instagram_reel_payload(post_id, payload, "GENERATING")
+            reel["editorialBrief"] = editorial_stage["editorialBrief"]
+            reel["planningCheckpoint"] = editorial_stage["planningCheckpoint"]
+            reel["progress"] = {
+                "phase": "editorial_brief_ready",
+                "scene": 0,
+                "totalScenes": len(editorial_stage["editorialBrief"]["solutionSteps"]),
+                "message": "Editorial brief ready for review; visual planning has not started",
+            }
+            _save_instagram_reel_payload(post_id, payload, "DRAFT")
+            return {
+                "ok": True,
+                "postId": post_id,
+                "status": "DRAFT",
+                "awaitingEditorialApproval": True,
+                "editorialBrief": editorial_stage["editorialBrief"],
+            }
         existing_asset_key = str(reel.get("assetKey") or "")
         existing_asset_dir = instagram_reel_asset_dir(site_id, existing_asset_key) if existing_asset_key else None
         asset_key = existing_asset_key if existing_asset_dir and existing_asset_dir.is_dir() and resuming_storyboard else social_asset_key(job["id"])
@@ -6793,7 +6955,7 @@ def generate_instagram_reel_post(site_id, post_id):
                 "mix": "continuous low background bed with speech ducking",
                 "audioUrl": reel_music_audio_url(site_id, music_track["id"], music_track["audio_filename"]),
             } if music_track and music_path else {"source": "none"}),
-            "version": 13,
+            "version": 14,
         })
         render_scenes = []
         accepted_visual_scenes = []
@@ -6855,7 +7017,7 @@ def generate_instagram_reel_post(site_id, post_id):
             "musicMode": rendered.get("musicMode") or "none",
             "progress": {"phase": "ready", "scene": total_scenes, "totalScenes": total_scenes, "message": "Reel draft is ready for review"},
         })
-        payload["validation"] = {"version": 13, "caption": {"charCount": len(storyboard["caption"]), "maxChars": SOCIAL_CHANNEL_LIMITS["instagram"]}, "durationTargetSeconds": storyboard.get("storyArchitecture", {}).get("durationTargetSeconds") or 30, "scenes": total_scenes, "stages": storyboard.get("stageCount") or len({scene["stageId"] for scene in storyboard["scenes"]}), "plannedImageGenerations": storyboard.get("generationCount"), "layerContract": "each scene is one visually approved coherent master frame; the clean plate removes only approved complete groups; every animated layer is extracted from that master at immutable full-canvas registration", "motionElementsPerScene": "1-4 quality-gated source-grounded groups, whole-subject entrances, delayed subject-focused camera beats, and quiet-zone kinetic type", "cameraMoves": [scene["cameraMove"] for scene in storyboard["scenes"]], "brandMusic": bool(rendered.get("musicApplied")), "musicMode": rendered.get("musicMode") or "none", "continuityAnchor": storyboard.get("continuityAnchor") or "", "planningRationale": storyboard.get("planningRationale") or "", "allVisualsValidatedBeforeVoice": True}
+        payload["validation"] = {"version": 14, "caption": {"charCount": len(storyboard["caption"]), "maxChars": SOCIAL_CHANNEL_LIMITS["instagram"]}, "durationTargetSeconds": storyboard.get("storyArchitecture", {}).get("durationTargetSeconds") or 30, "scenes": total_scenes, "stages": storyboard.get("stageCount") or len({scene["stageId"] for scene in storyboard["scenes"]}), "plannedImageGenerations": storyboard.get("generationCount"), "layerContract": "each scene is one visually approved coherent master frame; the clean plate removes only approved complete groups; every animated layer is extracted from that master at immutable full-canvas registration", "motionElementsPerScene": "1-4 quality-gated source-grounded groups, whole-subject entrances, delayed subject-focused camera beats, and quiet-zone kinetic type", "cameraMoves": [scene["cameraMove"] for scene in storyboard["scenes"]], "brandMusic": bool(rendered.get("musicApplied")), "musicMode": rendered.get("musicMode") or "none", "continuityAnchor": storyboard.get("continuityAnchor") or "", "planningRationale": storyboard.get("planningRationale") or "", "allVisualsValidatedBeforeVoice": True}
         _save_instagram_reel_payload(post_id, payload, "DRAFT", char_count=len(storyboard["caption"]))
         with db() as conn:
             conn.execute("update social_posts set content_text=?, validation_json=?, updated_at=? where id=?", (storyboard["caption"], json.dumps(payload["validation"], ensure_ascii=False), now_iso(), post_id))

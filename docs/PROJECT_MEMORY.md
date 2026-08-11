@@ -1,5 +1,13 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-11 - Reel pipeline begins with the editorial problem brief
+
+* Reel planning stage one is a text-only editorial brief generated from the finished source article before any storyboards, visual worlds, scenes, assets, voices, music, or rendering.
+* The only required stage-one output is: one central reader problem, one source-grounded hook, three to five ranked solution steps or decision criteria, and the factual final role of the site's brand in resolving that problem.
+* The hook must challenge a false assumption, expose a real cost/risk, or frame a consequential unresolved question in the article. Generic topic introductions and fictional customer drama are invalid.
+* The planning checkpoint version is 14. Older version-13 Reel checkpoints are intentionally not resumed under this workflow.
+* Replaced/deprecated: beginning Reel planning by selecting scenes, protagonists, visual worlds, or a six-to-eight-screen architecture before the article's editorial problem and resolution path are explicit and reviewable.
+
 ## 2026-08-11 - Reel layerability is owned by story architecture
 
 * The first text pass must choose physical visual worlds whose meaningful people are complete unobstructed free-standing groups. Seated, furniture-supported, cropped, small-prop-led, or extraction-oriented visual worlds are rejected before the visual skeleton is generated.

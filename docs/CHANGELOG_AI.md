@@ -1,5 +1,30 @@
 # CHANGELOG_AI.md
 
+## 2026-08-11 - Add the mandatory Reel editorial brief as pipeline stage one
+
+### Summary
+* Added a dedicated, text-only first Gemini stage for every Instagram Reel.
+* The stage returns only the main reader problem, a source-grounded hook, three to five ranked solution steps, and the factual final role of the brand in resolving the problem.
+* It explicitly forbids scenes, visual concepts, characters, photographs, layers, camera work, audio, captions, and rendering.
+* Ran it once for the SoloCruz article `What Makes a Cruise Truly Solo-Friendly? A Checklist Beyond the Single Cabin`; no visual or audio generation was requested.
+
+### Files changed
+* `app.py` - added the editorial-brief schema, prompt, validation, checkpoint, and version-14 pipeline boundary.
+* `docs/PROJECT_MEMORY.md` - recorded the durable stage-one contract.
+* `docs/CHANGELOG_AI.md` - recorded this task.
+
+### Decisions
+* No visual planning may be considered until the source problem, hook, solution path, and product resolution are explicit.
+* The first stage is not permitted to reinterpret an informational article as a fictional dating or personal-drama story.
+
+### Checks run
+* Python compilation and a one-call Gemini text run against the specified SoloCruz article.
+* The result contains one problem, one hook, four ranked source-grounded solution steps, and one source-grounded SoloCruz resolution.
+* No photo, voice, music, or video request was made.
+
+### Risks / TODO
+* Subsequent Reel stages must be rebuilt to consume this locked editorial brief; they are intentionally not started in this task.
+
 ## 2026-08-11 - Reject non-layerable Reel concepts at architecture stage
 
 ### Summary
