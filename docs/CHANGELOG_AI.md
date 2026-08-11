@@ -1,5 +1,863 @@
 # CHANGELOG_AI.md
 
+## 2026-08-11 — Integrate validated master-derived storyboard production
+
+### Summary
+* Replaced independently generated foregrounds with one coherent master frame per scene, an otherwise-identical clean plate, and full-canvas registered layers extracted from the accepted master.
+* Added first-pass prompt requirements and vision gates for complete anatomy, complete clothing and owned objects, subject scale, frame margins, group separability, unrelated-crowd clearance, and text-safe space.
+* Added connected clean-plate-difference recovery, enclosed-hole repair, reconstruction checks, and a final visual layer-pack review.
+* Deferred all voice generation until every visual scene passes validation.
+* Added whole-layer directional entrances, post-entrance face/group camera pushes, pullbacks/focus transfers, automatic quiet-zone typography, and local contrast selection.
+* Removed automatic paid image retries. Validators stop a bad one-pass result and require an explicit operator retry after the shared contract is corrected.
+* Enabled the master-derived Reel pipeline on the VPS with no existing `GENERATING` Reel jobs.
+
+### Files changed
+* `app.py` — master prompt/review, clean-plate generation, registered scene orchestration, integrity gates, one-pass media policy, delayed voice, and v12 metadata.
+* `registered_scene.py` — 1-4 quality-driven layers, connected difference recovery, and enclosed-hole repair.
+* `reel_renderer.py` — whole-object entrances, delayed subject-focused camera sequence, quiet-zone selection, and luminance-aware text palette.
+* `AGENTS.md` — current master-derived, one-pass, camera, and typography invariants.
+* `docs/PROJECT_MEMORY.md` — durable production architecture and replaced decisions.
+
+### Decisions
+* A prompt must carry the full visual quality contract on its first paid call. Validation is a stop gate, not a retry engine.
+* An integrated master is the source of scene truth. Separately generated foreground assets are deprecated for production photorealistic storyboard scenes.
+
+### Checks run
+* Compiled `app.py`, `reel_renderer.py`, and `registered_scene.py` locally and in the production `.venv`.
+* Ran production-environment contract tests proving that complete separated groups pass and an inseparable master is rejected.
+* Ran renderer contract tests for automatic upper safe-zone selection, two subject-focus targets, static entrance phase, camera push, pullback, and focus transfer.
+* Confirmed zero queued Instagram Reel generations before activation.
+* Restarted `blog-yas-core`; `/health` returned `ok` and PM2 remained online.
+
+### Risks / TODO
+* No paid media was generated in this deployment task. The next operator-requested real Reel is the first end-to-end production verification of the one-pass v12 path.
+
+## 2026-08-10 — Make the Reel third stage a deterministic technical manifest gate
+
+### Summary
+* Replaced the third-stage free-form visual elaboration model with a deterministic compiler. It cannot invent or replace backgrounds, people, props, placement, or motion after visual planning.
+* Added a global composition-contract schema and a text-only SoloCruz verification runner. The initial candidate correctly failed compilation because it did not supply stable production asset IDs or a precise technical manifest.
+
+### Files changed
+* `staging/blogcore-live-dynamic-storyboard.py` — added generic Reel composition-contract schema, visual-planning prompt, and deterministic technical-manifest compiler.
+* `staging/run_reel_composition_manifest_v3.py` — runs text-only visual planning followed by the compiler; it has no image, audio, music, or video operation.
+
+### Decisions
+* Stage three is code-only. Gemini is allowed one visual composition plan before it, but the compiler is the immutable boundary between approved planning and asset generation.
+
+### Checks run
+* `python3 -m py_compile staging/blogcore-live-dynamic-storyboard.py staging/run_reel_composition_manifest_v3.py`
+* Deployed the updated app to `/var/www/blog.yas.ooo`, restarted `blog-yas-core`, and confirmed `/health` returned `ok`.
+* Executed the text-only v3 planner on SoloCruz. Stage two completed in 28.6 seconds; stage three rejected its ambiguous output before any media work began.
+
+### Risks / TODO
+* The stage-two visual-composition prompt still needs its own contract-quality improvement. Three text-only retries supplied stable IDs and local timings but failed the semantic geometry gate. Replace the monolithic request with per-scene planning plus validation before moving to the next scene. Do not generate Reel media until a reviewed composition contract compiles successfully.
+
+## 2026-08-10 — Verify the new first Reel architecture pass
+
+### Summary
+* Ran exactly one text-only Gemini architecture request against the SoloCruz article after the information-arc prompt update.
+* It completed in 26.2 seconds and returned a 7-beat scenario. No downstream planning or media-generation step ran.
+
+### Files changed
+* `staging/run_reel_architecture_once.py` — one-shot verification utility used only to measure and save the standalone first-pass result.
+
+### Checks run
+* Verified saved architecture contains 7 beats, a source-grounded hook, an open loop, and a payoff.
+
+### Risks / TODO
+* The architecture must be reviewed before any visual frame planning. The older SoloCruz grid remains deprecated.
+
+## 2026-08-10 — Remove the artificial first-pass timeout
+
+### Summary
+* Removed the 55-second timeout added to the text-only architecture request. The first prompt remains separate from heavy visual planning, but may complete naturally rather than being cut off.
+
+### Files changed
+* `staging/blogcore-live-dynamic-storyboard.py` — restores the normal Gemini request timeout for the architecture call.
+
+### Checks run
+* Python compilation and Blog Core health check.
+
+## 2026-08-10 — Rebuild Reel prompt around the article's information hierarchy
+
+### Summary
+* Replaced the generic causal-character-story instruction with a source-grounded information-arc contract for all informational Reels.
+* Added central-problem extraction, ranked key insights, held-back final payoff, and conditional countdown logic.
+* Explicitly prohibited Gemini from inventing a character discovering price, consulting an agent, booking, arriving, or otherwise moving through a timeline absent from the article.
+
+### Files changed
+* `staging/blogcore-live-dynamic-storyboard.py` — global Reel architecture and visual-planning prompts; relaxed heading-by-heading coverage so the model can select the genuinely important source insights.
+* `staging/run_reel_grid.py` — aligns review-grid instructions with the no-invented-timeline rule.
+
+### Checks run
+* Python compilation and deployed Flask health check.
+
+### Risks / TODO
+* The previously generated SoloCruz planning artifact used the deprecated contract and must not be used for media generation. Generate a new text-only scenario and show its full scene plan before creating assets.
+
+## 2026-08-10 — Add source-grounded pre-production Reel photo-grid gate
+
+### Summary
+* Added a text-only review gate that plans each Reel scene's base frame and its source-evidenced visual components before any image, voice, music, or video request.
+* Rebuilt the SoloCruz grid from scratch after rejecting the prior symbolic-prop plan. The accepted review artifact contains 7 scenes and 15 planned components; media generation was not run.
+
+### Files changed
+* `staging/blogcore-live-dynamic-storyboard.py` — validates Reel component source evidence and rejects symbolic or article-unmentioned standalone objects during production planning.
+* `staging/run_reel_grid.py` — local/VPS text-only review utility for the SoloCruz source article; it does not create media.
+
+### Decisions
+* A source quote is mandatory for every independently generated Reel component. Objects may not be invented merely to visualize an abstract cost, risk, or choice.
+
+### Checks run
+* Python compilation for the Blog Core runtime and planning utility.
+* Deployed runtime compiled successfully; `blog-yas-core` health endpoint returned `ok`.
+* Confirmed the accepted grid is 7 scenes / 15 components and that no new image, audio, or video artifact was created during this planning task.
+
+### Risks / TODO
+* The grid is an approval artifact only. Do not start media generation until its scene plan is reviewed.
+
+## 2026-08-10 — Make Gemini plan 30-second Reel scenarios before media production
+
+### Summary
+
+* Reworked the universal Reel planning contract so Gemini receives a 30-second duration target and independently chooses 6-8 causal screens rather than mapping every article heading to a screen.
+* Required 2-4 semantic elements per screen, source-section grouping, an explicit screen-count rationale, and a text-only three-step plan before any visual or audio generation.
+* Ran the text-only plan against the existing SoloCruz article. Gemini produced a 7-screen, 30-second production plan with 7 stage backgrounds and 14 additional elements, for 21 planned image generations. No image, voice, music, video, or social publication was created.
+
+### Files changed
+
+* `app.py` — duration-aware Gemini storyboard architecture, scene grouping, element IDs, production-plan validation, and clearer retry feedback.
+* `docs/PROJECT_MEMORY.md` — records the durable short-form planning and no-media-before-plan rule.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py` locally and on VPS.
+* Restarted `blog-yas-core`; `/health` returned `ok`.
+* Verified `MASKED_LAYER_REEL_ENABLED=0` and confirmed the text-plan directory contains JSON only, with no newly generated media files.
+
+### Risks / TODO
+
+* The first saved SoloCruz plan is a planning artifact only and must be reviewed before media is enabled. Continue strengthening the model's visual-story quality gates if a future approved plan still uses generic or physically dependent components.
+
+## 2026-08-10 — Add whole-scene camera work and registered-layer production gates
+
+### Summary
+
+* Added varied whole-scene camera moves (`dolly`, `tracking`, `follow`, `crane`, `orbit`) and varied layer reveals to the active Instagram Reel renderer.
+* Replaced the rejected master-extraction assumption with separately generated, background-referenced full-canvas layers and strict stage-by-stage visual validation.
+* Added scene-wide spatial planning, occupied-box checks, registration guides, production resume metadata preservation, and source-level rejection of fragile handheld/tabletop layers.
+* Ran the real SoloCruz Reel record `32` only; no standalone test asset and no publication. Generation remains stopped in `ERROR` because Gemini did not reliably honor exact layer registration and produced matte/scale/contact artifacts.
+
+### Files changed
+
+* `app.py` — v6 storyboard, spatial planning, registration references, layer extraction/validation, resume behavior, and camera requirements.
+* `reel_renderer.py` — full-canvas layer reveals and identical whole-scene camera transforms.
+* `AGENTS.md` — current layer/camera architecture and forbidden fallback rules.
+* `docs/PROJECT_MEMORY.md` — durable v6 architecture, current blocker, and deprecated v5 assumption.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Do not auto-position or rescale a generated layer when Gemini ignores registration; stop before publication.
+* Camera movement always transforms the assembled scene and must include purposeful approach/withdrawal plus lateral movement.
+* Preserve accepted production stages and their spatial/validation metadata across retries.
+
+### Checks run
+
+* `python3 -m py_compile app.py reel_renderer.py` locally and on the VPS.
+* Restarted `blog-yas-core`; `/health` returned HTTP 200.
+* Verified storyboard camera sequences include dolly, tracking/follow, crane and orbit moves with no adjacent repetition.
+* Inspected real generated source layers and validator failures for clipping, floating objects, matte artifacts and overlap.
+
+### Risks / TODO
+
+* `social_posts.id=32` is intentionally unpublished and remains `ERROR` until the configured image model can produce spatially registered full-canvas layers without post-generation repositioning.
+
+## 2026-08-09 — Build the real SoloCruz master-derived Reel v5
+
+### Summary
+
+* Built the requested real SoloCruz Reel directly from its existing article, narration, and active brand soundtrack; no separate test/demo asset was created and nothing was published.
+* Replaced independent cutout placement with three coherent production masters decomposed into nine spatially registered full-canvas layers, then rendered seven causal story scenes with varied reveals and whole-scene camera work.
+* Preserved and resumed valid master frames after downstream validation failures instead of regenerating accepted art.
+
+### Files changed
+
+* `app.py` — supports multiple image references for continuity, strengthens close-foreground production framing, and keeps the registered master contract.
+* `registered_scene.py` — uses strict mask-overlap validation, coherent whole-plate empty bases, registered-union reconstruction checks, and production resume-compatible manifests.
+* `registered_reel_renderer.py` — renders varied registered-layer reveals, whole-scene camera motion, kinetic type, narration, and continuous ducked brand music.
+* `generate_registered_reel_v5.py` — orchestrates and resumes the three real production stages, renders the final Reel, updates the existing post in place, and leaves it as an unpublished draft.
+* `AGENTS.md` — forbids unrequested standalone test/proof/demo generations and requires retries to repair the real production artifact.
+* `docs/PROJECT_MEMORY.md` — records the final v5 architecture, production result, validation, and remaining generic integration boundary.
+* `docs/CHANGELOG_AI.md` — records this task.
+
+### Decisions
+
+* Valid visual masters survive downstream segmentation, analysis, or transient model failures; only the invalid production stage is repaired.
+* Generated removal imagery is one coherent base photograph, not a source of separately recolored patches.
+* The old independent-cutout Reel path remains blocked and is not a fallback for v5.
+
+### Checks run
+
+* Compiled `app.py`, `registered_scene.py`, `registered_reel_renderer.py`, and `generate_registered_reel_v5.py` locally and on VPS.
+* Visually inspected all three master scenes and a 12-frame final contact sheet.
+* Verified all three manifests have `overlapPixels: 0` and `reconstructionMae: 0.0`.
+* Verified final media: 33.46 seconds, 1080x1920 H.264 at 24 fps, stereo AAC at 48 kHz; `silencedetect` found no silent interval.
+* Verified the review page and MP4 return HTTP 200, the social post is `DRAFT`, and no Zernio/Instagram publish action ran.
+* Restarted `blog-yas-core`; local `/health` returned `ok`.
+
+### Risks / TODO
+
+* Dashboard Reel generation is not yet generically switched to v5 for every new task. Wire the ordinary queue to the registered production orchestrator before removing the old gate.
+* Generated master continuity is visually strong but nondeterministic; retain stage-by-stage visual gates and production resume behavior.
+
+## 2026-08-09 — Build and verify a non-overlapping master-derived scene proof
+
+### Summary
+
+* Replaced the proof path's independent-cutout composition with one integrated master photograph decomposed into spatially registered, full-canvas layers.
+* Added hard scale, overlap, physical-grounding, continuous-photo, reconstruction, and clean-base validation.
+* Produced one review-only SoloCruz proof with a large person and two separate scene elements. No Reel or social post was published.
+
+### Files changed
+
+* `app.py` — adds constrained scene planning, integrated master/removal generation, multimodal layout validation, per-component zones, text-model fallback, and an isolated registered-scene worker call.
+* `registered_scene.py` — adds SAM-based full-canvas extraction, non-overlap and mobile-scale validation, per-layer empty-plate selection, exact reconstruction checks, and the proof renderer/CLI.
+* `docs/PROJECT_MEMORY.md` — records the accepted architecture, measured proof, rejected failure modes, and remaining full-Reel gate.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* A 9:16 proof uses three large readable components rather than overcrowding four elements and shrinking or overlapping them.
+* Empty-base sources are selected per layer; a single removal image cannot be trusted to remove every component or preserve every surface.
+* SAM runs outside Flask so segmentation memory is reclaimed after every scene.
+* Full-Reel generation remains blocked pending explicit review approval of the one-scene v5 proof.
+
+### Checks run
+
+* Compiled `app.py`, `registered_scene.py`, and `reel_renderer.py` locally and on VPS.
+* Verified `gemini-3.1-flash-lite` structured JSON fallback after the configured primary returned quota errors.
+* Rejected generated candidates for a person below the mobile threshold, overlapping component boxes, a floating support, and visible panel seams.
+* Accepted proof metrics: person height 70.6%, person area 19.5%, overlap 0, reconstruction MAE 0.0; 10.0-second H.264 proof rendered successfully.
+* Inspected master, empty base, all reveal stages, and a four-frame contact sheet; public review endpoint returns HTTP 200.
+* Restarted `blog-yas-core`; `/health` returned `ok`. Confirmed no new SoloCruz social-post record was created and the full-Reel approval flag is absent.
+
+### Risks / TODO
+
+* The accepted proof validates one scene only. Do not enable the full-Reel gate until the operator approves this visual result.
+* Generated masters remain nondeterministic; hard visual validators must stay active and reject bad scale, overlap, grounding, or panel seams rather than relaxing constraints.
+
+## 2026-08-09 — Record the non-substitution rule for layered visual work
+
+### Summary
+
+* Added a mandatory project rule forbidding architectural substitution for the sake of smaller changes, faster completion, or technically valid output.
+* Defined a real layered storyboard as one master composition decomposed into spatially registered full-canvas layers.
+* Marked the existing independent-cutout Reel compositor as rejected and blocked further full-Reel generation until one production-quality layered scene passes visual review.
+
+### Files changed
+
+* `AGENTS.md` — adds task-fidelity, acceptance-criteria, visual-verification, and minimal-production-slice requirements for future Codex tasks.
+* `docs/PROJECT_MEMORY.md` — records the durable layered-scene definition, rejected approach, current limitation, and required production gate.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Existing code preservation is never a reason to reinterpret the requested product behavior.
+* For storyboards, independently generated cutouts cannot be treated as parts of one photograph, regardless of prompt quality.
+* No additional expensive Reel batch should be generated before the master-frame decomposition proof is accepted.
+
+### Checks run
+
+* Reviewed the current Reel generation and compositor architecture against the clarified spatial-layer contract.
+* Verified that the current pipeline still uses independently generated foreground assets, alpha extraction, and automatic placement, so it is correctly marked non-compliant rather than approved.
+
+### Risks / TODO
+
+* Replace the current cutout compositor with a master-scene decomposition workflow before producing another complete Reel.
+
+## 2026-08-09 — Build evolving Reel scenes with continuous background music
+
+### Summary
+
+* Reworked the universal Instagram Reel factory from a repeated-subject sequence into a three-stage, seven-scene visual story. Each stage reuses a clean location plate while related foreground layers develop the moment.
+* Changed protagonist continuity from raw asset reuse to identity-reference guidance: later appearances preserve the person but request a fresh pose, action, expression, and framing. The validator limits protagonist use to three to five scenes and rejects repeated actions.
+* Kept the Lyria soundtrack playing throughout the complete Reel at a low level, with ducking under speech. Voice clips retain real-WAV sequential timing, preventing overlap.
+* Regenerated SoloCruz Reel draft `#32` only. It remains unpublished.
+
+### Files changed
+
+* `app.py` — defines the staged storyboard contract, validates causal role-bound layers and non-repeating performances, caches one base plate per stage, supplies identity references only for later protagonist renders, and uses a Gemini-compatible structured-output schema.
+* `reel_renderer.py` — gives layer roles directed placement/motion, composites kinetic copy after scene layers, and mixes continuous ducked Lyria audio with sequential speech.
+* `docs/PROJECT_MEMORY.md` — records the v4 Reel visual, audio, validation, and recovery rules and marks v2 behavior deprecated.
+* `docs/INTEGRATIONS.md` — updates the Lyria mix contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* A repeated identity is not a repeated performance: the renderer must receive a newly generated protagonist layer for each planned appearance.
+* Stage backgrounds must be clean plates; foreground subjects, evidence, and environmental changes are composed as purpose-bound layers rather than being regenerated as unrelated full photographs.
+* The Reel-specific JSON path has no JSON-repair pass. Unsupported numeric schema restrictions were moved to deterministic validation after a supported structured response is received.
+
+### Checks run
+
+* `python3 -m py_compile app.py scheduler.py reel_renderer.py` passed on VPS; `blog-yas-core` and `blog-yas-core-scheduler` restarted and `/health` returned `ok`.
+* Tested the exact Gemini storyboard schema against the configured text model before queuing the production run.
+* Ran normal scheduler regeneration for SoloCruz `social_posts.id=32`; it completed as `DRAFT` with three stage backgrounds, fourteen foreground assets, and seven TTS WAV clips.
+* Verified final MP4 with `ffprobe`: 33.46 seconds, H.264 video, AAC 48 kHz stereo audio. `silencedetect` found no silent interval. Inspected a nine-frame contact sheet for staged scene continuity, varied protagonist actions, and plaque-free type.
+
+### Risks / TODO
+
+* The identity-reference prompt improves consistency but cannot create actual live action from stills; review remains required before publication.
+* Generated foregrounds are independently alpha-extracted, so the final reviewer must still reject any image-model asset whose perspective or physical interaction is implausible.
+
+## 2026-08-09 — Restore Reel narration and story-first composition
+
+### Summary
+
+* Regenerated SoloCruz Reel draft `#32` in the normal Blog Core factory after correcting the render and storyboard contracts. It remains a reviewable `DRAFT` and was not published.
+* Eliminated two-voice collisions: scene duration now follows the real WAV duration, and the active vocal Lyria soundtrack is muted for the complete duration of every narration clip instead of only being ducked.
+* Replaced decorative scene design with a continuity-anchored narrative: one recurring protagonist, a story-evidence layer per scene, composition fields, large word-revealed copy without a black text plaque, and no generic paths, icons, keys, compasses, coins, or fake UI.
+
+### Files changed
+
+* `app.py` — validates the causal Reel storyboard contract, reuses a single recurring-subject asset across scenes, uses concise scene narration, and adds safe in-place regeneration for unpublished Reel drafts.
+* `reel_renderer.py` — calculates scene length from generated speech, creates narrator-exclusive music windows, and renders composition-driven story layers and plaque-free kinetic type.
+* `docs/PROJECT_MEMORY.md` — records the current audio, storyboard, and regeneration rules and marks the superseded baseline.
+* `docs/INTEGRATIONS.md` — documents the Lyria narrator-exclusive mix contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Retain the existing active SoloCruz Lyria track and do not generate a replacement. It is used only in gaps between voice clips.
+* A real-story asset is preferable to a generic decorative motion layer. The image model receives the real logo only when the scene explicitly needs it; the renderer never manually stamps it onto frames.
+
+### Checks run
+
+* `python3 -m py_compile app.py scheduler.py reel_renderer.py` passed; both PM2 processes restarted successfully and `/health` returned `ok`.
+* Exercised the production regeneration route for `social_posts.id=32`; all seven scene assets and TTS clips completed through the normal scheduler and the row returned to `DRAFT`.
+* Verified output with `ffprobe`: 31.5 seconds, 1080x1920 H.264 video and 48 kHz stereo AAC audio.
+* Inspected an eight-frame contact sheet. It contains no black text plaque or legacy decorative props; the recurring traveler and causal cruise-choice story are present across the new scenes.
+
+### Risks / TODO
+
+* Image generation can still introduce incidental text inside a generated document/sign if a storyboard requests a literal label. Prompts should prefer visual evidence over model-rendered copy where legibility matters.
+* Review and explicit publish remain required; this task did not send the Reel to Zernio or Instagram.
+
+## 2026-08-09 — Fix queued Reel foreground extraction
+
+### Summary
+
+* Fixed the production Reel worker failure that stopped queued renders at the first foreground extraction because Pillow's `Image` symbol was not imported by `app.py`.
+* The normal Blog Core Reel task is retried after deployment; no detached renderer workaround or social publication is used.
+
+### Files changed
+
+* `app.py` — imports Pillow `Image` for the shared Reel alpha-extraction helper.
+* `docs/PROJECT_MEMORY.md` — records the worker dependency and recovery boundary.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Preserve production-path behavior: queued Reel assets must be generated and retried through Blog Core so status, active soundtrack use, review, and later publishing remain auditable in one place.
+
+### Checks run
+
+* `python3 -m py_compile app.py scheduler.py reel_renderer.py` passed.
+* Restarted `blog-yas-core` and `blog-yas-core-scheduler`; `/health` returned `ok`.
+* Ran an end-to-end normal Blog Core queue/review flow from the published SoloCruz article. The first attempt (`social_posts.id=31`) retained its audit error; the retry (`id=32`) completed as a `DRAFT` without a social publish.
+* Verified the final file: 30.0 seconds, 1080x1920 H.264 video plus 48 kHz stereo AAC. The job payload records the active SoloCruz Lyria track, with the configured background mix and narration ducking.
+
+### Risks / TODO
+
+* `rembg` extraction can still fail for a model response without a viable foreground; that error is reported on the Reel row and is distinct from this import defect.
+
+## 2026-08-09 — Add Gemini Lyria brand soundtracks for Reel production
+
+### Summary
+
+* Added a per-site brand soundtrack library to Blog Core and integrated its active track into future Instagram Reel renders.
+* Added a 30-second Lyria Clip generation flow with a review state, editable creative direction/vocal hook, browser audio preview, and explicit active-track selection.
+* Generated and activated one original SoloCruz soundtrack: a 30.72-second stereo MP3 with a sparse SoloCruz vocal hook. It was not published as a Reel or social post.
+
+### Files changed
+
+* `app.py` — adds the `reel_music_tracks` schema, Lyria API client, site-level soundtrack lifecycle, media endpoint, Distribution UI, and active-track selection for Reel renders.
+* `reel_renderer.py` — mixes an active track below narration using fades, sidechain ducking, loudness control, and 48 kHz stereo AAC output.
+* `scheduler.py` — serializes queued Lyria soundtrack generation before Reel rendering work.
+* `docs/PROJECT_MEMORY.md` — records the durable music-generation, review, and mixing contract.
+* `docs/INTEGRATIONS.md` — records the Gemini Lyria integration boundary.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Use `lyria-3-clip-preview` for the intended cheap fixed-length music asset rather than an interactive/streaming Lyria workflow or an unlicensed music source.
+* Do not imitate famous Italian songs or a specific musical. The prompt asks for an original Mediterranean cinematic travel-pop composition and only a sparse brand refrain.
+* A soundtrack is applied only after it is made active for its site, and it affects future Reel renders only.
+
+### Checks run
+
+* `python3 -m py_compile app.py scheduler.py reel_renderer.py` passed.
+* Rendered a local video/audio smoke test with narration and an MP3 bed; output is H.264 plus 48 kHz stereo AAC and reports `musicApplied=true`.
+* Restarted `blog-yas-core` and `blog-yas-core-scheduler`; health endpoint returned `ok` and the new SQLite table exists.
+* The scheduler successfully generated the SoloCruz track using `lyria-3-clip-preview`; verified MP3, stereo 44.1 kHz source, duration 30.719958 seconds, public review asset endpoint, returned lyric timing, and active-track state.
+
+### Risks / TODO
+
+* Lyria is Preview and requires a paid Gemini API tier. Pricing, rate limits, output behavior, and terms must be checked when the model changes.
+* The current brand track is intentionally mixed only beneath future Reels. Music/SFX selection for any other production format remains out of scope.
+
+## 2026-08-09 — Add native layered Instagram Reel production to Blog Core
+
+### Summary
+
+* Added a native Blog Core Reel factory that converts an existing content job into a reviewable vertical video rather than creating a detached one-off media pack.
+* Reels use seven planned scenes, Gemini storyboard/image/TTS generation, alpha extraction for intended foreground assets, and a Pillow/ffmpeg compositor with denser independent motion and purposeful camera movement.
+* Added dedicated Reel review, manual publishing, Zernio Reel payloads, and an optional per-site Reel cadence that is independent from standard Instagram carousel scheduling.
+
+### Files changed
+
+* `app.py` — adds Reel queueing, generation, preview, status polling, review/publish actions, isolated asset type, cadence settings, and Zernio video publishing.
+* `reel_renderer.py` — new programmatic 1080x1920 H.264/AAC layer compositor with animated camera, foreground, text, and editorial-path layers.
+* `scheduler.py` — processes one queued Reel render at a time and runs the optional due-Reel publisher.
+* `requirements.txt` — adds `rembg[cpu]` for planned foreground alpha extraction.
+* `docs/PROJECT_MEMORY.md` — records the durable Reel production and publishing contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Store Reels as `instagram_reel` social assets, not as standard Instagram posts, so carousel and Reel queues, previews, and cadence cannot collide.
+* Pass the real site logo to Gemini only where the storyboard says a scene needs it; never overlay it through Python and never force it into every scene.
+* Keep automatic Reel publishing disabled by default. Rendered assets become DRAFTs for review; social publishing requires either the dedicated manual action or an explicitly enabled Reel cadence.
+* Do not add automatic music or SFX until an approved licensed media source is configured.
+
+### Checks run
+
+* `python3 -m py_compile app.py scheduler.py reel_renderer.py` passed.
+* Installed and imported `rembg 2.0.69` in the VPS application virtualenv.
+* Rendered a local 1080x1920 H.264/AAC smoke video through the new compositor; no Gemini, source-site, or social API call was made.
+* Restarted `blog-yas-core` and `blog-yas-core-scheduler`; `http://127.0.0.1:3299/health` returned `ok`.
+* Verified the SQLite migration includes `social_posts.asset_type`, the SoloCruz dashboard renders the Reel controls, and no Reel was generated or published during this implementation task.
+
+### Risks / TODO
+
+* The first real foreground extraction downloads the rembg model into ignored runtime cache, and every real Reel consumes Gemini image/TTS usage.
+* A licensed music/SFX provider, selection rules, and mix policy are still required before automatic sound design can be enabled.
+* Full production generation and Zernio delivery have not been invoked in this task to avoid creating paid media or publishing without explicit approval.
+
+## 2026-08-09 — Audit the SoloCruz Reel API spend
+
+### Summary
+
+* Calculated the current production Reel cost from saved Gemini image token metadata and final generated TTS duration.
+* Separately reported the current usable v3 render and the historical discarded comparison/v1/replaced-narration spend so production cost is not confused with experimentation cost.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — records current-render and total-development cost figures.
+* `docs/CHANGELOG_AI.md` — this audited cost record.
+
+### Checks run
+
+* Parsed the 15-asset production batch: 8,846 prompt tokens, 5,479 non-image candidate tokens, and 16,800 image tokens.
+* Parsed the eight-image replaced v1 batch and reconciled prior recorded comparison-pack costs.
+* Verified final TTS duration at 25.56 seconds; the Gemini rate uses 25 audio tokens per second.
+
+### Risks / TODO
+
+* These are API list-price estimates excluding tax and account-specific discounts. Final billed value may vary by the account's active plan.
+
+## 2026-08-09 — Lock SoloCruz narration to the scene and increase foreground scale
+
+### Summary
+
+* Enlarged the existing people, luggage, and product-interface layers; added separate background camera moves for a more cinematic 9:16 result without regenerating any images.
+* Replaced the continuous voiceover with seven independently generated Gemini TTS clips. Each clip begins at its scene and reads the on-screen hook for that scene, eliminating semantic drift between visuals and audio.
+* Extended the edit to preserve natural speech pacing rather than trimming or speeding up narration.
+
+### Files changed
+
+* `data/video_storyboards/solocruz-cabin-before-booking-storyboard-20260809/renders/solocruz-cabin-before-booking.mp4` — current 26.261333-second H.264/AAC render with synchronized scene voices.
+* `data/video_storyboards/solocruz-cabin-before-booking-storyboard-20260809/renders/voiceover/*.wav` — seven scene-bound Gemini TTS source clips.
+* `data/video_storyboards/solocruz-cabin-before-booking-storyboard-20260809/renders/solocruz-cabin-before-booking-contact-sheet-v3.jpg` — visual QA contact sheet.
+* `docs/PROJECT_MEMORY.md` — records per-scene narration, visual-scale, camera, and licensed-audio rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Do not speed, cut, or allow voiceovers to overlap the next scene merely to preserve a target duration.
+* Music and SFX must come from an approved licensed source; automatic assembly controls timing and mixing, not rights.
+
+### Checks run
+
+* Generated seven Gemini `gemini-3.1-flash-tts-preview` `Kore` WAV clips.
+* TypeScript compile passed before rendering.
+* Rendered and inspected the 1080x1920 H.264/AAC video; verified duration is 26.261333 seconds and that all seven WAV assets exist in runtime storage.
+
+### Risks / TODO
+
+* The final social audio bed and SFX plan need a chosen licensed provider before adding them.
+* The Reel remains unpublished.
+
+## 2026-08-09 — Refine the SoloCruz storyboard for mobile readability and narration
+
+### Summary
+
+* Reassembled the approved layer-first SoloCruz Reel using the exact existing 15 scene assets. No new Gemini image batch was run.
+* Replaced small explanatory type with hook-scale scene copy and added directional drop shadows plus contact shadows to separate foreground people, objects, and luggage from their backgrounds.
+* Generated a production English voiceover through Gemini native TTS and muxed it into the current Reel render.
+
+### Files changed
+
+* `data/video_storyboards/solocruz-cabin-before-booking-storyboard-20260809/renders/solocruz-cabin-before-booking.mp4` — current 24.384-second 1080x1920 H.264/AAC production render.
+* `data/video_storyboards/solocruz-cabin-before-booking-storyboard-20260809/renders/solocruz-cabin-before-booking-voiceover.wav` — Gemini TTS source narration.
+* `data/video_storyboards/solocruz-cabin-before-booking-storyboard-20260809/renders/solocruz-cabin-before-booking-contact-sheet-v2.jpg` — nine-frame mobile-readability review sheet.
+* `docs/PROJECT_MEMORY.md` — records the visual-depth and narrated-render contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Production storyboards keep a one-idea, large-type hierarchy per scene. Supporting copy is permitted only when it remains clearly readable at mobile-first 9:16 scale.
+* Foreground visual separation requires both object and contact shadows.
+* Use `gemini-3.1-flash-tts-preview` with a directed prebuilt voice for a native voice track when a custom voice is not explicitly available or approved.
+
+### Checks run
+
+* TypeScript compile passed before render.
+* Rendered and verified the MP4 contains H.264 video and AAC audio; duration is 24.384 seconds.
+* Generated and visually inspected the v2 contact sheet for type scale, scene continuity, and foreground separation.
+
+### Risks / TODO
+
+* The TTS service remains Preview, so its voice and API behavior need a per-release availability check.
+* Social publication is intentionally not enabled by this media-rendering task.
+
+## 2026-08-09 — Produce the SoloCruz layer-first animated storyboard
+
+### Summary
+
+* Created one production Gemini Batch request with 15 scene-bound assets for the approved 22-second SoloCruz narrative, rather than a visual-model comparison or a list of generic still photos.
+* Generated seven background plates and eight dedicated foreground sources, then extracted all person/object foregrounds to PNG-alpha before assembly.
+* Composed and visually inspected a 1080x1920 H.264 Reel using independent background, foreground, product-interface, typography, route-graphic, object, and real-brand layers. No Google Flow/Veo request, source-site change, content job, or social publication occurred.
+
+### Files changed
+
+* `data/video_storyboards/solocruz-cabin-before-booking-storyboard-20260809/` — ignored production asset sources, alpha layers, scene manifest, storyboard timeline, usage metadata, MP4 and contact sheet.
+* `docs/PROJECT_MEMORY.md` — recorded the new layer-first asset contract and production render boundary.
+* `docs/CHANGELOG_AI.md` — recorded the batch, renderer verification, and remaining publishing boundary.
+
+### Decisions
+
+* Gemini 3.1 Flash Lite Image is used once as the production image provider for this approved storyboard. It produces source plates, not fake rendered logos, text, or interface screens.
+* A foreground source must use a solid matte and become a PNG-alpha layer before composition because Gemini image output does not supply transparent backgrounds.
+* The real SoloCruz mark and `/cruises/` interface must remain source-derived assets inside the renderer.
+
+### Checks run
+
+* Google Batch finished `JOB_STATE_SUCCEEDED`: 15/15 assets, zero errors.
+* Extracted eight PNG-alpha foreground layers.
+* TypeScript compile passed.
+* Rendered and visually inspected a 22.058667-second 1080x1920 H.264 MP4 (18,607,792 bytes) and generated a seven-scene contact sheet.
+
+### Risks / TODO
+
+* The Reel is not published and has no selected/licensed audio.
+* A reusable Blog Core Reel UI, per-channel scheduling, review state, and publishing adapter remain future work; this task validates the production media contract only.
+
+## 2026-08-09 — Generate the preliminary SoloCruz Reel v1 full-scene pack (replaced)
+
+### Summary
+
+- Generated eight reference-anchored 9:16 full-scene frames through Gemini Batch and combined them with the approved master traveller image into a nine-beat SoloCruz Reel still sequence.
+- The pack is intended for the existing planned programmatic editorial-motion assembly, not Google Flow/Veo, alpha-cutout compositing, website publication, or social publication.
+- Replaced: subsequent technical review found that full-scene stills do not fulfill the requested layer-first storyboard. The assets are not an approved production Reel sequence.
+
+### Files changed
+
+- `data/video_layer_tests/solocruz-reel-v1-20260809/` — ignored Reel v1 assets, Batch responses, usage metadata, and contact sheet.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — records the production asset contract and this result.
+
+### Checks run
+
+- Batch job `JOB_STATE_SUCCEEDED`; all 8 requested frames returned with zero errors.
+- Reviewed the complete nine-frame contact sheet for consistent traveller identity, wardrobe, setting, and narrative progression.
+
+### Risks / TODO
+
+- Programmatic MP4 assembly must use the layer-first scene contract. It may reuse individual photos as temporary slots, but must not treat this full-scene sequence as accepted final creative.
+
+## 2026-08-09 — Compare Gemini Batch visual packs for SoloCruz Reels
+
+### Summary
+
+- Generated two matching, unpublished 13-image SoloCruz vertical travel packs through Gemini Batch API: `gemini-2.5-flash-image` and `gemini-3.1-flash-lite-image`.
+- Saved each API response's usage metadata with the generated runtime-only images; no Blog Core job, source-factory job, website file, or social publication was created.
+
+### Files changed
+
+- `data/video_layer_tests/solocruz-reel-layer-compare-20260809/` — ignored test assets, API response metadata, and per-model usage ledgers.
+- `docs/PROJECT_MEMORY.md` — records cost/format baseline and non-publication boundary.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+- Do not switch the production image model merely from one comparison; use the measured visual/cost baseline for the next explicit Reel-assembly decision.
+
+### Checks run
+
+- Both Batch jobs reached `JOB_STATE_SUCCEEDED` with 13/13 images and zero response errors.
+- Verified formats: 2.5 Flash Image PNG 768x1344; 3.1 Flash Lite Image JPEG 768x1376.
+- Parsed every returned `usage_metadata` response and computed USD usage at the current official Gemini Batch rates.
+
+### Risks / TODO
+
+- The test establishes still-image quality only. Programmatic montage, timing, captions, music, and rendered Reel QA remain a separate implementation task.
+
+## 2026-08-05 — Schedule the GEO Insights series every three days
+
+### Summary
+
+- Scheduled all 11 remaining queued GEO editorial blog tasks for native publication every 72 hours.
+- The first task is `LLMs.txt: Useful Discovery File or SEO Myth?` at `2026-08-05T17:56:00Z`; the final scheduled Insight is due on `2026-09-04T17:56:00Z`.
+
+### Files changed
+
+- `docs/PROJECT_MEMORY.md` — records cadence, scope, scheduler behavior, and boundary.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+- The schedule applies only to the 11 still-queued `blog` records for GEO site 16, never to commercial collections or already published pages.
+- The native scheduler remains responsible for the two-step lifecycle: generate a due task, then publish its resulting draft on the next pass.
+
+### Checks run
+
+- Confirmed 11 matching queued GEO blog tasks before scheduling.
+- Confirmed each task has an explicit timestamp exactly 72 hours after the previous task.
+- Confirmed `blog-yas-core-scheduler` is online in PM2.
+
+### Risks / TODO
+
+- A model/provider failure leaves the due item visible as `ERROR`; the operator should fix or reschedule that one record rather than allowing the cadence to silently skip it.
+
+## 2026-08-05 — Complete GEO collection inventory from approved demand research
+
+### Summary
+
+- Added the three remaining non-duplicative GEO page contracts needed to give every active commercial collection at least four pages.
+- The additions are based only on the approved AI-visibility demand map: AI Visibility Checker, AI Readiness Checker/GEO Audit, and AI Citation Readiness for ChatGPT and Google AI Overviews.
+- All three records are queued for native generation and manual publication; no synthetic checker result or automated publication is created.
+
+### Files changed
+
+- `deploy/seed_geo_collection_minimum.py` — idempotently queues the three site-16 page briefs by canonical path.
+- `deploy/approve_geo_collection_minimum.py` — guarded explicit approval and publication of the reviewed three-page release.
+- `docs/PROJECT_MEMORY.md` — records collection threshold, intent boundaries, and manual-publish rule.
+- `docs/SEO_MEMORY.md` — records the demand-map basis and anti-cannibalisation constraints.
+- `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+- Visibility checking, site readiness, and citation-readiness workflow are distinct user intents and must remain distinct even though all relate to AI-search visibility.
+- Do not fill taxonomy gaps with competitor-analysis speculation or overlapping GEO/AEO/LLMO definition pages that are not in the approved priority map.
+
+### Checks run
+
+- `python3 -m py_compile deploy/seed_geo_collection_minimum.py` passed.
+- The seed script was run against a copied production database and created exactly three `QUEUED` records with canonical `/tools/` and `/use-cases/` paths.
+- Re-running the seed refreshes only still-queued contracts; generated drafts and published records retain their generated validation data.
+- Generated drafts passed the native content contract: 1,843-1,959 words, 7-8 sections, hero plus three inline images, five FAQ items, four contextual links, and three Recommended next links each.
+- All three native previews returned `200` with `noindex, nofollow` before publication.
+- The guarded publish script recorded editorial, product, SEO, and browser QA gates, then published all three records successfully.
+- The three final canonical URLs, `/tools/`, and `/use-cases/` return `200` after trailing-slash normalization. The sitemap and database both report six Solutions, four Tools, and four Use cases.
+
+### Risks / TODO
+
+- Each drafted typed page still requires editorial, product, SEO, and browser QA approval before manual publication.
+
+## 2026-08-05 — Split GEO commercial pages into Solutions, Tools, and Use cases
+
+### Summary
+
+- Extended Blog Core native routing with `solution` and `tool` page types alongside `use_case`.
+- Migrated all 11 published GEO commercial records: six Solutions, two Tools, and three Use cases.
+- Added a reproducible migration that updates both the Blog Core publication contract and GEO's native published records.
+
+### Files changed
+
+- `app.py` — native type aliases, route prefixes, discovery/queue normalization, typed generation contracts, and delegated-factory money-page recognition.
+- `deploy/migrate_geo_taxonomy.py` — idempotent GEO store/database taxonomy migration.
+- GEO native content store — canonical type and target-path updates for the 11 published records.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — taxonomy and migration contract.
+
+### Checks run
+
+- `python3 -m py_compile app.py deploy/migrate_geo_taxonomy.py` passed.
+- Blog Core restarted and `/health` returned OK.
+- Migration reported 11 database updates and 6 native-store file moves/updates.
+
+### Risks / TODO
+
+- `comparisons` and `services` remain page-intent labels, not hubs. Create a dedicated collection only once it has sufficient non-duplicative inventory and an approved route migration.
+
+## 2026-08-05 — Publish GEO traffic-loss and AI SEO service pages
+
+### Summary
+
+- Generated and published the two remaining distinct commercial GEO pages: an evidence-led AI-search traffic-loss audit/recovery page and an AI SEO services page.
+- Kept the existing `/use-cases/` route contract. The public collection now contains 11 pages, with the new entries on page one and five existing entries on page two.
+
+### Files changed
+
+- GEO native content store — two reviewed, published `seo_money_page` records with hero and inline assets.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable scope, editorial boundaries, and validation lesson.
+
+### Decisions
+
+- Traffic-loss content must not assert that AI search caused a decline without evidence.
+- AI SEO service content must describe verifiable work and limitations, never guarantee rankings or citations.
+- Typed commercial briefs need at least six explicit decision sections so generation satisfies the existing structural validator without relaxing it.
+
+### Checks run
+
+- Both public URLs, `/use-cases/`, and `/use-cases/?page=2` return HTTP 200.
+- Both new URLs are in `https://geo.yas.ooo/sitemap.xml`; each page exposes TOC, FAQ, hero, and inline generated images.
+- Both hero assets return HTTP 200 with `image/png` content type.
+
+### Risks / TODO
+
+- The approved remaining GEO Insights stay queued and unpublished.
+- Future `/comparisons` or `/tools` taxonomy requires a separate migration and redirects; these pages correctly remain in the current `/use-cases/` collection.
+
+## 2026-08-05 — Publish the initial GEO Insights collection
+
+### Summary
+
+- Generated and published four foundational GEO editorial posts to make the native `/blog/` hub operational: citations, robots.txt, schema, and the AI-read/citation gap.
+- Verified each generated draft includes the native hero asset, then confirmed the GEO index exposes the four entries after renderer deployment.
+
+### Files changed
+
+- Native GEO content store — four published `blog` records and associated generated image assets.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — record the editorial-release and card-rendering contract.
+
+### Checks run
+
+- Every article URL and `https://geo.yas.ooo/blog` return HTTP 200.
+- All four titles appear on the public hub; all four hero assets return HTTP 200 with an image content type.
+
+### Risks / TODO
+
+- Eleven planned GEO Insights remain queued and unpublished.
+- Current money pages remain under `/use-cases/`; a separate approved taxonomy migration is needed before creating `/comparisons` or `/tools` routes and redirects.
+
+## 2026-08-05 — Publish the GEO SEO money-page release
+
+### Summary
+
+- Generated and published all 9 approved GEO SEO money pages through the native content store.
+- Kept the 15 GEO blog tasks queued and unpublished.
+- Corrected two published records whose model-returned slugs diverged from their fixed canonical paths.
+
+### Files changed
+
+- `app.py` — typed content now always retains its queued canonical slug during generation.
+- GEO native published records — 9 reviewed money pages below `/use-cases/`.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — record the release and canonical-path rule.
+
+### Decisions
+
+- Operator approval recorded all four publication gates for this specific GEO money-page release.
+- Generated prose can change, but typed pages may never change their canonical path.
+
+### Checks run
+
+- All 9 public money-page URLs and the `/use-cases` hub return HTTP 200.
+- GEO sitemap contains exactly 9 use-case URLs; the native store contains exactly 9 published use-case records.
+- Blog Core compilation, PM2 restart, and health check passed after the slug fix.
+
+### Risks / TODO
+
+- The separate 15-post editorial series remains queued and requires a later explicit generation/publishing decision.
+
+## 2026-08-05 — Make service relevance explicit without making articles promotional
+
+### Summary
+
+- Strengthened the universal article prompt for typed commercial pages.
+- Requeued the first GEO money-page draft under this rule; it remains unpublished.
+
+### Files changed
+
+- `app.py` — requires one evidence-led product decision section and explicitly forbids in-article CTA buttons and unsupported sales claims.
+- `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — record the editorial rule.
+
+### Checks run
+
+- Python compilation, PM2 restart, and health check passed.
+
+### Risks / TODO
+
+- Generated drafts still require human product and factual review before publication.
+
+## 2026-08-05 — Queue and generate the first YAS AI Visibility money page
+
+### Summary
+
+- Queued the approved GEO content plan: 9 SEO money pages and 15 supporting blog posts.
+- Added controlled briefs to all queued GEO money pages and generated the first page as a reviewable native draft. No GEO content was published.
+- Added a noindex native product preview route for GEO drafts.
+
+### Files changed
+
+- `app.py` — preserves supplied `pageBrief` data when queueing ideas and validates root-path internal links consistently through native rendering and draft validation.
+- `docs/PROJECT_MEMORY.md` — records the durable brief, navigation, and native-preview contract.
+- `docs/CHANGELOG_AI.md` — records this work.
+
+### Decisions
+
+- SEO money-page generation requires a structured brief; Blog Core must not relax draft requirements when an external planning flow has supplied only a title.
+- The first GEO page remains `DRAFT` and is reviewable at the GEO product host. Publication approvals remain false until human editorial, product, SEO, and browser review.
+
+### Checks run
+
+- `python3 -m py_compile app.py`, PM2 restart, and `/health` passed.
+- Generated draft has 3 inline image assets, TOC, 6 FAQ items, 4 contextual internal links, and 3 Recommended next links.
+- Browser check confirmed the native noindex preview route and hero asset load successfully.
+
+### Risks / TODO
+
+- Review the first draft for product-specific factual claims before enabling publication approvals.
+- The remaining GEO tasks remain queued and will not generate or publish automatically.
+
+## 2026-08-05 — Register YAS AI Visibility as an independent native product
+
+### Summary
+
+- Registered `geo.yas.ooo` for an independent Blog Core content lifecycle without generating or publishing any content.
+- Native product cards now suppress design-scan, preview-build, and static-install actions that do not apply to an application-owned content store.
+
+### Files changed
+
+- `app.py` — identifies native content-store products in the dashboard site card.
+- `docs/PROJECT_MEMORY.md` — records GEO product, routing, publishing, and isolation boundaries.
+- `docs/CHANGELOG_AI.md` — records this task.
+
+### Decisions
+
+- GEO has its own content context, topic strategy, store, sitemap, and public paths even while its initial implementation shares the YAS Next.js runtime.
+- Content remains manual-publish only; this registration creates no queue items and does not alter the public product content.
+
+### Checks run
+
+- Verified GEO native store exists and GEO public `/blog/`, `/use-cases/`, `sitemap.xml`, and `robots.txt` return successfully after source deployment.
+
+### Risks / TODO
+
+- The first GEO blog or SEO money-page task still needs an operator-approved brief before any generation or publication.
+
 ## 2026-07-26 — Make Georivo money-page heroes distinct from first paint
 
 ### Summary
@@ -50,6 +908,24 @@
 - Create, review and explicitly publish the first CabinJoin SEO money-page draft; no page has been auto-published.
 
 This file is updated by Codex after every task.
+
+## 2026-08-09 — Select LinkedIn Company Pages in Blog Core
+
+### Summary
+
+* Replaced manual per-site LinkedIn access-token and author-URN entry with OAuth-derived publishing identities.
+* OAuth now requests organization read access, retrieves eligible approved pages, and exposes a personal-profile or Company-Page selector.
+* Connection testing now verifies the selected Company Page role instead of only proving that a personal token exists.
+
+### Files changed
+
+* `app.py` — LinkedIn organization lookup, identity selector API/UI, OAuth scope, and Company Page validation.
+* `docs/PROJECT_MEMORY.md` — durable LinkedIn Company Page ownership and permission contract.
+* `docs/CHANGELOG_AI.md` — task record.
+
+### Risks / TODO
+
+* LinkedIn must approve the app's organization permissions. If it does not, the OAuth member still connects personally but no Company Pages can be returned for selection.
 
 ## 2026-07-25 — Publish Georivo SEO money pages through live Blog Core
 
@@ -3916,3 +4792,753 @@ This file is updated by Codex after every task.
 * Gemini TTS is Preview and longer audio is generated in chunks to reduce quality drift; real content generation needs a selected article and incurs model usage.
 * WAV is reliable and avoids a new transcoding dependency. Add MP3/AAC transcode only when a distribution host requires it.
 * Native podcast pages/players on imported source sites are intentionally not changed by this implementation.
+## 2026-08-09 — Verify a programmatic layer-first Reel renderer
+
+### Summary
+
+* Built an isolated, non-production 1080x1920 motion-design proof with a real timeline and independent visual layers. It uses no Google Flow, Veo, Gemini call, source-site edit, content job, or social publication.
+* The proof uses four overlapping scenes with independently timed background photos, masked media panels, card motion, typography, line graphics, and the real SoloCruz logo mark.
+* Corrected the durable decision: a sequence of full-frame stills is not a layer-first storyboard and is deprecated as the future factory pattern.
+
+### Files changed
+
+* `docs/PROJECT_MEMORY.md` — recorded the layer contract and deprecated the previous full-scene still sequence.
+* `docs/CHANGELOG_AI.md` — recorded the isolated renderer validation and its boundary.
+
+### Decisions
+
+* The future factory input must be a scene-and-layer specification, not only image prompts or a list of complete photos.
+* Programmatic rendering is appropriate for designed motion, transitions, masks, panels, typography, and assets with known layer boundaries. It must not claim to produce live-action motion from a static photo.
+
+### Checks run
+
+* TypeScript compile with `tsc --noEmit` passed.
+* Rendered and inspected an 18.048-second 1080x1920 H.264 MP4; output size 6.2 MB.
+
+### Risks / TODO
+
+* The proof is not a deployed Blog Core capability and its temporary imagery is not approved creative.
+* Product implementation still needs an asset contract, reusable templates, audio/licensing policy, and a review/publish flow before it can generate or schedule Reels.
+## 2026-08-10 — Make universal fixes an explicit project rule
+
+### Summary
+
+* Added a mandatory architecture rule that current failures are regression examples, never production rules.
+* Recorded that fixes must target the shared contract or owning abstraction and must not contain object-, domain-, article-, language-, or channel-specific exceptions.
+
+### Files changed
+
+* `AGENTS.md` — made universal, invariant-driven fixes mandatory for every future task.
+* `docs/PROJECT_MEMORY.md` — added the durable decision and a do-not-repeat rule against example-specific production fixes.
+* `docs/CHANGELOG_AI.md` — recorded this memory update.
+
+### Decisions
+
+* A proposed production fix is unacceptable when it must name the currently failing example instead of the violated invariant.
+
+### Checks run
+
+* Read back the edited memory files before deployment.
+
+### Risks / TODO
+
+* The Reel layer pipeline still requires replacement of conversational placement with a universal explicit-mask editing contract; the current Reel remains unpublished and stopped.
+
+## 2026-08-10 — Deploy universal Reel layer generation and produce SoloCruz Reel 32
+
+### Summary
+
+* Replaced model-controlled placement and guide-image extraction with scene-aware isolated foreground generation and deterministic programmatic registration.
+* Added collision resolution, role-specific sizing, aspect-aware asset prompts, bounded scene color matching, object contact shadows, and source-asset recomposition on resume.
+* Added optional Vertex explicit binary-mask insertion. Correct IAM was granted, but the configured project does not have model access; model-access `404` now switches the worker to the constrained isolated-matte path.
+* Generated the real seven-scene Reel for SoloCruz social post `32` from its published article and left it as an unpublished `DRAFT` for review.
+
+### Files changed
+
+* `app.py` — universal Reel planner, generator, compositor, validator, resumability, Vertex integration, and model-access fallback.
+* `docs/PROJECT_MEMORY.md` — durable Reel layer contract and deprecated approaches.
+* `docs/INTEGRATIONS.md` — non-secret Vertex IAM/configuration and fallback behavior.
+* `docs/DEPLOYMENT.md` — Reel environment and restart notes.
+* `docs/CHANGELOG_AI.md` — task record and verification.
+
+### Decisions
+
+* A Reel foreground is generated as one isolated scene-aware asset; the renderer alone owns final geometry.
+* A missing Vertex customization model must not re-enable unconstrained full-scene editing.
+* Geometry checks are role-aware, while semantic composite review decides whether scale, lighting, and visual hierarchy are believable.
+
+### Checks run
+
+* `python3 -m py_compile app.py` locally and `.venv/bin/python -m py_compile app.py reel_renderer.py` on VPS.
+* PM2 restart with environment update and `/health` check.
+* Real production generation: 7 scenes, 14 foreground layers, voice, continuous site soundtrack, and programmatic H.264 render.
+* `ffprobe`: 28.42 seconds, 1080x1920, 24 fps, H.264 video plus one AAC audio stream.
+* Contact-sheet visual review across all seven scenes; no blank frames, guide rectangles, black text plates, or layer overlaps observed.
+
+### Risks / TODO
+
+* Native Vertex binary-mask insertion remains unavailable to the current Google Cloud project; use the constrained isolated-matte path until model access is granted or a current explicit-mask endpoint is available.
+* Reel `32` is a review draft and has not been published.
+
+## 2026-08-10 — Replace fixed Reel structure with source-derived planning
+
+### Summary
+
+* Removed the fixed seven-scene and three-stage storyboard contract.
+* Added article-outline extraction, source-coverage architecture, independent per-beat visual-world selection, dynamic scene/stage/duration totals, and a separate production-detail pass for every screen.
+* Added universal validation for complete source coverage, truthful stage continuity, distinct adjacent shot design, camera motivation, and isolated foreground actions that do not depend on the background.
+* Updated Reel progress metadata and UI copy to display dynamic totals instead of a seven-scene assumption.
+
+### Files changed
+
+* `app.py` — dynamic story architecture, scene elaboration, validation, progress accounting, and UI wording.
+* `docs/PROJECT_MEMORY.md` — recorded the source-derived Reel planning contract and deprecated the fixed template.
+* `docs/CHANGELOG_AI.md` — recorded implementation and verification.
+
+### Decisions
+
+* Physical worlds are selected for editorial truth independently for each beat; production cost and background reuse are not planning criteria.
+* Full media generation remains disabled while the new text storyboard is validated. Planner verification must not generate images, voice, or video.
+
+### Checks run
+
+* Local and VPS `py_compile` passed; PM2 restarted and `/health` returned `ok`.
+* Real published SoloCruz article planner run covered 8 source sections as 8 beats, 8 scenes, and 8 independently derived physical stages; calculated 17 future image generations and 31.5 seconds.
+* A stricter follow-up planner run correctly rejected repeated framing and non-isolated layer directions before media generation. It later reached the Gemini text-request limit, so no replacement media was produced.
+
+### Risks / TODO
+
+* The successful JSON proves dynamic source and stage coverage, but its shot direction was still too repetitive to approve for rendering. The deployed validator now rejects that repetition.
+* Re-run the text-only planner after the Gemini request window resets; keep `MASKED_LAYER_REEL_ENABLED=0` until the stricter storyboard passes review.
+
+## 2026-08-10 — Make Reel architecture the sole editorial-copy owner
+
+### Summary
+
+* Added source-grounded hook, open loop, escalation, payoff, per-beat viewer question, information release, stakes change, overlay text, and narration to the Gemini architecture contract.
+* Removed overlay and narration fields from both later visual-production response schemas.
+* Added deterministic beat-ID hydration so visual passes cannot rewrite approved editorial copy.
+* Removed the implicit `gemini-3.1-flash-lite` text fallback and separated text, image, and TTS credential resolution.
+
+### Files changed
+
+* `app.py` — retention architecture, single-owner copy flow, visual-only schemas, and strict provider credential/model routing.
+* `docs/PROJECT_MEMORY.md` — recorded the single-owner and provider-separation contracts.
+* `docs/CHANGELOG_AI.md` — recorded implementation and verification.
+
+### Decisions
+
+* Editorial fields are generated once by Gemini 3.5 Flash during architecture; subsequent Gemini passes can only direct visuals.
+* A text quota failure must remain a visible Gemini 3.5 Flash failure and must never silently switch to an image-project model or key.
+
+### Checks run
+
+* Local and VPS `py_compile` passed; PM2 restarted and `/health` returned `ok`.
+* VPS configuration fingerprints confirmed distinct text and image keys, `gemini-3.5-flash` for text, `gemini-3.1-flash-image` for images, and no text fallback.
+* Real SoloCruz architecture run produced a source-grounded hook, explicit open loop, nine retention beats, and late payoff with final copy for every beat.
+* Follow-up visual request reported the expected `429` specifically for `gemini-3.5-flash` limit 20; it did not switch models or keys.
+
+### Risks / TODO
+
+* The 3.5 Flash text quota is currently exhausted. Complete visual-only skeleton and per-scene verification after its request window resets; no images, voice, or video were generated in this task.
+## 2026-08-10 — Install the existing Google Cloud Gemini key for Blog Core text generation
+
+### Summary
+
+* Read the existing service-account-bound Gemini API key from project `exalted-tempo-504018-v0` in Google Cloud Console and installed it as the live Blog Core text credential.
+* Preserved the independent image-generation credential and restarted `blog-yas-core` with the updated environment.
+* Verified that authentication reaches `gemini-3.5-flash`; Google now reports the separate Gemini Prepay balance is depleted rather than the previous free-tier request-limit error.
+
+### Files changed
+
+* `/var/www/blog.yas.ooo/.env` — replaced `GEMINI_TEXT_API_KEY` with the existing paid-project Cloud key; no secret was added to Git or documentation.
+* `docs/PROJECT_MEMORY.md` — recorded the durable separation between Cloud welcome credit and Gemini API Prepay billing.
+* `docs/CHANGELOG_AI.md` — recorded this deployment and verification.
+
+### Decisions
+
+* Continue using the existing Cloud Console key and `gemini-3.5-flash`; do not introduce Vertex, another key, or a model fallback.
+
+### Checks run
+
+* Restarted PM2 process `blog-yas-core` with `--update-env`.
+* `curl -fsS http://127.0.0.1:3299/health` returned healthy.
+* Confirmed text and image key fingerprints differ without exposing either credential.
+* Direct `gemini-3.5-flash:generateContent` smoke test authenticated but returned `429 RESOURCE_EXHAUSTED` with `Your prepayment credits are depleted`.
+
+### Risks / TODO
+
+* Text generation remains blocked until the separate Gemini API Prepay balance is funded or activated for the current Cloud Billing account. The ordinary Cloud welcome credit cannot pay for Gemini API usage under Google's current rules.
+## 2026-08-10 — Reuse the working image credential for Gemini text generation
+
+### Summary
+
+* Set live `GEMINI_TEXT_API_KEY` to the same environment credential already used for Gemini image generation.
+* Restarted Blog Core and verified `gemini-3.5-flash` with a real API request.
+
+### Files changed
+
+* `/var/www/blog.yas.ooo/.env` — text generation now uses the existing image-generation credential; no secret was stored in Git.
+* `docs/PROJECT_MEMORY.md` — superseded the earlier separate-key decision.
+* `docs/CHANGELOG_AI.md` — recorded deployment and verification.
+
+### Decisions
+
+* Text and image models remain independently configured, but currently share one working credential by operator decision.
+
+### Checks run
+
+* Restarted PM2 process `blog-yas-core` with `--update-env`.
+* `/health` returned healthy.
+* Verified matching text/image credential fingerprints without exposing the credential.
+* Direct `gemini-3.5-flash` request returned HTTP 200, `modelVersion: gemini-3.5-flash`, and `serviceTier: standard`.
+
+### Risks / TODO
+
+* Text and image usage now share the same project quotas and billing limits.
+
+## 2026-08-11 — Make Reel step three a locked Gemini production-manifest pass
+
+### Summary
+
+* Replaced the incorrect code-only third-stage assumption with a Gemini text pass that decomposes every approved step-two scene into exact background and layer generation jobs.
+* Locked all creative scene/layer fields to step two and limited Gemini to production detail: prompts, references, placement, depth, timing, motion, and camera implementation.
+* Connected the accepted manifest to the normal storyboard and image-generation pipeline; a third-stage failure no longer causes step two to be regenerated.
+* Kept the verification run text-only: no images, voice, music, or video were generated.
+
+### Files changed
+
+* `app.py` — locked step-three scene prompt/validation, Gemini asset manifest, pipeline integration, and manifest-driven image prompt/placement routing.
+* `staging/run_reel_step3_locked_once.py` — one-scene immutable-contract regression runner.
+* `staging/run_reel_step3_locked_full.py` — full approved-scene decomposition runner with progress output.
+* `staging/run_reel_step3_asset_manifest.py` — full Gemini asset-manifest verification runner.
+* `docs/PROJECT_MEMORY.md` — recorded the corrected durable three-stage contract and deprecated code-only step three.
+* `docs/CHANGELOG_AI.md` — recorded implementation and verification.
+
+### Decisions
+
+* Step two owns creative composition; step three uses Gemini to author technical decomposition without changing it.
+* Short explicit directions such as `none` or `already present` are valid when a layer exists from frame start; validators check meaning and required presence rather than arbitrary verbosity.
+* Physically necessary interaction between approved layers may overlap, while dominant incoherent occlusion remains rejected.
+
+### Checks run
+
+* Local and VPS Python compilation passed.
+* A real SoloCruz plan completed locked Gemini scene elaboration for all 11 approved scenes in 115.2 seconds.
+* The same real plan completed the full Gemini asset manifest for all 11 scenes in 130.9 seconds, with 18 separate foreground assets plus 11 background prompts and no media generation.
+* Assertions confirmed unchanged approved scene fields and unchanged non-empty layer semantics; VPS health returned `ok`.
+
+### Risks / TODO
+
+* Existing stored Reel plans without `productionManifest` continue through the legacy runtime spatial planner. Newly generated plans use the manifest path.
+* Actual image rendering remains intentionally untested in this task because the operator requested text planning only until the frame/object plan is correct.
+
+## 2026-08-11 — Verify a dependency-closed Reel scene with real Gemini images
+
+### Summary
+
+* Generated a real first-scene reference chain: empty room, complete Sarah+chair+desk+laptop initial unit, and the same unit with changed reaction and screen state.
+* Removed the near-white matte and composited both unit states over the same empty room.
+* Confirmed that physically dependent objects can be generated as one coherent unit while the room remains a separate immutable plate.
+* Confirmed that Gemini does not reliably preserve exact readable price/interface text, so such content must be rendered programmatically.
+
+### Files changed
+
+* `staging/generate_solocruz_scene1_dependency_chain.py` — real reference-chain image generator and composite/contact-sheet builder.
+* `docs/PROJECT_MEMORY.md` — recorded dependency-closed units, explicit state keyframes, and the programmatic screen-content boundary.
+* `docs/CHANGELOG_AI.md` — recorded the real image verification.
+
+### Decisions
+
+* Image layers are based on physical composability, not one layer per semantic noun.
+* A changed face, pose, device screen, or object condition requires a new reference-anchored keyframe.
+* Exact screen copy and numbers belong to the renderer, not Gemini image pixels.
+
+### Checks run
+
+* Three sequential `gemini-3.1-flash-lite-image` generations completed successfully; no voice or video was generated.
+* Visual inspection confirmed coherent room integration, a viewer-facing laptop screen, simultaneous visibility of Sarah's face and screen, and a changed facial/hand state.
+* Visual inspection rejected generated screen lettering as insufficiently exact for production.
+
+### Risks / TODO
+
+* Add a universal screen-plane detector and perspective-mapped programmatic UI layer before this scene can be considered production-ready.
+* Finish wiring the dependency-closed assembly/keyframe schema into the production Reel planner and renderer before generating the remaining scenes.
+
+## 2026-08-11 — Build and verify the first real SoloCruz motion scene
+
+### Summary
+
+* Added mandatory pre-composite validation for exact component counts, complete silhouettes, visible screens, physical coherence, and safe margins.
+* Added registered-pair validation so changed keyframes cannot add/remove limbs, furniture supports, devices, or alter unrelated geometry.
+* Replaced destructive near-white matte removal with contrast-safe chroma extraction for the light silver laptop unit.
+* Detected the laptop screen plane and perspective-mapped exact `$1,200` and `$2,400` interface states into it.
+* Rendered a real 4.5-second vertical motion scene with an animated hook, state transition, and camera movement; no voice or music was generated.
+
+### Files changed
+
+* `staging/generate_solocruz_scene1_motion_proof.py` — validated keyframe generation, chroma extraction, screen UI renderer, and H.264 motion proof.
+* `docs/PROJECT_MEMORY.md` — recorded universal asset-integrity, matte-selection, and exact-screen-rendering rules.
+* `docs/CHANGELOG_AI.md` — recorded implementation and verification.
+
+### Checks run
+
+* Automatic image validation rejected missing, duplicate, unsupported, and cropped mandatory components before video assembly.
+* Final video verified as H.264, 1080x1920, 30 fps, 4.5 seconds, with no audio stream.
+* Visual frame-strip review confirmed a complete laptop, complete desk supports, person legs present from the initial frame onward, stable registered geometry, readable programmatic UI, large on-frame hook, emotional state change, and camera push-in.
+
+### Risks / TODO
+
+* The production Reel worker still needs the validated chroma/matte and screen-plane path integrated from this proof script before full 30-second automatic Reel generation.
+
+## 2026-08-11 — Validate professional scene-layer extraction
+
+### Summary
+
+* Installed a dedicated local MPS environment with `SAM 2.1`, Grounding DINO, and ViTMatte.
+* Extracted three independently usable visible layers from an existing SoloCruz scene: person, large foreground laptop, and wall lamp.
+* Generated object masks, trimaps, RGBA PNG layers, and a checkerboard contact sheet. No new Gemini imagery, narration, music, or video was generated.
+
+### Files changed
+
+* `staging/layer-lab/extract_scene_layers.py` — reusable proof extractor using role-aware detection, SAM 2.1 masks, and ViTMatte alpha refinement.
+* `staging/layer-lab/.venv/` — local-only model runtime; not a repository artifact.
+* `staging/layer-lab/output/` — local-only masks, trimaps, layers, and visual QA artifacts; not a repository artifact.
+* `docs/PROJECT_MEMORY.md` — recorded the validated extraction stack and its bounds.
+* `docs/CHANGELOG_AI.md` — recorded installation and visual verification.
+
+### Checks run
+
+* Ran the stack on Apple M3 Pro with MPS enabled.
+* Visually reviewed the person, laptop, and lamp RGBA layers against a checkerboard background.
+
+### Risks / TODO
+
+* The source composition contains normal occlusion: the table hides part of the person. Extraction correctly preserves only visible pixels, so this specific person layer cannot be moved in a way that exposes unseen body parts.
+* Set up an on-demand GPU worker before making this a Blog Core production dependency; the VPS has no GPU.
+
+## 2026-08-11 — Revalidate extraction on a SoloCruz deck scene
+
+### Summary
+
+* Replaced the unsuitable indoor proof source with an already generated SoloCruz sunset-deck scene containing ship, sea, deck, and a group of travellers.
+* Extracted three distinct visible traveller layers from the one master frame using Grounding DINO, SAM 2.1, and ViTMatte.
+* Left the partially occluded fourth traveller in the master rather than produce a broken independent cutout.
+
+### Files changed
+
+* `staging/layer-lab/extract_scene_layers.py` — supports multiple non-duplicate person detections for a scene-level extraction proof.
+* `docs/PROJECT_MEMORY.md` — documented the universal separable-subject selection rule.
+* `docs/CHANGELOG_AI.md` — recorded the deck-scene visual check.
+
+### Checks run
+
+* Visual review of source plus three RGBA layers on a checkerboard background.
+
+### Risks / TODO
+
+* The next stage remains Gemini-generated clean-plate creation from the same master, followed by registration and compositing. It must not start until this layer extraction is visually accepted.
+
+## 2026-08-11 — Select a large-subject SoloCruz deck source
+
+### Summary
+
+* Reviewed existing SoloCruz image packs and rejected distant deck figures and dining-table groups as poor layer-extraction sources.
+* Chose an existing ship-deck onboarding scene with large travellers, visible deck, ship, and sea context.
+* Added a primary-subject size gate. It extracted two usable foreground traveller layers and exposed the third candidate as fragmented by occlusion, which is a valid rejection outcome rather than a layer count failure.
+
+### Files changed
+
+* `staging/layer-lab/extract_scene_layers.py` — filters small background detections so only large primary subjects are eligible.
+* `docs/PROJECT_MEMORY.md` — records the quality-over-count layer rule.
+* `docs/CHANGELOG_AI.md` — records source selection and visual validation.
+
+### Checks run
+
+* Visual review of the ship-deck source and extracted RGBA subjects on a checkerboard background.
+
+## 2026-08-11 — Extract physically coherent traveller groups
+
+### Summary
+
+* Replaced individual-person extraction with universal spatial clustering before masking.
+* The SoloCruz onboarding deck now yields two meaningful RGBA scene layers: foreground travellers and background crew, rather than fragmented individual people.
+
+### Files changed
+
+* `staging/layer-lab/extract_scene_layers.py` — clusters proximate people by depth/scale before unioning their SAM masks and refining one alpha matte per group.
+* `docs/PROJECT_MEMORY.md` — records the group-layer invariant.
+* `docs/CHANGELOG_AI.md` — records the verified group extraction result.
+
+### Checks run
+
+* Extracted and visually inspected foreground group and background group over a checkerboard background.
+
+### Risks / TODO
+
+* A clean plate must remove each accepted group and its contact shadows as a group. The renderer may move/reveal each group, but may not independently animate members inside the extracted group.
+
+## 2026-08-11 — Preserve carried objects in group extraction
+
+### Summary
+
+* Extended group extraction beyond person masks to recognise and attach carried/worn scene objects.
+* The SoloCruz foreground traveller group now includes its backpack, duffel, handbag, camera bag, and suitcase; the distant crew group no longer receives a duplicated foreground item.
+
+### Files changed
+
+* `staging/layer-lab/extract_scene_layers.py` — detects carried-object categories, assigns each object once by group depth, and unions it into its owner group mask.
+* `docs/PROJECT_MEMORY.md` — records universal ownership rules for connected visual groups.
+* `docs/CHANGELOG_AI.md` — records the visual validation.
+
+### Checks run
+
+* Re-extracted the existing SoloCruz onboarding frame and visually inspected both group RGBA layers.
+
+## 2026-08-11 — Keep occluded depth groups in the static base
+
+### Summary
+
+* Added relationship-aware movement eligibility to the proof extractor.
+* The partially covered distant crew group is now classified as static base content and omitted from movable RGBA output; the complete foreground traveller-and-baggage group remains the one extracted layer.
+
+### Files changed
+
+* `staging/layer-lab/extract_scene_layers.py` — replaces hard-coded layer-name filtering with projected-overlap/depth validation for independent movability.
+* `docs/PROJECT_MEMORY.md` — records the universal scene-role contract.
+* `docs/CHANGELOG_AI.md` — records the corrected visual output.
+
+### Checks run
+
+* Re-extracted and visually reviewed the master plus the sole eligible movable group.
+
+### Risks / TODO
+
+* Geometry alone cannot infer every semantic ownership or depth relationship. The production worker must obtain a scene-role contract from the configured vision planner, then validate it against the CV masks before media generation.
+
+## 2026-08-11 — Run Gemini scene-role analysis on existing SoloCruz frames
+
+### Summary
+
+* Added and ran a text-only multimodal analyser through Blog Core's configured Gemini client against three existing SoloCruz frames.
+* It returned structured physical groups, carried-object ownership, depth, movability, static-base content, clean-plate requirements, and extraction risks.
+* No new images, narration, music, or video were generated.
+
+### Files changed
+
+* `staging/layer-lab/analyze_scene_roles.py` — reusable image-to-scene-role JSON analyser using the existing Blog Core Gemini client and structured schema.
+* `staging/layer-lab/scene-role-analysis.json` — local result from the three-frame analysis; not a production artifact.
+* `docs/PROJECT_MEMORY.md` — documents the vision-planner stage.
+* `docs/CHANGELOG_AI.md` — records the real model validation.
+
+### Checks run
+
+* Parsed schema-valid JSON for boarding, shore-excursion, and onboard coffee-scene images.
+
+### Risks / TODO
+
+* Wire the analyser into the normal Reel workflow and require its returned contract to be accepted by the CV extraction validator before image generation or rendering.
+
+## 2026-08-11 — Reject incorrect vision-only grouping for shore walkers
+
+### Summary
+
+* Re-ran the shore-walk scene analysis with explicit silhouette-contact instructions.
+* Gemini still incorrectly classified all four walkers as independent, so its grouping output was rejected.
+* The durable rule is now explicit: vision proposes relationships; instance-mask contact/occlusion validation decides whether people become a common layer.
+
+### Files changed
+
+* `staging/layer-lab/analyze_scene_roles.py` — strengthened scene-group instructions for visible silhouette geometry.
+* `docs/PROJECT_MEMORY.md` — records the vision-only limitation and replacement rule.
+* `docs/CHANGELOG_AI.md` — records the rejected analysis.
+
+### Checks run
+
+* Parsed two schema-valid Gemini analyses for the shore-walk frame; both were visually reviewed and the second was rejected for grouping.
+
+## 2026-08-11 — Reject unsuitable scene sources and proximity-based person grouping
+
+### Summary
+
+* Added a universal scene-suitability gate: low-light, low-contrast, crowded, fragmented, or clean-plate-unsafe frames are rejected before they become layered-motion sources.
+* Replaced the proof extractor's proximity clustering. It now keeps all detected people independent until a later physical-contact graph, backed by instance masks and the vision contract, proves a merge.
+* Strengthened the Gemini role-analysis contract to require visible-connection explanations and distinguish `layerable`, `static_only`, and `reject_for_layered_motion` scenes.
+
+### Files changed
+
+* `staging/layer-lab/analyze_scene_roles.py` — suitability decision plus explicit silhouette and merge rules.
+* `staging/layer-lab/extract_scene_layers.py` — removes the invalid bounding-box-gap merge heuristic.
+* `docs/PROJECT_MEMORY.md` — records the durable eligibility and grouping rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile staging/layer-lab/analyze_scene_roles.py staging/layer-lab/extract_scene_layers.py`
+
+### Risks / TODO
+
+* The current shore-walk analysis must not be used as a reference grouping; the actual contact relationship must be resolved from masks or explicit review before extraction. No images, audio, or video were generated.
+
+## 2026-08-11 — Reject layers anchored to shared scene geometry
+
+### Summary
+
+* Tightened the universal clean-plate eligibility rule: a scene is rejected when any intended moving layer materially crosses or is anchored to shared furniture, fixtures, controls, railings, screens, tableware, or other structured base geometry.
+* This rejects visually attractive but technically unsafe scenes before segmentation instead of extracting partial people and attempting to reconstruct their shared context later.
+
+### Files changed
+
+* `staging/layer-lab/analyze_scene_roles.py` — adds clean-plate feasibility requirements to the scene-role contract.
+* `docs/PROJECT_MEMORY.md` — persists the clean-plate eligibility rule.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* Text-only re-analysis is run after the contract update; no media-generation operation is permitted by this analyser.
+
+## 2026-08-11 — Simplify the clean-plate edit instruction
+
+### Summary
+
+* Replaced the verbose clean-plate prompt with an in-place edit command that makes pixel preservation the dominant requirement and names only the groups to remove.
+* Removed numeric dimension instructions and exhaustive scene restatement, which distracted from preserving the reference image.
+
+### Files changed
+
+* `staging/layer-lab/plan_and_create_clean_plates.py` — concise clean-plate prompt.
+* `docs/PROJECT_MEMORY.md` — durable prompt rule.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* Prompt construction review only. No replacement image, audio, or video was generated by this change.
+
+### Correction
+
+* Removed a contradictory preservation list from the first revision. The clean-plate instruction is now a single unambiguous frame-invariance condition with only the named groups as exceptions.
+
+## 2026-08-11 — Verify concise Gemini clean-plate edit on one SoloCruz frame
+
+### Summary
+
+* Ran one Gemini image-edit request against the existing boarding-gangway frame using the concise in-place prompt.
+* The accepted review artifact removes only the planned foreground groups and their luggage while retaining the existing gangway, ship, harbour, and background scene.
+
+### Files changed
+
+* `staging/layer-lab/clean-plate-review/05-boarding-group-clean-plate-v2.jpg` — review-only Gemini clean plate.
+* `docs/PROJECT_MEMORY.md` — records the verified clean-plate prompt behavior.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* Visual comparison against the source frame.
+* Verified output dimensions remain 768x1376.
+
+### Risks / TODO
+
+* The review artifact must still pass the future layer-extraction and reconstruction checks before it is used in a rendered Reel. No other source frame or media type was generated.
+
+## 2026-08-11 — Verify concise Gemini clean-plate edit on the shore-walk frame
+
+### Summary
+
+* Ran one Gemini image-edit request for the existing SoloCruz shore-walk master using the accepted concise in-place clean-plate prompt.
+* The review artifact removes only the three foreground traveller groups while preserving the harbour street, ship, buildings, and distant pedestrians.
+
+### Files changed
+
+* `staging/layer-lab/clean-plate-review/05-shared-shore-day-clean-plate-v2.jpg` — review-only Gemini clean plate.
+* `docs/PROJECT_MEMORY.md` — records the second verified frame.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* Visual comparison against the source frame.
+* Verified output dimensions remain 768x1376.
+
+### Risks / TODO
+
+* The clean plate is not itself a final Reel frame. Its associated group masks and later recomposition must pass visual QA before rendering.
+
+## 2026-08-11 — Run Gemini creative direction on two approved SoloCruz scenes
+
+### Summary
+
+* Ran a text-only Gemini creative-direction pass for the boarding and shore-walk scenes. The model received the source frame, approved foreground groups, clean-plate availability, and a short editorial essence for each scene.
+* It proposed staged entries, renderer text, light graphic treatment, and a camera treatment, but the output is rejected as a production plan because both scenes reuse the same push-in/fade/drift pattern.
+
+### Files changed
+
+* `staging/layer-lab/plan_scene_motion_direction.py` — reusable text-only creative-direction utility.
+* `staging/layer-lab/motion-direction-review/*-motion-direction.json` — rejected review proposals, not production artifacts.
+* `docs/PROJECT_MEMORY.md` — records proposal-only status and required diversity validation.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* Parsed schema-valid Gemini responses for both scenes.
+* Reviewed camera, reveal, text, and graphic proposals against the cross-scene variety requirement.
+
+### Risks / TODO
+
+* Implement a validator for repeated camera/reveal combinations before motion-direction output can reach image/layer/video generation. No media beyond the previously approved clean plates was generated.
+
+## 2026-08-11 — Plan two Reel scenes as one cross-scene Gemini direction
+
+### Summary
+
+* Replaced isolated scene planning with one text-only Gemini request containing both approved master frames and their constrained available layers.
+* The proposal now contains beat timing, whole-scene camera scales/offsets, layer-reveal mechanisms, overlay coordinates/animation, and scene-specific graphic treatments. It deliberately differentiates the two camera paths and reveal styles.
+
+### Files changed
+
+* `staging/layer-lab/plan_motion_direction_pair.py` — reusable paired creative-direction planner.
+* `staging/layer-lab/motion-direction-review/pair-motion-direction-v2.json` — review-only Gemini proposal.
+* `docs/PROJECT_MEMORY.md` — records the paired planning rule and review-only status.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* Parsed the schema-valid paired Gemini response and reviewed its camera, reveal, text, and graphic instructions.
+
+### Risks / TODO
+
+* This is a direction proposal, not an approved render specification. Review and simplify any unsuitable overlay/graphic choices before layer extraction or rendering. No new image, audio, music, or video was generated.
+
+## 2026-08-11 — Render a two-scene full-canvas SoloCruz motion review
+
+### Summary
+
+* Prepared full-canvas RGBA foreground layers from the existing master/clean-plate pairs, then rendered the approved two-scene plan locally at 768x1376, 24 fps, for 9 seconds.
+* The renderer composites all layers in their native registered canvas positions and applies camera motion only after the full scene is assembled. It generated neither new source art nor audio.
+* Fixed one renderer-only text-alpha defect found during visual keyframe QA and produced v3 with readable boarding copy.
+
+### Files changed
+
+* `staging/layer-lab/analyze_scene_roles.py` — adds normalized segmentation hints to the text-only contract.
+* `staging/layer-lab/render_clean_plate_motion_review.py` — review renderer with full-canvas layers, camera, reveal masks, copy, and graphics.
+* `staging/layer-lab/motion-render-review/solocruz-two-scene-motion-review-v3.mp4` — local review-only render.
+* `staging/layer-lab/motion-render-review/full-canvas-layers-v3/*` — review-only registered RGBA layers.
+* `docs/PROJECT_MEMORY.md` — records full-canvas rendering contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python -m py_compile` for the analyser and renderer.
+* `ffprobe`: H.264, 768x1376, 24 fps, 9.0 seconds.
+* Visually checked reveal and text keyframes; rebuilt after the alpha defect.
+
+### Risks / TODO
+
+* This is an internal review render, not an Instagram publication. Future production must replace segmentation hints with a validated scene-role/mask contract before general dashboard use.
+
+## 2026-08-11 — Strengthen motion variety, typography, shadows, and graphics
+
+### Summary
+
+* Added distinct layer entrances from left, right, top, and bottom while retaining full-canvas registration after settling.
+* Increased overlay typography size and contrast with a soft halo and contour instead of a solid text panel.
+* Strengthened layer contact shadows and replaced faint line decoration with visible rings, route nodes, arrows, and split-path graphics.
+
+### Files changed
+
+* `staging/layer-lab/render_clean_plate_motion_review.py` — v5 review renderer changes.
+* `staging/layer-lab/motion-render-review/solocruz-two-scene-motion-review-v5.mp4` — regenerated review video.
+* `staging/layer-lab/motion-render-review/qa-v5/timeline/*` — keyframe QA images.
+* `docs/PROJECT_MEMORY.md` — durable renderer rules and verification record.
+
+### Checks run
+
+* Project virtualenv `staging/layer-lab/.venv/bin/python -m py_compile`.
+* Render completed successfully with the project virtualenv.
+* `ffprobe`: H.264, 768x1376, 24 fps, 9.0 seconds.
+* Visually checked boarding and shore keyframes for contrast, entrance variety, shadows, and graphics.
+
+### Risks / TODO
+
+* This remains a local review render. It does not publish and does not yet replace the production GPU extraction pipeline.
+
+## 2026-08-11 — Remove decorative graphics and add subject-focused camera motion
+
+### Summary
+
+* Removed all decorative rings, route lines, arrows, and other renderer graphics from the review direction.
+* Directional layer entrances now move the complete subject as one unit; they no longer combine side/top/bottom motion with reveal masks.
+* Added timed camera shots with zoom and focus transitions between scene subjects. Text is rendered after the camera pass so it stays readable and screen-anchored.
+* Added local luminance-based text contrast: the renderer chooses the fill and opposing contour from the actual background under the copy.
+
+### Files changed
+
+* `staging/layer-lab/render_clean_plate_motion_review.py` — v6 renderer behavior.
+* `staging/layer-lab/motion-render-review/solocruz-two-scene-motion-review-v6.mp4` — regenerated review video.
+* `staging/layer-lab/motion-render-review/qa-v6/timeline/*` — keyframe QA images.
+* `docs/PROJECT_MEMORY.md` — durable motion and overlay rules.
+
+### Checks run
+
+* Project virtualenv compile and render succeeded.
+* `ffprobe`: H.264, 768x1376, 24 fps, 9.0 seconds.
+* Visual QA checked the camera close-up, focus transition, complete directional subject entry, and screen-anchored text.
+
+### Risks / TODO
+
+* This remains a local review render only. It does not publish and does not generate new media.
+
+## 2026-08-11 — Repair layer masks and sequence camera after entrances
+
+### Summary
+
+* Replaced difference-only review masks with cached SAM masks assembled from each person and their owned/contact objects.
+* Repaired the foreign-clothing fragment on the independent boarding woman and the internal clothing/bag holes in the shore scene.
+* Held the camera during object entrances, then added stronger close-ups and focus transfers between the first and next appeared groups.
+* Added automatic quiet-zone text placement and local contrast selection; shore copy now uses the large open sky instead of the crowded lower frame.
+
+### Files changed
+
+* `staging/layer-lab/prepare_review_masks_sam.py` — cached SAM mask preparation for approved review scenes.
+* `staging/layer-lab/render_clean_plate_motion_review.py` — v8 masks, camera timing, focus shots, and text layout.
+* `staging/layer-lab/motion-render-review/sam-masks-v8/*` — repaired full-canvas masks.
+* `staging/layer-lab/motion-render-review/solocruz-two-scene-motion-review-v8.mp4` — regenerated review video.
+* `staging/layer-lab/motion-render-review/qa-v8/timeline/*` — visual QA keyframes.
+* `docs/PROJECT_MEMORY.md` — durable mask, camera, and text-placement rules.
+
+### Checks run
+
+* Compiled both Python utilities with the project virtualenv.
+* Ran SAM 2.1 mask preparation on Apple MPS and rendered the full video locally.
+* `ffprobe`: H.264, 768x1376, 24 fps, 9.0 seconds.
+* Visually checked entrances, mask integrity, close-ups, focus transfer, and text placement at seven timeline positions.
+
+### Risks / TODO
+
+* This is still a review-only two-scene render and is not published. The reusable production worker must receive object ownership and prompt boxes from the validated scene-role contract rather than fixed review coordinates.
+
+## 2026-08-11 — Complete hands and harden text-safe motion review
+
+### Summary
+
+* Repaired the boarding group's missing handshake parts with a narrow contact-area patch while excluding unrelated background luggage.
+* Restricted copy to genuinely free upper zones and corrected local fill/contour contrast.
+* Retained whole-object entrances, delayed camera movement, close-ups, and focus transfers between appeared groups.
+
+### Files changed
+
+* `staging/layer-lab/prepare_review_masks_sam.py` — narrow contact-area reconstruction and v10 cached masks.
+* `staging/layer-lab/render_clean_plate_motion_review.py` — v10 safe-zone typography and camera sequence.
+* `staging/layer-lab/motion-render-review/sam-masks-v10/*` — final full-canvas masks.
+* `staging/layer-lab/motion-render-review/solocruz-two-scene-motion-review-v10.mp4` — final review video.
+* `staging/layer-lab/motion-render-review/qa-v10/timeline/*` — visual QA keyframes.
+* `docs/PROJECT_MEMORY.md` — durable extraction, typography, and camera rules.
+
+### Checks run
+
+* Compiled the mask preparation and renderer utilities with the project virtualenv.
+* Ran SAM 2.1 mask preparation and the complete local render.
+* Verified with `ffprobe`: H.264, 768x1376, 24 fps, 9.0 seconds.
+* Visually checked six timeline frames for complete hands and clothing, absence of background-object leakage, upper-safe-zone text, contrast, close-ups, and focus transfer.
+
+### Risks / TODO
+
+* This remains a local review artifact and was not published. No new image, voice, audio, music, or video-model generation was performed.
