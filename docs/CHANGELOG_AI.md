@@ -1,5 +1,23 @@
 # CHANGELOG_AI.md
 
+## 2026-08-11 — Compare planned Reel motion with renderer behavior
+
+### Summary
+* Extracted every generated background/component prompt, placement, reveal, motion, camera instruction, and overlay-text position from the SoloCruz text-only storyboard.
+* Traced the same fields through `reel_renderer.py` and found that full-canvas rendering ignores manifest reveal/motion/timing in favor of an index-based animation cycle.
+
+### Files changed
+* `docs/PROJECT_MEMORY.md` — recorded the planning/rendering contract mismatch as a production blocker.
+
+### Decisions
+* Do not generate media from this storyboard until reviewed motion instructions and actual renderer behavior are the same contract.
+
+### Checks run
+* Compared all seven storyboard scenes and eight components with `_full_canvas_layer_frame` and `_subject_camera_values`.
+
+### Risks / TODO
+* Wire approved per-layer reveal, motion, and timing into the full-canvas renderer, and define how detailed camera start/end instructions compile into deterministic motion.
+
 ## 2026-08-11 — Align Reel planning with master-derived contact groups
 
 ### Summary

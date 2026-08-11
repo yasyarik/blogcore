@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-11 — Reel renderer currently ignores planned layer reveal/motion
+
+* The text-only production manifest contains per-component `reveal`, `motion`, `startSeconds`, and `endSeconds`, but the active full-canvas master-derived renderer does not consume those fields. `_full_canvas_layer_frame` deterministically cycles through `slide_left`, `slide_right`, `drop`, `rise`, and `focus` from scene/layer indexes.
+* Camera prose (`cameraStart`, `cameraEnd`, `cameraMotivation`) is also not interpreted directly. The renderer holds its base camera until 46% scene progress, pushes to the first detected subject, then pulls/transfers or finishes with the coarse `cameraMove` preset.
+* This is a production blocker for operator-reviewed storyboard timing. Do not claim that the rendered motion matches Gemini's technical plan until the renderer consumes the approved manifest or the unused fields are removed from the planning contract.
+
 ## 2026-08-11 — Text-only Reel planning remains blocked before media production
 
 * A full text-only production plan for the published SoloCruz article `What Makes a Cruise Truly Solo-Friendly? A Checklist Beyond the Single Cabin` completed with seven scenes and no media generation.
