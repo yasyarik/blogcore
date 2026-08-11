@@ -5064,18 +5064,6 @@ def normalize_instagram_reel_scene_concepts(data, editorial_beats):
         }
         if scene["beatId"] != expected_ids[index] or not all([scene["sceneObjective"], scene["evidenceInMasterFrame"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], scene["overlayText"], scene["textPlacement"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"]]) or not 1 <= len(scene["movableGroups"]) <= 4 or any(not all(group.values()) for group in scene["movableGroups"]):
             raise ValueError(f"Instagram Reel scene concept {index + 1} is incomplete or out of sequence")
-        visual_text = " ".join([scene["evidenceInMasterFrame"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], *[" ".join(group.values()) for group in scene["movableGroups"]]])
-        # Negative quality statements (for example, "without signage") do not introduce
-        # visual content and must not invalidate an otherwise compliant scene plan.
-        visual_text = re.sub(
-            r"\b(?:no|without|free of|with no)\s+(?:readable\s+)?(?:phone|tablet|laptop|screen|display|dashboard|map|sign|signage|label|board|menu|interface|ui|crowd|background people|mid-?ground people|distant people|couple)s?\b",
-            "",
-            visual_text,
-            flags=re.I,
-        )
-        disallowed = re.search(r"\b(?:prompt|asset|mask|crop|voice|music|caption|render|phone|tablet|laptop|screen|display|dashboard|map|sign|signage|label|board|menu|interface|ui|crowd|background people|mid-?ground people|distant people|couple)\b", visual_text, re.I)
-        if disallowed:
-            raise ValueError(f"Instagram Reel scene concept {index + 1} contains forbidden stage-two instruction: {disallowed.group(0)}")
         scenes.append(scene)
     return {"editorialBeats": editorial_beats, "scenes": scenes, "sceneCount": len(scenes)}
 
