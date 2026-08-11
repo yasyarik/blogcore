@@ -1,5 +1,24 @@
 # CHANGELOG_AI.md
 
+## 2026-08-11 - Make Reel retention visible before the final solution
+
+### Summary
+* Added a required retention plan to the text-only editorial brief: early promise, withheld resolution, payoff rank, and presentation order.
+* Bounded checklists now use a reverse countdown that reserves the decisive rank-one solution for the final reveal.
+* When the article contains a real product mechanism that resolves the central problem, the brief must make it the factual payoff rather than append it as promotion.
+
+### Files changed
+* `app.py` - added retention-plan schema, prompt requirements, and validation.
+* `docs/PROJECT_MEMORY.md` - recorded the durable retention contract.
+* `docs/CHANGELOG_AI.md` - recorded this task.
+
+### Checks run
+* Python compilation and a text-only rerun against the SoloCruz article.
+* No image, voice, music, video, or rendering request was made.
+
+### Risks / TODO
+* Visual stages remain blocked until the revised editorial brief is approved.
+
 ## 2026-08-11 - Reject generic Reel hooks before visual planning
 
 ### Summary

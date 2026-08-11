@@ -4741,6 +4741,17 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
                 "required": ["rank", "step", "sourceGrounding", "whyItMatters"],
             },
         },
+        "retentionPlan": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["countdown", "open_loop"]},
+                "earlyPromise": {"type": "string"},
+                "withheldResolution": {"type": "string"},
+                "payoffRank": {"type": "number"},
+                "presentationOrder": {"type": "array", "items": {"type": "number"}},
+            },
+            "required": ["mode", "earlyPromise", "withheldResolution", "payoffRank", "presentationOrder"],
+        },
         "finalResolution": {
             "type": "object",
             "properties": {
@@ -4751,7 +4762,7 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
             "required": ["answer", "brandRole", "sourceGrounding"],
         },
     },
-    "required": ["centralProblem", "problemSourceGrounding", "hook", "solutionSteps", "finalResolution"],
+    "required": ["centralProblem", "problemSourceGrounding", "hook", "solutionSteps", "retentionPlan", "finalResolution"],
 }
 
 
@@ -4790,8 +4801,9 @@ SOURCE:
 YOUR ONLY JOB IN THIS STEP:
 1. Identify the article's ONE central reader problem.
 2. Write one source-grounded, attention-grabbing hook about that problem.
-3. Extract 3 to 5 source-grounded solution steps or decision criteria that solve the problem. Put them in the order that creates the clearest escalation of value. Use a countdown only when the article itself provides a real bounded ranking.
-4. State the final answer: how the brand's real offer, workflow, or platform resolves the problem. Explain its practical role without turning this into an ad or inventing capabilities.
+3. Extract 3 to 5 source-grounded solution steps or decision criteria that solve the problem. Rank them by value, where rank 1 is the most decisive answer.
+4. Build the retention plan for revealing those steps. When the article supports a real bounded checklist, use a reverse countdown that presents the least decisive step first and reserves rank 1 for the final reveal. In the first seconds, state a specific early promise of what rank 1 will solve or unlock. If a countdown would be artificial, use an open loop instead and state exactly what final resolution remains withheld.
+5. State the final answer: how the brand's real offer, workflow, or platform resolves the problem. Explain its practical role without turning this into an ad or inventing capabilities. The final resolution may expand rank 1, but it must not introduce a solution that was absent from the ranked steps.
 
 STRICT RULES:
 - Do not write scenes, visual concepts, characters, photographs, layers, camera moves, text animation, audio, captions, or a production plan.
@@ -4801,6 +4813,9 @@ STRICT RULES:
 - `overlayStake` identifies the exact cost, risk, contradiction, or consequence stated literally in `overlayText`. The overlay itself must carry that stake, not merely name a topic or a phenomenon. For example, use the actual loss or consequence, not a label such as "the trap" or "the problem".
 - The overlay and narration must make the stake legible immediately, while preserving the final answer. A generic phrase that could introduce any article is invalid even if it is grammatically correct or source-grounded.
 - Every solution step must add a distinct part of the answer. Do not repeat article headings or create vague advice.
+- `retentionPlan.earlyPromise` must tell the viewer why waiting for the payoff matters. It cannot merely say "keep watching", "number one", or "the final tip". `withheldResolution` names the practical answer held back until the payoff. `presentationOrder` gives the exact rank order in which the Reel reveals the steps.
+- When `mode` is `countdown`, `presentationOrder` must run from the lowest-ranked step to rank 1 and `payoffRank` must be 1. This makes the final reveal the most consequential answer. The hook or narration must introduce the early promise before the ordinary steps appear.
+- When the article names a real brand mechanism that directly resolves the central problem, that mechanism must be rank 1 and the final resolution must expand it factually. Do not demote it to an unrelated closing promotion after a list of generic advice.
 - The final resolution must close the hook's question. `brandRole` says exactly what the brand enables in this solution; it must be factual and source-grounded.
 - Write in {language_name}. Keep the hook overlay mobile-readable: 3 to 8 words. Keep hook narration: 5 to 14 words.
 """.strip()
@@ -4846,11 +4861,25 @@ def normalize_instagram_reel_editorial_brief(data):
         if step["rank"] != index or not all([step["step"], step["sourceGrounding"], step["whyItMatters"]]):
             raise ValueError(f"Instagram Reel editorial brief step {index} is incomplete or out of order")
         brief["solutionSteps"].append(step)
+    retention_raw = data.get("retentionPlan") if isinstance(data.get("retentionPlan"), dict) else {}
+    presentation_order = []
+    for value in retention_raw.get("presentationOrder") if isinstance(retention_raw.get("presentationOrder"), list) else []:
+        try:
+            presentation_order.append(int(value))
+        except (TypeError, ValueError):
+            presentation_order.append(0)
+    brief["retentionPlan"] = {
+        "mode": _reel_copy(retention_raw.get("mode"), 32).lower(),
+        "earlyPromise": _reel_copy(retention_raw.get("earlyPromise"), 600),
+        "withheldResolution": _reel_copy(retention_raw.get("withheldResolution"), 600),
+        "payoffRank": int(retention_raw.get("payoffRank") or 0),
+        "presentationOrder": presentation_order,
+    }
     if not all([
         brief["centralProblem"], brief["problemSourceGrounding"], brief["hook"]["overlayText"],
         brief["hook"]["narration"], brief["hook"]["whyItHooks"], brief["hook"]["tensionType"],
         brief["hook"]["concreteStake"], brief["hook"]["overlayStake"], brief["hook"]["viewerQuestion"], brief["hook"]["payoffPromise"], brief["finalResolution"]["answer"],
-        brief["finalResolution"]["brandRole"], brief["finalResolution"]["sourceGrounding"],
+        brief["retentionPlan"]["mode"], brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["withheldResolution"], brief["finalResolution"]["brandRole"], brief["finalResolution"]["sourceGrounding"],
     ]):
         raise ValueError("Instagram Reel editorial brief is incomplete")
     if not 3 <= len(brief["hook"]["overlayText"].split()) <= 8 or not 5 <= len(brief["hook"]["narration"].split()) <= 14:
@@ -4863,6 +4892,16 @@ def normalize_instagram_reel_editorial_brief(data):
     overlay_tokens = {token.lower() for token in re.findall(r"[^\W_]+", brief["hook"]["overlayText"], re.UNICODE)}
     if not stake_tokens or not stake_tokens.intersection(overlay_tokens):
         raise ValueError("Instagram Reel editorial brief overlay must literally state its concrete stake")
+    step_ranks = [step["rank"] for step in brief["solutionSteps"]]
+    if step_ranks != list(range(1, len(brief["solutionSteps"]) + 1)):
+        raise ValueError("Instagram Reel editorial brief solution steps must rank value from 1 through the final rank")
+    retention = brief["retentionPlan"]
+    if retention["mode"] not in {"countdown", "open_loop"} or retention["payoffRank"] not in step_ranks or len(retention["earlyPromise"].split()) < 6 or len(retention["withheldResolution"].split()) < 5:
+        raise ValueError("Instagram Reel editorial brief needs a concrete retention plan")
+    if sorted(retention["presentationOrder"]) != step_ranks:
+        raise ValueError("Instagram Reel editorial brief retention plan must present every ranked solution step once")
+    if retention["mode"] == "countdown" and (retention["payoffRank"] != 1 or retention["presentationOrder"] != list(range(len(step_ranks), 0, -1))):
+        raise ValueError("Instagram Reel countdown must reserve rank 1 for the final payoff")
     return brief
 
 

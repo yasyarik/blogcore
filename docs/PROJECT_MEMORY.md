@@ -13,6 +13,12 @@
 * A source-grounded but generic phrase is not an acceptable Reel hook. The stage-one contract requires the model to explicitly identify whether the tension is a cost, risk, contradiction, or consequence; state the concrete stake; formulate the viewer's unresolved practical question; and state the final payoff it promises.
 * Hook overlay and narration must make the stake legible immediately while withholding the answer. The overlay itself must literally contain a meaningful word from the declared stake, so a category label, slogan, polite introduction, or broad observation fails even if it is grammatically valid.
 
+## 2026-08-11 - Reel retention is explicit in the editorial brief
+
+* The stage-one brief must define how the viewer is retained after the hook: an early promise, a withheld practical resolution, a payoff rank, and the exact ranked order in which solution steps are presented.
+* When the article supports a real bounded checklist, the Reveal uses a reverse countdown. Rank 1 is the most decisive solution, appears last, and is explicitly promised before the earlier steps. `Keep watching` or a generic number label is not retention.
+* If a source article names a factual brand mechanism that directly resolves the central reader problem, it must be ranked as the final payoff rather than bolted onto generic advice after the list.
+
 ## 2026-08-11 - Reel layerability is owned by story architecture
 
 * The first text pass must choose physical visual worlds whose meaningful people are complete unobstructed free-standing groups. Seated, furniture-supported, cropped, small-prop-led, or extraction-oriented visual worlds are rejected before the visual skeleton is generated.
