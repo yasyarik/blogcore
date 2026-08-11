@@ -8,6 +8,11 @@
 * The planning checkpoint version is 14. Older version-13 Reel checkpoints are intentionally not resumed under this workflow.
 * Replaced/deprecated: beginning Reel planning by selecting scenes, protagonists, visual worlds, or a six-to-eight-screen architecture before the article's editorial problem and resolution path are explicit and reviewable.
 
+## 2026-08-11 - Reel hooks must expose a concrete stake
+
+* A source-grounded but generic phrase is not an acceptable Reel hook. The stage-one contract requires the model to explicitly identify whether the tension is a cost, risk, contradiction, or consequence; state the concrete stake; formulate the viewer's unresolved practical question; and state the final payoff it promises.
+* Hook overlay and narration must make the stake legible immediately while withholding the answer. The overlay itself must literally contain a meaningful word from the declared stake, so a category label, slogan, polite introduction, or broad observation fails even if it is grammatically valid.
+
 ## 2026-08-11 - Reel layerability is owned by story architecture
 
 * The first text pass must choose physical visual worlds whose meaningful people are complete unobstructed free-standing groups. Seated, furniture-supported, cropped, small-prop-led, or extraction-oriented visual worlds are rejected before the visual skeleton is generated.

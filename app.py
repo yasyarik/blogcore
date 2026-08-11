@@ -4720,8 +4720,13 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
                 "overlayText": {"type": "string"},
                 "narration": {"type": "string"},
                 "whyItHooks": {"type": "string"},
+                "tensionType": {"type": "string", "enum": ["cost", "risk", "contradiction", "consequence"]},
+                "concreteStake": {"type": "string"},
+                "overlayStake": {"type": "string"},
+                "viewerQuestion": {"type": "string"},
+                "payoffPromise": {"type": "string"},
             },
-            "required": ["overlayText", "narration", "whyItHooks"],
+            "required": ["overlayText", "narration", "whyItHooks", "tensionType", "concreteStake", "overlayStake", "viewerQuestion", "payoffPromise"],
         },
         "solutionSteps": {
             "type": "array",
@@ -4791,7 +4796,10 @@ YOUR ONLY JOB IN THIS STEP:
 STRICT RULES:
 - Do not write scenes, visual concepts, characters, photographs, layers, camera moves, text animation, audio, captions, or a production plan.
 - Do not turn the article into a dating story, personal drama, or fictional customer journey. The Reel must remain about the article's actual reader problem and solution.
-- The hook must interrupt a mistaken assumption, expose a cost/risk, or frame a consequential unresolved question found in the article. It must not be a polite topic introduction, generic title, or unsupported claim.
+- The hook is not a title, category label, slogan, or broad observation. It must name one concrete stake: a cost, risk, contradiction, or consequence that the reader faces by making the wrong choice or believing the wrong assumption.
+- `tensionType` must be exactly one of `cost`, `risk`, `contradiction`, or `consequence`. `concreteStake` explains the specific loss, uncertainty, or unwanted outcome in one complete sentence. `viewerQuestion` is the unresolved practical question created by the hook. `payoffPromise` states the answer that the final resolution will deliver.
+- `overlayStake` identifies the exact cost, risk, contradiction, or consequence stated literally in `overlayText`. The overlay itself must carry that stake, not merely name a topic or a phenomenon. For example, use the actual loss or consequence, not a label such as "the trap" or "the problem".
+- The overlay and narration must make the stake legible immediately, while preserving the final answer. A generic phrase that could introduce any article is invalid even if it is grammatically correct or source-grounded.
 - Every solution step must add a distinct part of the answer. Do not repeat article headings or create vague advice.
 - The final resolution must close the hook's question. `brandRole` says exactly what the brand enables in this solution; it must be factual and source-grounded.
 - Write in {language_name}. Keep the hook overlay mobile-readable: 3 to 8 words. Keep hook narration: 5 to 14 words.
@@ -4810,6 +4818,11 @@ def normalize_instagram_reel_editorial_brief(data):
             "overlayText": _reel_copy(hook_raw.get("overlayText"), 100),
             "narration": _reel_copy(hook_raw.get("narration"), 260),
             "whyItHooks": _reel_copy(hook_raw.get("whyItHooks"), 600),
+            "tensionType": _reel_copy(hook_raw.get("tensionType"), 32).lower(),
+            "concreteStake": _reel_copy(hook_raw.get("concreteStake"), 600),
+            "overlayStake": _reel_copy(hook_raw.get("overlayStake"), 180),
+            "viewerQuestion": _reel_copy(hook_raw.get("viewerQuestion"), 500),
+            "payoffPromise": _reel_copy(hook_raw.get("payoffPromise"), 600),
         },
         "solutionSteps": [],
         "finalResolution": {
@@ -4835,12 +4848,21 @@ def normalize_instagram_reel_editorial_brief(data):
         brief["solutionSteps"].append(step)
     if not all([
         brief["centralProblem"], brief["problemSourceGrounding"], brief["hook"]["overlayText"],
-        brief["hook"]["narration"], brief["hook"]["whyItHooks"], brief["finalResolution"]["answer"],
+        brief["hook"]["narration"], brief["hook"]["whyItHooks"], brief["hook"]["tensionType"],
+        brief["hook"]["concreteStake"], brief["hook"]["overlayStake"], brief["hook"]["viewerQuestion"], brief["hook"]["payoffPromise"], brief["finalResolution"]["answer"],
         brief["finalResolution"]["brandRole"], brief["finalResolution"]["sourceGrounding"],
     ]):
         raise ValueError("Instagram Reel editorial brief is incomplete")
     if not 3 <= len(brief["hook"]["overlayText"].split()) <= 8 or not 5 <= len(brief["hook"]["narration"].split()) <= 14:
         raise ValueError("Instagram Reel editorial brief hook is not mobile-readable")
+    if brief["hook"]["tensionType"] not in {"cost", "risk", "contradiction", "consequence"}:
+        raise ValueError("Instagram Reel editorial brief hook must identify a concrete tension type")
+    if len(brief["hook"]["concreteStake"].split()) < 6 or len(brief["hook"]["viewerQuestion"].split()) < 5 or len(brief["hook"]["payoffPromise"].split()) < 5:
+        raise ValueError("Instagram Reel editorial brief hook must state the stake, open question, and promised payoff")
+    stake_tokens = {token.lower() for token in re.findall(r"[^\W_]+", brief["hook"]["overlayStake"], re.UNICODE) if len(token) >= 4}
+    overlay_tokens = {token.lower() for token in re.findall(r"[^\W_]+", brief["hook"]["overlayText"], re.UNICODE)}
+    if not stake_tokens or not stake_tokens.intersection(overlay_tokens):
+        raise ValueError("Instagram Reel editorial brief overlay must literally state its concrete stake")
     return brief
 
 

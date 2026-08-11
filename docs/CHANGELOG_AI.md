@@ -1,5 +1,23 @@
 # CHANGELOG_AI.md
 
+## 2026-08-11 - Reject generic Reel hooks before visual planning
+
+### Summary
+* Strengthened the mandatory editorial-brief hook contract so a generic statement cannot pass merely because it is source-grounded and the right length.
+* The model must now declare the concrete tension type, stake, literal overlay stake, viewer question, and final payoff promise alongside the overlay and narration.
+
+### Files changed
+* `app.py` - added hook-stake fields and validation to the text-only Reel editorial brief.
+* `docs/PROJECT_MEMORY.md` - recorded the durable hook-quality rule.
+* `docs/CHANGELOG_AI.md` - recorded this task.
+
+### Checks run
+* Python compilation and one text-only rerun against the SoloCruz source article.
+* No image, voice, music, video, or rendering request was made.
+
+### Risks / TODO
+* The subsequent visual stages remain intentionally unstarted until the revised first-stage brief is approved.
+
 ## 2026-08-11 - Add the mandatory Reel editorial brief as pipeline stage one
 
 ### Summary
