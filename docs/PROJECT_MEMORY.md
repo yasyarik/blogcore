@@ -1,5 +1,11 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-11 — Reel scene planning matches master-derived contact groups
+
+* A movable character group may walk, turn, gesture, or interact naturally. When a source-grounded action requires another person or a movable contact/owned item, every touching person and complete contacting item belongs to the same extraction-safe group and is described as one combined silhouette.
+* Fixed architecture remains in the clean background and must not touch or occlude a movable group. Separate movable groups retain visible background space between them.
+* Replaced/deprecated: the old independent-foreground validator that rejected walking and every scene mentioning seating or furniture. That rule contradicted the current master-derived extraction architecture and caused repeated text-only storyboard rejection.
+
 ## 2026-08-11 — Production Reels use one-pass validated master-derived scenes
 
 * Current architecture: each storyboard scene generates one complete coherent 9:16 master photograph containing all approved movable groups. The first prompt requires large mobile-readable subjects, complete heads/limbs/hands/clothing/owned items, clear background gaps between independent groups, no unrelated nearby crowd, and a calm text-safe region.

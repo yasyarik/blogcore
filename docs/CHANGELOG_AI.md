@@ -1,5 +1,25 @@
 # CHANGELOG_AI.md
 
+## 2026-08-11 — Align Reel planning with master-derived contact groups
+
+### Summary
+* Ran the text-only Reel planner on a published SoloCruz article without invoking image, voice, music, or rendering functions.
+* Found that an obsolete independent-foreground validator rejected ordinary walking and any character interaction with seating/furniture across all six text attempts.
+* Replaced the obsolete prohibition with the production rule that complete touching people and movable contact/owned items form one extraction-safe master-derived group while fixed architecture remains separate background.
+
+### Files changed
+* `app.py` — aligned the universal scene prompt and validators with master-derived extraction.
+* `docs/PROJECT_MEMORY.md` — recorded the durable contact-group rule and deprecated validator.
+
+### Decisions
+* Scene planning must describe a valid master composition on the first prompt instead of forcing free-standing cutout restrictions inherited from the deprecated foreground generator.
+
+### Checks run
+* Confirmed the failed run stopped during text-only planning and generated no image, audio, music, or video file.
+
+### Risks / TODO
+* Repeat the same text-only production-plan run after deployment and review its complete storyboard before any media generation.
+
 ## 2026-08-11 — Audit the production Reel image contract
 
 ### Summary
