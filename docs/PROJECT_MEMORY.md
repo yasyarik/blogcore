@@ -35,6 +35,8 @@
 * Every Stage 2 scene must state `evidenceInMasterFrame`: the visible source-grounded spatial condition, interaction, or before/after relationship that makes the current editorial beat legible. A themed location or a person merely posing in it is not evidence and is rejected at the contract level.
 * Prompt and validator responsibilities are distinct: the prompt forbids inappropriate visual content, while the lexical validator must permit a negative statement that such content is absent. A word-only rejection of a compliant negative quality constraint is a validator defect, not a reason to spend another model call.
 * Replaced/deprecated: broad lexical scene-content rejection after structured JSON parsing. It cannot distinguish prohibited visual content from a safe quality statement and hides the actual Gemini plan. Stage two relies on the explicit source-grounded prompt contract and human checkpoint review before media generation.
+* Natural physical descriptions such as standing, looking, walking, talking, smiling, and laughing are valid Stage 2 language. They are not evidence alone; the plan must state the source-grounded spatial relationship or interaction that makes their use meaningful.
+* Every movable human group is planned as a complete free-standing floor/deck figure with visible separation from fixed architecture. Article-unmentioned portable props and a new scenic or celebratory final world are forbidden; the resolution continues the factual payoff world and mechanism.
 
 ## 2026-08-11 - Reel layerability is owned by story architecture
 

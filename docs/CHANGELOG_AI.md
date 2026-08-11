@@ -75,6 +75,27 @@
 ### Risks / TODO
 * The received SoloCruz candidate is rejected before media generation: it still invents unsupported props, passive staging, background actors, and a fictional success arc. The Stage 2 prompt needs another source- and composition-level correction before a new explicit model run.
 
+## 2026-08-11 - Ground Stage 2 in free-standing source evidence
+
+### Summary
+* Refined the shared Stage 2 prompt to allow normal human states while requiring every frame to state the source-grounded relationship they make visible.
+* Restricted planned movable groups to complete free-standing figures and removed ungrounded portable props and scenic-resolution substitutions.
+
+### Files changed
+* `app.py` - Strengthened universal source-to-visual, extractability, bridge, and payoff-resolution rules for Gemini Stage 2 planning.
+
+### Decisions
+* The resolution must continue the payoff's factual physical world rather than inventing a celebratory travel ending.
+* A bridge without its own physical event must reframe a previously established source-grounded world rather than create a generic new location.
+
+### Checks run
+* `python3 -m py_compile app.py`
+* Live health check: `http://127.0.0.1:3299/health`
+* Text-only Stage 2 Gemini run for the SoloCruz article; no image, voice, music, or video calls.
+
+### Risks / TODO
+* The text-only Stage 2 plan remains at the operator-review checkpoint. Do not proceed to master-image generation until its seven source-grounded scenes are accepted.
+
 ## 2026-08-11 - Add checkpointed Reel scene-concept planning
 
 ### Summary
