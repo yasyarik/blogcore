@@ -57,6 +57,24 @@
 ### Risks / TODO
 * The next Stage 2 call must be reviewed for source-specific evidence, not treated as accepted merely because the lexical validator passes.
 
+## 2026-08-11 - Expose Gemini Stage 2 plans for review
+
+### Summary
+* Removed the broad word-based content blocker that concealed a complete Gemini scene plan after structured schema validation.
+
+### Files changed
+* `app.py` - Keeps structural validation of Stage 2 output and leaves visual-quality acceptance to the explicit prompt contract plus the operator review checkpoint.
+
+### Decisions
+* A structured plan must be visible for review. A brittle token blacklist cannot be the authority on whether a scene concept is usable.
+
+### Checks run
+* `python3 -m py_compile app.py`
+* Live health check: `http://127.0.0.1:3299/health`
+
+### Risks / TODO
+* The received SoloCruz candidate is rejected before media generation: it still invents unsupported props, passive staging, background actors, and a fictional success arc. The Stage 2 prompt needs another source- and composition-level correction before a new explicit model run.
+
 ## 2026-08-11 - Add checkpointed Reel scene-concept planning
 
 ### Summary
