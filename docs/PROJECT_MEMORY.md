@@ -19,6 +19,13 @@
 * When the article supports a real bounded checklist, the Reveal uses a reverse countdown. Rank 1 is the most decisive solution, appears last, and is explicitly promised before the earlier steps. `Keep watching` or a generic number label is not retention.
 * If a source article names a factual brand mechanism that directly resolves the central reader problem, it must be ranked as the final payoff rather than bolted onto generic advice after the list.
 
+## 2026-08-11 - Reel scene concepts are coherent moments, not decorative travel shots
+
+* Stage two produces one text-only, source-grounded scene concept for each locked editorial beat. It explains the scene objective, explicit `visibleAction`, observable visual moment, opening and ending understanding, integrated frame, planned groups, continuity, retained question, editorial handoff, and natural text-safe zone.
+* A scene concept is invalid if it uses background/mid-ground/distant people, readable devices or signage, collage logic, romance/couple-coded staging, or a person merely standing, smiling, or looking. Every frame must contain a beat-specific visible action or spatial relationship that explains the current editorial point.
+* Replaced/deprecated: a fixed English verb list as the validator for `visibleAction`. That is a language-specific implementation shortcut; the universal scene brief requires the action semantically and later review evaluates whether it truly carries the beat.
+* Replaced/deprecated: accepting generic scenic travel images as a visual plan because the on-screen copy happens to carry the real meaning.
+
 ## 2026-08-11 - Reel layerability is owned by story architecture
 
 * The first text pass must choose physical visual worlds whose meaningful people are complete unobstructed free-standing groups. Seated, furniture-supported, cropped, small-prop-led, or extraction-oriented visual worlds are rejected before the visual skeleton is generated.

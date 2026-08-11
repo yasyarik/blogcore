@@ -1,5 +1,24 @@
 # CHANGELOG_AI.md
 
+## 2026-08-11 - Add checkpointed Reel scene-concept planning
+
+### Summary
+* Added a second, text-only Reel stage that derives immutable editorial beats from the approved brief and creates one coherent scene concept for each beat.
+* The stage explicitly remains before all image, asset, voice, music, camera, and rendering work. Each scene now has an explicit physical `visibleAction`, rather than allowing static posing to masquerade as a scene.
+* Strengthened the stage-two contract to reject generic posed travel shots, background crowds, readable visual shortcuts, and romance-coded staging. Removed an invalid fixed-English-verb validator that rejected otherwise structured action descriptions.
+
+### Files changed
+* `app.py` - added editorial-beat derivation, scene-concept schema/prompt/validation, and the `scene_concepts_ready` checkpoint.
+* `docs/PROJECT_MEMORY.md` - recorded the durable stage-two visual-story rule.
+* `docs/CHANGELOG_AI.md` - recorded this task.
+
+### Checks run
+* Python compilation and one text-only stage-two run against the SoloCruz article.
+* The initial candidate was rejected before media because it used generic standing/looking actions, background people, and readable-location shortcuts.
+
+### Risks / TODO
+* The corrected stage-two prompt must be rerun and approved before any technical frame, image, or animation work begins.
+
 ## 2026-08-11 - Make Reel retention visible before the final solution
 
 ### Summary

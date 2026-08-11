@@ -4914,6 +4914,155 @@ def generate_instagram_reel_editorial_brief(site, job, language):
     ))
 
 
+INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scenes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "beatId": {"type": "string"},
+                    "sceneObjective": {"type": "string"},
+                    "visualMoment": {"type": "string"},
+                    "visibleAction": {"type": "string"},
+                    "openingState": {"type": "string"},
+                    "endingState": {"type": "string"},
+                    "integratedFrame": {"type": "string"},
+                    "foregroundGroups": {"type": "array", "items": {"type": "string"}},
+                    "continuityFromPrevious": {"type": "string"},
+                    "retentionIntoNext": {"type": "string"},
+                    "transitionIntent": {"type": "string"},
+                    "textSafeZone": {"type": "string"},
+                },
+                "required": ["beatId", "sceneObjective", "visualMoment", "visibleAction", "openingState", "endingState", "integratedFrame", "foregroundGroups", "continuityFromPrevious", "retentionIntoNext", "transitionIntent", "textSafeZone"],
+            },
+        },
+    },
+    "required": ["scenes"],
+}
+
+
+def derive_instagram_reel_editorial_beats(brief):
+    """Turn the approved editorial brief into the immutable scene inputs for stage two."""
+    brief = normalize_instagram_reel_editorial_brief(brief)
+    steps = {step["rank"]: step for step in brief["solutionSteps"]}
+    ordered_ranks = brief["retentionPlan"]["presentationOrder"]
+    beats = [{
+        "id": "beat-01",
+        "kind": "hook",
+        "editorialInput": brief["hook"]["overlayText"],
+        "sourceGrounding": brief["problemSourceGrounding"],
+        "viewerQuestion": brief["hook"]["viewerQuestion"],
+        "withheldAnswer": brief["hook"]["payoffPromise"],
+    }, {
+        "id": "beat-02",
+        "kind": "retention-bridge",
+        "editorialInput": brief["retentionPlan"]["earlyPromise"],
+        "sourceGrounding": brief["problemSourceGrounding"],
+        "viewerQuestion": brief["hook"]["viewerQuestion"],
+        "withheldAnswer": brief["retentionPlan"]["withheldResolution"],
+    }]
+    for sequence, rank in enumerate(ordered_ranks, start=3):
+        step = steps[rank]
+        beats.append({
+            "id": f"beat-{sequence:02d}",
+            "kind": "solution-payoff" if rank == brief["retentionPlan"]["payoffRank"] else "solution-step",
+            "rank": rank,
+            "editorialInput": step["step"],
+            "sourceGrounding": step["sourceGrounding"],
+            "viewerQuestion": brief["hook"]["viewerQuestion"],
+            "withheldAnswer": "" if rank == brief["retentionPlan"]["payoffRank"] else brief["retentionPlan"]["withheldResolution"],
+        })
+    beats.append({
+        "id": f"beat-{len(beats) + 1:02d}",
+        "kind": "resolution",
+        "editorialInput": brief["finalResolution"]["answer"],
+        "sourceGrounding": brief["finalResolution"]["sourceGrounding"],
+        "viewerQuestion": "resolved",
+        "withheldAnswer": "",
+    })
+    return beats
+
+
+def build_instagram_reel_scene_concept_prompt(site, job, language, editorial_beats):
+    language_name = LANGUAGE_NAMES.get(language, language.upper())
+    source_text = social_source_text(job, limit=16000)
+    return f"""
+You are stage two of a layered editorial Instagram Reel pipeline. You receive immutable editorial beats approved in stage one. Return JSON only using the supplied schema.
+
+SOURCE:
+- brand: {site['brand_name'] or site['domain']}
+- language: {language_name}
+- article: {job['title'] or job['topic']}
+- full article material: {source_text}
+- approved editorial beats: {json.dumps(editorial_beats, ensure_ascii=False)}
+
+YOUR ONLY JOB:
+For every supplied beat, design one coherent, photographable scene concept that makes that beat understandable and carries the viewer into the next beat. Preserve the supplied order, problem, retention question, source grounding, and final payoff. Do not add, remove, merge, reorder, or rewrite editorial beats.
+
+SCENE-CONCEPT CONTRACT:
+- This is still text planning. Do not write image-generation prompts, assets, layers, masks, crop instructions, camera moves, text animation, voice, music, captions, rendering instructions, or a technical production manifest.
+- `sceneObjective` says what single idea the scene makes clear. `visualMoment` describes one observable source-grounded moment, not a fictional customer journey or dating drama.
+- `openingState` and `endingState` describe a meaningful change in what the viewer understands inside this same scene. They do not invent a decision, booking, discovery, transaction, or reaction that the article does not state.
+- `integratedFrame` describes one complete 9:16 photographed world: real location, time/light, viewpoint, depth, important spatial relationship, and a clear low-detail text-safe area. It must be an integrated moment, not a collage of unrelated symbols.
+- `foregroundGroups` lists one to four meaningful complete people or cohesive groups that belong naturally in that same moment. They must be large enough to read, fully in frame, mutually separated by visible background space, free-standing, and not touching or hidden by fixed furniture, railings, counters, tables, walls, doors, or screens. The frame contains no other humans in its background, middle ground, distance, reflection, or silhouette.
+- `visibleAction` names the single concrete physical event or spatial relationship that makes this beat visible. It begins with who is acting and what they physically do. A person merely standing, smiling, walking decoratively, or looking at something is not a scene. The action must communicate the article's factual condition without claiming that anyone learns, books, pays, discovers, succeeds, or forms a romance.
+- `visualMoment` then explains the coherent photographed moment created by that visible action. For an abstract claim such as price, risk, or safety, the action may express the human condition while the locked editorial overlay carries the abstract fact; never invent a device, receipt, sign, or symbol to make an abstract number visible.
+- The concepts must read as one editorial visual progression inside the article's real domain, not as unrelated stock-travel images. Recurring performers may provide visual continuity, but they are only neutral anchors for source-grounded conditions, never protagonists in an invented personal success or romance story.
+- Use only places, roles, actions, and conditions that the supplied beat or article supports. Do not add airports, terminals, check-in procedures, passports, boarding, or any other travel-process scene merely because the topic is cruising. Do not say a scene `symbolizes`, `represents`, or `highlights` an idea: describe the actual observable moment instead.
+- The viewer must see why the current scene answers its exact beat. Avoid generic smiling, posing, travel glamour, romance, couple-coded staging, or scenes that would fit any article.
+- `continuityFromPrevious` explains how this scene develops the prior idea rather than resetting the story. `retentionIntoNext` states exactly what useful answer is still awaited. The final resolution scene must say that the main question is resolved.
+- `transitionIntent` describes the editorial handoff in plain language, not an editing effect. `textSafeZone` names a naturally quiet part of the actual frame where later text could remain readable.
+- Write in {language_name}. Do not use readable signage, labels, boards, menus, interfaces, phones, tablets, laptops, maps, price cards, symbols, or visual metaphors to carry the answer.
+""".strip()
+
+
+def normalize_instagram_reel_scene_concepts(data, editorial_beats):
+    if not isinstance(data, dict) or not isinstance(data.get("scenes"), list):
+        raise ValueError("Instagram Reel scene concepts must contain a scenes array")
+    expected_ids = [beat["id"] for beat in editorial_beats]
+    raw_scenes = data["scenes"]
+    if len(raw_scenes) != len(expected_ids):
+        raise ValueError("Instagram Reel scene concepts must contain exactly one scene for every editorial beat")
+    scenes = []
+    for index, raw_scene in enumerate(raw_scenes):
+        if not isinstance(raw_scene, dict):
+            raise ValueError(f"Instagram Reel scene concept {index + 1} is invalid")
+        scene = {
+            "beatId": _reel_copy(raw_scene.get("beatId"), 32).lower(),
+            "sceneObjective": _reel_copy(raw_scene.get("sceneObjective"), 500),
+            "visualMoment": _reel_copy(raw_scene.get("visualMoment"), 700),
+            "visibleAction": _reel_copy(raw_scene.get("visibleAction"), 500),
+            "openingState": _reel_copy(raw_scene.get("openingState"), 500),
+            "endingState": _reel_copy(raw_scene.get("endingState"), 500),
+            "integratedFrame": _reel_copy(raw_scene.get("integratedFrame"), 1200),
+            "foregroundGroups": [_reel_copy(value, 500) for value in (raw_scene.get("foregroundGroups") if isinstance(raw_scene.get("foregroundGroups"), list) else [])],
+            "continuityFromPrevious": _reel_copy(raw_scene.get("continuityFromPrevious"), 500),
+            "retentionIntoNext": _reel_copy(raw_scene.get("retentionIntoNext"), 500),
+            "transitionIntent": _reel_copy(raw_scene.get("transitionIntent"), 400),
+            "textSafeZone": _reel_copy(raw_scene.get("textSafeZone"), 300),
+        }
+        if scene["beatId"] != expected_ids[index] or not all([scene["sceneObjective"], scene["visualMoment"], scene["visibleAction"], scene["openingState"], scene["endingState"], scene["integratedFrame"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"], scene["textSafeZone"]]) or not 1 <= len(scene["foregroundGroups"]) <= 4:
+            raise ValueError(f"Instagram Reel scene concept {index + 1} is incomplete or out of sequence")
+        visual_text = " ".join([scene["visualMoment"], scene["integratedFrame"], *scene["foregroundGroups"]])
+        disallowed = re.search(r"\b(?:prompt|asset|layer|mask|crop|voice|music|caption|render|phone|tablet|laptop|screen|display|dashboard|map|sign|signage|label|board|menu|interface|ui|crowd|background people|mid-?ground people|distant people|couple)\b", visual_text, re.I)
+        if disallowed:
+            raise ValueError(f"Instagram Reel scene concept {index + 1} contains forbidden stage-two instruction: {disallowed.group(0)}")
+        scenes.append(scene)
+    return {"editorialBeats": editorial_beats, "scenes": scenes, "sceneCount": len(scenes)}
+
+
+def generate_instagram_reel_scene_concepts(site, job, language, editorial_brief):
+    editorial_beats = derive_instagram_reel_editorial_beats(editorial_brief)
+    return normalize_instagram_reel_scene_concepts(_gemini_text_json(
+        build_instagram_reel_scene_concept_prompt(site, job, language, editorial_beats),
+        response_schema=INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA,
+        temperature=0.4,
+        repair=False,
+    ), editorial_beats)
+
+
 def build_instagram_reel_story_architecture_prompt(site, job, language, source_outline):
     brand = site["brand_name"] or site["domain"]
     language_name = LANGUAGE_NAMES.get(language, language.upper())
@@ -5813,7 +5962,7 @@ def elaborate_instagram_reel_scenes(
     return detailed
 
 
-def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=None, checkpoint_callback=None, stop_after_editorial_brief=False):
+def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=None, checkpoint_callback=None, stop_after_editorial_brief=False, stop_after_scene_concepts=True):
     checkpoint = dict(resume_checkpoint) if isinstance(resume_checkpoint, dict) else {}
 
     def save_checkpoint(phase, scene=0, total=0):
@@ -5864,6 +6013,22 @@ def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=No
         save_checkpoint("editorial_brief_ready", total=len(editorial_brief["solutionSteps"]))
     if stop_after_editorial_brief:
         return {"editorialBrief": editorial_brief, "planningCheckpoint": checkpoint}
+
+    stored_scene_concepts = checkpoint.get("sceneConcepts")
+    editorial_beats = derive_instagram_reel_editorial_beats(editorial_brief)
+    if isinstance(stored_scene_concepts, dict):
+        try:
+            scene_concepts = normalize_instagram_reel_scene_concepts(stored_scene_concepts, editorial_beats)
+        except Exception:
+            for key in ("sceneConcepts", "architecture", "skeleton", "detailedScenes", "manifestScenes", "storyboard"):
+                checkpoint.pop(key, None)
+            stored_scene_concepts = None
+    if not isinstance(stored_scene_concepts, dict):
+        scene_concepts = generate_instagram_reel_scene_concepts(site, job, language, editorial_brief)
+        checkpoint["sceneConcepts"] = scene_concepts
+        save_checkpoint("scene_concepts_ready", total=scene_concepts["sceneCount"])
+    if stop_after_scene_concepts:
+        return {"editorialBrief": editorial_brief, "sceneConcepts": scene_concepts, "planningCheckpoint": checkpoint}
 
     source_outline = instagram_reel_source_outline(job)
     checkpoint["sourceOutline"] = source_outline
@@ -6929,6 +7094,7 @@ def generate_instagram_reel_post(site_id, post_id):
     def planning_checkpoint(phase, checkpoint, scene, total):
         messages = {
             "editorial_brief_ready": "Core problem, hook, solution steps, and brand resolution validated and saved",
+            "scene_concepts_ready": "Seven source-grounded scene concepts validated and saved; no media generation started",
             "architecture_ready": "Article analysis and editorial architecture validated and saved",
             "skeleton_ready": "Visual story structure validated and saved",
             "scene_detail_ready": f"Scene {scene} production detail validated and saved",
