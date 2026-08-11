@@ -67,12 +67,26 @@ def _multiply_alpha(alpha: Image.Image, reveal: Image.Image) -> Image.Image:
     return ImageChops.multiply(alpha.convert("L"), reveal.convert("L"))
 
 
-def _full_canvas_layer_frame(layer: Image.Image, scene_index: int, layer_index: int, progress: float) -> tuple[Image.Image, str]:
-    """Reveal a pre-positioned full-canvas layer without changing its final coordinates or scale."""
+def _full_canvas_layer_frame(
+    layer: Image.Image,
+    spec: dict,
+    progress: float,
+    duration: float,
+) -> tuple[Image.Image, str]:
+    """Execute the approved manifest reveal for a registered full-canvas layer."""
     layer = ImageOps.fit(layer.convert("RGBA"), (WIDTH, HEIGHT), method=Image.Resampling.LANCZOS)
-    delay = 0.05 + layer_index * 0.08
-    amount = _ease((progress - delay) / 0.16)
-    mode = FULL_CANVAS_REVEALS[((scene_index - 1) * 2 + layer_index) % len(FULL_CANVAS_REVEALS)]
+    mode = str(spec.get("manifestReveal") or "")
+    motion = str(spec.get("manifestMotion") or "")
+    if mode not in FULL_CANVAS_REVEALS or motion != "hold":
+        raise ValueError("Registered Reel layer has no supported approved reveal contract")
+    try:
+        start = float(spec.get("manifestStartSeconds")) / duration
+        end = float(spec.get("manifestEndSeconds")) / duration
+    except (TypeError, ValueError, ZeroDivisionError) as error:
+        raise ValueError("Registered Reel layer has invalid approved timing") from error
+    if not 0 <= start < end <= 0.38:
+        raise ValueError("Registered Reel layer entrance must finish before camera motion")
+    amount = _ease((progress - start) / (end - start))
     alpha = layer.getchannel("A")
     if amount <= 0:
         layer.putalpha(Image.new("L", (WIDTH, HEIGHT), 0))
@@ -459,11 +473,12 @@ def render_vertical_reel(
                 canvas.alpha_composite(Image.new("RGBA", (WIDTH, HEIGHT), (1, 11, 20, 36)))
                 for layer_index, foreground in enumerate(foregrounds):
                     if full_canvas_layers:
+                        layer_spec = layer_specs[layer_index] if layer_index < len(layer_specs) else {}
                         layer_frame, _ = _full_canvas_layer_frame(
                             foreground,
-                            int(scene.get("index") or 1),
-                            layer_index,
+                            layer_spec,
                             progress,
+                            float(scene.get("durationSeconds") or 0),
                         )
                         layer_frame = _cover_rgba(layer_frame, zoom, pan_x - 0.5, pan_y)
                         _composite_full_canvas_layer(canvas, layer_frame)

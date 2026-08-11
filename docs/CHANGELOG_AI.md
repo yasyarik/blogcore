@@ -1,5 +1,30 @@
 # CHANGELOG_AI.md
 
+## 2026-08-11 — Enforce executable Reel layer geometry
+
+### Summary
+* Removed renderer-side index cycling that could make a seated or cropped person slide into frame as a partial torso.
+* Made approved reveal mode, hold state, and entrance timing authoritative for full-canvas registered layers.
+* Updated the universal planner and validators so seated, reclining, occluded, cropped, furniture-supported, and fixed-contact people cannot become movable foreground layers.
+* Added a fail-fast media gate so old or incomplete storyboards stop before any image call.
+
+### Files changed
+* `app.py` — aligned step-two planning, step-three manifests, geometry validation, and the pre-image gate.
+* `reel_renderer.py` — executes approved manifest reveal/timing instead of inventing animation by layer index.
+* `docs/PROJECT_MEMORY.md` — recorded the durable geometry/motion contract and deprecated the moving-seat rule.
+* `docs/CHANGELOG_AI.md` — recorded this task.
+
+### Decisions
+* Only complete unobstructed free-standing groups may translate. Fixed-contact people are background or must be recomposed before production.
+* Registered layers hold after their entrance; camera motion begins after the entrance window.
+
+### Checks run
+* Python compilation and AST parsing for `app.py`, `reel_renderer.py`, and `registered_scene.py`.
+* Synthetic registered-layer checks for approved slide timing, missing-manifest rejection, and unsupported post-entrance motion rejection.
+
+### Risks / TODO
+* Detailed camera prose is still compiled through the renderer's existing camera presets rather than interpreted word-for-word.
+
 ## 2026-08-11 — Compare planned Reel motion with renderer behavior
 
 ### Summary

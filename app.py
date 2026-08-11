@@ -3939,9 +3939,39 @@ Review this master-derived layer pack. The first tile is the authoritative maste
     return data
 
 
+def _reel_layer_has_invalid_movable_geometry(value):
+    text = str(value or "")
+    return bool(re.search(
+        r"\b(?:seated|sitting|reclining|lying|crouching|kneeling)\b"
+        r"|\b(?:behind|at|under|on|against|supported by|leaning (?:on|against))\s+(?:an?\s+|the\s+)?"
+        r"(?:desk|table|chair|bench|lounger|sofa|counter|railing|wall|door)\b",
+        text,
+        re.I,
+    ))
+
+
 def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, reference_logo=None):
     index = int(scene["index"])
     failures = []
+    for layer in scene.get("layers") or []:
+        geometry_text = " ".join(
+            str(layer.get(field) or "")
+            for field in ("prompt", "action", "relationship", "initialState", "finalState")
+        )
+        if _reel_layer_has_invalid_movable_geometry(geometry_text):
+            raise ValueError(f"Reel scene {index} contains a cropped or fixed-contact movable layer; rebuild its text-only storyboard")
+        if str(layer.get("manifestReveal") or "") not in {"slide_left", "slide_right", "drop", "rise", "focus"}:
+            raise ValueError(f"Reel scene {index} has no approved registered-layer reveal; rebuild its text-only storyboard")
+        if str(layer.get("manifestMotion") or "") != "hold":
+            raise ValueError(f"Reel scene {index} has unsupported post-entrance layer motion; rebuild its text-only storyboard")
+        try:
+            start = float(layer.get("manifestStartSeconds"))
+            end = float(layer.get("manifestEndSeconds"))
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Reel scene {index} has invalid registered-layer timing") from error
+        duration = float(scene.get("durationSeconds") or 0)
+        if duration <= 0 or not 0 <= start < end <= duration * 0.38:
+            raise ValueError(f"Reel scene {index} entrance timing must finish before camera motion")
     # Image generation is deliberately one-pass. The prompt carries the complete
     # production contract up front; validators may stop a bad asset but must never
     # trigger hidden paid regeneration.
@@ -4296,8 +4326,8 @@ INSTAGRAM_REEL_COMPOSITION_CONTRACT_SCHEMA = {
                                 },
                                 "depthOrder": {"type": "integer"},
                                 "relationshipToBackground": {"type": "string"},
-                                "reveal": {"type": "string"},
-                                "motion": {"type": "string"},
+                                "reveal": {"type": "string", "enum": ["slide_left", "slide_right", "drop", "rise", "focus"]},
+                                "motion": {"type": "string", "enum": ["hold"]},
                                 "startSeconds": {"type": "number"},
                                 "endSeconds": {"type": "number"},
                             },
@@ -4351,11 +4381,14 @@ Contract:
 - The background asset id is exactly `background-{scene_number:02d}`. Its `generationPrompt` starts with the approved `stageBackgroundPrompt` verbatim, then adds only lens, perspective, illumination, depth, surface continuity, and empty-space instructions required to generate the plate. It contains none of the approved foreground layers.
 - Return exactly one component for every approved layer, in the same order. A protagonist or supporting_character uses kind `participant`; a story_object uses kind `context`.
 - Component IDs are `participant-{scene_number:02d}-NN` or `context-{scene_number:02d}-NN`, where NN is the one-based approved layer position.
-- Copy each layer's `sourceEvidence` verbatim. `physicalIdentity` names exactly the approved person/group/object and its approved state. `generationPrompt` uses the approved layer `prompt` as its factual and visual basis and describes only that layer on a full registered 9:16 transparent or uniform-matte canvas.
-- Every component prompt explicitly says that the generated layer receives the approved background as visual reference and must match its camera angle, perspective, scale, light direction, color temperature, depth, and support surface. Do not include a second background or unrelated object.
+- Copy each layer's `sourceEvidence` verbatim. `physicalIdentity` names exactly the approved person/group/object and its approved state. `generationPrompt` describes how that complete group appears inside the one integrated master photograph. It is not a request for a separate transparent foreground image.
+- Every component prompt requires the group to belong to the master photograph's camera angle, perspective, scale, light direction, color temperature, depth, and support surface. Do not describe a second background, transparent canvas, matte asset, or isolated cutout.
 - `placement` is the final visible footprint in normalized 0..1000 coordinates. Make phone-readable people and primary objects large. Preserve the approved text-safe zone. Components must stay in frame and must not overlap incoherently.
 - `relationshipToBackground` names the exact surface, depth plane, or architectural area that physically integrates the layer into the approved plate.
-- `reveal`, `motion`, `startSeconds`, and `endSeconds` implement the approved initialState, finalState, entranceDirection, motionDirection, and exitDirection. Times are local to this scene, start at 0 or later, and end no later than {float(locked_scene.get('durationSeconds') or 0):.2f} seconds.
+- Choose `reveal` from `slide_left`, `slide_right`, `drop`, `rise`, or `focus`. A directional reveal is allowed only for a complete free-standing, fully unobstructed group whose entire silhouette and every owned item can translate without exposing an anatomical crop or missing contact surface. `focus` is an in-place optical reveal and never translates the registered pixels.
+- A seated, reclining, naturally occluded, cropped, furniture-supported, or fixed-contact person is not a valid foreground component at all. The approved visual plan must instead use a source-grounded free-standing composition with a complete unobstructed silhouette, or keep that person as an inseparable non-animated part of the background. Never make a half-body person slide, drop, or rise, and never move a desk, chair, bench, sofa, lounger, counter, railing, wall, or door with a person.
+- Set `motion` to `hold`. After the still master-derived group settles, it remains registered; camera movement supplies continuing motion. Do not claim that one still layer changes pose, expression, gesture, or physical state after extraction.
+- `startSeconds` and `endSeconds` define only the entrance interval. Start between 0 and 12 percent of scene duration and finish between 18 and 38 percent, before subject-focused camera work begins. Stagger multiple groups when useful.
 - Camera move is exactly `{locked_scene.get('cameraMove')}`. Copy the approved detailed `cameraStart`, `cameraEnd`, and `cameraMotivation` verbatim.
 - Do not write overlay copy into generated images. The renderer adds approved editorial text separately.
 """.strip()
@@ -4399,6 +4432,20 @@ def validate_instagram_reel_step3_asset_scene(result, locked_scene, detailed_sce
             raise ValueError(f"scene {scene_number} component {expected_id} has an invalid visible footprint")
         if not 0 <= start < end <= duration:
             raise ValueError(f"scene {scene_number} component {expected_id} exceeds scene timing")
+        reveal = str(component.get("reveal") or "")
+        motion = str(component.get("motion") or "")
+        if reveal not in {"slide_left", "slide_right", "drop", "rise", "focus"} or motion != "hold":
+            raise ValueError(f"scene {scene_number} component {expected_id} has an unsupported registered-layer animation")
+        if start > duration * 0.12 or end < duration * 0.18 or end > duration * 0.38:
+            raise ValueError(f"scene {scene_number} component {expected_id} entrance must finish before camera motion")
+        geometry_text = " ".join(
+            str(component.get(field) or "")
+            for field in ("physicalIdentity", "generationPrompt", "relationshipToBackground")
+        )
+        if _reel_layer_has_invalid_movable_geometry(geometry_text):
+            raise ValueError(
+                f"scene {scene_number} component {expected_id} is not a complete free-standing extraction-safe group"
+            )
         for prior_x, prior_y, prior_width, prior_height in occupied:
             overlap = max(0, min(x + width, prior_x + prior_width) - max(x, prior_x)) * max(0, min(y + height, prior_y + prior_height) - max(y, prior_y))
             if overlap > min(width * height, prior_width * prior_height) * 0.55:
@@ -4894,11 +4941,11 @@ VISUAL CONTINUITY:
 - Choose two, three, or four foreground `layers` for each scene according to what visibly changes in that beat. They are not stickers. Together with the base plate they form one living photographic moment: a protagonist doing something, supporting people or a cohesive interacting group reacting, and substantial physical story objects changing state. The model decides the mix; multiple supporting characters are allowed only when their interaction is necessary to the beat. Never add a layer merely to meet a quota.
 - Do not use generic visual metaphors, floating symbols, decorative compasses, keys, percentages, coins, abstract icons, random devices, arbitrary props, infographic elements, or duplicate people merely to fill a layer slot.
 - The master frame owns the complete architecture, landscape, sea, weather, atmosphere, light, shadows, ship structure, environmental depth, and every approved movable group in one coherent photograph. Foreground layers are later extracted from that accepted master; they are never generated as unrelated clean-matte cutouts.
-- A protagonist or supporting-character layer names one complete movable person or one physically interacting group. In the master frame every visible member must be large and fully contained with complete head, hair, shoulders, arms, hands, fingers, clothing edges, legs, feet, and owned items. People who touch, overlap, shake hands, embrace, or share an object belong to the same group. Different movable groups need visible background space between their silhouettes.
+- A protagonist or supporting-character layer names one complete movable person or one physically interacting free-standing group. In the master frame every visible member must be large and fully contained with complete head, hair, shoulders, arms, hands, fingers, clothing edges, legs, feet, and owned items. People who touch, overlap, shake hands, embrace, or share an object belong to the same group. Different movable groups need visible background space between their silhouettes.
 - A separate `story_object` must be a substantial self-supporting physical object with a clear footprint and mobile-readable scale. It must be fully visible with safe canvas margin and must not be held, carried, worn, touched, or include a person/body part. Any handheld, worn, attached, or mutually interacting item belongs inside the same cohesive character layer instead of becoming a separate layer.
 - For a separate `story_object`, write its `action` as its own visible floor-level state or state change, such as standing closed on the deck or resting open on the floor with its complete footprint visible. Never describe what a person does to it.
 - Make layers describe the complete intended master composition. The image model creates all listed groups together once; a visual gate rejects the master before extraction when groups are small, cropped, crowded, touching unrelated people, ambiguous, or inseparable. Prefer an uncrowded camera angle with no unrelated foreground or middle-distance people near movable silhouettes.
-- Before returning JSON, design every movable group as an extraction-safe part of one future master photograph. Prefer a free-standing, walking, turning, gesturing, or naturally interacting person/group with a complete unobstructed silhouette. When the source-grounded action genuinely requires a movable seat, carried item, or other physical contact object, include the complete person and every touching or owned item inside one cohesive movable group; describe the full combined silhouette and keep it visually separated from all other groups. Fixed architecture, floors, walls, railings, doors, counters, and built-in furniture remain part of the background and must not touch or occlude a movable silhouette.
+- Before returning JSON, design every movable group as an extraction-safe part of one future master photograph: free-standing, walking, turning, gesturing, or naturally interacting, with a complete unobstructed silhouette. A seated, reclining, naturally occluded, cropped, furniture-supported, or fixed-contact person is never a movable layer because translating it would reveal a missing body or move the furniture. Express that beat through a different source-grounded free-standing action, or keep the person inseparably inside the non-animated background. Carried or worn items remain inside the complete person/group silhouette. Fixed architecture, floors, walls, railings, doors, counters, tables, chairs, benches, sofas, loungers, and built-in furniture remain part of the background and must not touch or occlude a movable silhouette.
 - A character element may turn, react, gesture, walk, change expression, or greet another member of its own cohesive group. Its prompt must account for every visible owned or contacting item so the entire group can be removed from the master and restored as one registered layer. A separate `story_object` remains large, standalone, complete, grounded, and visually separated from every character group; handheld and worn items belong to their character group instead.
 - Every element must include `sourceEvidence` as an exact 2-14-word quotation from the article, not your paraphrase. It must name the specific fact or action that the visual makes visible. An element may never be a symbolic stand-in, generic metaphor, mood prop, or visual representation of an abstract cost, dilemma, journey, burden, freedom, or choice. If the source does not call for the object or person, do not include it.
 - A standalone `story_object` is permitted only when the article itself explicitly names that concrete object. Its prompt must name that same object. Do not invent luggage, trunks, tickets, maps, menus, documents, instruments, or other travel props to communicate an abstract article point; use a source-grounded person or interacting group instead.
@@ -5212,7 +5259,7 @@ NON-NEGOTIABLE STRUCTURE:
 - `visualStory` contains at least 16 words and describes the exact causal action visible from start to finish, including how all layers form one photographic moment.
 - Use exactly the locked scene's one to four movable groups. Assign each a unique `element-XX` ID. One protagonist maximum; supporting-character roles may repeat only when their interaction is essential to this moment. No filler layer.
 - Every character prompt has at least 18 concrete words covering adult identity cues, hair, wardrobe, body orientation, expressive pose, gaze, complete hands and limbs, owned items, viewing angle, and matching light. It describes one complete extraction-safe silhouette or one complete physically interacting group, fully inside the future master frame.
-- A character `action` and every animation-state field name a physically coherent action that can be photographed without cropping or unrelated occlusion. Prefer free-standing or moving figures. When a person touches another person or a movable object, all touching people and complete owned/contact items belong to the same cohesive group and its prompt describes their combined silhouette. Fixed architecture remains in the background and cannot touch or hide the group. Separate groups retain visible background space between them.
+- A character `action` and every animation-state field name a physically coherent action that can be photographed as one complete unobstructed silhouette. Use free-standing, walking, turning, or gesturing figures. Never plan a seated, reclining, naturally occluded, cropped, furniture-supported, or fixed-contact person as a movable group. Recompose the source-grounded action so the person is free-standing, or keep that person inseparably in the non-animated background. A person may physically interact with another free-standing person only when both complete bodies belong to the same cohesive group. Fixed architecture and furniture remain in the background and cannot touch or hide the group. Separate groups retain visible background space between them.
 - Every object prompt has at least 18 concrete words covering material, mobile-readable scale, orientation, full footprint, camera-facing surfaces, physical state, perspective, and matching light. It is a substantial self-supporting floor/deck object, never handheld or tabletop.
 - Every layer action has at least 5 words and every relationship has at least 4 words. Initial state, final state, entrance, motion, and exit/hold are exact animation directions, not one-word labels.
 - No generic phrases such as `medium shot`, `eye level`, `friendly traveler`, `looking around`, `self`, `hold`, or `focus on subject` without the full production specification.
@@ -5265,6 +5312,8 @@ def validate_instagram_reel_scene_detail(scene, scene_index):
                 f"relationshipWords={len(relationship.split())}/4, directionWords={direction_counts}/1)"
             )
         combined = " ".join([prompt, action, relationship] + [_reel_copy(value, 260) for value in directions])
+        if role in {"protagonist", "supporting_character"} and _reel_layer_has_invalid_movable_geometry(combined):
+            raise ValueError(f"scene {scene_index} layer {role} is cropped or attached to fixed geometry")
         if re.search(r"\b(symboli[sz](?:e|es|ing|ed)?|metaphor|represent(?:s|ing|ed)?|visual representation|mood prop|stand-in)\b", " ".join([source_evidence, combined]), re.I):
             raise ValueError(f"scene {scene_index} layer {role} is symbolic instead of source-grounded")
         if prohibited_visuals.search(combined):
@@ -5302,6 +5351,12 @@ def validate_instagram_reel_locked_scene_detail(scene, locked_scene, scene_index
             raise ValueError(f"scene {scene_index} layer {element_id} generation prompt is too generic")
         if not _reel_copy(layer.get("sourceEvidence"), 700):
             raise ValueError(f"scene {scene_index} layer {element_id} lacks source evidence")
+        geometry_text = " ".join(
+            _reel_copy(layer.get(field), 1200)
+            for field in ("prompt", "action", "relationship", "initialState", "finalState")
+        )
+        if layer.get("role") in {"protagonist", "supporting_character"} and _reel_layer_has_invalid_movable_geometry(geometry_text):
+            raise ValueError(f"scene {scene_index} layer {element_id} is cropped or attached to fixed geometry")
         for field in ("initialState", "finalState"):
             if len(_reel_copy(layer.get(field), 500).split()) < 3:
                 raise ValueError(f"scene {scene_index} layer {element_id} {field} is too generic")
@@ -5426,7 +5481,7 @@ def generate_instagram_reel_storyboard(site, job, language):
             retry_note = f"""
 
 Your previous storyboard was rejected for this exact reason: {errors[-1][:500]}
-Generate a completely new storyboard from the source article. Do not repair or reuse the rejected JSON. Use exactly one scene for each already-derived screen-sized beat ID, in the supplied order. The architecture has already grouped related source sections into 6-8 screens for a 30-second Reel; preserve that grouping, stage assignment, and source coverage. Give every screen production-level state-before/state-after, detailed shot size/angle/lens/depth/negative-space framing, exact camera start/end/motivation, visible transition, and complete element motion directions. Every stage prompt needs enough physical architecture, surfaces, light, perspective, depth and free space to generate one specific integrated master photograph, but no text, signage, icons, displays, maps, or UI. Use one to four purposeful movable groups per scene, each with a unique `element-XX` ID. Every group prompt must be visually exhaustive enough to generate without guessing identity, wardrobe/material, orientation, pose/state, gaze, complete silhouette, owned items, viewing angle, and lighting. People who touch, overlap, greet, or share an object belong to one cohesive group. Different groups must be large, fully inside the frame, and separated by visible background space; no unrelated crowd may touch or sit directly behind them. A separate story_object is only a large complete floor/deck-standing item with its own visible footprint and state; never use a book, journal, cup, pen, phone, tablet, paper, brochure, key, or tabletop item as a separate layer. Put handheld items inside the character group that owns them. Every element must materially change the story state. Never use a decorative symbol, compass, key, coin, badge, icon, route line, generic device, or filler prop. Vary whole-scene camera movement with no adjacent repetition.
+Generate a completely new storyboard from the source article. Do not repair or reuse the rejected JSON. Use exactly one scene for each already-derived screen-sized beat ID, in the supplied order. The architecture has already grouped related source sections into 6-8 screens for a 30-second Reel; preserve that grouping, stage assignment, and source coverage. Give every screen production-level state-before/state-after, detailed shot size/angle/lens/depth/negative-space framing, exact camera start/end/motivation, visible transition, and complete element motion directions. Every stage prompt needs enough physical architecture, surfaces, light, perspective, depth and free space to generate one specific integrated master photograph, but no text, signage, icons, displays, maps, or UI. Use one to four purposeful movable groups per scene, each with a unique `element-XX` ID. Every group prompt must be visually exhaustive enough to generate without guessing identity, wardrobe/material, orientation, pose/state, gaze, complete silhouette, owned items, viewing angle, and lighting. Every movable person/group is free-standing, fully contained, and unobstructed; seated, reclining, cropped, furniture-supported, or fixed-contact people remain inseparable background or are recomposed as a source-grounded free-standing action. People who touch, overlap, greet, or share an object belong to one cohesive free-standing group. Different groups must be large, fully inside the frame, and separated by visible background space; no unrelated crowd may touch or sit directly behind them. A separate story_object is only a large complete floor/deck-standing item with its own visible footprint and state; never use a book, journal, cup, pen, phone, tablet, paper, brochure, key, or tabletop item as a separate layer. Put handheld items inside the character group that owns them. Every element must materially change the story state. Never use a decorative symbol, compass, key, coin, badge, icon, route line, generic device, or filler prop. Vary whole-scene camera movement with no adjacent repetition.
 """
         try:
             skeleton_data = _gemini_text_json(prompt + retry_note, response_schema=INSTAGRAM_REEL_VISUAL_SCHEMA, temperature=0.5, repair=False)

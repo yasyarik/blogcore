@@ -1,10 +1,13 @@
 # PROJECT_MEMORY.md
 
-## 2026-08-11 — Reel renderer currently ignores planned layer reveal/motion
+## 2026-08-11 — Reel registered-layer geometry and motion are one enforced contract
 
-* The text-only production manifest contains per-component `reveal`, `motion`, `startSeconds`, and `endSeconds`, but the active full-canvas master-derived renderer does not consume those fields. `_full_canvas_layer_frame` deterministically cycles through `slide_left`, `slide_right`, `drop`, `rise`, and `focus` from scene/layer indexes.
+* The active full-canvas renderer consumes each component's approved `manifestReveal`, `manifestMotion`, `manifestStartSeconds`, and `manifestEndSeconds`. It must never choose an entrance from scene/layer indexes or silently invent missing motion.
+* A movable person/group must be a complete, fully contained, unobstructed, free-standing silhouette. A seated, reclining, naturally occluded, cropped, furniture-supported, or fixed-contact person is not a movable layer: recompose the source-grounded action as free-standing or keep the person inseparably in the static background.
+* `focus` is an in-place optical reveal, not permission to translate an incomplete body. Directional entrances are only for complete groups that can translate without exposing missing anatomy or moving fixed furniture/architecture.
+* Entrances finish within the first 38% of a scene; registered layers hold afterward while whole-scene camera work supplies motion. Invalid geometry or missing manifest fields block before image generation.
 * Camera prose (`cameraStart`, `cameraEnd`, `cameraMotivation`) is also not interpreted directly. The renderer holds its base camera until 46% scene progress, pushes to the first detected subject, then pulls/transfers or finishes with the coarse `cameraMove` preset.
-* This is a production blocker for operator-reviewed storyboard timing. Do not claim that the rendered motion matches Gemini's technical plan until the renderer consumes the approved manifest or the unused fields are removed from the planning contract.
+* Replaced/deprecated: index-based reveal cycling and the rule that a person plus movable seat/contact furniture could form one translating group. That produced cropped torsos or visibly moving furniture.
 
 ## 2026-08-11 — Text-only Reel planning remains blocked before media production
 
@@ -12,11 +15,12 @@
 * The plan is not approved for image generation. It invented a recurring fictional protagonist and chronology for an informational guide, relied on laptops/phones/readable screens and contact furniture, produced mostly static layer directions, and emitted a technical manifest describing separately generated transparent foregrounds instead of the active master-derived scene contract.
 * Operational rule: do not generate images, voice, music, or video from this plan. The storyboard and step-three prompts must be aligned end to end with source-grounded editorial scenes and the master/clean-plate/extracted-layer architecture before another production run.
 
-## 2026-08-11 — Reel scene planning matches master-derived contact groups
+## 2026-08-11 — Reel scene planning matches master-derived contact groups (replaced)
 
 * A movable character group may walk, turn, gesture, or interact naturally. When a source-grounded action requires another person or a movable contact/owned item, every touching person and complete contacting item belongs to the same extraction-safe group and is described as one combined silhouette.
 * Fixed architecture remains in the clean background and must not touch or occlude a movable group. Separate movable groups retain visible background space between them.
 * Replaced/deprecated: the old independent-foreground validator that rejected walking and every scene mentioning seating or furniture. That rule contradicted the current master-derived extraction architecture and caused repeated text-only storyboard rejection.
+* Replaced/deprecated by the later same-day geometry contract: movable carried/worn items may remain inside a complete silhouette, but seating and fixed-contact furniture may not be part of a translating group.
 
 ## 2026-08-11 — Production Reels use one-pass validated master-derived scenes
 
