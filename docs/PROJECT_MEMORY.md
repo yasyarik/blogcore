@@ -1,5 +1,33 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-11 - Reel layerability is owned by story architecture
+
+* The first text pass must choose physical visual worlds whose meaningful people are complete unobstructed free-standing groups. Seated, furniture-supported, cropped, small-prop-led, or extraction-oriented visual worlds are rejected before the visual skeleton is generated.
+* A later prompt cannot reliably turn an intrinsically non-layerable composition into independent animated layers. The earliest stage that chooses the physical world owns this constraint.
+* Reel text stages make one model request per unfinished checkpoint. A validator failure stops that stage with its exact reason; it must not trigger several paid regenerations from the same inadequate prompt. Fix the owning prompt or contract first, then resume from the last accepted checkpoint.
+* Character planning always describes a complete in-frame person from head through both feet, with visible air gap from fixed architecture. `crop`, `waist-up`, separate/isolated layer language, unseen support, and physical contact with railings, bars, counters, desks, tables, chairs, walls, or doors are incompatible with the registered master/clean-plate workflow.
+* Gemini does not own technical layer numbering. Skeleton responses use an ID placeholder and application code assigns stable global `element-NN` IDs before validation; a numbering-format mistake must never consume another model request.
+* Every person named by Reel architecture is a planned foreground group. Background/distant crowds and atmospheric extras are forbidden because they cannot be cleanly registered or extracted. A rejected skeleton, scene-detail, or manifest candidate and exact validation error are saved in the checkpoint for prompt diagnosis before any new request.
+* Geometry validation distinguishes social separation from extraction instructions. `isolated from the crowd` is editorial meaning, while `isolated subject/layer/foreground` or `isolated on a background` is a deprecated asset instruction. Prompts should use `standing alone` or `separated by visible background space` to remove ambiguity.
+* Layer `sourceEvidence` accepts any exact non-empty consecutive source phrase, including one meaningful hyphenated source term. It must not reject valid source grounding merely because token counting expects two words.
+* Instagram Reel captions contain no protocols, `www`, raw URLs, or dot-domains. They may name the brand in plain text; clickable destination handling belongs to the publishing channel, not caption prose.
+* Replaced/deprecated: accepting a conceptually relevant visual world and trying to repair its geometry during skeleton or asset-manifest generation.
+
+## 2026-08-11 — Reel production is resumable from validated checkpoints
+
+* Reel text planning is not one disposable transaction. Version 13 persists these validated checkpoints in `social_posts.content_json.instagramReel.planningCheckpoint`: source outline and editorial architecture, visual skeleton, each detailed scene, each technical manifest scene, and the complete storyboard.
+* A later phase starts only after the preceding result passes its validator and is saved. Scene checkpoints are sequential; an out-of-order or duplicate checkpoint is an error.
+* An interrupted or failed run resumes from the first unfinished scene. It must not regenerate accepted architecture, skeleton, detailed scenes, or manifest scenes.
+* Skeleton validation owns extraction geometry. A skeleton containing seated, reclining, cropped, furniture-supported, naturally occluded, or fixed-contact movable people must never be saved as `skeleton_ready`. If stricter current validation rejects an older saved skeleton, retain its valid architecture and invalidate only the skeleton and downstream checkpoints.
+* A per-scene checkpoint must pass the same production-detail validator used by the final storyboard. Final aggregation must not introduce a stricter local scene check. When current validation rejects a previously saved detail scene, retain the contiguous valid scene prefix, truncate from the first invalid scene, and clear only downstream manifest/storyboard checkpoints.
+* Fields locked between skeleton and scene detail, including `visualStory` and the canonical empty stage description, must satisfy their final requirements before `skeleton_ready`. A later stage must never retry an immutable upstream defect.
+* Source-grounding for every scene is also a skeleton responsibility. Unsourced character knowledge/decision causality must fail before `skeleton_ready`, not during scene detail.
+* Editorial architecture owns the photographable visual world. Device/interface/readable-sign shortcuts are invalid at architecture time; downstream skeleton prompts must never be asked to contradict an approved visual world. If current validation rejects stored architecture, invalidate architecture and every dependent checkpoint.
+* Informational Reel plans may use a named recurring performer as internal visual-continuity metadata; the name is not shown or narrated. The performer demonstrates separate source-grounded conditions and must not be given an unsourced knowledge, transaction, decision, or success chronology. Registered-layer prompts describe subjects inside one integrated master photograph; isolated/transparent/matte/cutout wording and device-led visual shortcuts are invalid before media generation.
+* Replaced/deprecated: the same-day rule that any recurring character name absent from the article is itself invalid. The actual violation is invented story causality, not the internal production name.
+* Model retry loops cover only model generation/validation for the current step. Database/checkpoint callback errors are outside those loops and must never cause a hidden repeated model call.
+* Regenerating an unpublished version-13 Reel preserves valid planning checkpoints. Older checkpoint versions are ignored because their contracts may be incompatible.
+
 ## 2026-08-11 — Reel registered-layer geometry and motion are one enforced contract
 
 * The active full-canvas renderer consumes each component's approved `manifestReveal`, `manifestMotion`, `manifestStartSeconds`, and `manifestEndSeconds`. It must never choose an entrance from scene/layer indexes or silently invent missing motion.

@@ -1,5 +1,71 @@
 # CHANGELOG_AI.md
 
+## 2026-08-11 - Reject non-layerable Reel concepts at architecture stage
+
+### Summary
+* Moved complete free-standing group requirements into the first Reel planning pass.
+* Added architecture validation for seated/furniture-supported people, small-prop-led concepts, and extraction language.
+* Removed prompt contradictions that requested crops and separately generated foreground layers.
+* Stopped automatic six-attempt regeneration after text-stage validation failures.
+* Moved technical `element-NN` assignment out of Gemini and into deterministic application code.
+* Prohibited background crowds and fixed/readable/handheld visual premises at architecture time, and persisted rejected raw skeleton candidates for diagnosis.
+* Fixed the false positive that treated editorial social isolation as an isolated-asset instruction.
+* Accepted exact single-term source quotations in layer evidence validation.
+* Persisted rejected raw scene-detail and manifest candidates as durable diagnostics.
+* Strengthened and validated the no-raw-URL Instagram Reel caption contract.
+
+### Files changed
+* `app.py` - made visual-world selection physically compatible with later layered animation.
+* `docs/PROJECT_MEMORY.md` - recorded ownership of layerability constraints.
+* `docs/CHANGELOG_AI.md` - recorded this correction.
+
+### Decisions
+* Invalid physical composition is rebuilt at architecture stage rather than repaired downstream.
+* A rejected text stage makes no hidden repeat requests; the prompt must be corrected before resuming.
+
+### Checks run
+* Python compilation and `git diff --check`.
+* Live VPS run completed architecture, skeleton, seven scene-detail checkpoints, seven manifest checkpoints, and final storyboard in 142 seconds.
+* Final production validator confirmed 7 scenes, 10 unique registered groups, 7 stages, exact 30.0-second duration, valid reveal/timing/hold fields, source-grounded evidence, and no raw URL in the caption.
+* Confirmed that no image, voice, music, or video generation ran during this task.
+
+### Risks / TODO
+* Media generation remains intentionally unstarted until the operator approves this text-only scenario and frame plan.
+
+## 2026-08-11 — Make Reel planning checkpointed and resumable
+
+### Summary
+* Split Reel planning persistence into validated architecture, skeleton, per-scene detail, per-scene manifest, and complete-storyboard checkpoints.
+* Added resume behavior from the first unfinished scene and preserved version-13 checkpoints during regeneration.
+* Moved checkpoint writes outside Gemini retry blocks so a storage error cannot trigger a duplicate model call.
+* Stopped the obsolete monolithic text-only process before further requests were spent.
+* Moved movable-layer geometry validation into the skeleton boundary and added selective invalidation that preserves a valid architecture checkpoint.
+
+### Files changed
+* `app.py` — added checkpoint callbacks, sequential scene persistence, resume inputs, version-13 payloads, and regeneration preservation.
+* `docs/PROJECT_MEMORY.md` — recorded the durable checkpoint and retry boundaries.
+* `docs/CHANGELOG_AI.md` — recorded this task.
+
+### Decisions
+* Every validated text stage is durable before the next stage starts.
+* Retrying the current Gemini step and retrying checkpoint storage are separate concerns.
+
+### Checks run
+* Python compilation and AST parsing.
+* VPS mock test confirmed a saved manifest scene is reused while only unfinished scenes invoke the model.
+* VPS mock orchestration test resumed from one saved detailed scene and emitted sequential detail/manifest/storyboard checkpoints.
+* Real text-only run persisted architecture, skeleton, and scene 1 independently; its scene-2 failure exposed an invalid old skeleton without losing the architecture checkpoint.
+* The resumed run retained its architecture, rebuilt the invalid skeleton, and saved seven scene details independently. A stricter final camera-detail check then exposed validator drift; the per-scene gate was aligned with the final production validator and resume now truncates only from the first invalid scene.
+* Root-cause inspection showed scene 5 had a 15-word immutable `visualStory`; moved immutable story/stage checks to the skeleton gate and made production-detail errors report exact field counts.
+* The completed checkpoint test produced seven durable text scenes and manifests in 267 seconds with no media. Manual audit rejected the creative result for an invented recurring character, device-led scenes, and deprecated isolated/transparent layer wording; added automatic skeleton and pre-image gates for those violations.
+* Corrected the over-broad character rule: internal recurring names are allowed for visual continuity. The prompt and source gate now reject unsourced knowledge/decision chronology rather than the name itself.
+* A real rerun exposed `realize` as immutable skeleton causality that was only checked during detail; moved source-grounding into both new and resumed skeleton validation.
+* The next skeleton run remained correctly isolated to that stage but exhausted attempts on fixed-contact geometry and unnamed device shortcuts. Strengthened the universal analog-action brief and made validator errors report the exact shortcut token.
+* Inspection showed the preserved architecture itself mandated smartphone scenes. Added photographable analog-world requirements and architecture-level shortcut validation, plus selective invalidation of incompatible stored architecture and all dependents.
+
+### Risks / TODO
+* Existing pre-version-13 partial planning payloads cannot be resumed and must start under the new contract.
+
 ## 2026-08-11 — Enforce executable Reel layer geometry
 
 ### Summary

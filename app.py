@@ -3943,8 +3943,13 @@ def _reel_layer_has_invalid_movable_geometry(value):
     text = str(value or "")
     return bool(re.search(
         r"\b(?:seated|sitting|reclining|lying|crouching|kneeling)\b"
+        r"|\b(?:waist|chest|bust)[ -]?(?:up|high)\b|\bhead[ -]to[ -](?:waist|thigh)\b|\b(?:half|partial)[ -]body\b"
         r"|\b(?:behind|at|under|on|against|supported by|leaning (?:on|against))\s+(?:an?\s+|the\s+)?"
-        r"(?:desk|table|chair|bench|lounger|sofa|counter|railing|wall|door)\b",
+        r"(?:[a-z-]+\s+){0,3}(?:desk|table|chair|bench|bed|lounger|sofa|bar|counter|railing|wall|door)\b"
+        r"|\b(?:rest(?:s|ing)?|place(?:s|d|ing)?|press(?:es|ed|ing)?)\s+(?:both\s+|one\s+|her\s+|his\s+|their\s+)?"
+        r"(?:hand|hands|arm|arms|body)\s+(?:on|against)\s+(?:an?\s+|the\s+)?"
+        r"(?:[a-z-]+\s+){0,3}(?:desk|table|chair|bench|bed|lounger|sofa|bar|counter|railing|wall|door)\b"
+        r"|\b(?:isolated (?:character|person|subject|group|foreground|layer|asset|cutout)|isolated (?:on|against) (?:a |the )?(?:background|canvas|matte)|transparent background|uniform matte|cut[ -]?out|separate background|unseen (?:railing|desk|table|counter|chair))\b",
         text,
         re.I,
     ))
@@ -3953,6 +3958,7 @@ def _reel_layer_has_invalid_movable_geometry(value):
 def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, reference_logo=None):
     index = int(scene["index"])
     failures = []
+    validate_instagram_reel_source_grounding([scene], job)
     for layer in scene.get("layers") or []:
         geometry_text = " ".join(
             str(layer.get(field) or "")
@@ -4467,11 +4473,25 @@ def validate_instagram_reel_step3_asset_scene(result, locked_scene, detailed_sce
     return result
 
 
-def generate_instagram_reel_step3_asset_manifest(site, job, language, skeleton, detailed_scenes, progress_callback=None):
+def generate_instagram_reel_step3_asset_manifest(
+    site,
+    job,
+    language,
+    skeleton,
+    detailed_scenes,
+    progress_callback=None,
+    initial_scenes=None,
+    rejection_callback=None,
+):
     scenes = []
     for scene_index, (locked_scene, detailed_scene) in enumerate(zip(skeleton["scenes"], detailed_scenes)):
+        if initial_scenes and scene_index < len(initial_scenes) and isinstance(initial_scenes[scene_index], dict):
+            scenes.append(validate_instagram_reel_step3_asset_scene(
+                initial_scenes[scene_index], locked_scene, detailed_scene, scene_index
+            ))
+            continue
         errors = []
-        for _attempt in range(6):
+        for _attempt in range(1):
             correction = (
                 f"\n\nPrevious manifest rejected: {errors[-1]}. Keep every approved creative field unchanged and correct only the technical manifest field named by the error."
                 if errors else ""
@@ -4483,14 +4503,17 @@ def generate_instagram_reel_step3_asset_manifest(site, job, language, skeleton, 
                     temperature=0.2,
                     repair=False,
                 )
-                scenes.append(validate_instagram_reel_step3_asset_scene(result, locked_scene, detailed_scene, scene_index))
-                if progress_callback:
-                    progress_callback(scene_index + 1, len(detailed_scenes), result)
+                validated = validate_instagram_reel_step3_asset_scene(result, locked_scene, detailed_scene, scene_index)
                 break
             except Exception as error:
                 errors.append(str(error)[:500])
+                if rejection_callback and "result" in locals() and isinstance(result, dict):
+                    rejection_callback("manifest", scene_index + 1, len(detailed_scenes), result, error)
         else:
             raise ValueError(f"Instagram Reel scene {scene_index + 1} asset manifest failed: " + " | ".join(errors)[-900:])
+        scenes.append(validated)
+        if progress_callback:
+            progress_callback(scene_index + 1, len(detailed_scenes), validated)
     return {"version": "reel-gemini-step3-v2", "sceneCount": len(scenes), "mediaGenerated": False, "scenes": scenes}
 
 
@@ -4747,6 +4770,13 @@ ARCHITECTURE CONTRACT:
 - Do not create equally weighted tips. Arrange the ranked ideas so that each release makes the final answer more necessary. State the most important insight/payoff only after at least 60 percent of the beats.
 - Use a numbered countdown only when the article genuinely provides a bounded ranked set, such as three options, four checks, or five mistakes. The countdown must clarify the answer and reserve number one for the highest-value insight; never add numbers as empty retention bait.
 - Choose the best editorial visual world for every beat from the article's stated domain. It may illustrate a source-grounded condition or comparison, but it must not invent an unstated time sequence, discovery, transaction, consultation, or consequence. Two consecutive beats may use an identical `visualWorld` string only when they show the same explanatory condition from a deliberately continued composition.
+- Every `visualWorld` is a directly photographable physical location, arrangement, and human action that can communicate the source fact without asking the viewer to read an interface. For digital, price, research, communication, safety, or decision topics, stage the observable real-world condition or human interaction rather than a phone, tablet, laptop, dashboard, checkout page, readable sign, or display.
+- Every `visualWorld` must already be suitable for layered production. Its meaningful living additions are complete, unobstructed, free-standing people or cohesive free-standing groups with full silhouettes and clear background space around them. Never architect a person sitting, reclining, leaning on furniture, positioned behind a desk or table, packing at furniture, cropped by the frame, or physically supported by fixed scenery. Recompose the same source fact as a truthful standing or walking action in the article's real environment.
+- Place every potentially animated group on a broad open floor, deck, walkway, plaza, or street plane with visible air gap from railings, bars, counters, desks, tables, chairs, walls, doors, and built-in furniture. Do not stage a person at, behind, beside, or within touching distance of fixed architecture. If the source concept normally happens at a counter or railing, communicate it through free-standing body language and spacing in the same truthful environment instead.
+- Every person mentioned in `visualWorld` is one intended foreground group in the integrated master. Do not place people, couples, tourists, staff, or crowds in the background or distance as atmosphere. Do not use a crowd at all: use one to four large, complete, mutually separated people/groups whose role in the source fact is explicit.
+- The source fact must remain understandable through the place, body language, spacing, and interaction of those complete groups. Do not make a receipt, price sheet, keycard, map, itinerary, luggage, handheld item, tabletop item, or readable prop carry the meaning. An item held or worn by a person remains inside that person's cohesive group and is never the premise of the visual world.
+- Do not use a directory, board, menu, paper, drink, cup, boarding ramp, gangway, or another readable, handheld, or fixed-contact prop as the beat's visual explanation. Show the source condition through the spatial relationship and body language of the approved free-standing groups.
+- Describe the integrated master photograph, not extraction instructions. Do not mention isolated assets, cutouts, transparency, mattes, layers, or separate backgrounds in `visualWorld`.
 - `visualWorldReason` explains why this visual world truthfully illustrates the source-grounded insight, not why a fictional event would happen there.
 - `dependsOn` names prior beat IDs or `opening`.
 - Use stable sequential IDs `beat-01`, `beat-02`, and so on, without gaps.
@@ -4807,6 +4837,36 @@ def normalize_instagram_reel_story_architecture(data, source_outline):
         narration = _reel_copy(raw.get("narration"), 260)
         if beat_id != expected_id or len(section_ids) != len(set(section_ids)) or any(section_id not in expected_sections for section_id in section_ids) or retention_function not in {"hook", "setup", "escalation", "reveal", "payoff", "closure"} or not all([source, function, change, visual_world, world_reason, depends, viewer_question, information_release, stakes_change, overlay_text, narration]) or not 2 <= len(overlay_text.split()) <= 9 or not 4 <= len(narration.split()) <= 14:
             raise ValueError(f"Instagram Reel architecture beat {index} is incomplete or out of sequence")
+        visual_shortcut = re.search(r"\b(?:smartphone|phone|tablet|laptop|screen|display|dashboard|checkout page|readable sign|interface|ui|directory|board|menu)\b", visual_world, re.I)
+        if visual_shortcut:
+            raise ValueError(f"Instagram Reel architecture beat {index} uses unsupported visual shortcut: {visual_shortcut.group(0)}")
+        fixed_geometry = re.search(
+            r"\b(?:sit(?:s|ting)?|seat(?:ed|ing)?|reclin(?:e|es|ed|ing)|behind (?:a |the )?(?:desk|table|counter)|"
+            r"(?:at|near|beside|behind) (?:a |the )?(?:[a-z-]+ ){0,3}(?:desk|table|bar|counter|railing|wall|door|ramp|gangway)|"
+            r"lean(?:s|ed|ing)? (?:on|against)|pack(?:s|ed|ing)? (?:at|on|into)|"
+            r"cropp(?:ed|ing)|half[- ]body|waist[- ]up)\b",
+            visual_world,
+            re.I,
+        )
+        if fixed_geometry:
+            raise ValueError(f"Instagram Reel architecture beat {index} is not layerable because a person is attached to fixed geometry: {fixed_geometry.group(0)}")
+        prop_premise = re.search(
+            r"\b(?:receipt|price sheet|keycard|map|printed itinerary|brochure|paper|journal|luggage|suitcase|drink|drinks|cup|boarding ramp|gangway)\b",
+            visual_world,
+            re.I,
+        )
+        if prop_premise:
+            raise ValueError(f"Instagram Reel architecture beat {index} makes a small prop carry the visual meaning: {prop_premise.group(0)}")
+        background_people = re.search(
+            r"\b(?:crowd|background (?:people|couples|travelers|tourists|staff)|(?:people|couples|travelers|tourists|staff|group) (?:in|at) the (?:background|distance)|distant (?:people|couples|travelers|tourists|staff|group))\b",
+            visual_world,
+            re.I,
+        )
+        if background_people:
+            raise ValueError(f"Instagram Reel architecture beat {index} uses non-layerable background people: {background_people.group(0)}")
+        extraction_language = re.search(r"\b(?:isolated|cut[ -]?out|transparent|matte|separate background|layer asset)\b", visual_world, re.I)
+        if extraction_language:
+            raise ValueError(f"Instagram Reel architecture beat {index} contains production extraction language: {extraction_language.group(0)}")
         if index == 1 and (retention_function != "hook" or section_ids):
             raise ValueError("Instagram Reel beat 1 must be a dedicated source-grounded hook without consuming a source section")
         if index > 1 and retention_function == "hook":
@@ -4841,7 +4901,7 @@ def normalize_instagram_reel_story_architecture(data, source_outline):
 def generate_instagram_reel_story_architecture(site, job, language, source_outline):
     errors = []
     base_prompt = build_instagram_reel_story_architecture_prompt(site, job, language, source_outline)
-    for _attempt in range(6):
+    for _attempt in range(1):
         retry = f"\n\nPrevious architecture rejected: {errors[-1]}. Re-audit every source section and rebuild the complete beat map from scratch." if errors else ""
         try:
             return normalize_instagram_reel_story_architecture(
@@ -4864,6 +4924,14 @@ def instagram_reel_asset_dir(site_id, asset_key):
 
 def _reel_copy(value, maximum):
     return re.sub(r"\s+", " ", str(value or "")).strip()[:maximum]
+
+
+def normalize_instagram_reel_stage_background(value):
+    background = _reel_copy(value, 900)
+    background = re.sub(r"\b(?:ample\s+)?negative space (?:reserved )?for (?:overlay )?text\b", "ample uncluttered negative space", background, flags=re.I)
+    background = re.sub(r"\b(?:reserved |kept |left )?(?:for |with )?(?:large |overlay )?text(?:\s+placement)?\b", "uncluttered negative space", background, flags=re.I)
+    background = re.sub(r"\b(?:no|without|free of)\s+(?:people|text|signage|labels|icons|screens|displays|ui)(?:\s*(?:,|and)\s*(?:people|text|signage|labels|icons|screens|displays|ui))*\b", "", background, flags=re.I)
+    return re.sub(r"\s{2,}", " ", background).strip(" ,.;")
 
 
 def reel_layer_presentation(scene_index, layer_index, role):
@@ -4937,16 +5005,19 @@ VISUAL CONTINUITY:
 - A visual stage is the exact location, time, viewpoint, architecture, light, and empty base photographic plate required by its beat. The source-coverage map already contains the independently derived `stageId`; copy it exactly. Never alter stage assignment to reduce assets or increase superficial variety.
 - `newStageReason` must explain why this exact physical world is necessary. If a beat is a literal uninterrupted continuation in the same stage, explain the continuing physical action rather than mentioning reuse or savings.
 - A `stageBackgroundPrompt` describes only the empty cinematic location plate for its stage. It must be word-for-word identical in every scene sharing that stageId. It must not contain the protagonist, supporting characters, evidence objects, readable text, or prominent people: the renderer adds those separately.
-- Use a recurring protagonist only when the article explicitly describes a person completing actions. For an informational comparison or guide, people are illustrative editorial subjects, not characters with an invented backstory, knowledge state, transaction, or timeline. Do not repeat a person simply to manufacture continuity.
-- Choose two, three, or four foreground `layers` for each scene according to what visibly changes in that beat. They are not stickers. Together with the base plate they form one living photographic moment: a protagonist doing something, supporting people or a cohesive interacting group reacting, and substantial physical story objects changing state. The model decides the mix; multiple supporting characters are allowed only when their interaction is necessary to the beat. Never add a layer merely to meet a quota.
+- A recurring protagonist is allowed as an internal visual continuity anchor even when the article is informational. Give the performer a stable internal identity, appearance, and wardrobe when that helps recognition; the internal name is production metadata and never appears in overlay copy or narration.
+- For an informational comparison or guide, the recurring performer is an editorial representative demonstrating separate source-grounded conditions. Her repeated appearance does not create a personal chronology. Each scene stages one article fact in the present tense; transitions follow the article's information logic, not a sequence in which she learns, discovers, books, arrives, succeeds, or changes her mind.
+- `stateAtStart`, `stateAtEnd`, and `visualStory` describe changes that are directly visible in the physical composition: position, action, grouping, environment, or revealed source-grounded condition. They never claim an unobservable change in the performer's knowledge, decision, ownership, purchase, emotional outcome, or life story unless the source article explicitly reports that event.
+- Translate informational concepts into directly observable analog editorial actions: where the performer stands or walks, whom she physically joins or separates from, what source-grounded environment surrounds her, and what visible arrangement changes. Pose hands expressively in open space or include interacting free-standing people inside one cohesive group; never use contact with fixed architecture. A digital screen is not a visual substitute for price, research, communication, confidence, safety, or decision-making.
+- Choose one to four foreground `layers` for each scene according to what visibly changes in that beat. One sufficient group is better than an unnecessary second group. They are not stickers. Together with the base plate they form one living photographic moment: a protagonist doing something, supporting people or a cohesive interacting group reacting, and only source-required substantial physical story objects changing state. Multiple supporting characters are allowed only when their interaction is necessary to the beat. Never add a layer merely to meet a quota.
 - Do not use generic visual metaphors, floating symbols, decorative compasses, keys, percentages, coins, abstract icons, random devices, arbitrary props, infographic elements, or duplicate people merely to fill a layer slot.
 - The master frame owns the complete architecture, landscape, sea, weather, atmosphere, light, shadows, ship structure, environmental depth, and every approved movable group in one coherent photograph. Foreground layers are later extracted from that accepted master; they are never generated as unrelated clean-matte cutouts.
 - A protagonist or supporting-character layer names one complete movable person or one physically interacting free-standing group. In the master frame every visible member must be large and fully contained with complete head, hair, shoulders, arms, hands, fingers, clothing edges, legs, feet, and owned items. People who touch, overlap, shake hands, embrace, or share an object belong to the same group. Different movable groups need visible background space between their silhouettes.
 - A separate `story_object` must be a substantial self-supporting physical object with a clear footprint and mobile-readable scale. It must be fully visible with safe canvas margin and must not be held, carried, worn, touched, or include a person/body part. Any handheld, worn, attached, or mutually interacting item belongs inside the same cohesive character layer instead of becoming a separate layer.
 - For a separate `story_object`, write its `action` as its own visible floor-level state or state change, such as standing closed on the deck or resting open on the floor with its complete footprint visible. Never describe what a person does to it.
 - Make layers describe the complete intended master composition. The image model creates all listed groups together once; a visual gate rejects the master before extraction when groups are small, cropped, crowded, touching unrelated people, ambiguous, or inseparable. Prefer an uncrowded camera angle with no unrelated foreground or middle-distance people near movable silhouettes.
-- Before returning JSON, design every movable group as an extraction-safe part of one future master photograph: free-standing, walking, turning, gesturing, or naturally interacting, with a complete unobstructed silhouette. A seated, reclining, naturally occluded, cropped, furniture-supported, or fixed-contact person is never a movable layer because translating it would reveal a missing body or move the furniture. Express that beat through a different source-grounded free-standing action, or keep the person inseparably inside the non-animated background. Carried or worn items remain inside the complete person/group silhouette. Fixed architecture, floors, walls, railings, doors, counters, tables, chairs, benches, sofas, loungers, and built-in furniture remain part of the background and must not touch or occlude a movable silhouette.
-- A character element may turn, react, gesture, walk, change expression, or greet another member of its own cohesive group. Its prompt must account for every visible owned or contacting item so the entire group can be removed from the master and restored as one registered layer. A separate `story_object` remains large, standalone, complete, grounded, and visually separated from every character group; handheld and worn items belong to their character group instead.
+- Before returning JSON, design every movable group as an extraction-safe part of one future master photograph: free-standing, walking, turning, gesturing, or naturally interacting, with a complete unobstructed silhouette visible continuously from the top of the head through both feet. Do not specify a waist-up, chest-up, head-to-thigh, partial-body, or editorial crop. A seated, reclining, naturally occluded, cropped, furniture-supported, or fixed-contact person is never a movable layer because translating it would reveal a missing body or move the furniture. Express that beat through a different source-grounded free-standing action. Fixed architecture, floors, walls, railings, doors, bars, counters, tables, chairs, benches, sofas, loungers, and built-in furniture remain part of the background. A movable person must have visible air gap from them: no hand, arm, body, clothing, or owned item rests on, crosses behind, or is hidden by fixed architecture. A bartender behind a bar, a traveler at a counter, and a person touching a railing are not movable layers and must be recomposed on open floor or deck space. Carried or worn items remain inside the complete person/group silhouette only when the source actually requires them.
+- Every character/group is one accepted still pose from the integrated master photograph. Its `action`, `prompt`, `initialState`, and `finalState` must not claim that the same still changes pose, gaze, expression, gesture, limb position, or relationship after extraction. The registered group may enter the frame as one rigid complete silhouette and then hold; continuing life comes from staggered group entrances, kinetic text, and whole-scene camera movement. Different scenes may show the recurring performer in genuinely different photographed poses and emotions. Its prompt must account for every visible owned item so the entire group can be removed from the master and restored as one registered layer. A separate `story_object` remains large, standalone, complete, grounded, and visually separated from every character group; handheld and worn items belong to their character group instead.
 - Every element must include `sourceEvidence` as an exact 2-14-word quotation from the article, not your paraphrase. It must name the specific fact or action that the visual makes visible. An element may never be a symbolic stand-in, generic metaphor, mood prop, or visual representation of an abstract cost, dilemma, journey, burden, freedom, or choice. If the source does not call for the object or person, do not include it.
 - A standalone `story_object` is permitted only when the article itself explicitly names that concrete object. Its prompt must name that same object. Do not invent luggage, trunks, tickets, maps, menus, documents, instruments, or other travel props to communicate an abstract article point; use a source-grounded person or interacting group instead.
 
@@ -4956,17 +5027,20 @@ SCENE CONTRACT:
 - `beatPurpose` names what this scene uniquely contributes. `stateAtStart` and `stateAtEnd` describe the visible narrative change, not abstract marketing language.
 - For every scene provide one spoken sentence of 4 to 14 words and visible overlay text expressing the same idea. The overlay text must be 2 to 9 words, large and readable on a phone.
 - `transitionFromPrevious` must name the visible action or visual connection that makes this shot follow the previous one. Scene one may use `Opening beat`.
-- Give each layer a unique sequential `id` such as `element-01`, a role, exact appearance prompt, action, emotion, causal relationship, initial state, final state, entrance, on-screen movement, and exit/hold direction. Use `protagonist`, `supporting_character`, or `story_object` only. These directions must describe a production-ready shot, not a general concept.
-- A character `prompt` must specify visible identity cues, approximate adult age, wardrobe, body orientation, pose, gaze, hand position, crop, viewing angle, and lighting relationship. An object prompt must specify material, scale, orientation, complete footprint, camera-facing surfaces, state, and light. Never return generic prompts such as `a friendly traveler`, `a suitcase`, or `a person smiling`.
+- Give each layer role, exact appearance prompt, action, emotion, causal relationship, initial state, final state, entrance, on-screen movement, and exit/hold direction. Use `protagonist`, `supporting_character`, or `story_object` only. The required `id` is a schema placeholder; return `element-00` and the application assigns stable global sequential technical IDs after generation. These directions must describe a production-ready shot, not a general concept.
+- A layer's photographed pose is constant. `initialState` describes that unchanged group before or during its registered entrance; `finalState` describes the same pixels at their final registered position. `entranceDirection` names one coherent reveal, `motionDirection` is a hold after entrance, and `exitDirection` keeps the layer on screen through the shot. Do not use `then turns`, `changes expression`, `begins walking`, or any other pose morph that one still image cannot perform.
+- A character `prompt` must specify visible identity cues, approximate adult age, wardrobe, body orientation, pose, gaze, both hand positions, complete legs and both feet, viewing angle, full-body scale, and lighting relationship. It must explicitly place the whole silhouette inside the future 9:16 master frame with clear background space around every outer edge. Never request or describe any crop. An object prompt must specify material, scale, orientation, complete footprint, camera-facing surfaces, state, and light. Never return generic prompts such as `a friendly traveler`, `a suitcase`, or `a person smiling`.
+- Begin every protagonist/supporting-character prompt with the literal production condition `Complete full-body subject visible from head through both feet, entirely inside the 9:16 master frame, unobstructed, free-standing on open floor, with visible background space around the silhouette.` Then describe identity and pose. Do not weaken or contradict that condition later in the prompt.
 - `shotFraming` specifies shot size, camera height and angle, lens feel, subject scale in the vertical frame, foreground/midground/background relationship, and reserved negative space. `cameraStart`, `cameraEnd`, and `cameraMotivation` describe exact start/end compositions and why the whole-scene move serves this beat. Directions such as `medium shot`, `eye level`, `wide deck`, or `focus on subject` are too vague.
 - Provide `composition.textPlacement` and keep the text clear of the layers. The renderer animates the camera, the connected layers, and kinetic text; it must not receive or imply a generic path, dashboard line, timeline, badge, or decorative UI graphic.
 - The cameraMove must vary across adjacent scenes. Use dolly_in, dolly_out, tracking_left, tracking_right, follow_left, follow_right, crane_up, crane_down, or orbit intentionally to support the story. Across a multi-scene story include approach/withdrawal and lateral following when they fit; never repeat one move mechanically.
-- Foreground prompts must name one complete, visually recognizable subject or object per layer. Do not ask for a collage, multiple panels, text, a logo, UI, or a screenshot.
+- Foreground prompts must name one complete, visually recognizable subject or object as it appears inside the future integrated master photograph. Never describe it as isolated, a character layer, transparent, cut out, on a matte, on a separate background, or supported by something unseen. Do not ask for a collage, multiple panels, text, a logo, UI, screenshot, phone, tablet, laptop, keycard, receipt, map, document, or readable display.
+- When the editorial meaning is social solitude, write `standing alone` or `separated by visible background space`; do not use the ambiguous production word `isolated` in any layer field.
 - Do not reuse the same foreground prompt, action, pose, or emotion in a later scene. If an item is introduced in one beat, the next beat must visibly change its state, position, owner, or consequence.
 - `usesLogoReference` is the model's independent decision. Set true only when an exact logo reference would make that particular scene more truthful, such as an authentic branded physical setting or product surface. The default is false. Never force a logo into a cover or corner.
 
 CAPTION:
-- Write one useful, natural Instagram caption under 1,200 characters. It should complement rather than repeat the Reel and have no raw URL.
+- Write one useful, natural Instagram caption under 1,200 characters. It should complement rather than repeat the Reel. Never output a URL, protocol, `www`, dot-domain, domain suffix, or spelled website address. Refer to the brand only by its plain brand name when relevant.
 """.strip()
 
 
@@ -4986,6 +5060,22 @@ def hydrate_instagram_reel_architecture_copy(data, story_architecture):
     return data
 
 
+def assign_instagram_reel_element_ids(data):
+    """Assign technical layer IDs without spending model attention on numbering."""
+    if not isinstance(data, dict) or not isinstance(data.get("scenes"), list):
+        return data
+    element_number = 0
+    for scene in data["scenes"]:
+        if not isinstance(scene, dict) or not isinstance(scene.get("layers"), list):
+            continue
+        for layer in scene["layers"]:
+            if not isinstance(layer, dict):
+                continue
+            element_number += 1
+            layer["id"] = f"element-{element_number:02d}"
+    return data
+
+
 def normalize_instagram_reel(data, story_architecture=None, require_production_detail=True):
     if not isinstance(data, dict):
         raise ValueError("Instagram Reel storyboard must be a JSON object")
@@ -4995,6 +5085,8 @@ def normalize_instagram_reel(data, story_architecture=None, require_production_d
     raw_scenes = data.get("scenes") if isinstance(data.get("scenes"), list) else []
     if not caption or not continuity_anchor or not planning_rationale or len(raw_scenes) < 2:
         raise ValueError("Instagram Reel needs a caption, continuity anchor, planning rationale, and a complete multi-scene story")
+    if re.search(r"(?:https?://|www\.|\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|co|ai|app|studio|travel|cruises?)\b)", caption, re.I):
+        raise ValueError("Instagram Reel caption must not contain a raw URL or dot-domain")
     scenes = []
     total_duration = 0.0
     protagonist_actions = set()
@@ -5004,7 +5096,7 @@ def normalize_instagram_reel(data, story_architecture=None, require_production_d
     expected_beats = {beat["id"]: beat for beat in (story_architecture or {}).get("beats", []) if isinstance(beat, dict) and beat.get("id")}
     covered_beat_ids = []
     used_character_prompts = set()
-    prohibited_visuals = re.compile(r"\b(compass|key|coin|percentage|percent sign|badge|floating icon|random device|dashboard|timeline)\b", re.I)
+    prohibited_visuals = re.compile(r"\b(compass|key|coin|percentage|percent sign|badge|floating icon|random device|dashboard|timeline|smartphone|phone|tablet|laptop|readable screen|display)\b", re.I)
     for index, raw in enumerate(raw_scenes, start=1):
         if not isinstance(raw, dict):
             raise ValueError(f"Instagram Reel scene {index} is invalid")
@@ -5034,7 +5126,7 @@ def normalize_instagram_reel(data, story_architecture=None, require_production_d
         covered_beat_ids.extend(scene_beat_ids)
         overlay = _reel_copy(raw.get("overlayText"), 92)
         narration = _reel_copy(raw.get("narration"), 310)
-        stage_background = _reel_copy(raw.get("stageBackgroundPrompt"), 900)
+        stage_background = normalize_instagram_reel_stage_background(raw.get("stageBackgroundPrompt"))
         story = _reel_copy(raw.get("visualStory"), 500)
         beat_purpose = _reel_copy(raw.get("beatPurpose"), 320)
         new_stage_reason = _reel_copy(raw.get("newStageReason"), 360)
@@ -5056,10 +5148,20 @@ def normalize_instagram_reel(data, story_architecture=None, require_production_d
             payoff = (story_architecture or {}).get("payoff") or {}
             if overlay != payoff.get("overlayText") or narration != payoff.get("narration"):
                 raise ValueError("Instagram Reel payoff scene must resolve the approved open loop verbatim")
-        if require_production_detail and (len(stage_background.split()) < 18 or re.search(r"\b(sign|signage|label|text|lettering|icon|screen|display|dashboard|poster|map)\b", stage_background, re.I)):
+        if len(stage_background.split()) < 18 or re.search(r"\b(sign|signage|label|text|lettering|icon|screen|display|dashboard|poster|map)\b", stage_background, re.I):
             raise ValueError(f"Instagram Reel scene {index} needs a detailed empty stage without people, text, signage, icons, or displays")
-        if require_production_detail and (len(shot_framing.split()) < 12 or len(camera_start.split()) < 8 or len(camera_end.split()) < 8 or len(camera_motivation.split()) < 8 or len(story.split()) < 16):
-            raise ValueError(f"Instagram Reel scene {index} camera and visual direction is too generic for production")
+        if len(story.split()) < 16:
+            raise ValueError(f"Instagram Reel scene {index} immutable visualStory has {len(story.split())} words; needs at least 16")
+        if require_production_detail:
+            camera_counts = {
+                "shotFraming": (len(shot_framing.split()), 12),
+                "cameraStart": (len(camera_start.split()), 8),
+                "cameraEnd": (len(camera_end.split()), 8),
+                "cameraMotivation": (len(camera_motivation.split()), 8),
+            }
+            failures = [f"{field}={actual}/{required}" for field, (actual, required) in camera_counts.items() if actual < required]
+            if failures:
+                raise ValueError(f"Instagram Reel scene {index} production detail is too generic: {', '.join(failures)}")
         if stage_id in stage_prompts and stage_prompts[stage_id] != stage_background:
             raise ValueError(f"Instagram Reel stage {stage_id} must reuse one word-for-word identical background prompt")
         stage_prompts.setdefault(stage_id, stage_background)
@@ -5093,8 +5195,16 @@ def normalize_instagram_reel(data, story_architecture=None, require_production_d
                 raise ValueError(f"Instagram Reel scene {index} uses a symbolic rather than source-grounded element")
             if require_production_detail and (len(prompt.split()) < 18 or len(action.split()) < 5 or len(relationship.split()) < 4):
                 raise ValueError(f"Instagram Reel scene {index} layer {role} is not described at production detail")
-            if prohibited_visuals.search(" ".join([prompt, action, relationship])):
-                raise ValueError(f"Instagram Reel scene {index} includes a prohibited decorative layer")
+            prohibited_match = prohibited_visuals.search(" ".join([prompt, action, relationship]))
+            if prohibited_match:
+                raise ValueError(
+                    f"Instagram Reel scene {index} uses unsupported visual shortcut: {prohibited_match.group(0)}"
+                )
+            geometry_text = " ".join([prompt, action, relationship, initial_state, final_state])
+            if role in {"protagonist", "supporting_character"} and _reel_layer_has_invalid_movable_geometry(geometry_text):
+                raise ValueError(f"Instagram Reel scene {index} layer {role} is cropped or attached to fixed geometry")
+            if re.search(r"\b(?:isolated (?:character|person|subject|group|foreground|layer|asset|cutout)|isolated (?:on|against) (?:a |the )?(?:background|canvas|matte)|transparent background|uniform matte|cut[ -]?out|separate background)\b", geometry_text, re.I):
+                raise ValueError(f"Instagram Reel scene {index} layer {role} describes a deprecated isolated foreground")
             if role == "story_object" and re.search(r"\b(held|holding|hold|carried|carrying|carry|worn|wearing|flip|flipping|touch|touching|hand|hands|arm|arms)\b", " ".join([prompt, action, relationship]), re.I):
                 raise ValueError(f"Instagram Reel scene {index} asks a separate object layer to include or depend on body parts")
             if role == "story_object" and re.search(r"\b(book|journal|cup|mug|pen|phone|tablet|paper|brochure|key|notebook|tabletop|table|desk|shelf|laptop|monitor|screen|signpost|board|chart)\b", " ".join([prompt, action, relationship]), re.I):
@@ -5215,15 +5325,18 @@ Preserve verbatim from the approved scene:
 - when an approved layer id is empty, assign its positional technical ID: `element-01`, `element-02`, and so on; never rename a non-empty approved ID.
 - when approved sourceEvidence is empty, add one concise verbatim source fact supporting that exact approved subject; do not use the evidence to change the subject.
 
-For every approved layer, expand only its `prompt`, `initialState`, `finalState`, `entranceDirection`, `motionDirection`, and `exitDirection` into production-ready instructions. The expanded prompt must describe exactly the same person, group, environmental part, or physical object already named by step two. It may add observable details needed by an image model: appearance or material, pose or physical state, viewing angle, crop, scale, perspective, light, and how it matches the approved background. It may not substitute, merge, split, remove, or add a subject.
+For every approved layer, expand only its `prompt`, `initialState`, `finalState`, `entranceDirection`, `motionDirection`, and `exitDirection` into production-ready instructions. The expanded prompt must describe exactly the same person, group, environmental part, or physical object already named by step two. It may add observable details needed by an image model: appearance or material, full-body pose or physical state, viewing angle, full-body scale, perspective, light, and how it belongs inside the approved integrated master photograph. It may not substitute, merge, split, remove, or add a subject.
 
 At scene level, expand only `shotFraming`, `cameraStart`, `cameraEnd`, and `cameraMotivation`. Describe the approved camera move precisely: shot size, camera height, angle, lens character, depth, start composition, end composition, and the physical reason for the move. Preserve the approved `cameraMove`; do not change the scene or layer placement to serve the camera.
 
 The output is a decomposition of one coherent photograph:
 - `stageBackgroundPrompt` is copied verbatim and remains the authoritative empty plate;
-- each layer is generated separately with that background supplied as the visual reference;
-- each layer prompt describes only its approved subject while preserving the background's perspective, illumination, scale, depth, and physical support relationship;
-- animation fields state how that approved subject appears and moves in its existing place;
+- all approved subjects are first photographed together inside one integrated master frame; a matching clean plate is derived later by removing only those approved groups;
+- each layer prompt describes its approved subject as it appears in that integrated master, preserving the plate's perspective, illumination, scale, depth, and open support plane;
+- every person or cohesive group is fully visible from head through both feet, unobstructed, free-standing on open floor or deck, surrounded by visible background space, and physically separate from fixed architecture and other groups;
+- never write `waist up`, `chest up`, `head to thigh`, `cropped`, `isolated`, `transparent`, `matte`, `cutout`, `character layer`, `separate background`, `unseen railing`, or any equivalent extraction instruction;
+- no hand, arm, body, clothing, or owned item touches, rests on, crosses behind, or is hidden by a railing, bar, counter, desk, table, chair, wall, door, or built-in furniture;
+- animation fields state how that approved still group enters as one rigid registered layer and then holds; they never describe a pose, gaze, gesture, expression, or anatomy change;
 - camera fields describe movement of the fully assembled scene, never independent repositioning of a layer.
 
 Do not reinterpret the message, improve the story, invent a stronger hook, introduce visual metaphors, or choose alternative imagery. If the approved scene is not technically decomposable, return it faithfully rather than replacing it; validation will send the problem back to step two.
@@ -5269,11 +5382,7 @@ NON-NEGOTIABLE STRUCTURE:
 
 
 def validate_instagram_reel_scene_detail(scene, scene_index):
-    background = _reel_copy(scene.get("stageBackgroundPrompt"), 900)
-    background = re.sub(r"\b(?:ample\s+)?negative space (?:reserved )?for (?:overlay )?text\b", "ample uncluttered negative space", background, flags=re.I)
-    background = re.sub(r"\b(?:reserved |kept |left )?(?:for |with )?(?:large |overlay )?text(?:\s+placement)?\b", "uncluttered negative space", background, flags=re.I)
-    background = re.sub(r"\b(?:no|without|free of)\s+(?:people|text|signage|labels|icons|screens|displays|ui)(?:\s*(?:,|and)\s*(?:people|text|signage|labels|icons|screens|displays|ui))*\b", "", background, flags=re.I)
-    background = re.sub(r"\s{2,}", " ", background).strip(" ,.;")
+    background = normalize_instagram_reel_stage_background(scene.get("stageBackgroundPrompt"))
     scene["stageBackgroundPrompt"] = background
     framing = _reel_copy(scene.get("shotFraming"), 500)
     camera_start = _reel_copy(scene.get("cameraStart"), 320)
@@ -5382,11 +5491,27 @@ def validate_instagram_reel_source_grounding(scenes, job):
         "photographic", "scene", "standing", "story", "travel", "traveler", "visible", "with", "woman", "wearing",
     }
     for scene_index, scene in enumerate(scenes, start=1):
+        editorial_state = " ".join(
+            _reel_copy(scene.get(field), 700)
+            for field in ("visualStory", "stateAtStart", "stateAtEnd", "transitionFromPrevious")
+        ).lower()
+        knowledge_events = (
+            (r"\bdiscover(?:s|ed|ing)?\b", "discover"),
+            (r"\blearn(?:s|ed|ing)?\b", "learn"),
+            (r"\brealiz(?:e|es|ed|ing)\b", "realize"),
+            (r"\bfind(?:s|ing)? out\b|\bfound out\b", "find out"),
+            (r"\bunderstand(?:s|ing)?\b|\bunderstood\b", "understand"),
+            (r"\bdecid(?:e|es|ed|ing)\b", "decide"),
+            (r"\bchang(?:e|es|ed|ing) (?:her|his|their) mind\b", "change mind"),
+        )
+        for pattern, label in knowledge_events:
+            if re.search(pattern, editorial_state) and not re.search(pattern, source):
+                raise ValueError(f"scene {scene_index} invents an unsourced character knowledge event: {label}")
         for layer in scene.get("layers") or []:
             evidence = _reel_copy(layer.get("sourceEvidence"), 700)
             evidence_normalized = re.sub(r"\s+", " ", evidence.lower()).strip(" .,:;\"'")
             evidence_words = re.findall(r"[a-z][a-z0-9'-]{2,}", evidence_normalized)
-            phrase_matches_source = any(
+            phrase_matches_source = bool(evidence_normalized and evidence_normalized in source) or any(
                 " ".join(evidence_words[index:index + width]) in source
                 for width in (4, 3, 2)
                 for index in range(0, max(0, len(evidence_words) - width + 1))
@@ -5418,11 +5543,34 @@ def instagram_reel_framing_similarity(left, right):
     return len(left_words & right_words) / len(left_words | right_words)
 
 
-def elaborate_instagram_reel_scenes(site, job, language, architecture, skeleton, progress_callback=None):
+def elaborate_instagram_reel_scenes(
+    site,
+    job,
+    language,
+    architecture,
+    skeleton,
+    progress_callback=None,
+    initial_scenes=None,
+    truncation_callback=None,
+    rejection_callback=None,
+):
     detailed = []
     for scene_index, locked_scene in enumerate(skeleton["scenes"]):
+        if initial_scenes and scene_index < len(initial_scenes) and isinstance(initial_scenes[scene_index], dict):
+            try:
+                validated = validate_instagram_reel_scene_detail(initial_scenes[scene_index], scene_index + 1)
+                validated = validate_instagram_reel_locked_scene_detail(validated, locked_scene, scene_index + 1)
+                validate_instagram_reel_source_grounding([validated], job)
+                if detailed and instagram_reel_framing_similarity(validated.get("shotFraming"), detailed[-1].get("shotFraming")) >= 0.62:
+                    raise ValueError(f"scene {scene_index + 1} repeats the prior shot design instead of directing this beat")
+                detailed.append(validated)
+                continue
+            except Exception:
+                del initial_scenes[scene_index:]
+                if truncation_callback:
+                    truncation_callback(scene_index, len(skeleton["scenes"]))
         errors = []
-        for _attempt in range(6):
+        for _attempt in range(1):
             retry = f"\n\nPrevious technical decomposition rejected: {errors[-1]}. Keep the approved scene verbatim and revise only the permitted production-detail fields." if errors else ""
             try:
                 candidate = _gemini_text_json(
@@ -5455,54 +5603,143 @@ def elaborate_instagram_reel_scenes(site, job, language, architecture, skeleton,
                     raise ValueError(f"scene {scene_index + 1} changed locked story structure")
                 if detailed and int(candidate["stageId"]) == int(detailed[-1]["stageId"]) and candidate.get("stageBackgroundPrompt") != detailed[-1].get("stageBackgroundPrompt"):
                     raise ValueError(f"scene {scene_index + 1} failed to reuse its stage background verbatim")
-                validated = validate_instagram_reel_locked_scene_detail(candidate, locked_scene, scene_index + 1)
+                validated = validate_instagram_reel_scene_detail(candidate, scene_index + 1)
+                validated = validate_instagram_reel_locked_scene_detail(validated, locked_scene, scene_index + 1)
                 validate_instagram_reel_source_grounding([validated], job)
                 if detailed and instagram_reel_framing_similarity(validated.get("shotFraming"), detailed[-1].get("shotFraming")) >= 0.62:
                     raise ValueError(f"scene {scene_index + 1} repeats the prior shot design instead of directing this beat")
-                detailed.append(validated)
-                if progress_callback:
-                    progress_callback(scene_index + 1, len(skeleton["scenes"]), validated)
                 break
             except Exception as error:
                 errors.append(str(error)[:500])
+                if rejection_callback and "candidate" in locals() and isinstance(candidate, dict):
+                    rejection_callback("scene_detail", scene_index + 1, len(skeleton["scenes"]), candidate, error)
         else:
             raise ValueError(f"Instagram Reel scene {scene_index + 1} detail generation failed: " + " | ".join(errors)[-900:])
+        detailed.append(validated)
+        if progress_callback:
+            progress_callback(scene_index + 1, len(skeleton["scenes"]), validated)
     return detailed
 
 
-def generate_instagram_reel_storyboard(site, job, language):
-    errors = []
+def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=None, checkpoint_callback=None):
+    checkpoint = dict(resume_checkpoint) if isinstance(resume_checkpoint, dict) else {}
+
+    def save_checkpoint(phase, scene=0, total=0):
+        checkpoint["version"] = 13
+        checkpoint["phase"] = phase
+        checkpoint["scene"] = scene
+        checkpoint["totalScenes"] = total
+        checkpoint["updatedAt"] = now_iso()
+        if checkpoint_callback:
+            checkpoint_callback(phase, checkpoint, scene, total)
+
+    def save_scene_checkpoint(key, phase, scene, total, result):
+        completed = checkpoint.setdefault(key, [])
+        if not isinstance(completed, list) or scene != len(completed) + 1:
+            raise ValueError(f"Instagram Reel {phase} checkpoint is out of sequence at scene {scene}")
+        if key == "detailedScenes":
+            checkpoint.pop("manifestScenes", None)
+            checkpoint.pop("storyboard", None)
+        completed.append(result)
+        checkpoint.pop("rejectedStage", None)
+        save_checkpoint(phase, scene=scene, total=total)
+
+    def save_rejected_stage(phase, scene, total, candidate, error):
+        checkpoint["rejectedStage"] = {
+            "phase": phase,
+            "scene": scene,
+            "error": str(error)[:1000],
+            "candidate": candidate,
+        }
+        save_checkpoint(f"{phase}_rejected", scene=scene, total=total)
+
+    def save_truncated_details(completed, total):
+        checkpoint.pop("manifestScenes", None)
+        checkpoint.pop("storyboard", None)
+        save_checkpoint("scene_details_truncated", scene=completed, total=total)
+
     source_outline = instagram_reel_source_outline(job)
-    architecture = generate_instagram_reel_story_architecture(site, job, language, source_outline)
+    checkpoint["sourceOutline"] = source_outline
+    stored_architecture = checkpoint.get("architecture")
+    if isinstance(stored_architecture, dict):
+        try:
+            architecture = normalize_instagram_reel_story_architecture(stored_architecture, source_outline)
+        except Exception:
+            for key in ("architecture", "skeleton", "detailedScenes", "manifestScenes", "storyboard"):
+                checkpoint.pop(key, None)
+            stored_architecture = None
+    if not isinstance(stored_architecture, dict):
+        architecture = generate_instagram_reel_story_architecture(site, job, language, source_outline)
+        checkpoint["architecture"] = architecture
+        save_checkpoint("architecture_ready", total=len(architecture["beats"]))
+
     prompt = build_instagram_reel_prompt(site, job, language, architecture)
-    for attempt in range(6):
-        retry_note = ""
-        if errors:
-            retry_note = f"""
+    stored_skeleton = checkpoint.get("skeleton")
+    if isinstance(stored_skeleton, dict):
+        try:
+            skeleton = normalize_instagram_reel(stored_skeleton, architecture, require_production_detail=False)
+            validate_instagram_reel_source_grounding(skeleton["scenes"], job)
+        except Exception:
+            for key in ("skeleton", "detailedScenes", "manifestScenes", "storyboard"):
+                checkpoint.pop(key, None)
+            stored_skeleton = None
+            save_checkpoint("architecture_ready", total=len(architecture["beats"]))
+    if not isinstance(stored_skeleton, dict):
+        errors = []
+        for attempt in range(1):
+            retry_note = ""
+            if errors:
+                retry_note = f"""
 
 Your previous storyboard was rejected for this exact reason: {errors[-1][:500]}
 Generate a completely new storyboard from the source article. Do not repair or reuse the rejected JSON. Use exactly one scene for each already-derived screen-sized beat ID, in the supplied order. The architecture has already grouped related source sections into 6-8 screens for a 30-second Reel; preserve that grouping, stage assignment, and source coverage. Give every screen production-level state-before/state-after, detailed shot size/angle/lens/depth/negative-space framing, exact camera start/end/motivation, visible transition, and complete element motion directions. Every stage prompt needs enough physical architecture, surfaces, light, perspective, depth and free space to generate one specific integrated master photograph, but no text, signage, icons, displays, maps, or UI. Use one to four purposeful movable groups per scene, each with a unique `element-XX` ID. Every group prompt must be visually exhaustive enough to generate without guessing identity, wardrobe/material, orientation, pose/state, gaze, complete silhouette, owned items, viewing angle, and lighting. Every movable person/group is free-standing, fully contained, and unobstructed; seated, reclining, cropped, furniture-supported, or fixed-contact people remain inseparable background or are recomposed as a source-grounded free-standing action. People who touch, overlap, greet, or share an object belong to one cohesive free-standing group. Different groups must be large, fully inside the frame, and separated by visible background space; no unrelated crowd may touch or sit directly behind them. A separate story_object is only a large complete floor/deck-standing item with its own visible footprint and state; never use a book, journal, cup, pen, phone, tablet, paper, brochure, key, or tabletop item as a separate layer. Put handheld items inside the character group that owns them. Every element must materially change the story state. Never use a decorative symbol, compass, key, coin, badge, icon, route line, generic device, or filler prop. Vary whole-scene camera movement with no adjacent repetition.
 """
-        try:
-            skeleton_data = _gemini_text_json(prompt + retry_note, response_schema=INSTAGRAM_REEL_VISUAL_SCHEMA, temperature=0.5, repair=False)
-            hydrate_instagram_reel_architecture_copy(skeleton_data, architecture)
-            skeleton = normalize_instagram_reel(
-                skeleton_data,
-                architecture,
-                require_production_detail=False,
-            )
-            detailed_scenes = elaborate_instagram_reel_scenes(site, job, language, architecture, skeleton)
-            storyboard = normalize_instagram_reel({
-                "caption": skeleton["caption"],
-                "continuityAnchor": skeleton["continuityAnchor"],
-                "planningRationale": skeleton["planningRationale"],
-                "scenes": detailed_scenes,
-            }, architecture, require_production_detail=True)
-            break
-        except Exception as error:
-            errors.append(str(error))
-    else:
-        raise ValueError("Instagram Reel storyboard generation failed: " + " | ".join(errors)[:700])
+            try:
+                skeleton_data = _gemini_text_json(prompt + retry_note, response_schema=INSTAGRAM_REEL_VISUAL_SCHEMA, temperature=0.5, repair=False)
+                hydrate_instagram_reel_architecture_copy(skeleton_data, architecture)
+                assign_instagram_reel_element_ids(skeleton_data)
+                skeleton = normalize_instagram_reel(
+                    skeleton_data,
+                    architecture,
+                    require_production_detail=False,
+                )
+                validate_instagram_reel_source_grounding(skeleton["scenes"], job)
+                break
+            except Exception as error:
+                errors.append(str(error))
+                if "skeleton_data" in locals() and isinstance(skeleton_data, dict):
+                    checkpoint["rejectedStage"] = {
+                        "phase": "skeleton",
+                        "error": str(error)[:1000],
+                        "candidate": skeleton_data,
+                    }
+                    save_checkpoint("skeleton_rejected", total=len(architecture["beats"]))
+        else:
+            raise ValueError("Instagram Reel storyboard generation failed: " + " | ".join(errors)[:700])
+        checkpoint["skeleton"] = skeleton
+        save_checkpoint("skeleton_ready", total=len(skeleton["scenes"]))
+
+    detailed_scenes = elaborate_instagram_reel_scenes(
+        site,
+        job,
+        language,
+        architecture,
+        skeleton,
+        initial_scenes=checkpoint.get("detailedScenes"),
+        progress_callback=lambda scene, total, result: save_scene_checkpoint(
+            "detailedScenes", "scene_detail_ready", scene, total, result
+        ),
+        truncation_callback=save_truncated_details,
+        rejection_callback=save_rejected_stage,
+    )
+    checkpoint["detailedScenes"] = detailed_scenes
+    storyboard = normalize_instagram_reel({
+        "caption": skeleton["caption"],
+        "continuityAnchor": skeleton["continuityAnchor"],
+        "planningRationale": skeleton["planningRationale"],
+        "scenes": detailed_scenes,
+    }, architecture, require_production_detail=True)
+    save_checkpoint("all_scene_details_ready", scene=len(detailed_scenes), total=len(detailed_scenes))
 
     production_manifest = generate_instagram_reel_step3_asset_manifest(
         site,
@@ -5510,7 +5747,13 @@ Generate a completely new storyboard from the source article. Do not repair or r
         language,
         skeleton,
         storyboard["scenes"],
+        initial_scenes=checkpoint.get("manifestScenes"),
+        progress_callback=lambda scene, total, result: save_scene_checkpoint(
+            "manifestScenes", "manifest_scene_ready", scene, total, result
+        ),
+        rejection_callback=save_rejected_stage,
     )
+    checkpoint["manifestScenes"] = production_manifest["scenes"]
     for scene, manifest_scene in zip(storyboard["scenes"], production_manifest["scenes"]):
         scene["productionBackgroundPrompt"] = manifest_scene["background"]["generationPrompt"]
         for layer, component in zip(scene["layers"], manifest_scene["components"]):
@@ -5532,6 +5775,8 @@ Generate a completely new storyboard from the source article. Do not repair or r
             layer["manifestStartSeconds"] = component["startSeconds"]
             layer["manifestEndSeconds"] = component["endSeconds"]
     storyboard["productionManifest"] = production_manifest
+    checkpoint["storyboard"] = storyboard
+    save_checkpoint("storyboard_ready", scene=len(storyboard["scenes"]), total=len(storyboard["scenes"]))
     return storyboard
 
 
@@ -6402,7 +6647,7 @@ def queue_instagram_reel(site_id, job_id):
             "instagramReel": {
                 "progress": {"phase": "queued", "scene": 0, "totalScenes": 0, "message": "Waiting for Gemini to derive the story structure"},
                 "motionSystem": "validated coherent master frame, identical clean plate, master-derived registered layers, subject-focused camera beats, and quiet-zone kinetic type",
-                "version": 12,
+                "version": 13,
             },
         }
         cursor = conn.execute(
@@ -6433,11 +6678,15 @@ def regenerate_instagram_reel(site_id, post_id):
             raise ValueError("This Instagram Reel cannot be regenerated in its current state")
         payload = parse_json_object(post["content_json"])
         payload["source"] = "blog_core_reel_pipeline"
+        prior_reel = payload.get("instagramReel") if isinstance(payload.get("instagramReel"), dict) else {}
+        prior_checkpoint = prior_reel.get("planningCheckpoint") if isinstance(prior_reel.get("planningCheckpoint"), dict) else None
         payload["instagramReel"] = {
             "progress": {"phase": "queued", "scene": 0, "totalScenes": 0, "message": "Waiting for Gemini to derive the story structure"},
             "motionSystem": "validated coherent master frame, identical clean plate, master-derived registered layers, subject-focused camera beats, and quiet-zone kinetic type",
-            "version": 12,
+            "version": 13,
         }
+        if prior_checkpoint and int(prior_checkpoint.get("version") or 0) == 13:
+            payload["instagramReel"]["planningCheckpoint"] = prior_checkpoint
         conn.execute(
             "update social_posts set content_text='',content_json=?,remote_url='',status='GENERATING',validation_json='{}',char_count=0,updated_at=? where id=?",
             (json.dumps(payload, ensure_ascii=False), now_iso(), post_id),
@@ -6470,6 +6719,25 @@ def generate_instagram_reel_post(site_id, post_id):
         reel["progress"] = {"phase": phase, "scene": scene, "totalScenes": len(current_scenes), "message": message}
         _save_instagram_reel_payload(post_id, payload, "GENERATING")
 
+    def planning_checkpoint(phase, checkpoint, scene, total):
+        messages = {
+            "architecture_ready": "Article analysis and editorial architecture validated and saved",
+            "skeleton_ready": "Visual story structure validated and saved",
+            "scene_detail_ready": f"Scene {scene} production detail validated and saved",
+            "scene_details_truncated": f"Saved scene details were revalidated; resuming after scene {scene}",
+            "all_scene_details_ready": "All scene details validated and saved",
+            "manifest_scene_ready": f"Scene {scene} technical manifest validated and saved",
+            "storyboard_ready": "Complete text-only storyboard validated and saved",
+        }
+        reel["planningCheckpoint"] = checkpoint
+        reel["progress"] = {
+            "phase": phase,
+            "scene": scene,
+            "totalScenes": total,
+            "message": messages.get(phase, "Reel planning checkpoint validated and saved"),
+        }
+        _save_instagram_reel_payload(post_id, payload, "GENERATING")
+
     try:
         progress("storyboard", message="Deriving the necessary story beats, scenes, stages, and production directions from the source article")
         storyboard = None
@@ -6492,7 +6760,18 @@ def generate_instagram_reel_post(site_id, post_id):
             except Exception:
                 storyboard = None
         if storyboard is None:
-            storyboard = generate_instagram_reel_storyboard(site, job, language)
+            stored_checkpoint = reel.get("planningCheckpoint") if isinstance(reel.get("planningCheckpoint"), dict) else None
+            if stored_checkpoint and int(stored_checkpoint.get("version") or 0) != 13:
+                stored_checkpoint = None
+            storyboard = generate_instagram_reel_storyboard(
+                site,
+                job,
+                language,
+                resume_checkpoint=stored_checkpoint,
+                checkpoint_callback=planning_checkpoint,
+            )
+            reel["storyboard"] = storyboard
+            _save_instagram_reel_payload(post_id, payload, "GENERATING")
         existing_asset_key = str(reel.get("assetKey") or "")
         existing_asset_dir = instagram_reel_asset_dir(site_id, existing_asset_key) if existing_asset_key else None
         asset_key = existing_asset_key if existing_asset_dir and existing_asset_dir.is_dir() and resuming_storyboard else social_asset_key(job["id"])
@@ -6514,7 +6793,7 @@ def generate_instagram_reel_post(site_id, post_id):
                 "mix": "continuous low background bed with speech ducking",
                 "audioUrl": reel_music_audio_url(site_id, music_track["id"], music_track["audio_filename"]),
             } if music_track and music_path else {"source": "none"}),
-            "version": 12,
+            "version": 13,
         })
         render_scenes = []
         accepted_visual_scenes = []
@@ -6576,7 +6855,7 @@ def generate_instagram_reel_post(site_id, post_id):
             "musicMode": rendered.get("musicMode") or "none",
             "progress": {"phase": "ready", "scene": total_scenes, "totalScenes": total_scenes, "message": "Reel draft is ready for review"},
         })
-        payload["validation"] = {"version": 12, "caption": {"charCount": len(storyboard["caption"]), "maxChars": SOCIAL_CHANNEL_LIMITS["instagram"]}, "durationTargetSeconds": storyboard.get("storyArchitecture", {}).get("durationTargetSeconds") or 30, "scenes": total_scenes, "stages": storyboard.get("stageCount") or len({scene["stageId"] for scene in storyboard["scenes"]}), "plannedImageGenerations": storyboard.get("generationCount"), "layerContract": "each scene is one visually approved coherent master frame; the clean plate removes only approved complete groups; every animated layer is extracted from that master at immutable full-canvas registration", "motionElementsPerScene": "1-4 quality-gated source-grounded groups, whole-subject entrances, delayed subject-focused camera beats, and quiet-zone kinetic type", "cameraMoves": [scene["cameraMove"] for scene in storyboard["scenes"]], "brandMusic": bool(rendered.get("musicApplied")), "musicMode": rendered.get("musicMode") or "none", "continuityAnchor": storyboard.get("continuityAnchor") or "", "planningRationale": storyboard.get("planningRationale") or "", "allVisualsValidatedBeforeVoice": True}
+        payload["validation"] = {"version": 13, "caption": {"charCount": len(storyboard["caption"]), "maxChars": SOCIAL_CHANNEL_LIMITS["instagram"]}, "durationTargetSeconds": storyboard.get("storyArchitecture", {}).get("durationTargetSeconds") or 30, "scenes": total_scenes, "stages": storyboard.get("stageCount") or len({scene["stageId"] for scene in storyboard["scenes"]}), "plannedImageGenerations": storyboard.get("generationCount"), "layerContract": "each scene is one visually approved coherent master frame; the clean plate removes only approved complete groups; every animated layer is extracted from that master at immutable full-canvas registration", "motionElementsPerScene": "1-4 quality-gated source-grounded groups, whole-subject entrances, delayed subject-focused camera beats, and quiet-zone kinetic type", "cameraMoves": [scene["cameraMove"] for scene in storyboard["scenes"]], "brandMusic": bool(rendered.get("musicApplied")), "musicMode": rendered.get("musicMode") or "none", "continuityAnchor": storyboard.get("continuityAnchor") or "", "planningRationale": storyboard.get("planningRationale") or "", "allVisualsValidatedBeforeVoice": True}
         _save_instagram_reel_payload(post_id, payload, "DRAFT", char_count=len(storyboard["caption"]))
         with db() as conn:
             conn.execute("update social_posts set content_text=?, validation_json=?, updated_at=? where id=?", (storyboard["caption"], json.dumps(payload["validation"], ensure_ascii=False), now_iso(), post_id))
