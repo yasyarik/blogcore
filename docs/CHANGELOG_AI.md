@@ -1,5 +1,25 @@
 # CHANGELOG_AI.md
 
+## 2026-08-11 — Audit the production Reel image contract
+
+### Summary
+* Re-read the active production path from storyboard planning through master image, clean plate, registered extraction, layer review, delayed voice, and render.
+* Confirmed the master prompt carries the complete first-call composition contract and the active image stage has no automatic paid retry or legacy foreground-generation fallback.
+* Confirmed non-compliant masters and layer packs stop before voice generation and publication.
+
+### Files changed
+* `docs/CHANGELOG_AI.md` — recorded the production prompt and execution-path audit.
+
+### Decisions
+* Prompt completeness reduces invalid generations; validators provide the publication guarantee. A generative model cannot guarantee that every first candidate is compliant.
+
+### Checks run
+* Inspected `build_instagram_reel_master_prompt`, master review normalization, clean-plate prompt, registered extraction, layer-pack review, and `generate_instagram_reel_post`.
+* Confirmed the active master loop is exactly one attempt and voice starts only after all visual scenes pass.
+
+### Risks / TODO
+* The next operator-requested real Reel remains the first full production verification of the new one-pass image contract.
+
 ## 2026-08-11 — Integrate validated master-derived storyboard production
 
 ### Summary
