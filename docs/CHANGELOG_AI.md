@@ -1,5 +1,37 @@
 # CHANGELOG_AI.md
 
+## 2026-08-11 — Integrate validated master-derived storyboard production
+
+### Summary
+* Replaced independently generated foregrounds with one coherent master frame per scene, an otherwise-identical clean plate, and full-canvas registered layers extracted from the accepted master.
+* Added first-pass prompt requirements and vision gates for complete anatomy, complete clothing and owned objects, subject scale, frame margins, group separability, unrelated-crowd clearance, and text-safe space.
+* Added connected clean-plate-difference recovery, enclosed-hole repair, reconstruction checks, and a final visual layer-pack review.
+* Deferred all voice generation until every visual scene passes validation.
+* Added whole-layer directional entrances, post-entrance face/group camera pushes, pullbacks/focus transfers, automatic quiet-zone typography, and local contrast selection.
+* Removed automatic paid image retries. Validators stop a bad one-pass result and require an explicit operator retry after the shared contract is corrected.
+* Enabled the master-derived Reel pipeline on the VPS with no existing `GENERATING` Reel jobs.
+
+### Files changed
+* `app.py` — master prompt/review, clean-plate generation, registered scene orchestration, integrity gates, one-pass media policy, delayed voice, and v12 metadata.
+* `registered_scene.py` — 1-4 quality-driven layers, connected difference recovery, and enclosed-hole repair.
+* `reel_renderer.py` — whole-object entrances, delayed subject-focused camera sequence, quiet-zone selection, and luminance-aware text palette.
+* `AGENTS.md` — current master-derived, one-pass, camera, and typography invariants.
+* `docs/PROJECT_MEMORY.md` — durable production architecture and replaced decisions.
+
+### Decisions
+* A prompt must carry the full visual quality contract on its first paid call. Validation is a stop gate, not a retry engine.
+* An integrated master is the source of scene truth. Separately generated foreground assets are deprecated for production photorealistic storyboard scenes.
+
+### Checks run
+* Compiled `app.py`, `reel_renderer.py`, and `registered_scene.py` locally and in the production `.venv`.
+* Ran production-environment contract tests proving that complete separated groups pass and an inseparable master is rejected.
+* Ran renderer contract tests for automatic upper safe-zone selection, two subject-focus targets, static entrance phase, camera push, pullback, and focus transfer.
+* Confirmed zero queued Instagram Reel generations before activation.
+* Restarted `blog-yas-core`; `/health` returned `ok` and PM2 remained online.
+
+### Risks / TODO
+* No paid media was generated in this deployment task. The next operator-requested real Reel is the first end-to-end production verification of the one-pass v12 path.
+
 ## 2026-07-26 — Restore all three Pricing tiers with safe checkout gating
 
 ### Summary

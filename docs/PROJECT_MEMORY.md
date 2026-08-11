@@ -1,5 +1,16 @@
 # PROJECT_MEMORY.md
 
+## 2026-08-11 — Production Reels use one-pass validated master-derived scenes
+
+* Current architecture: each storyboard scene generates one complete coherent 9:16 master photograph containing all approved movable groups. The first prompt requires large mobile-readable subjects, complete heads/limbs/hands/clothing/owned items, clear background gaps between independent groups, no unrelated nearby crowd, and a calm text-safe region.
+* Visual gate: Gemini vision must identify every approved group, return its normalized bounds, and confirm a single coherent photograph, complete in-frame groups, sufficient scale, separability, owned/contact objects, background clearance, and the quietest text zone. A failed gate stops the production record.
+* Clean-plate and layer path: from an accepted master, Gemini edits one otherwise-identical clean plate removing only the approved complete groups. `registered_scene.py` extracts 1-4 full-canvas registered masks, grows clean-plate difference only through pixels connected to the accepted subject, fills enclosed holes, checks overlap/scale/reconstruction, and sends a review sheet through a final layer-integrity gate.
+* Cost rule: visual generation is one-pass. Validators never trigger hidden paid regeneration. A failed master, clean plate, or layer pack remains failed until the operator explicitly retries after correcting the universal prompt or contract.
+* Audio rule: no voice is generated until every visual scene in the Reel has passed master, clean-plate, segmentation, reconstruction, and integrity validation.
+* Renderer: whole layers enter from varied directions without a simultaneous wipe/reveal mask. The camera stays static during entrances, then pushes toward a face/upper-body/group target derived from real alpha bounds, holds, pulls back, or transfers focus to the next settled group. Copy placement is recalculated from foreground occupancy and local texture; fill and contour are chosen from local luminance.
+* Deployment: `MASKED_LAYER_REEL_ENABLED=1` on the Blog Core VPS. Existing Reel rows were not queued when it was enabled, so deployment caused no media generation.
+* Replaced/deprecated: the earlier clean-background plus independently generated foreground contract, the statement that master-derived extraction was rejected, automatic paid image retries, fixed minimum layer quotas, camera movement during entrances, and planner-only text placement authority.
+
 ## 2026-07-26 — Complete Pricing catalogue is independent from checkout readiness
 
 - Decision: Pricing always displays Solo (€49), Pro (€99), and Agency (€199); an unconfigured tier must not disappear from the commercial page.
