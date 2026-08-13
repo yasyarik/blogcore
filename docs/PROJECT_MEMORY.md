@@ -20,6 +20,15 @@
 
 # PROJECT_MEMORY.md
 
+## 2026-08-14 — Reel planning carries literal evidence and resumable director checkpoints
+
+* Stage two receives the stage-one central problem together with its source grounding. This prevents the concrete physical noun that defines the hook from disappearing between stages.
+* A new visual world may be established only from an exact physical-environment substring copied from the current beat's editorial input, source grounding, or problem connection. `domainContext`, another beat, and category knowledge cannot authorize scenery. Resolution always reuses the payoff scene's visual world.
+* Stage-two validation rejects movable human layers described as seated, reclining, leaning, cropped, obscured, or partly hidden. Layerability is enforced before any image generation.
+* Social execution may close the editorial payoff but cannot replace it with `call to action`, follow/save/link instructions, or another generic social CTA.
+* Stage three copies technical layer identities exactly. Every direct-evidence layer triggers a camera beat, and final-focus matching normalizes punctuation identically on both the generated focus text and approved layer name.
+* Director generation checkpoints each accepted scene and resumes from the accepted prefix. A failed later scene must not regenerate an earlier accepted scene.
+
 ## 2026-08-13 — Reel typography, cinematic camera, and clean-edge matte contract
 
 * Reel overlay copy must remain mobile-readable: 82-118 px in the 1080x1920 renderer, at most three large lines on one screen. Longer locked copy is shown as sequential phrase groups; it is never shrunk into a paragraph.

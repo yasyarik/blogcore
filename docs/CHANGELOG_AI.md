@@ -74,6 +74,38 @@
 
 # CHANGELOG_AI.md
 
+## 2026-08-14 — Completed Reel scene concepts and technical direction
+
+### Summary
+
+* Ran stage two and stage three against a real published SoloCruz article using the production Gemini model and production validators.
+* Fixed cross-stage loss of the central physical problem, unsupported environment selection, non-extractable human compositions, generic CTA substitution, and punctuation-sensitive final camera focus matching.
+* Produced and saved an accepted five-scene, 30-second text-only director checkpoint for social post 33. No images, speech, music, or video were generated.
+
+### Files changed
+
+* `app.py` — universal stage-two evidence/environment contract, extraction validation, social-payoff validation, and stage-three camera identity validation.
+* `docs/PROJECT_MEMORY.md` — durable cross-stage Reel planning rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Environment phrases are closed-book copies from the current beat, not free-form descriptions from `domainContext` or the wider article.
+* A model-valid camera plan must cover every direct-evidence layer by exact technical identity; punctuation differences cannot create false validation failures.
+* Accepted text stages remain operator-gated. Media production starts only after explicit approval.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed after deployment.
+* Restarted `blog-yas-core`; local health endpoint returned `ok`.
+* Stage two passed for all five scenes.
+* Stage three passed for all five scenes with a total duration of 30.0 seconds.
+* Saved `director_plan_ready` with `mediaGenerated: false` in SoloCruz social post 33.
+
+### Risks / TODO
+
+* No visual assets were generated in this task, so the accepted text plan still requires explicit review before starting paid media production.
+
 ## 2026-08-13 — Clean Reel cutouts, persistent scene text, and verified final logo
 
 ### Summary
