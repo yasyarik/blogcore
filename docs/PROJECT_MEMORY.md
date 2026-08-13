@@ -20,6 +20,16 @@
 
 # PROJECT_MEMORY.md
 
+## 2026-08-14 — Reel scenes require varied worlds, practical layers, and varied shot scales
+
+* A five-scene Reel uses at least three visual worlds and at least three shot scales, including wide/establishing, medium, and close/detail. Adjacent scenes cannot repeat the same scale, and one world cannot occupy three consecutive scenes.
+* Source-named environments remain preferred. A neutral contextual stage is allowed when the article lacks enough useful physical locations, but the stage carries no editorial proof; claims remain grounded in current-beat people, objects, mechanisms, and overlay copy.
+* Architecture and room-scale set pieces are always fixed background: doors, windows, walls, decks, railings, desks, tables, beds, sofas, cabinets, partitions, and built-in lighting never become movable layers.
+* Movable objects are compact or medium standalone items occupying less than half the frame. They cannot contain or overlap human anatomy. Anything worn, carried, held, or touched belongs to the complete head-to-feet human group and cannot be extracted again as a separate object.
+* A scene may contain one to four truthful layers. The pipeline must not invent filler props to reach an event quota: one layer entrance, persistent text entrance, and synchronized camera motion already provide three visible events.
+* Direct-evidence layers are built from a closed current-beat evidence block. A compact object from elsewhere in the article may serve only as honest kinetic support and cannot import another beat's mechanism or conclusion.
+* Human movable layers must explicitly state that they are fully visible from head through both feet. `standing` alone is not sufficient proof of extractability.
+
 ## 2026-08-14 — Reel planning carries literal evidence and resumable director checkpoints
 
 * Stage two receives the stage-one central problem together with its source grounding. This prevents the concrete physical noun that defines the hook from disappearing between stages.

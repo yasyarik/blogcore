@@ -74,6 +74,39 @@
 
 # CHANGELOG_AI.md
 
+## 2026-08-14 — Rebuilt Reel direction around visual and framing variety
+
+### Summary
+
+* Rejected the technically valid but repetitive cabin-only director plan.
+* Added sequence-level world and shot-scale planning, contextual stages, compact-object constraints, complete-human extraction checks, object ownership rules, and readable-label validation.
+* Removed the requirement to manufacture three physical layers per scene. Scenes now use one to four meaningful layers, with text and camera supplying additional visible events.
+* Generated and validated a replacement five-scene, 30-second plan using four visual worlds and wide, medium, and detail compositions. No images, voice, music, or video were generated.
+
+### Files changed
+
+* `app.py` — universal scene variety, framing, layer feasibility, grounding, and validation contracts.
+* `docs/PROJECT_MEMORY.md` — durable Reel visual-variety and layer rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Large furniture and architecture create the fixed set and are never moved as extracted layers.
+* A truthful sparse scene is preferable to a busy scene filled with unrelated props.
+* Contextual backgrounds may provide production variety but cannot prove an editorial claim.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed locally and on the VPS.
+* Restarted `blog-yas-core`; health returned `ok`.
+* Stage two passed with five scenes, four visual worlds, and three shot-scale classes.
+* Stage three passed for all five scenes at 30.0 seconds.
+* Saved the replacement `director_plan_ready` checkpoint with `mediaGenerated: false`.
+
+### Risks / TODO
+
+* The new plan remains text-only and requires explicit approval before paid media generation.
+
 ## 2026-08-14 — Completed Reel scene concepts and technical direction
 
 ### Summary
