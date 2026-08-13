@@ -4665,3 +4665,29 @@ This file is updated by Codex after every task.
 * Gemini TTS is Preview and longer audio is generated in chunks to reduce quality drift; real content generation needs a selected article and incurs model usage.
 * WAV is reliable and avoids a new transcoding dependency. Add MP3/AAC transcode only when a distribution host requires it.
 * Native podcast pages/players on imported source sites are intentionally not changed by this implementation.
+## 2026-08-13 — Restored smart layer extraction and fixed Reel text colour
+
+### Summary
+* Replaced the production quantized-SAM extraction path with SAM 2.1 large plus ViTMatte alpha refinement.
+* Removed manual mask growth and nearest-interior edge-colour replacement that caused torn, jagged silhouettes.
+* Rebuilt all 22 real layers across the seven scenes of SoloCruz Reel post 33 without regenerating source images or voice.
+* Forced Reel typography to remain light with shadow and adaptive background scrim; dark caption switching was removed.
+* Added a per-post production lock to prevent scheduler/manual render races.
+
+### Files changed
+* `registered_scene.py` — SAM 2.1 + ViTMatte production segmentation and matting.
+* `reel_renderer.py` — permanent light caption palette.
+* `app.py` — exclusive per-Reel production lock.
+* `requirements.txt` — reproducible CPU PyTorch, SAM 2 and ViTMatte dependencies.
+* `docs/PROJECT_MEMORY.md` — durable Reel extraction and typography rules.
+* `docs/CHANGELOG_AI.md` — task record.
+
+### Checks run
+* Python compilation for changed modules.
+* Rebuilt seven production scene packs; reconstruction MAE ranged from 0.00000 to 0.00075.
+* Visually reviewed a contact sheet of all 22 extracted layers.
+* Rendered SoloCruz post 33 without voice and inspected seven timeline frames.
+* `ffprobe`: H.264, 1080x1920, 24 fps, 30.04 seconds, AAC music track.
+
+### Risks / TODO
+* CPU ViTMatte is intentionally slower than the deprecated quantized SAM path.

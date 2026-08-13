@@ -902,3 +902,9 @@ It must be updated after every meaningful task.
 * Do not claim a site integration is native because it shares colors or fonts. Match and verify the source DOM, computed header/footer dimensions, section rhythm, typography roles, controls, and responsive behavior.
 * Do not delegate only a title and slug to a source factory. Preserve the planned task's native path, canonical group, type, and language in the source job payload.
 * An explicit Regenerate action for a source-authoritative task must call the source factory even when the previous result is `READY` or `PUBLISHED`; merely re-syncing an old result is not regeneration.
+## 2026-08-13 — Production Reel matting and caption contrast
+
+* Instagram Reel registered layers must use SAM 2.1 large for box-prompted semantic segmentation and ViTMatte for alpha refinement. The old quantized `rembg` SAM path and manual clean-difference edge growth are deprecated because they produce jagged people contours and damaged clothing/hands.
+* The SAM 2.1 checkpoint is deployment data at `models/sam2.1_hiera_large.pt` and must not be committed. Production must fail clearly when the smart matting stack is unavailable; it must not silently fall back to lower-quality segmentation.
+* Reel captions are always light with a soft dark shadow. They must never switch to dark text based on local luminance; an adaptive local gradient may be used when the photographic background needs more contrast.
+* Reel rendering is locked per site/post so the scheduler and a manual production request cannot write the same temporary render concurrently.

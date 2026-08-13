@@ -216,10 +216,7 @@ def _choose_text_placement(background: Image.Image, foregrounds: list[Image.Imag
 
 
 def _caption_palette(canvas: Image.Image, placement: str):
-    box = (45, 70, 1035, 570) if placement.startswith("top") else (45, 1050, 1035, 1600)
-    luminance = ImageStat.Stat(canvas.convert("L").crop(box)).mean[0]
-    if luminance >= 145:
-        return (8, 43, 55), (190, 235, 236)
+    """Reel captions stay light; contrast comes from shadow and an adaptive scrim."""
     return (247, 253, 255), (1, 11, 22)
 
 

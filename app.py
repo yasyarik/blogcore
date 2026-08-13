@@ -7090,7 +7090,7 @@ def regenerate_instagram_reel(site_id, post_id):
     return {"ok": True, "postId": int(post_id), "status": "GENERATING"}
 
 
-def generate_instagram_reel_post(site_id, post_id):
+def _generate_instagram_reel_post_unlocked(site_id, post_id):
     if os.environ.get("MASKED_LAYER_REEL_ENABLED", "0") != "1":
         raise RuntimeError("Full Reel generation is blocked until the master-derived registered-layer pipeline is enabled")
     with db() as conn:
@@ -7278,6 +7278,30 @@ def generate_instagram_reel_post(site_id, post_id):
         with db() as conn:
             conn.execute("insert into content_job_logs(site_id,job_id,ts,level,step,message) values(?,?,?,?,?,?)", (site_id, job["id"], now_iso(), "ERROR", "instagram-reel", str(error)[:1000]))
         raise
+
+
+def generate_instagram_reel_post(site_id, post_id):
+    """Prevent UI and scheduler workers from rendering the same Reel concurrently."""
+    import fcntl
+
+    lock_dir = DATA_DIR / "locks"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_dir / f"instagram-reel-{int(site_id)}-{int(post_id)}.lock"
+    with lock_path.open("w") as lock_file:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return {
+                "ok": True,
+                "postId": int(post_id),
+                "status": "GENERATING",
+                "existing": True,
+                "message": "This Reel already has an active production process",
+            }
+        try:
+            return _generate_instagram_reel_post_unlocked(site_id, post_id)
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def run_queued_instagram_reel_generations(limit=1):

@@ -4,5 +4,6 @@ __pycache__/
 data/
 previews/
 keys/
+models/
 *.log
 .env
