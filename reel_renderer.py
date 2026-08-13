@@ -6,9 +6,12 @@ from __future__ import annotations
 import math
 import subprocess
 import wave
+from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps, ImageStat
+from scipy import ndimage
 
 
 WIDTH = 1080
@@ -60,19 +63,33 @@ def _cover_rgba(image: Image.Image, zoom: float, pan_x: float, pan_y: float) -> 
     return resized.crop((left, top, left + WIDTH, top + HEIGHT))
 
 
-FULL_CANVAS_REVEALS = ("slide_left", "slide_right", "drop", "rise", "focus")
+FULL_CANVAS_REVEALS = ("slide_left", "slide_right", "drop", "rise", "focus", "settle")
 
 
 def _multiply_alpha(alpha: Image.Image, reveal: Image.Image) -> Image.Image:
     return ImageChops.multiply(alpha.convert("L"), reveal.convert("L"))
 
 
-def _full_canvas_layer_frame(layer: Image.Image, scene_index: int, layer_index: int, progress: float) -> tuple[Image.Image, str]:
-    """Reveal a pre-positioned full-canvas layer without changing its final coordinates or scale."""
+def _full_canvas_layer_frame(
+    layer: Image.Image,
+    spec: dict,
+    progress: float,
+    duration: float,
+) -> tuple[Image.Image, str]:
+    """Execute the approved manifest reveal for a registered full-canvas layer."""
     layer = ImageOps.fit(layer.convert("RGBA"), (WIDTH, HEIGHT), method=Image.Resampling.LANCZOS)
-    delay = 0.05 + layer_index * 0.08
-    amount = _ease((progress - delay) / 0.16)
-    mode = FULL_CANVAS_REVEALS[((scene_index - 1) * 2 + layer_index) % len(FULL_CANVAS_REVEALS)]
+    mode = str(spec.get("manifestReveal") or "")
+    motion = str(spec.get("manifestMotion") or "")
+    if mode not in FULL_CANVAS_REVEALS or motion != "hold":
+        raise ValueError("Registered Reel layer has no supported approved reveal contract")
+    try:
+        start = float(spec.get("manifestStartSeconds")) / duration
+        end = float(spec.get("manifestEndSeconds")) / duration
+    except (TypeError, ValueError, ZeroDivisionError) as error:
+        raise ValueError("Registered Reel layer has invalid approved timing") from error
+    if not 0 <= start < end <= 1.0:
+        raise ValueError("Registered Reel layer entrance must finish before camera motion")
+    amount = _ease((progress - start) / (end - start))
     alpha = layer.getchannel("A")
     if amount <= 0:
         layer.putalpha(Image.new("L", (WIDTH, HEIGHT), 0))
@@ -82,6 +99,23 @@ def _full_canvas_layer_frame(layer: Image.Image, scene_index: int, layer_index: 
         if amount < 0.995:
             layer = layer.filter(ImageFilter.GaussianBlur(max(0.0, (1.0 - amount) * 14.0)))
         return layer, mode
+    if mode == "settle":
+        bbox = alpha.getbbox()
+        if not bbox:
+            return layer, mode
+        scale = 0.88 + 0.12 * amount
+        subject = layer.crop(bbox)
+        resized = subject.resize(
+            (max(1, round(subject.width * scale)), max(1, round(subject.height * scale))),
+            Image.Resampling.LANCZOS,
+        )
+        center_x = (bbox[0] + bbox[2]) / 2
+        center_y = (bbox[1] + bbox[3]) / 2
+        x = round(center_x - resized.width / 2)
+        y = round(center_y - resized.height / 2 + (1.0 - amount) * 48)
+        settled = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+        settled.alpha_composite(resized, (x, y))
+        return settled, mode
 
     offsets = {
         "slide_left": (-WIDTH, 0),
@@ -98,16 +132,62 @@ def _full_canvas_layer_frame(layer: Image.Image, scene_index: int, layer_index: 
     return layer, mode
 
 
-def _composite_full_canvas_layer(base: Image.Image, layer: Image.Image):
-    """Composite a registered full-frame layer and derive shadows without cropping it."""
+def _decorate_registered_layer(layer: Image.Image) -> Image.Image:
+    """Build natural separation once without a sticker-like silhouette outline."""
     alpha = layer.getchannel("A")
-    shadow_alpha = alpha.filter(ImageFilter.GaussianBlur(24)).point(lambda value: round(value * 0.32))
-    shadow = Image.new("RGBA", layer.size, (0, 0, 0, 0))
-    shadow.putalpha(shadow_alpha)
-    shifted_shadow = Image.new("RGBA", layer.size, (0, 0, 0, 0))
-    shifted_shadow.alpha_composite(shadow, (18, 28))
-    base.alpha_composite(shifted_shadow)
+    soft_alpha = alpha.filter(ImageFilter.GaussianBlur(24)).point(lambda value: round(value * 0.42))
+    contact_alpha = alpha.filter(ImageFilter.GaussianBlur(8)).point(lambda value: round(value * 0.16))
+    soft_shadow = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+    soft_shadow.putalpha(soft_alpha)
+    contact_shadow = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+    contact_shadow.putalpha(contact_alpha)
+    decorated = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+    decorated.alpha_composite(soft_shadow, (14, 22))
+    decorated.alpha_composite(contact_shadow, (6, 10))
+    decorated.alpha_composite(layer)
+    return decorated
+
+
+def _composite_full_canvas_layer(base: Image.Image, layer: Image.Image):
     base.alpha_composite(layer)
+
+
+def _refine_legacy_registered_edge(layer: Image.Image, clean_background: Image.Image) -> Image.Image:
+    """Remove binary-mask background fringe from already checkpointed registered layers."""
+    layer = ImageOps.fit(layer.convert("RGBA"), (WIDTH, HEIGHT), method=Image.Resampling.LANCZOS)
+    alpha_image = layer.getchannel("A")
+    extrema = alpha_image.getextrema()
+    if extrema == (0, 0):
+        return layer
+    histogram = alpha_image.histogram()
+    intermediate_pixels = sum(histogram[1:255])
+    opaque_pixels = histogram[255]
+    # Current matte packs already have a soft, decontaminated edge. This path is
+    # only for older binary checkpoint layers so they can be safely re-rendered.
+    if intermediate_pixels > max(64, round(opaque_pixels * 0.002)):
+        return layer
+    clean = ImageOps.fit(clean_background.convert("RGB"), (WIDTH, HEIGHT), method=Image.Resampling.LANCZOS)
+    # Preserve hands, clothing and other narrow details. Residual legacy fringe
+    # is concealed by the renderer's outline instead of eroding the subject.
+    inner = alpha_image.filter(ImageFilter.MinFilter(3))
+    soft_alpha = inner.filter(ImageFilter.GaussianBlur(0.7))
+    alpha = np.asarray(soft_alpha, dtype=np.float32) / 255.0
+    source_rgb = np.asarray(layer.convert("RGB"), dtype=np.float32)
+    clean_rgb = np.asarray(clean, dtype=np.float32)
+    safe_alpha = np.maximum(alpha[..., None], 0.08)
+    foreground = (source_rgb - (1.0 - alpha[..., None]) * clean_rgb) / safe_alpha
+    foreground = np.clip(foreground, 0, 255).astype(np.uint8)
+    interior_image = alpha_image.filter(ImageFilter.MinFilter(9))
+    interior = np.asarray(interior_image, dtype=np.uint8) > 250
+    edge = (np.asarray(soft_alpha, dtype=np.uint8) > 0) & ~interior
+    if interior.any() and edge.any():
+        nearest = ndimage.distance_transform_edt(~interior, return_distances=False, return_indices=True)
+        foreground[edge] = source_rgb.astype(np.uint8)[nearest[0][edge], nearest[1][edge]]
+    foreground[alpha <= 0.001] = 0
+    result = np.zeros((HEIGHT, WIDTH, 4), dtype=np.uint8)
+    result[..., :3] = foreground
+    result[..., 3] = np.asarray(soft_alpha, dtype=np.uint8)
+    return Image.fromarray(result, "RGBA")
 
 
 def _camera_values(kind: str, progress: float) -> tuple[float, float, float]:
@@ -132,42 +212,74 @@ def _camera_values(kind: str, progress: float) -> tuple[float, float, float]:
 
 
 def _mix_camera(first, second, amount):
-    amount = _ease(amount)
+    amount = min(1.0, max(0.0, amount))
+    amount = amount * amount * (3.0 - 2.0 * amount)
     return tuple(first[index] + (second[index] - first[index]) * amount for index in range(3))
 
 
 def _layer_focus_targets(foregrounds: list[Image.Image], layer_specs: list[dict]):
-    targets = []
+    targets = {}
     for index, foreground in enumerate(foregrounds):
         spec = layer_specs[index] if index < len(layer_specs) else {}
-        if str(spec.get("role") or "") == "story_object":
-            continue
         fitted = ImageOps.fit(foreground.convert("RGBA"), (WIDTH, HEIGHT), method=Image.Resampling.LANCZOS)
         bbox = fitted.getchannel("A").getbbox()
         if not bbox:
             continue
         center_x = ((bbox[0] + bbox[2]) / 2) / WIDTH
-        # Faces and expressive upper bodies normally occupy the upper third of a
-        # complete person/group silhouette. Keep enough context to avoid a harsh crop.
-        focus_y = (bbox[1] + (bbox[3] - bbox[1]) * 0.30) / HEIGHT
-        targets.append((1.30, min(0.88, max(0.12, center_x)), min(0.28, max(-0.28, focus_y - 0.5))))
+        layer_type = str(spec.get("layerType") or spec.get("type") or "")
+        role = str(spec.get("role") or spec.get("storyRole") or "")
+        is_person = layer_type == "person_group" or role in {"protagonist", "supporting_character"}
+        focus_fraction = 0.24 if is_person else 0.50
+        focus_y = (bbox[1] + (bbox[3] - bbox[1]) * focus_fraction) / HEIGHT
+        targets[str(spec.get("id") or index)] = {
+            "camera": (1.68 if is_person else 1.74, min(0.88, max(0.12, center_x)), min(0.34, max(-0.34, focus_y - 0.5))),
+            "kind": "person" if is_person else "object",
+            "area": ((bbox[2] - bbox[0]) * (bbox[3] - bbox[1])) / (WIDTH * HEIGHT),
+        }
     return targets
+
+
+def _target_camera(record, default=(1.42, 0.5, 0.0)):
+    if isinstance(record, dict) and isinstance(record.get("camera"), tuple):
+        return record["camera"]
+    if isinstance(record, tuple) and len(record) == 3:
+        return record
+    return default
+
+
+def _pick_camera_target(targets: dict, requested: str, movement: str, used: set[str]):
+    requested_record = targets.get(requested)
+    preferred_kind = "object" if movement == "object_zoom" else "person" if movement == "face_zoom" else ""
+    # The director's named target is authoritative, including a deliberate
+    # return to the same subject for a tighter shot later in the scene.
+    if requested_record:
+        return requested, requested_record
+    candidates = [
+        (name, record) for name, record in targets.items()
+        if name not in used and (not preferred_kind or record.get("kind") == preferred_kind)
+    ]
+    if not candidates:
+        candidates = [(name, record) for name, record in targets.items() if name not in used]
+    if not candidates:
+        return "", None
+    return max(candidates, key=lambda item: float(item[1].get("area") or 0))
 
 
 def _subject_camera_values(kind: str, progress: float, targets, scene_index: int):
     base = _camera_values(kind, 0.0)
     if progress <= 0.46 or not targets:
         return base
-    first = targets[0]
+    ordered = [_target_camera(value) for value in targets.values()] if isinstance(targets, dict) else list(targets)
+    first = ordered[0]
     if progress < 0.62:
         return _mix_camera(base, first, (progress - 0.46) / 0.16)
     if progress < 0.70:
         return first
-    if len(targets) > 1:
+    if len(ordered) > 1:
         neutral = _camera_values(kind, 0.45)
         if progress < 0.82:
             return _mix_camera(first, neutral, (progress - 0.70) / 0.12)
-        second = targets[1]
+        second = ordered[1]
         if progress < 0.94:
             return _mix_camera(neutral, second, (progress - 0.82) / 0.12)
         return second
@@ -175,37 +287,142 @@ def _subject_camera_values(kind: str, progress: float, targets, scene_index: int
     return _mix_camera(first, end, (progress - 0.70) / 0.30)
 
 
-def _choose_text_placement(background: Image.Image, foregrounds: list[Image.Image], requested: str) -> str:
+def _director_camera_values(scene: dict, progress: float, targets: dict):
+    """Turn all director beats into one continuous time-aware camera trajectory."""
+    duration = float(scene.get("durationSeconds") or 0)
+    plan = scene.get("directorCameraPlan") if isinstance(scene.get("directorCameraPlan"), dict) else {}
+    beats = [item for item in plan.get("beats") or [] if isinstance(item, dict)]
+    if duration <= 0 or not beats:
+        return _subject_camera_values(str(scene.get("cameraMove") or "dolly_in"), progress, targets, int(scene.get("index") or 1))
+    second = progress * duration
+    state = (1.035, 0.5, 0.0)
+    used_targets: set[str] = set()
+    keyframes = [(0.0, state)]
+    for beat_index, beat in enumerate(beats):
+        end = float(beat.get("endSeconds") or duration)
+        movement = str(beat.get("movement") or "")
+        target_name, target_record = _pick_camera_target(
+            targets,
+            str(beat.get("focusTarget") or ""),
+            movement,
+            used_targets,
+        )
+        if target_name:
+            used_targets.add(target_name)
+        target = _target_camera(target_record, state)
+        target_kind = str((target_record or {}).get("kind") or "")
+        framing = str(beat.get("toFraming") or "").lower()
+        if movement == "pull_out":
+            destination = (1.035, 0.5, 0.0)
+        elif movement in {"pan_left", "pan_right", "track_left", "track_right", "follow_left", "follow_right"}:
+            # A lateral move ends on a close frame, not another wide crop.
+            destination = (2.20 if target_kind == "person" else 1.92, target[1], target[2])
+        elif movement in {"object_zoom", "face_zoom"}:
+            destination = (2.34 if target_kind == "person" else 2.18, target[1], target[2])
+        elif movement in {"push_in", "rack_focus", "focus_transfer"}:
+            if "close-up" in framing or "close up" in framing or "tight" in framing:
+                zoom = 2.30 if target_kind == "person" else 2.12
+            elif movement in {"rack_focus", "focus_transfer"}:
+                zoom = 2.30 if target_kind == "person" else 2.12
+            elif "medium close" in framing or "waist" in framing:
+                zoom = 2.24 if beat_index and target_kind == "person" else 1.82
+            else:
+                zoom = 1.52 if beat_index else 1.46
+            destination = (zoom, target[1], target[2])
+        else:
+            destination = (1.40, target[1], target[2])
+        keyframe_time = max(keyframes[-1][0] + 0.001, min(duration, end))
+        keyframes.append((keyframe_time, destination))
+        state = destination
+    if scene.get("usesLogoReference"):
+        # A brand-resolution scene must finish by revealing the complete
+        # physical context that carries the verified mark, never on a crop
+        # that pushes that mark outside the frame.
+        reveal_start = duration * 0.76
+        if keyframes[-1][0] >= reveal_start:
+            keyframes[-1] = (reveal_start, keyframes[-1][1])
+        elif keyframes[-1][0] < reveal_start:
+            keyframes.append((reveal_start, keyframes[-1][1]))
+        keyframes.append((duration, (1.035, 0.5, 0.0)))
+    if keyframes[-1][0] < duration:
+        # Continue a restrained drift through the cut instead of freezing on
+        # the last destination.
+        zoom, pan_x, pan_y = keyframes[-1][1]
+        direction = -1 if int(scene.get("index") or 1) % 2 else 1
+        keyframes.append((duration, (zoom * 1.025, pan_x + 0.018 * direction, pan_y - 0.008)))
+    if second <= keyframes[0][0]:
+        return keyframes[0][1]
+    for index in range(len(keyframes) - 1):
+        start_time, current = keyframes[index]
+        end_time, following = keyframes[index + 1]
+        if second > end_time and index < len(keyframes) - 2:
+            continue
+        previous = keyframes[index - 1][1] if index else current
+        after = keyframes[index + 2][1] if index + 2 < len(keyframes) else following
+        amount = min(1.0, max(0.0, (second - start_time) / max(0.001, end_time - start_time)))
+        # Cubic Hermite/Catmull-Rom interpolation keeps both position and
+        # velocity continuous at shot-scale and focus-transfer keyframes.
+        h00 = 2 * amount ** 3 - 3 * amount ** 2 + 1
+        h10 = amount ** 3 - 2 * amount ** 2 + amount
+        h01 = -2 * amount ** 3 + 3 * amount ** 2
+        h11 = amount ** 3 - amount ** 2
+        values = []
+        for axis in range(3):
+            tangent_in = (following[axis] - previous[axis]) * 0.5
+            tangent_out = (after[axis] - current[axis]) * 0.5
+            values.append(h00 * current[axis] + h10 * tangent_in + h01 * following[axis] + h11 * tangent_out)
+        return (
+            min(2.45, max(1.02, values[0])),
+            min(0.92, max(0.08, values[1])),
+            min(0.42, max(-0.42, values[2])),
+        )
+    return keyframes[-1][1]
+
+
+TEXT_ZONES = {
+    "top_left": (54, 100, 826, 560),
+    "top_right": (254, 100, 1026, 560),
+    "middle_left": (54, 690, 826, 1150),
+    "middle_right": (254, 690, 1026, 1150),
+    "lower_left": (54, 1260, 826, 1720),
+    "lower_right": (254, 1260, 1026, 1720),
+}
+
+
+def _choose_text_placement(background: Image.Image, foregrounds: list[Image.Image], layer_specs: list[dict], requested: str) -> str:
     assembled = ImageOps.fit(background.convert("RGBA"), (WIDTH, HEIGHT), method=Image.Resampling.LANCZOS)
     occupied = Image.new("L", (WIDTH, HEIGHT), 0)
-    for foreground in foregrounds:
+    important = Image.new("L", (WIDTH, HEIGHT), 0)
+    for index, foreground in enumerate(foregrounds):
         fitted = ImageOps.fit(foreground.convert("RGBA"), (WIDTH, HEIGHT), method=Image.Resampling.LANCZOS)
-        occupied = ImageChops.lighter(occupied, fitted.getchannel("A"))
+        alpha = fitted.getchannel("A")
+        occupied = ImageChops.lighter(occupied, alpha)
+        spec = layer_specs[index] if index < len(layer_specs) else {}
+        if str(spec.get("role") or "") in {"protagonist", "supporting_character"}:
+            bbox = alpha.getbbox()
+            if bbox:
+                face_bottom = bbox[1] + round((bbox[3] - bbox[1]) * 0.42)
+                face_box = (max(0, bbox[0] - 55), max(0, bbox[1] - 55), min(WIDTH, bbox[2] + 55), min(HEIGHT, face_bottom + 55))
+                face = Image.new("L", (WIDTH, HEIGHT), 0)
+                ImageDraw.Draw(face).rectangle(face_box, fill=255)
+                important = ImageChops.lighter(important, face)
         assembled.alpha_composite(fitted)
-    candidates = {
-        "top_left": (45, 70, 660, 560),
-        "top_right": (420, 70, 1035, 560),
-        "lower_left": (45, 1070, 660, 1570),
-        "lower_right": (420, 1070, 1035, 1570),
-    }
     grayscale = assembled.convert("L")
     edges = grayscale.filter(ImageFilter.FIND_EDGES)
     scored = []
-    for name, box in candidates.items():
+    for name, box in TEXT_ZONES.items():
         occupancy = ImageStat.Stat(occupied.crop(box)).mean[0] / 255.0
+        face_occupancy = ImageStat.Stat(important.crop(box)).mean[0] / 255.0
         texture = ImageStat.Stat(grayscale.crop(box)).stddev[0]
         edge = ImageStat.Stat(edges.crop(box)).mean[0]
-        lower_penalty = 9.0 if name.startswith("lower") else 0.0
+        lower_penalty = 4.0 if name.startswith("lower") else 0.0
         preference_bonus = -4.0 if name == requested else 0.0
-        scored.append((occupancy * 900.0 + texture + edge * 0.7 + lower_penalty + preference_bonus, name))
+        scored.append((face_occupancy * 2200.0 + occupancy * 820.0 + texture + edge * 0.7 + lower_penalty + preference_bonus, name))
     return min(scored)[1]
 
 
 def _caption_palette(canvas: Image.Image, placement: str):
-    box = (45, 70, 1035, 570) if placement.startswith("top") else (45, 1050, 1035, 1600)
-    luminance = ImageStat.Stat(canvas.convert("L").crop(box)).mean[0]
-    if luminance >= 145:
-        return (8, 43, 55), (190, 235, 236)
+    """Reel captions stay light; contrast comes from shadow and an adaptive scrim."""
     return (247, 253, 255), (1, 11, 22)
 
 
@@ -222,13 +439,48 @@ def _wrap_words(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> l
             current = candidate
     if current:
         lines.append(current)
-    return lines[:3]
+    return lines
 
 
 def _text_position(placement: str, text_width: int, line_width: int) -> int:
+    box = TEXT_ZONES.get(placement, TEXT_ZONES["top_left"])
     if placement.endswith("right"):
-        return WIDTH - 66 - line_width
-    return 66
+        return box[2] - line_width
+    return box[0]
+
+
+@lru_cache(maxsize=len(TEXT_ZONES))
+def _caption_scrim_mask(placement: str) -> Image.Image:
+    box = TEXT_ZONES.get(placement, TEXT_ZONES["top_left"])
+    height, width = box[3] - box[1], box[2] - box[0]
+    ys = np.linspace(0.0, 1.0, height, dtype=np.float32)
+    xs = np.linspace(0.0, 1.0, width, dtype=np.float32)
+    vertical = np.clip(1.0 - np.abs(ys - 0.42) / 0.58, 0.0, 1.0)
+    horizontal = np.clip(np.minimum(xs / 0.10, (1.0 - xs) / 0.10), 0.0, 1.0)
+    zone = Image.fromarray(np.round(vertical[:, None] * horizontal[None, :] * 150).astype(np.uint8), "L")
+    zone = zone.filter(ImageFilter.GaussianBlur(36))
+    mask = Image.new("L", (WIDTH, HEIGHT), 0)
+    mask.paste(zone, (box[0], box[1]))
+    return mask
+
+
+def _draw_caption_scrim(canvas: Image.Image, placement: str, text_fill: tuple[int, int, int], opacity: float):
+    box = TEXT_ZONES.get(placement, TEXT_ZONES["top_left"])
+    crop = canvas.convert("L").crop(box)
+    stats = ImageStat.Stat(crop)
+    if stats.stddev[0] < 25 and (stats.mean[0] < 92 or stats.mean[0] > 174):
+        return
+    local_rgb = ImageStat.Stat(canvas.convert("RGB").crop(box)).mean
+    if sum(text_fill) > 420:
+        color = tuple(max(0, round(channel * 0.30)) for channel in local_rgb)
+    else:
+        color = tuple(min(255, round(channel * 0.55 + 112)) for channel in local_rgb)
+    scrim = Image.new("RGBA", (WIDTH, HEIGHT), (*color, 0))
+    mask = _caption_scrim_mask(placement).point(
+        lambda value: round(value * min(1.0, max(0.0, opacity)))
+    )
+    scrim.putalpha(mask)
+    canvas.alpha_composite(scrim)
 
 
 def _draw_kinetic_caption(canvas: Image.Image, scene: dict, progress: float, accent: tuple[int, int, int]):
@@ -236,43 +488,70 @@ def _draw_kinetic_caption(canvas: Image.Image, scene: dict, progress: float, acc
     draw = ImageDraw.Draw(canvas, "RGBA")
     composition = scene.get("composition") if isinstance(scene.get("composition"), dict) else {}
     placement = str(composition.get("textPlacement") or "top_left")
-    text_fill, text_stroke = _caption_palette(canvas, placement)
-    hook_font = _font(96, bold=True)
+    text_fill, _ = _caption_palette(canvas, placement)
     supporting_font = _font(34)
     hook = str(scene.get("overlayText") or scene.get("title") or "").strip()
     supporting = str(scene.get("supportingText") or "").strip()
-    lines = _wrap_words(draw, hook, hook_font, WIDTH - 132)
+    text_direction = scene.get("textDirection") if isinstance(scene.get("textDirection"), dict) else {}
+    duration = float(scene.get("durationSeconds") or 1)
+    start = float(text_direction.get("startSeconds") or 0) / max(duration, 0.001)
+    end = float(text_direction.get("endSeconds") or duration) / max(duration, 0.001)
+    if progress < start or progress > end:
+        return
+    text_progress = (progress - start) / max(0.001, end - start)
+    scrim_opacity = min(1.0, text_progress / 0.12)
+    _draw_caption_scrim(canvas, placement, text_fill, scrim_opacity)
+    target_lines = min(3, max(1, int(text_direction.get("maxLines") or 3)))
+    font_size = 132
+    hook_font = _font(font_size, bold=True)
+    zone = TEXT_ZONES.get(placement, TEXT_ZONES["top_left"])
+    max_text_width = zone[2] - zone[0]
+    lines = _wrap_words(draw, hook, hook_font, max_text_width)
+    while len(lines) > target_lines and font_size > 88:
+        font_size -= 4
+        hook_font = _font(font_size, bold=True)
+        lines = _wrap_words(draw, hook, hook_font, max_text_width)
     if not lines:
         return
-    top = 122 if placement.startswith("top") else 1140
+    if len(lines) > target_lines:
+        raise ValueError("Reel overlay cannot fit as one readable title")
+    local_progress = text_progress
+    line_height = round(font_size * 1.1)
+    top = zone[1] + 26
     word_index = 0
     for line_index, line in enumerate(lines):
         line_text = " ".join(line)
         line_width = draw.textbbox((0, 0), line_text, font=hook_font)[2]
         x = _text_position(placement, WIDTH, line_width)
-        y = top + line_index * 106
+        y = top + line_index * line_height
         for word in line:
-            reveal = _ease((progress - 0.05 - word_index * 0.055) / 0.17)
+            reveal = _ease((local_progress - 0.03 - word_index * 0.055) / 0.18)
             if reveal > 0:
                 word_width = draw.textbbox((0, 0), word, font=hook_font)[2]
                 alpha = round(255 * reveal)
+                # A soft offset shadow separates type without the rough outlined
+                # lettering produced by contrasting strokes on photographic detail.
+                draw.text(
+                    (x + 5, y + round((1 - reveal) * 26) + 7),
+                    word,
+                    font=hook_font,
+                    fill=(0, 0, 0, round(155 * reveal)),
+                )
                 draw.text(
                     (x, y + round((1 - reveal) * 26)),
                     word,
                     font=hook_font,
                     fill=(*text_fill, alpha),
-                    stroke_width=3,
-                    stroke_fill=(*text_stroke, round(225 * reveal)),
                 )
                 x += word_width + draw.textbbox((0, 0), " ", font=hook_font)[2]
             word_index += 1
-    final_reveal = _ease((progress - 0.12) / 0.42)
-    underline_width = round(min(WIDTH - 132, 190 + len(hook) * 10) * final_reveal)
-    line_y = top + len(lines) * 106 + 12
-    anchor_x = WIDTH - 66 - underline_width if placement.endswith("right") else 66
+    final_reveal = _ease((local_progress - 0.10) / 0.40)
+    underline_width = round(min(max_text_width, 190 + len(hook) * 10) * final_reveal)
+    line_y = top + len(lines) * line_height + 12
+    anchor_x = zone[2] - underline_width if placement.endswith("right") else zone[0]
     draw.rounded_rectangle((anchor_x, line_y, anchor_x + underline_width, line_y + 7), radius=4, fill=(*accent, round(235 * final_reveal)))
     if supporting and final_reveal > 0:
-        max_width = WIDTH - 132
+        max_width = max_text_width
         support_lines = _wrap_words(draw, supporting, supporting_font, max_width)[:2]
         support_y = line_y + 28 + round((1 - final_reveal) * 12)
         for line in support_lines:
@@ -280,12 +559,16 @@ def _draw_kinetic_caption(canvas: Image.Image, scene: dict, progress: float, acc
             line_width = draw.textbbox((0, 0), line_text, font=supporting_font)[2]
             support_x = _text_position(placement, WIDTH, line_width)
             draw.text(
+                (support_x + 3, support_y + 5),
+                line_text,
+                font=supporting_font,
+                fill=(0, 0, 0, round(145 * final_reveal)),
+            )
+            draw.text(
                 (support_x, support_y),
                 line_text,
                 font=supporting_font,
                 fill=(*text_fill, round(235 * final_reveal)),
-                stroke_width=2,
-                stroke_fill=(*text_stroke, round(210 * final_reveal)),
             )
             support_y += 43
 
@@ -412,12 +695,17 @@ def render_vertical_reel(
         duration = max(3.5, planned_duration, voice_duration + 0.55)
         frame_count = max(1, round(duration * fps))
         background = Image.open(background_path).convert("RGBA")
-        foregrounds = [Image.open(path).convert("RGBA") for path in foreground_paths]
+        foregrounds = [
+            _decorate_registered_layer(
+                _refine_legacy_registered_edge(Image.open(path).convert("RGBA"), background)
+            )
+            for path in foreground_paths
+        ]
         layer_specs = scene.get("layers") if isinstance(scene.get("layers"), list) else []
         composition = scene.get("composition") if isinstance(scene.get("composition"), dict) else {}
         scene["composition"] = {
             **composition,
-            "textPlacement": _choose_text_placement(background, foregrounds, str(composition.get("textPlacement") or "top_left")),
+            "textPlacement": _choose_text_placement(background, foregrounds, layer_specs, str(composition.get("textPlacement") or "top_left")),
         }
         loaded.append({
             "scene": scene,
@@ -449,21 +737,17 @@ def render_vertical_reel(
             frame_count = loaded_scene["frame_count"]
             for frame in range(frame_count):
                 progress = frame / max(1, frame_count - 1)
-                zoom, pan_x, pan_y = _subject_camera_values(
-                    str(scene.get("cameraMove") or "dolly_in"),
-                    progress,
-                    focus_targets,
-                    int(scene.get("index") or 1),
-                )
+                zoom, pan_x, pan_y = _director_camera_values(scene, progress, focus_targets)
                 canvas = _cover(background, zoom, pan_x - 0.5, pan_y).convert("RGBA")
                 canvas.alpha_composite(Image.new("RGBA", (WIDTH, HEIGHT), (1, 11, 20, 36)))
                 for layer_index, foreground in enumerate(foregrounds):
                     if full_canvas_layers:
+                        layer_spec = layer_specs[layer_index] if layer_index < len(layer_specs) else {}
                         layer_frame, _ = _full_canvas_layer_frame(
                             foreground,
-                            int(scene.get("index") or 1),
-                            layer_index,
+                            layer_spec,
                             progress,
+                            float(scene.get("durationSeconds") or 0),
                         )
                         layer_frame = _cover_rgba(layer_frame, zoom, pan_x - 0.5, pan_y)
                         _composite_full_canvas_layer(canvas, layer_frame)

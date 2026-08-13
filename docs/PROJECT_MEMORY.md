@@ -1,4 +1,136 @@
+## 2026-08-13 — Reel layers use natural shadows and one continuous camera path
+
+* Visible light/white silhouette outlines are deprecated because uneven mattes make them look torn or sticker-like. Registered layers use only a broad soft offset shadow plus a restrained contact shadow for separation from the background.
+* Director camera beats are framing destinations on one continuous whole-scene spline, not separate start-stop commands. Camera scale and center move from scene start through every destination and retain continuous velocity, then continue a restrained drift until the cut.
+* A Reel scene must not visibly zoom, hold, zoom again, or jump between camera stages. Wide, medium, close, and focus-transfer framing remain useful film grammar, but the transition between them is one uninterrupted movement.
+
+## 2026-08-13 — Reel renders use immutable versioned media URLs
+
+* Every completed Reel render writes a unique timestamped MP4 and poster filename and stores that URL in the social-post payload. Replacing bytes behind a stable Reel URL is deprecated because browser/CDN caches can show an older draft after a successful re-render.
+* Reel review HTML and social-asset routes return `Cache-Control: no-store, no-cache, must-revalidate, max-age=0`; the review page also appends the render token as a query parameter.
+
+## 2026-08-13 — Reel typography and cinematic framing follow the final assembled scene
+
+* Reel overlay copy is a 2-to-7-word glanceable headline, rendered as one title rather than paged fragments. The renderer starts at 132 px, may use up to three lines, and must not shrink below 88 px; detail belongs in narration/caption rather than on-screen copy.
+* Text placement is selected from upper, middle, and lower zones on either side by measuring occupied pixels, person safety regions, texture, and local contrast. Placement is not fixed at the top or bottom. A soft color-sampled gradient scrim may fade in only when local contrast needs it.
+* The reading window is at least 0.28 seconds per word plus 0.8 seconds and should finish before the strongest close-up whenever timing permits, leaving faces and meaningful objects unobscured.
+* Legacy registered layers preserve narrow anatomy and clothing details. Do not conceal edge contamination by eroding silhouettes. Use a fine light object outline plus a separate soft offset shadow to hide small matte irregularities and separate the layer from the background.
+* Camera execution uses real film scale: establishing wide, medium relationship framing, and a genuine face/upper-body or object close-up around 2.2-2.34x. Lateral moves and focus transfers must land on meaningful close framing rather than remain small digital pans.
+* Render-only corrections reuse saved visual checkpoints and remain unpublished drafts. They must not generate replacement images, speech, or other paid media.
+
 # PROJECT_MEMORY.md
+
+## 2026-08-13 — Reel typography, cinematic camera, and clean-edge matte contract
+
+* Reel overlay copy must remain mobile-readable: 82-118 px in the 1080x1920 renderer, at most three large lines on one screen. Longer locked copy is shown as sequential phrase groups; it is never shrunk into a paragraph.
+* Camera direction is executed against real registered-layer alpha geometry and layer type. Person close-ups target the upper body/face, object close-ups target the object center, and an object camera beat must not silently focus a person (or vice versa).
+* After layer entrances settle, a scene may establish, push to a true close-up, transfer to another subject or object, and pull out. Adjacent scenes should not repeat the same camera sequence; the camera always transforms the complete assembled scene rather than moving background and layers independently.
+* Legacy binary checkpoint layers are tightened and antialiased inside the subject boundary at render time. New registered packs save a decontaminated soft inner matte derived against the selected clean plate. Edge cleanup must reduce source-background fringe without cutting hands, feet, hair, clothing, or owned objects.
+* Render-only improvements reuse accepted visual checkpoints. They do not trigger new Gemini image generation or speech generation.
+
+## 2026-08-12 — Approved Reel plans render through resumable visual checkpoints
+
+* An accepted time-coded director plan is the production source of truth. Production adapts that plan to registered layers without asking Gemini to redesign the story, overlay copy, timing, or camera sequence.
+* Each accepted visual scene is checkpointed with its background, full-canvas foreground layers, stable layer IDs, and completion time. A resumed run reuses those files and starts at the first unfinished scene; it must not regenerate accepted images.
+* Voice is an explicit production option and may be disabled independently. A no-voice Reel generates no speech asset; an existing site soundtrack may still be mixed continuously as background music.
+* The visual master must be one coherent vertical photograph with no collage or split-screen composition. People and objects are complete, separated, front-lit, large enough for mobile viewing, and free of selection contours, halos, or cutout styling.
+* Semantic masks derived from the coherent master are authoritative. Clean-plate difference may repair only a narrow boundary around that mask; it must not grow into unrelated background regions.
+* A visually conflicting optional kinetic-support object may be removed before extraction only when at least three useful layers remain and a non-human story object is still present. People and direct editorial evidence are never silently removed.
+
+## 2026-08-12 — Operator-facing explanations use plain language
+
+* Plans, scenarios, previews, progress reports, and final answers must be written in normal human-readable language by default.
+* Do not show JSON, schema fields, internal enum values, database payloads, or implementation identifiers unless the user explicitly requests technical output.
+* Translate internal production state into concrete descriptions of what appears, what moves, how it moves, and what the viewer sees.
+
+## 2026-08-12 — Reel layers are immutable rigid images
+
+* Every movable Reel layer is one complete static full-canvas image. The renderer may change only its x/y translation or uniform whole-layer scale; pixels inside the layer never move relative to one another.
+* Stage two owns motion feasibility. Every approved layer records a fixed `transformMode`, `appearanceChange: none`, `occlusionState: fully_visible`, and `entrancePathState: unobstructed`. Stage three copies that transform and cannot reinterpret it.
+* Movable subjects may include people and complete independent scene-native objects such as vessels, furniture assemblies, clouds, or luggage when they are visually meaningful. At least one non-human object layer moves in every scene.
+* A movable layer is invalid when the intended action requires deformation, articulation, a different pose/expression, a changed material state, a different visible side, or an occluded entrance path. Choose another complete object instead of asking later stages to simulate an impossible action.
+* The clean plate is the exact master frame without all approved layers. Every layer remains fully visible, unobstructed, and surrounded by recoverable background at its registered final position.
+* Replaced/deprecated: the earlier same-day rule allowed story objects to open, swing, roll, or change state. A single extracted still cannot execute those internal changes.
+
+## 2026-08-12 — Reel scenes require object motion, not focus-count padding
+
+* Every stage-two Reel scene contains three or four registered full-canvas layers and at least one `story_object`; people cannot be the only movable content.
+* Stage two classifies layers as `direct_evidence` or `kinetic_support`. Direct evidence carries an exact source quote. A direct-evidence object is valid only when its concrete object words are literally present in that quote; abstract concepts cannot be converted into invented notebooks, boards, signs, luggage, barriers, or similar proxies.
+* Kinetic support is an honest movable part of the photographed environment that physically admits, reveals, frames, or supports one named direct-evidence layer. It provides motion but never claims to prove the editorial point.
+* Every stage-three scene has at least three physical events on three distinct registered layers, including at least one object event. Focus shifts, camera movement, text animation, lighting, and noticing a static relationship do not count toward these events.
+* A kinetic-support event's purpose names the exact direct-evidence layer it physically assists and cannot assign the support object symbolic, emotional, or editorial meaning. The final camera beat lands on a direct-evidence layer, never on kinetic support.
+* Immutable stage-two identity fields are copied into stage three deterministically; Gemini controls timing and motion direction but cannot rewrite layer name, type, role, grounding quote, supported layer, final position, master frame, clean plate, or overlay copy.
+* Reel planning checkpoint version 15 invalidates old static stage-two/three plans while preserving an accepted editorial brief when available.
+* Replaced/deprecated: using one person entrance plus two fixed focus/relationship reveals to satisfy a nominal three-event requirement.
+
+## 2026-08-11 — Reel step three is a time-coded director plan
+
+* Step two remains the approved scene-concept boundary. Step three must not reinterpret its story; it turns each approved scene into a detailed execution plan.
+* The active step-three director pass consumes the step-two scene concepts directly. The prior parallel skeleton/manifest path is not a valid source for this review checkpoint because it can contain a different scene composition.
+* Every scene plan now requires at least three visible, time-coded actions, including at least two foreground actions, plus an independent whole-scene camera move that starts only after foreground entrances settle.
+* Clarification: a visual action must reveal or introduce an identifiable source-grounded person, object, or physical detail. Generic light sweeps, atmosphere, texture, reflection, or a bare camera pan do not count. Each scene also requires text and at least two distinct whole-scene camera beats.
+* Step three's active positive contract calls these actions `visualBeats`: at least three distinct physical story reveals selected from the approved step-two master inventory. Each declares a registered group/object entrance or fixed-detail reveal, source anchor, reveal method, from-state, trajectory, easing, final state, and story purpose. Text and camera never count toward the three visual beats.
+* Each scene requires at least two sequential camera beats with explicit movement type, from/to framing, focus target, easing, and purpose. Camera starts only after the last registered entrance settles.
+* Step-three physical events must be anchored by an exact phrase from the approved scene's `evidenceInMasterFrame`. The event roles are registered-group entrance, material-evidence reveal, and spatial-relationship reveal. Incidental scenery and text-placement space are not story evidence.
+* Registered people remain complete head-to-feet layers through every entrance. Material/relationship reveals use existing depth, focus, or a real source-grounded occlusion; generated lighting, vignettes, glows, and decorative masks are not executable story events.
+* In a scene with one cohesive registered group, its three events target different things: the registered group entrance, a concrete internal interaction/posture, and the named relationship between that group and the fixed environment. Repeating the group name as all three event subjects is invalid.
+* The accepted step-three plan is persisted as `planningCheckpoint.directorPlan`; partial accepted scenes live in `directorScenes`. Resume validates and reuses that prefix and generates only the first unfinished director scene. No media starts during this checkpoint.
+* Reel planning is operator-gated in the panel: step one can continue to step two, step two can continue to step three, and the accepted step-three plan opens as a readable preview. Advancing a stage reuses the stored checkpoint and never starts image, voice, music, or video generation.
+* Distribution has a site-wide `Instagram Reel planning` list independent of content pagination. It exposes the current accepted phase and scene count plus only the valid next action.
+* Reel text contrast starts with type color, a fine outline, or a soft shadow. If the image still prevents clean reading, a soft color-sampled, feathered, edge-to-transparent gradient scrim is allowed when it remains visually integrated and preserves image texture. Opaque black rectangles, hard-edged black plaques, solid panels, banners, and boxed text backgrounds are invalid. Replaced: the stricter typography-only rule recorded earlier on 2026-08-12.
+* The plan includes exact locked overlay copy, local display timing, kinetic entrance, placement and contrast direction; it also includes an extraction constraint for every approved movable group.
+* The director plan must use technical group IDs, local scene seconds, and explicit final states. A prose-only scene description is invalid.
+* Replaced/deprecated: treating stage-three camera/layer prose as sufficient direction for production.
+
+## 2026-08-11 - Reel layerability is owned by story architecture
+
+* The first text pass must choose physical visual worlds whose meaningful people are complete unobstructed free-standing groups. Seated, furniture-supported, cropped, small-prop-led, or extraction-oriented visual worlds are rejected before the visual skeleton is generated.
+* A later prompt cannot reliably turn an intrinsically non-layerable composition into independent animated layers. The earliest stage that chooses the physical world owns this constraint.
+* Reel text stages make one model request per unfinished checkpoint. A validator failure stops that stage with its exact reason; it must not trigger several paid regenerations from the same inadequate prompt. Fix the owning prompt or contract first, then resume from the last accepted checkpoint.
+* Character planning always describes a complete in-frame person from head through both feet, with visible air gap from fixed architecture. `crop`, `waist-up`, separate/isolated layer language, unseen support, and physical contact with railings, bars, counters, desks, tables, chairs, walls, or doors are incompatible with the registered master/clean-plate workflow.
+* Gemini does not own technical layer numbering. Skeleton responses use an ID placeholder and application code assigns stable global `element-NN` IDs before validation; a numbering-format mistake must never consume another model request.
+* Every person named by Reel architecture is a planned foreground group. Background/distant crowds and atmospheric extras are forbidden because they cannot be cleanly registered or extracted. A rejected skeleton, scene-detail, or manifest candidate and exact validation error are saved in the checkpoint for prompt diagnosis before any new request.
+* Geometry validation distinguishes social separation from extraction instructions. `isolated from the crowd` is editorial meaning, while `isolated subject/layer/foreground` or `isolated on a background` is a deprecated asset instruction. Prompts should use `standing alone` or `separated by visible background space` to remove ambiguity.
+* Layer `sourceEvidence` accepts any exact non-empty consecutive source phrase, including one meaningful hyphenated source term. It must not reject valid source grounding merely because token counting expects two words.
+* Instagram Reel captions contain no protocols, `www`, raw URLs, or dot-domains. They may name the brand in plain text; clickable destination handling belongs to the publishing channel, not caption prose.
+* Replaced/deprecated: accepting a conceptually relevant visual world and trying to repair its geometry during skeleton or asset-manifest generation.
+
+## 2026-08-11 — Reel production is resumable from validated checkpoints
+
+* Reel text planning is not one disposable transaction. Version 13 persists these validated checkpoints in `social_posts.content_json.instagramReel.planningCheckpoint`: source outline and editorial architecture, visual skeleton, each detailed scene, each technical manifest scene, and the complete storyboard.
+* A later phase starts only after the preceding result passes its validator and is saved. Scene checkpoints are sequential; an out-of-order or duplicate checkpoint is an error.
+* An interrupted or failed run resumes from the first unfinished scene. It must not regenerate accepted architecture, skeleton, detailed scenes, or manifest scenes.
+* Skeleton validation owns extraction geometry. A skeleton containing seated, reclining, cropped, furniture-supported, naturally occluded, or fixed-contact movable people must never be saved as `skeleton_ready`. If stricter current validation rejects an older saved skeleton, retain its valid architecture and invalidate only the skeleton and downstream checkpoints.
+* A per-scene checkpoint must pass the same production-detail validator used by the final storyboard. Final aggregation must not introduce a stricter local scene check. When current validation rejects a previously saved detail scene, retain the contiguous valid scene prefix, truncate from the first invalid scene, and clear only downstream manifest/storyboard checkpoints.
+* Fields locked between skeleton and scene detail, including `visualStory` and the canonical empty stage description, must satisfy their final requirements before `skeleton_ready`. A later stage must never retry an immutable upstream defect.
+* Source-grounding for every scene is also a skeleton responsibility. Unsourced character knowledge/decision causality must fail before `skeleton_ready`, not during scene detail.
+* Editorial architecture owns the photographable visual world. Device/interface/readable-sign shortcuts are invalid at architecture time; downstream skeleton prompts must never be asked to contradict an approved visual world. If current validation rejects stored architecture, invalidate architecture and every dependent checkpoint.
+* Informational Reel plans may use a named recurring performer as internal visual-continuity metadata; the name is not shown or narrated. The performer demonstrates separate source-grounded conditions and must not be given an unsourced knowledge, transaction, decision, or success chronology. Registered-layer prompts describe subjects inside one integrated master photograph; isolated/transparent/matte/cutout wording and device-led visual shortcuts are invalid before media generation.
+* Replaced/deprecated: the same-day rule that any recurring character name absent from the article is itself invalid. The actual violation is invented story causality, not the internal production name.
+* Model retry loops cover only model generation/validation for the current step. Database/checkpoint callback errors are outside those loops and must never cause a hidden repeated model call.
+* Regenerating an unpublished version-13 Reel preserves valid planning checkpoints. Older checkpoint versions are ignored because their contracts may be incompatible.
+
+## 2026-08-11 — Reel registered-layer geometry and motion are one enforced contract
+
+* The active full-canvas renderer consumes each component's approved `manifestReveal`, `manifestMotion`, `manifestStartSeconds`, and `manifestEndSeconds`. It must never choose an entrance from scene/layer indexes or silently invent missing motion.
+* A movable person/group must be a complete, fully contained, unobstructed, free-standing silhouette. A seated, reclining, naturally occluded, cropped, furniture-supported, or fixed-contact person is not a movable layer: recompose the source-grounded action as free-standing or keep the person inseparably in the static background.
+* `focus` is an in-place optical reveal, not permission to translate an incomplete body. Directional entrances are only for complete groups that can translate without exposing missing anatomy or moving fixed furniture/architecture.
+* Entrances finish within the first 38% of a scene; registered layers hold afterward while whole-scene camera work supplies motion. Invalid geometry or missing manifest fields block before image generation.
+* Camera prose (`cameraStart`, `cameraEnd`, `cameraMotivation`) is also not interpreted directly. The renderer holds its base camera until 46% scene progress, pushes to the first detected subject, then pulls/transfers or finishes with the coarse `cameraMove` preset.
+* Replaced/deprecated: index-based reveal cycling and the rule that a person plus movable seat/contact furniture could form one translating group. That produced cropped torsos or visibly moving furniture.
+
+## 2026-08-11 — Text-only Reel planning remains blocked before media production
+
+* A full text-only production plan for the published SoloCruz article `What Makes a Cruise Truly Solo-Friendly? A Checklist Beyond the Single Cabin` completed with seven scenes and no media generation.
+* The plan is not approved for image generation. It invented a recurring fictional protagonist and chronology for an informational guide, relied on laptops/phones/readable screens and contact furniture, produced mostly static layer directions, and emitted a technical manifest describing separately generated transparent foregrounds instead of the active master-derived scene contract.
+* Operational rule: do not generate images, voice, music, or video from this plan. The storyboard and step-three prompts must be aligned end to end with source-grounded editorial scenes and the master/clean-plate/extracted-layer architecture before another production run.
+
+## 2026-08-11 — Reel scene planning matches master-derived contact groups (replaced)
+
+* A movable character group may walk, turn, gesture, or interact naturally. When a source-grounded action requires another person or a movable contact/owned item, every touching person and complete contacting item belongs to the same extraction-safe group and is described as one combined silhouette.
+* Fixed architecture remains in the clean background and must not touch or occlude a movable group. Separate movable groups retain visible background space between them.
+* Replaced/deprecated: the old independent-foreground validator that rejected walking and every scene mentioning seating or furniture. That rule contradicted the current master-derived extraction architecture and caused repeated text-only storyboard rejection.
+* Replaced/deprecated by the later same-day geometry contract: movable carried/worn items may remain inside a complete silhouette, but seating and fixed-contact furniture may not be part of a translating group.
 
 ## 2026-08-11 — Production Reels use one-pass validated master-derived scenes
 
@@ -11,267 +143,62 @@
 * Deployment: `MASKED_LAYER_REEL_ENABLED=1` on the Blog Core VPS. Existing Reel rows were not queued when it was enabled, so deployment caused no media generation.
 * Replaced/deprecated: the earlier clean-background plus independently generated foreground contract, the statement that master-derived extraction was rejected, automatic paid image retries, fixed minimum layer quotas, camera movement during entrances, and planner-only text placement authority.
 
-## 2026-08-10 — Reel technical manifest is deterministic and blocks ambiguous visual plans
+## 2026-07-26 — Complete Pricing catalogue is independent from checkout readiness
 
-* The third pre-production stage must not make a Gemini request. It deterministically compiles the approved composition contract into exact image-generation and renderer jobs, preserving scene truth, background, components, placement, depth, timing, camera, narration, and overlay copy verbatim.
-* The compiler requires stable asset IDs (`background-SS`, then `participant|environment|context-SS-NN`), source-grounded component identities, 0-1000 visible-footprint coordinates, scene-local timing, one background per locked beat, and no substantial component overlap. It rejects absent, vague, duplicate, graphic, or nonphysical asset plans before any image, voice, music, or video request.
-* Verified on the SoloCruz guide: the current Gemini step-two candidate was rejected because it returned descriptive IDs and unstructured visual ideas rather than the required production contract. This is an intended gate, not a fallback condition. No media was generated by this verification run.
-* Follow-up verification: the improved contract request returned stable IDs and scene-local timings, but three attempts still failed substantive validation (nonphysical layer, insufficiently concrete layer, then material layer overlap). Do not retry the same monolithic contract prompt again; the next implementation must plan and validate each scene independently before requesting the next scene.
-* Replaced/deprecated: the prior third-stage Gemini scene-detail prompt. A later model pass could silently change the storyboard; technical compilation must now be code-only.
+- Decision: Pricing always displays Solo (€49), Pro (€99), and Agency (€199); an unconfigured tier must not disappear from the commercial page.
+- Decision: `GEORIVO_PURCHASABLE_PLANS` controls which visible tiers may enter checkout. It defaults to `solo`.
+- Decision: a tier without a confirmed Stripe recurring Price uses a localized contact/request action and must never expose a broken or simulated checkout.
+- Replaced: the earlier rule that every visible paid tier must already be directly purchasable. Visibility and checkout readiness are now separate, while purchase claims remain fail-closed.
 
-## 2026-08-10 — First-pass Reel architecture was verified as a fast standalone request
+## 2026-07-26 — Informational content uses intent-specific Georivo product steps
 
-* The updated text-only architecture prompt for the SoloCruz article `How to Choose Your Cruise Community: Group, Cabin Share, or Solo?` completed in 26.2 seconds in one Gemini request. It returned 7 beats and no visual, audio, music, or video artifact was requested.
-* Operational rule: show this full architecture to the operator before any photo-grid or media step. Do not silently proceed to the next generation stage.
+- Decision: every published Guide, Blog article, Template, Example, and Embed guide contains a visible contextual product step inside the main article content.
+- Decision: the renderer classifies the page intent as Property Showcase, Neighborhood Story, Arrival Guide, coverage check, publishing/embed, or example setup and links to the matching real Georivo screen with the relevant template/movement query where supported.
+- Decision: contextual product copy is localized in EN, DE, ES, FR, and RU. A universal repeated CTA is not an acceptable substitute.
+- Reason: useful informational content should complete the reader's answer with a concrete way to apply it in Georivo without turning every article into the same template advertisement.
+- Release gate: public typed-content audits require `product-bridge` and a valid `data-product-action`; the complete sitemap audit requires at least four distinct product-action intents.
 
-## 2026-08-10 — Reel architecture pass is lightweight, without an artificial deadline
+## 2026-07-26 — Embed indexation follows real-editor verification
 
-* The first Reel pass returns only the structured text architecture: central problem, hook, ranked insights, open loop, and payoff. It must not wait for or invoke visual planning.
-* Replaced/deprecated: the short 55-second request timeout. The first prompt must be concise enough to normally return quickly, but Blog Core must not impose an artificial cut-off on the Gemini response. Image/component planning, narration, music, and rendering remain later independent stages.
+- Decision: only WordPress is currently a verified integration guide. Webflow, Wix, and Squarespace remain public for review/use but are `noindex` and excluded from sitemap until each is verified in its current authenticated editor.
+- Decision: the `/embed/` hub remains `noindex` and outside sitemap while fewer than three platform guides are verified.
+- Reason: a generated `versionCheckedAt` field is not proof of real-editor verification and must not make unverified operational instructions indexable.
 
-## 2026-08-10 — Informational Reel architecture is an insight sequence, not an invented character story
+## 2026-07-26 — Pricing uses three large plan cards
 
-* For every guide, comparison, or informational article, Gemini must first isolate the central reader problem and select/rank only the 3-6 source-grounded insights that answer it. Article headings are evidence, not mandatory scenes.
-* The Reel order is: problem and source-grounded hook, essential context, increasingly consequential insights, then the most valuable answer/payoff near the end. A numerical countdown is permitted only when the source genuinely contains a bounded ranked set and number one is the highest-value conclusion.
-* Visual planning may illustrate an existing source condition or comparison, but may not fabricate a character chronology, discovery, consultation, booking, transaction, arrival, or reaction to information. In informational content, people are editorial subjects rather than invented protagonists.
-* Replaced/deprecated: the earlier generic requirement for a causal character narrative on all Reels. Retention now comes from a factual information arc and an open reader question, not fictional events.
+- Replaced: the same-day single compact Solo card is superseded by a large three-tier grid.
+- Decision: Pricing presents Georivo Solo (€49; 10 widgets; 1,000 monthly 3D starts), Pro (€99; 30; 5,000), and Agency (€199; 100; 20,000).
+- Decision: every card has one account-aware CTA carrying its explicit plan key; the Pricing hero must not duplicate those purchase buttons.
+- Release gate: the renderer and product app must agree on plan keys and limits, and every visible paid tier must map to a real configured Stripe recurring Price. Decorative or simulated paid plans are prohibited.
 
-## 2026-08-10 — Reel photo grids require source-evidenced components before media production
+## 2026-07-26 — Pricing first paint uses one plan card and one action
 
-* Before a Reel may generate any image, voice, music, or video, Blog Core creates a reviewable text-only photo grid: one base composition and 2-4 intended components for each Gemini-selected scene.
-* Each component carries a verbatim source quote (`sourceEvidence`). A validation gate rejects visual metaphors and standalone physical objects unless the article explicitly names the concrete object; generic props such as trunks, luggage, maps, tickets, devices, documents, and decorative travel objects are not valid substitutes for an abstract idea.
-* Component planning must use people only in roles directly grounded by the article, must preserve a coherent causal scene, and may not use invented professionals or unrelated environment-dependent actions. The actual image-production prompt receives the accepted base as its reference, so components are generated for that composition rather than as unrelated stock photographs.
-* Current SoloCruz review grid for article `0a9d3ddba2653f160592e281` is text-only: 7 base frames and 15 source-grounded components. No media was generated or published while validating this planning flow.
+- Decision: the Pricing hero does not repeat the price or subscription button immediately above the plan card.
+- Decision: the first plan summary is one compact Georivo Solo card, not a side-by-side free-preview/paid comparison. It contains only €49/month, 10 active widgets, 1,000 visitor-started plays, protected distribution, and one checkout CTA.
+- Layout rule: the plan card follows the hero in normal document flow with positive spacing. Negative overlap that can cover hero controls is prohibited.
+- Reason: adjacent free/paid actions and repeated subscribe controls diluted the purchase hierarchy, while small explanatory copy obscured the plan essentials.
 
-## 2026-08-10 — Reels are planned by Gemini against a fixed short-form duration budget
+## 2026-07-26 — Georivo separates preview and subscription actions
 
-* Reel planning is a text-only, three-step gate before any image, voice, music, or video request. Media generation remains disabled until a reviewable production plan exists.
-* Gemini must plan a 30-second Reel as 6-8 main screens, choosing the exact count from the article's causal narrative and explaining it. It groups related consecutive source sections where one screen can truthfully release them together; it must not produce one screen per article heading.
-* Each screen plans 2-4 purposeful semantic elements. The model, not hard-coded site rules, chooses their mix. A final plan reports its actual screen, stage, image-generation, and duration totals before production.
-* Validation rejects visual plans that rely on screenshots, UI, documents, signs, charts, tabletop objects, or background-fixture-dependent cutouts. It must request a new Gemini plan rather than silently replace those ideas with manual or site-specific fallbacks.
+- Decision: address checking is a secondary free-preview action; subscription is the primary commercial action on Pricing and at the end of Guides, Blog, and collection pages.
+- Decision: every visible commercial CTA is localized server-side for EN, DE, ES, FR, and RU.
+- Decision: Pricing exposes the Georivo Solo offer above the long-form SEO content: €49/month, 10 active widgets, 1,000 visitor-started 3D plays, protected links, domain-bound embeds, dashboard access, and the real account-aware checkout action.
+- Decision: signed-out subscription clicks use `/login?returnTo=/dashboard?startCheckout=1`; signed-in unpaid users continue through the existing `/api/billing/checkout` Stripe flow. The renderer must not simulate checkout.
+- Responsive rule: long Guide titles must fit both halves of the split hero on desktop and use natural/hyphenated word wrapping on mobile rather than arbitrary mid-word clipping.
 
-## 2026-08-10 — Text and image generation use the same working Gemini credential
+## 2026-07-26 — Georivo Guides and Blog use different presentation systems
 
-* Blog Core now sets `GEMINI_TEXT_API_KEY` to the same existing credential used by `GEMINI_IMAGE_API_KEY`. Text remains on `gemini-3.5-flash`; image generation remains on its configured image model.
-* Verified behavior: a direct `gemini-3.5-flash:generateContent` request returned HTTP 200 with `modelVersion: gemini-3.5-flash` and `serviceTier: standard`.
-* The credential remains environment-only and must never be committed, logged, or copied into project memory.
-* Replaced/deprecated: the earlier same-day decision requiring separate text and image credentials. Provider/model separation remains explicit in code, but both roles now intentionally resolve to the same working key by operator decision.
+- Decision: Georivo Guides are practical handbooks with a split guide hero, sticky in-guide navigation, numbered content sections, and a task-oriented action rail. Blog pages remain editorial journal articles.
+- Decision: Collection heroes use the featured record's own `heroImage`; the former universal `/georivo-hero.png` CSS background is not a Blog Core fallback or CTA image.
+- Decision: The featured record is omitted from the collection card grid to avoid showing the same story image twice on one hub.
+- Reason: Guides serve task completion and Blog serves editorial discovery. Reusing one article shell and one generic product image made the content types indistinguishable and caused visible media repetition.
+- Files/areas affected: `deploy/georivo/app.py`, `deploy/georivo/georivo-blog.css`.
 
-## 2026-08-10 — Gemini text key belongs to the paid Cloud project, but Gemini Prepay is separate
+## 2026-07-26 — Shared Georivo chrome is localized server-side
 
-* Blog Core `GEMINI_TEXT_API_KEY` now uses the existing service-account-bound API key from Google Cloud project `exalted-tempo-504018-v0`; the key is restricted to Gemini API. The secret itself must never be committed or recorded in project memory.
-* Replaced/deprecated: text and image credentials were deliberately separate at this point. The later same-day decision above intentionally assigns the existing working image credential to text generation as well.
-* A successful key authentication can still return `429 RESOURCE_EXHAUSTED: Your prepayment credits are depleted`. This is not a free-tier request quota and is not fixed by the ordinary Google Cloud welcome credit. For accounts created after March 2, 2026, Google excludes welcome credit from Gemini API usage and maintains a separate Gemini Prepay charging cycle under the same Cloud Billing account.
-* Operational rule: do not rotate keys, switch to Vertex, change models, or add fallback credentials to work around this error. Fund or activate the Gemini API Prepay balance for the existing Cloud Billing account, then rerun the same `gemini-3.5-flash` smoke test.
-
-## 2026-08-10 — Background-referenced Reel v6 and whole-scene camera contract
-
-* Current operator-approved layer architecture: generate one clean stage background, then generate each person/object independently while passing the real background plus accepted layers as the current-scene reference. Every result is a full 9:16 registered canvas on transparent or uniform matte background. The renderer may animate alpha/reveal but must not auto-center, rescale or reposition a layer.
-* Camera contract: motion applies identically to the assembled background and all foreground layers. Storyboards must vary purposeful `dolly_in`, `dolly_out`, lateral `tracking`/`follow`, `crane`, and `orbit` moves with no adjacent repetition. Reveal styles also vary independently of camera movement.
-* Spatial planning: plan all layer boxes for a scene before image generation, reserve substantial floor objects first, reject significant occupied-box collisions, keep boxes inside canvas margins, and preserve accepted `spatialPlan`/`assetValidation` metadata across resume normalization.
-* Production validation: small handheld/tabletop items are not robust independent layers; include them in the person layer that uses them. Independent story objects must be substantial floor/deck-standing items. Character layers use intentional large editorial framing to avoid feet/contact-shadow extraction artifacts.
-* Current production status: SoloCruz `social_posts.id=32` is `ERROR`, unpublished, and not ready for review. The storyboard includes whole-scene camera work, but Gemini image generation repeatedly ignored exact registration boxes or produced matte/scale/contact artifacts for independently generated objects. Blog Core correctly stopped before rendering/publication. Do not bypass this by programmatically moving or scaling the generated layer.
-* Replaced/deprecated: all earlier entries that describe master-derived/SAM extraction as the approved architecture. Those entries remain as history only; the background-referenced separately generated layer contract above is current.
-
-## 2026-08-09 — SoloCruz Reel v5 is a real master-derived production draft
-
-* Production result: SoloCruz `social_posts.id=32`, sourced from article job `0a9d3ddba2653f160592e281`, is now a 33.46-second 1080x1920 H.264 Reel with 48 kHz stereo AAC. It remains `DRAFT`, is available only for review, and has not been published to Zernio or Instagram.
-* Visual architecture: seven scenes reuse three coherent 9:16 production masters representing home/planning pressure, terminal/decision, and ship-deck/community resolution. Each master is decomposed into three spatially registered full-canvas RGBA layers derived from that master; all three packs report zero overlapping mask pixels and reconstruction MAE 0.0.
-* Story progression: the same continuity-anchor traveler changes expression, pose, location, and relationship across stages. The final master introduces a second large traveler as part of the integrated protagonist group rather than repeating one isolated person over unrelated backgrounds.
-* Motion: layer reveals vary by scene (`focus`, directional wipe, radial reveal, and light sweep). Camera movement applies to the entire assembled photograph and varies across dolly, tracking, orbit, and crane moves. Layers retain their original master coordinates and are never independently repositioned or scaled by the renderer.
-* Audio: the seven existing scene-bound narration clips are scheduled once each. The active SoloCruz Lyria track runs continuously under the complete Reel in `continuous_ducked` mode; ffmpeg `silencedetect` found no silent interval.
-* Production-only rule: visual/video validation must happen inside the requested real artifact. Do not generate a separate test, proof, demo, or throwaway asset unless the operator explicitly asks for it. A failed downstream registration step must preserve and resume already valid master art rather than deleting or regenerating it.
-* Empty-base contract: one coherent master-derived removal plate is used as the complete scene base. Registered layers overlay their original masks; reconstruction accuracy is measured on the registered union. Do not patch independently recolored removal regions into the master because that creates reveal seams.
-* Reliability: conservative detection boxes may approach one another while visible masks remain separate. Box overlap is an early coarse gate; zero/near-zero mask overlap remains the authoritative visual-overlap gate. Gemini availability failures and multimodal false negatives must not cause accepted production masters to be discarded.
-* Current implementation boundary: `generate_registered_reel_v5.py` and `registered_reel_renderer.py` produce the v5 draft in Blog Core runtime storage. The deprecated independent-cutout generator remains blocked; do not re-enable it as a fallback. A future task must route ordinary dashboard Reel generation directly through this v5 production path before claiming the migration is generic for every new Reel.
-* Replaced/deprecated: the prior entry's proof-only status, per-layer patchwork empty-base selection, 2.5% box-overlap figure, and instruction to stop after a standalone proof. The production draft now exists; standalone proofs are no longer the default workflow.
-
-## 2026-08-09 — Registered-scene v5 proof passes the spatial-layer contract
-
-* Current architecture: one coherent integrated master photograph is analyzed into three meaningful components: exactly one large foreground protagonist plus two non-character components in separate upper/lower zones on the opposite side. Every extracted layer is a full-canvas RGBA image retaining the master coordinates, scale, light, and perspective; the renderer only changes layer alpha and the whole-scene camera.
-* Scale and overlap gates: a person is rejected below 38% frame height or 4.5% frame area. Non-character layers are rejected below 1.2% area. Component boxes may overlap no more than 2.5% of the smaller box and masks no more than 0.2% of the smaller mask. The accepted SoloCruz proof measured 70.6% person height, 19.5% person area, zero layer overlap, and reconstruction MAE 0.0.
-* Composition gates: the master must be one continuous photograph with no panels, rectangular patches, discontinuous perspective, or picture-in-picture seams. Every component must be physically grounded or attached. The upper detail is a non-textual architectural fitting; the lower object rests directly on a visible floor/deck. Small people, overlapping boxes, floating supports, and pseudo-collage masters are hard failures.
-* Empty-base selection: Blog Core keeps both the original empty location plate and a master-derived removal edit. For each layer it selects the candidate with meaningful change inside the mask and minimal change around the mask. A candidate that still contains the component is rejected for that layer. This prevents both retained subjects and geometry tears during reveal.
-* Reliability: SAM segmentation and proof rendering run in a separate `registered_scene.py` process so the heavy model is released after each scene and cannot inflate the Flask worker. `gemini-3.1-flash-lite` is the structured-text fallback when the configured primary text model is quota-limited; image generation remains on the configured image model.
-* Verified proof: SoloCruz article job `0a9d3ddba2653f160592e281` produced the review-only asset `0a9d3ddba2653f160592e281-registered-proof-4f8a6abf794ac67d`. The 10-second proof shows an empty deck, then a large traveler, a mounted lifebuoy, and a grounded journal in fixed registered positions. It is not a `social_posts` record and was not published.
-* Production gate: the old independent-cutout full-Reel path remains blocked unless `REGISTERED_REEL_V5_APPROVED=1`. That flag is intentionally absent. Approval of this one-scene proof does not automatically publish or regenerate a complete Reel.
-* Replaced/deprecated: the status below saying the v5 master-derived architecture still needs implementation. The architecture and one production proof now exist, but the full-Reel migration remains pending explicit approval.
-
-## 2026-08-09 — Architectural fidelity is mandatory for layered storyboards
-
-* Product rule: never replace an explicit creative or architectural requirement with a cheaper approximation merely to preserve existing code, minimize implementation effort, or produce a technically valid output. If the current renderer cannot satisfy the requested contract, its incompatible architecture must be replaced.
-* Layer definition: a storyboard layer is a spatially registered part of one master composition, not an independently generated transparent object placed over a background. All layers use the same full-size canvas and preserve the master frame's coordinates, perspective, lighting, scale, depth, and occlusion. Recombining them at rest must reproduce the master frame.
-* Rejected approach: `background photograph + independently generated people/objects + rembg + automatic position/scale`. This creates a collage of overlapping cutouts even when the prompts describe a coherent story. Prompt changes, shadows, and placement heuristics cannot repair the architectural mismatch.
-* Required production gate: before generating a complete Reel, create one finished scene and review the master frame, every full-canvas registered layer, the recombined still, and a short assembly animation. Full-batch generation is blocked until this proof uses the real production pipeline and passes visual review.
-* Validation rule: schema validity, successful generation, codec checks, audio checks, and render completion verify only technical execution. They do not prove visual compliance. Visual acceptance must test the requested composition principle directly.
-* Current status: the v4 SoloCruz draft and its cutout compositor remain review artifacts, not an approved layered-storyboard baseline. The cutout architecture must be replaced before another full Reel is generated.
-* Replaced/deprecated: the earlier memory statement that role-bound independently generated foreground layers constitute a correct layered scene. They do not; only master-derived, spatially registered layers satisfy the current contract.
-
-## 2026-08-09 — Reel v4 is an evolving layered story with continuous music
-
-* Decision: every Instagram Reel is a causal visual sequence, not a series of unrelated full-frame photographs or a repeated person cutout. The seven-scene contract uses exactly three consecutive stages (`1,1,2,2,3,3,3`). Each stage has one clean cached location plate, and its later scenes add or change two or three purpose-bound layers in that same visual world.
-* Continuity: an identity reference preserves a protagonist's recognizable appearance but never authorizes reusing the same raw foreground asset, pose, stance, expression, action, or framing. A protagonist appears in only three to five scenes and each appearance requires a distinct action and emotional state. Other layers must be semantically connected supporting characters, story objects, or environmental details; generic symbols, filler props, decorative UI, or independent stickers are rejected.
-* Rendering: each generated foreground has intentional placement, scale, entrance, movement, and shadows, while the base plate receives its own camera motion. Hook copy is rendered as kinetic type directly on the scene, not on a black card. The system produces programmatic motion from still assets; it must never imply that it generated live-action human performance.
-* Audio: the active Lyria track plays continuously from the opening to the end of the Reel, looped or trimmed to duration and faded only at the boundaries. It ducks during speech rather than disappearing. Per-scene Gemini TTS WAV clips are scheduled one after another using their real durations, so voice clips cannot overlap.
-* Reliability: Gemini structured output uses only the supported low-depth type/required/enum schema. Exact scene count, stage order, duration, roles, visual exclusions, and unique protagonist actions are validated by `normalize_instagram_reel`; a malformed or invalid storyboard is rejected and generated again, never repaired after the fact.
-* Verified recovery: SoloCruz `social_posts.id=32` was regenerated through the normal queued factory path. It is a 33.46-second, 1080x1920 H.264 Reel with 48 kHz stereo AAC, three base plates, fourteen independently generated foreground layers, seven sequential `Kore` voices, and a `continuous_ducked` active Lyria mix. `silencedetect` found no silent interval. It remains a `DRAFT` and has not been sent to Zernio or Instagram.
-* Replaced/deprecated: v2's rule to reuse one recurring-subject foreground across scenes, and its narrator-exclusive hard mute of the brand soundtrack. The v4 stage-and-fresh-performance contract and continuous ducked music supersede both rules.
-
-## 2026-08-09 — Reel v2 prevents voice collisions and requires a causal visual story
-
-* Decision: a production Reel must tell one connected story rather than place unrelated objects over editorial photographs. The storyboard has one explicit continuity anchor, the same recurring subject is generated once and reused through the scenes, and the second foreground layer must be a directly related piece of story evidence. Generic metaphor layers, decorative UI, route paths, keys, compasses, coins, badges, and filler icons are prohibited.
-* Composition: each scene declares subject, supporting-evidence, and type placement. Kinetic hook text reveals word by word directly over the scene with a restrained shadow and underline; a solid or translucent black copy plaque is prohibited. The renderer gives subject and evidence layers soft/contact shadows and camera movement, but it does not draw a fake logo or a generic graphic system.
-* Audio: scene duration is calculated from the real generated WAV length plus a short release, so a voice clip cannot cross into the next scene. A vocal Lyria track is not merely ducked: it is hard-muted throughout every actual narration interval and plays only in voice-free windows. This preserves the active site soundtrack without two voices overlapping.
-* Recovery: unpublished Reel rows can be regenerated in place through the dedicated Reel action. Regeneration preserves the social-post record and audit trail, replaces its ignored runtime assets and screenplay with the current contract, and returns to `DRAFT`; it does not publish the Reel.
-* Verified recovery: SoloCruz Reel draft `social_posts.id=32` was regenerated in place from its source article. The review draft is 31.5 seconds, 1080x1920 H.264 with 48 kHz stereo AAC, seven short Gemini `Kore` scene voices, a `narration_exclusive` active Lyria mix, and a Sarah continuity anchor. It is not published.
-* Replaced/deprecated: sidechain-only music ducking and the requirement for an editorial path/beat layer in every scene. They allowed vocal collisions and arbitrary visual clutter; the current narrator-exclusive, story-bound contract supersedes them.
-
-## 2026-08-09 — Brand music is a reusable per-site Reel asset
-
-* Decision: Blog Core uses Gemini Lyria 3 Clip (`lyria-3-clip-preview`) for a short site-branded Reel soundtrack. Each request creates one reviewable 30-second MP3 track; it is not a third-party music-library selection and must be prompted as an original composition without naming, imitating, quoting, or recreating an existing song, performer, film, or musical.
-* Data and review: `reel_music_tracks` stores a site's generated soundtrack records. At most one track is `ACTIVE` per site; an active track applies only to future Reels. Assets live in ignored `data/reel_music/{site_id}/{track_id}/`; neither generated audio nor API credentials belong in Git.
-* Render contract: an active track loops or trims to the vertical video's real duration and fades at boundaries. This sidechain-ducked baseline is replaced/deprecated by the narrator-exclusive window contract above: a vocal music track is muted during every actual Gemini speech interval, rather than simply made quieter. The resulting Reel remains H.264 with stereo 48 kHz AAC audio. A missing or inactive track never blocks a Reel render.
-* Operator flow: Distribution exposes the brand-soundtrack library, editable musical direction and vocal hook, asynchronous generation progress, audio review, and an explicit `Use in future Reels` action. The scheduler serializes brand-music generation before Reel rendering to contain cost and VPS load.
-* SoloCruz initial track: one active 30.72-second Lyria Clip has a Mediterranean cinematic travel-pop direction and the sparse hook “SoloCruz, sail your way / find your people, make waves today.” It was generated for future Reels only; no Reel, source-site page, or social post was changed by creating it.
-* Cost/reliability: current public Gemini list pricing is $0.04 per Lyria Clip request, subject to Google account/billing changes. Lyria is Preview software; errors remain reviewable in the track record rather than falling back to unlicensed music.
-* Replaced/deprecated: the prior Reel rule that all automatic music must wait for an external licensed library. The approved source is now original Lyria-generated site music, with use subject to the connected Google account terms; arbitrary external audio remains prohibited.
-
-## 2026-08-09 — Reel worker must import its alpha-extraction image dependency
-
-* Reliability fix: foreground alpha extraction runs inside `app.py` and opens the `rembg` result through Pillow. `Image` must therefore be imported at application scope; relying on a separate local import in an unrelated legacy social-image helper caused queued Reel jobs to fail at scene one with `name 'Image' is not defined`.
-* Recovery: a failed Reel remains a reviewable `ERROR` row with its error message. It must be retried through the normal Blog Core Reel queue after the worker fix, rather than rendered by an ad hoc script outside the product flow.
-* Verified recovery: the normal Blog Core task for SoloCruz's published “How to Choose Your Cruise Community: Group, Cabin Share, or Solo?” article completed as Reel draft `social_posts.id=32`. It produced a 30.0-second 1080x1920 H.264 video with stereo 48 kHz AAC, seven scene assets, scene-bound Gemini narration, and the site's already-active Lyria soundtrack. It was not published to Instagram.
-
-## 2026-08-09 — Blog Core has a native layered Instagram Reel factory
-
-* Decision: Instagram Reels are first-class Blog Core social assets with `social_posts.asset_type = instagram_reel`, rather than a variant of an Instagram carousel. They share the site's Instagram/Zernio connection but have separate review state, controls, and publishing cadence.
-* Production flow: `Create IG Reel` on a content job queues asynchronous work. The scheduler creates a seven-scene, 26–38 second storyboard, generates scene imagery and directed Gemini TTS, extracts only planned foreground assets to alpha, then renders a 1080x1920 H.264/AAC video with Pillow and ffmpeg. Generated runtime assets remain in ignored `data/social_assets/`.
-* Motion contract: every scene must have a purposeful moving camera (dolly, tracking, crane, or orbit), a recurring-story-subject foreground, a directly related evidence foreground, and kinetic type. The prior animated editorial path/beat layer requirement is replaced/deprecated: it produced generic decoration rather than narrative motion. This deliberately increases independent moving elements by at least 1.5x over the earlier production proof without treating a static person as live action.
-* Brand rule: the real site logo is supplied to Gemini only as an optional reference for scene prompts which explicitly need a brand mark. It is never manually overlaid by the renderer and must not be forced into every frame.
-* Publishing: an assembled Reel becomes a reviewable `DRAFT`; a dedicated `Publish Reel` action sends the MP4 to Zernio as `contentType: reels`. Automatic Reel publication is optional and disabled by default. A Reel cadence is separate from carousel cadence, and standard social publishing does not pick up Reel rows.
-* Audio boundary: directed Gemini TTS narration is supported. Automatic music beds and sound effects remain disabled until a licensed provider/library and its usage rules are configured; the factory must not use arbitrary audio in a publishable Reel.
-* Implementation: `app.py` owns queueing, generation, review, cadence, and Zernio publishing; `scheduler.py` runs one reel-generation job at a time and optional due publication; `reel_renderer.py` is the programmatic compositor. `rembg[cpu]` is a runtime dependency for foreground extraction.
-* Replaced/deprecated: the detached SoloCruz one-off render is evidence for the visual contract, not the publishing workflow. Future Reels are created, reviewed, and published through Blog Core.
-
-## 2026-08-09 — SoloCruz Reel v3 locks voice, visual hooks, and camera to each scene
-
-* Decision: spoken narration is never a single continuous track placed over a storyboard. It is a set of independently generated per-scene clips, each starting with its visual scene and reciting that scene's primary hook verbatim. Scene timing follows the real duration of its approved voice clip rather than cutting or speeding up speech.
-* Visual scale: people, luggage, and product UI are foreground storytelling elements and must occupy a clearly visible mobile-safe proportion of the 9:16 frame. Backgrounds move separately through a restrained virtual-camera pass (dolly, pan, or pull-back), while foreground entry and type remain legible.
-* Audio boundary: Gemini native TTS supplies directed voice only. Automatic music beds and sound effects require a separately approved, licensed source/library; the renderer may automate cue selection, timing, gain, and fades, but may not place unlicensed or arbitrary audio into a publishable asset.
-* Cost ledger at the current public Gemini list price, excluding tax: the current production asset batch cost `$0.257215` from returned token usage; the final seven scene-bound TTS clips cost about `$0.0132` including negligible text input. The current v3 media is therefore about `$0.2704`. All related discarded image experiments and retired narration bring the whole SoloCruz Reel development total to about `$0.896`; this is intentionally reported separately from the usable current render.
-* Verified output: the current `solocruz-cabin-before-booking.mp4` is a 26.261333-second 1080x1920 H.264/AAC render with seven scene-bound Gemini `Kore` voice clips. Its v3 contact sheet and clip WAVs are retained in ignored storyboard runtime storage.
-* Boundary: no social post, site change, content job, music bed, or SFX was created.
-* Replaced/deprecated: v2's continuous 24.384-second narration and smaller foreground scale. It is retained as `solocruz-cabin-before-booking-v2-continuous-voice.mp4` for traceability only.
-
-## 2026-08-09 — SoloCruz Reel v2 prioritizes hook-scale type, visual depth, and narrated delivery
-
-* Decision: the approved `Solve the cabin before you book` storyboard retains its exact seven-scene narrative and existing image pack. It is refined through composition only: every scene carries one short, strong readable hook rather than small explanatory copy.
-* Layer contract: every extracted foreground must receive both a directional soft drop shadow and a separate blurred contact shadow where it meets the scene plane. This visual separation is a required part of a production layer-first scene, not a decorative afterthought.
-* Audio: the current render uses a production English narration generated with `gemini-3.1-flash-tts-preview` using the prebuilt `Kore` voice. The prompt directs a warm, confident American travel-brand performance with scene-level pacing and pauses. It is native Gemini TTS, not a custom voice.
-* Verified output: `data/video_storyboards/solocruz-cabin-before-booking-storyboard-20260809/renders/solocruz-cabin-before-booking.mp4` is now a 24.384-second 1080x1920 H.264/AAC MP4. Its matching WAV narration and a v2 contact sheet are stored with the ignored production storyboard runtime assets.
-* Boundary: this is a reviewed production-media render only. It has not created a content job, changed a source site, or published to Instagram or another social network.
-* Replaced/deprecated: the earlier 22.058667-second no-audio production output and its small-type hierarchy. The old no-audio MP4 is retained alongside the current render as `solocruz-cabin-before-booking-v1-no-voice.mp4` for traceability.
-
-## 2026-08-09 — SoloCruz has a production layer-first animated storyboard render
-
-* Decision: the first approved production Reel concept is `Solve the cabin before you book`, a 22-second vertical narrative: desired cruise, two-person cabin constraint, preserve the desired trip, find a cabin mate before booking, align practicals, board with a plan, and final brand payoff. It is a story with scene transitions, not a social slideshow.
-* Production pack: 15 purpose-specific Gemini Batch `gemini-3.1-flash-lite-image` assets were generated under ignored runtime `data/video_storyboards/solocruz-cabin-before-booking-storyboard-20260809/`: seven background plates, six traveller foreground sources, and two luggage foreground sources. All 15 requests succeeded with zero errors.
-* Layer contract: Gemini image output has no transparent background. Foreground sources are deliberately generated on a solid matte and immediately alpha-extracted to PNG. Real SoloCruz brand assets and a capture of the public `/cruises/` product interface are composed only by the renderer, never drawn by the image model.
-* Verified output: the production assembly is a 22.058667-second 1080x1920 H.264 MP4, stored as an ignored runtime asset at `data/video_storyboards/solocruz-cabin-before-booking-storyboard-20260809/renders/solocruz-cabin-before-booking.mp4`; a contact sheet, asset manifest, and machine-readable scene/layer timeline are stored alongside it.
-* Boundary: this asset has not been published to Instagram or any other channel. It has no audio track; audio selection, licensing, and social review remain separate before a publishing workflow is introduced.
-* Replaced/deprecated: the earlier full-screen-stills approach and the small-card Remotion proof. Neither is a production template for the layer-first Reel factory.
-
-## 2026-08-09 — Layer-first programmatic Reel rendering replaces a still-scene sequence
-
-* Decision: programmatic Reel production uses a composition renderer with an explicit per-scene layer contract: background, media panels, masks, branded elements, type, graphical overlays, and timing. Every layer owns its own z-order, enter, hold, exit, and transition behavior.
-* Verified capability: an isolated 1080x1920 H.264 proof rendered an 18-second SoloCruz montage from existing images, using overlapping scenes, animated photo masks/panels, typography, line graphics, and the actual SoloCruz mark. It made no Gemini/Flow/Veo request and made no factory, source-site, or social-media change.
-* Boundary: this renderer creates intentional motion design, not invented live action. A person in a still photo does not become a moving cutout. When a storyboard needs a person/object as an independently animated subject, the production asset plan must request a separate approved layer asset, with a known crop/mask, rather than pretending a full-frame image has alpha.
-* Production input rule: a storyboard is not a list of image prompts. It must define scene duration, layer asset slots, z-order, crop/mask, type hierarchy, entry/exit motion, and the cross-scene continuity rule. Existing imagery can fill temporary slots in a proof but cannot be considered final creative merely because it rendered.
-* Replaced/deprecated: the earlier `SoloCruz Reel v1` approach of chaining full-screen editorial stills. It is not the requested layer-first storyboard model and must not become the factory template or be published as a Reel.
-
-## 2026-08-09 — SoloCruz Reel v1 uses reference-anchored full-scene photography
-
-* Decision: the no-Flow/no-Veo Reel workflow uses complete editorial still scenes plus programmatic Remotion motion, typography, route graphics, music, and the real supplied logo. It does not depend on image-model alpha cutouts or claim to synthesize live action.
-* Production asset contract: an approved master traveller frame is supplied as the constant reference to every generated story beat. Do not chain only from the previous output; retain the master reference to prevent identity/style drift.
-* Historical result: one master plus eight Gemini Batch `gemini-3.1-flash-lite-image` 9:16 scenes were generated for SoloCruz Reel v1. The sequence covered cabin cost, compatibility before booking, meeting fellow travellers, shore day, conversation, dinner, independent travel, and a group final frame. No site or social publication was created.
-* Replaced/deprecated: calling this a usable production pack. It is a preliminary still-image set only and is not an approved layer-first Reel asset plan.
-
-## 2026-08-09 — Gemini Batch image baseline for programmatic social video
-
-* Decision: image-model comparisons for programmatically assembled social video use the Gemini Batch API and save their results only under ignored runtime `data/video_layer_tests/`; they do not create a content job, modify a source site, or publish social media.
-* Verified SoloCruz baseline: the same 13-scene 9:16 editorial travel pack completed successfully on `gemini-2.5-flash-image` and `gemini-3.1-flash-lite-image`.
-* Measured Batch API usage: 2.5 Flash Image returned 16,770 image-output tokens and 1,583 prompt tokens; 3.1 Flash Lite Image returned 14,560 image-output tokens, 6,013 text/thinking-output tokens, and 1,583 prompt tokens.
-* Cost calculation at the official Batch rates, excluding tax: 2.5 Flash Image $0.25178745 for 13 images; 3.1 Flash Lite Image $0.223107625 for 13 images. The Lite set was about 11.4% cheaper while the operator judged the imagery visually stronger in this test. Do not switch the factory default without an explicit product decision.
-* Output contract: this test yielded 2.5 PNG at 768x1344 and 3.1 Lite JPEG at 768x1376. The montage layer assembler must accept both media types/resolutions or normalize them before render.
-
-## 2026-08-05 — GEO Insight series publishes one reviewed native post every three days
-
-- Decision: the 11 remaining queued GEO `blog` tasks are scheduled at a 72-hour cadence, starting with `LLMs.txt: Useful Discovery File or SEO Myth?` on 2026-08-05T17:56:00Z and ending on 2026-09-04T17:56:00Z.
-- Scope: only site-16 native `blog` tasks were scheduled. Existing published Insights, Solutions, Tools, and Use cases were not rescheduled or changed.
-- Runtime: the PM2 worker `blog-yas-core-scheduler` evaluates explicit `scheduled_for` timestamps every minute. A due `QUEUED` post is generated first; on a later worker pass, its validated `DRAFT` is published through the native GEO content store.
-- Boundary: a cadence setting must never publish unscheduled content or create social posts.
-
-## 2026-08-05 — Every active GEO commercial collection has a minimum viable four-page inventory
-
-- Decision: GEO's public commercial taxonomy now has at least four distinct pages in every active collection: six Solutions, four Tools, and four Use cases. The three added queue contracts are an AI Visibility Checker, an AI Readiness Checker, and an AI Citation Readiness use case.
-- Reason: the approved English-language demand map explicitly identifies these three remaining search-intent clusters. They fill the collection threshold without creating a duplicate GEO/AEO/LLMO definition page or a speculative competitor-analysis page.
-- Intent boundary: the Visibility Checker evaluates observed mentions, recommendations, and citations for selected questions; the Readiness Checker evaluates controllable on-site access and evidence conditions; Citation Readiness is an operational workflow for improving citation evidence. None may promise an AI mention, citation, recommendation, rank, or score.
-- Delivery: `deploy/seed_geo_collection_minimum.py` is idempotent and checks canonical target paths before it creates the site-16 tasks. It may refresh only `QUEUED` briefs; it must never overwrite a generated or published record's validation contract. `deploy/approve_geo_collection_minimum.py --approve` records the four normal review gates and publishes the reviewed release.
-- Release state: all three additions are now public, return HTTP 200 after standard trailing-slash normalization, and are present in the GEO sitemap. Current published inventory is six Solutions, four Tools, and four Use cases.
-
-## 2026-08-05 — Native commercial pages support solution, tool, and use-case routes
-
-- Decision: Blog Core native content types now include `solution`, `tool`, and `use_case` in addition to `blog`. Their canonical route prefixes are `/solutions/`, `/tools/`, and `/use-cases/`.
-- Reason: a commercial page type is not synonymous with a use case. The taxonomy distinguishes a decision-led solution, an actual diagnostic utility, and an operational application scenario without creating a premature standalone services or comparisons hub.
-- GEO migration: the 11 published commercial records are classified as 6 Solutions, 2 Tools, and 3 Use cases. The reproducible migration is `deploy/migrate_geo_taxonomy.py`; it updates the site-16 job contract and native published-store filenames/paths together.
-- Compatibility: old `/use-cases/<slug>/` URLs for moved records are preserved by the GEO source renderer as permanent redirects to their new canonical route. Do not delete old URLs or re-publish duplicate records during taxonomy changes.
-- Replaced/deprecated: the earlier GEO release state in which all commercial pages, including solutions and checkers, were placed below `/use-cases/`.
-
-## 2026-08-05 — GEO covers the remaining distinct commercial demand clusters
-
-- Decision: GEO now has two additional published typed pages under the existing `/use-cases/` contract: `AI Search Traffic Loss Audit: Diagnose Zero-Click Risk and Recovery Options` and `AI SEO Services: Build an Evidence-Led AI Search Visibility Program`.
-- Reason: these were the two remaining commercial-intent clusters in the approved GEO demand map after the initial nine-page release. They serve different decisions and must not be collapsed into generic GEO/AEO/LLMO definition pages.
-- Editorial boundary: a traffic-loss page distinguishes observed decline, zero-click risk, and causation that cannot be proven. An AI SEO services page explains an evidence-led engagement without promising rankings, citations, or engine behavior.
-- Generation rule: typed commercial briefs need an explicit six-or-more-section decision plan before generation. This supplies the structured renderer with enough useful coverage to pass the page contract without weakening validation.
-- Replaced/deprecated: the earlier release state that described all 11 commercial pages as use cases. They are now distributed by the approved three-collection taxonomy.
-- Replaced/deprecated: the earlier GEO demand-map state that listed AI Search Traffic Loss/Recovery and AI SEO Services as uncovered clusters.
-
-## 2026-08-05 — Native SEO money pages require a pre-generation page brief
-
-- Decision: A queued native SEO money page may carry a structured `pageBrief` through `POST /api/sites/<site_id>/article-ideas/queue`; Blog Core preserves it in `sources_json` for generation.
-- Reason: typed money pages require a controlled H1, 50-80-word direct answer, CTA, source references, and approved internal-navigation contract. A title and angle alone cannot satisfy the draft validator without weakening the page standard.
-- Navigation rule: the validated internal-link contract accepts a root path (`/`) plus standard same-site paths. Anchor-only links are not treated as contextual SEO links.
-- GEO initial plan: 9 money pages and 15 supporting editorial posts are queued; the first GEO money page is generated as a `DRAFT`, never auto-published.
-- Preview contract: native content stores expose a noindex product-hosted draft route at `/content-preview/<job_id>` that reads only the site-owned `data/blog-core/drafts` record. Blog Core is still the control plane and does not render a substitute product template.
-- Replaced/deprecated: the assumption that a native money page can be safely generated from a Discovery title and angle with no page brief.
-
-## 2026-08-05 — Product context is explanatory, not an in-article advertisement
-
-- Decision: every typed commercial/use-case page must contain one evidence-led decision section connecting the reader's problem with the connected site's documented capability and an appropriate next step.
-- Boundary: no in-article CTA button, pressure language, unsupported superiority claim, outcome guarantee, or invented product capability. Editorial blog pages mention a service only when it materially helps move from understanding to action.
-- Reason: content must create commercial relevance through useful explanation and product fit, not by sacrificing reader trust or people-first quality.
-
-## 2026-08-05 — Typed pages preserve their canonical slug through generation
-
-- Decision: a non-blog typed page always retains the queued canonical slug and target path. Model JSON may improve copy but may not rename a public money-page URL.
-- Reason: a generated slug mismatch can create a published native record whose filename no longer matches its canonical URL, leaving the intended URL at 404.
-- GEO release: all 9 approved SEO money pages are published below `/use-cases/`, return HTTP 200, and appear in the GEO sitemap. The 15 supporting blog tasks remain queued.
-- Replaced/deprecated: trusting a model-returned slug for typed native pages.
-
-## 2026-08-05 — GEO launch blog starts with four published Insights
-
-- Decision: after the approved money-page release, GEO has four foundational, public EN Insights under `/blog/`: AI mentions versus citations, robots.txt and AI answer engines, schema markup in AI search, and why an AI-readable page may still not be cited.
-- Reason: the public editorial hub must not be empty while the remaining research series stays in the controlled queue.
-- Publishing contract: ordinary native `blog` records may publish after a validated draft; the structured approval gates apply to typed money pages, not to informational Insights.
-- Card contract: generated `hero_image` remains part of the native payload. GEO's product renderer displays it on the published collection card when available.
-
-## 2026-08-05 — YAS AI Visibility is a separate Blog Core product
-
-- Decision: `geo.yas.ooo` is registered as an independent `native_content_store` product, with its own content context, topic strategy, manual publishing lifecycle, and dedicated native store under the GEO runtime.
-- Reason: it shares an initial Next.js runtime and design system with `yas.ooo`, but it is not a YAS marketing-content section. Its AI-visibility blog and SEO money pages must never mix with the YAS site’s queues, routes, sitemap, or editorial strategy.
-- Public route contract: GEO owns `https://geo.yas.ooo/blog/` and `https://geo.yas.ooo/use-cases/…`; the host rewrite remains internal and no public GEO URL contains `/geo`.
-- Boundary: Blog Core writes only reviewed/published GEO payloads. The GEO product owns its own Next.js rendering, global YAS shell, product navigation, sitemap, robots policy, and availability.
-- Replaced/deprecated: treating the existing shared `/opt/yas-ooo/data/blog-core` store as suitable for GEO content.
+- Decision: Blog Core money pages continue to reuse `LiveSiteChrome`, while `adapt_native_chrome` localizes every visible header/footer label, CTA, legal line, and route for EN, RU, DE, ES, FR.
+- Decision: the shared footer information architecture is three balanced navigation groups: Product, Resources, and Company. Blog Core does not own a separate footer layout.
+- Reason: client-side insertion left untranslated first-paint HTML and could show a stale or visually inconsistent shell during navigation.
 
 ## 2026-07-26 — Georivo money-page heroes are distinct from first paint
 
@@ -279,6 +206,47 @@
 - Decision: each money page preloads its own hero and has a page-specific CSS background fallback using that same asset, plus a page-specific wash/object position.
 - Reason: distinct `<img>` URLs alone were insufficient because the shared neutral placeholder could occupy the first visible frame while the image loaded, making all three pages appear to use the same hero.
 - Release gate: the 15-page audit must report three different hero paths; production HTML must include a matching hero preload for each page.
+
+## 2026-07-26 — Root money pages own disjoint visual libraries
+
+- Decision: image uniqueness is global across `/how-it-works`, `/coverage`, and `/pricing`, not merely local to one page. A main-content image used by one root money page may not appear in either of the other two in the same language.
+- Decision: each money page keeps its own factory figures, while generated section visuals and recommendation-card photos come from a stable slug-partitioned pool of non-money-page published assets.
+- Decision: recommendation cards preserve their real destinations and copy but use the current money page's allocated contextual imagery; reusing the linked target's hero across several money pages is deprecated.
+- Decision: hero scenes must be intentionally different by subject. How it works uses the existing workflow scene; Coverage uses a people-free aerial coverage landscape; Pricing uses a publishable-widget/subscription scene in a real-estate gallery.
+- Release gate: `audit_money_pages.py` compares every image inside each money-page main region and fails on any cross-page overlap for the same language.
+- Replaced: the prior rule guaranteed uniqueness only within a single page and therefore allowed all three pages to render the same supporting asset sequence.
+
+## 2026-07-26 — Money-page section media is unique and strictly alternating
+
+- Decision: every primary money-page narrative section is a two-column media section. Odd sections place copy left and image right; even sections place image left and copy right.
+- Decision: supporting visuals are selected from unique published Georivo hero assets. The selection excludes the current money-page hero, its opening/editorial figures, and hero images reserved for recommendation cards.
+- Decision: a supporting image URL may appear only once among primary sections. If the unique pool is exhausted, the renderer must not cycle back to a previously used image.
+- Replaced: the earlier same-day approach that cycled the current page's small hero/editorial pool and placed generated visuals beneath the heading.
+- Release gate: `commercial_sections` fails unless every primary section has media, reverse layout matches even-numbered sections, and all supporting image URLs are unique.
+
+## 2026-07-26 — Georivo money pages integrate navigation and semantic imagery
+
+- Decision: the money-page TOC is part of the hero composition, not a detached article sidebar. Desktop/tablet use a wide multi-column navigation panel; mobile keeps it inside the hero as a horizontally scrollable strip that must not expand the document width.
+- Replaced later 2026-07-26: the initial visual-fill renderer used the page's own small asset pool beneath headings. The current renderer uses unique published Georivo heroes as full opposite-column media and strictly alternates their side.
+- Decision: old `Related reading` and `Recommended next` article blocks are transformed into one localized `Explore Georivo` commercial recommendation grid. Cards preserve and deduplicate the factory's internal links/descriptions, resolve the target page's published hero image, and retain the FAQ below.
+- Reason: money pages must use long-form content without looking like stretched articles or leaving unused columns.
+- Release gate: the 15-page audit requires the TOC inside the hero, at least four supporting visuals, at least three photo recommendation cards, and no remaining article-related/article-recommended markup.
+
+## 2026-07-25 — Georivo money-page styling uses content-driven density
+
+- Decision: commercial sections must not use artificial minimum heights. Section height is determined by real copy and media, with compact inter-section gaps and consistent internal padding.
+- Decision: long introductory copy is supporting text, not a second hero heading. Desktop leads use a restrained 21–25 px scale; mobile uses 20 px with a readable line height.
+- Decision: non-media sections split heading and body into balanced columns. In media sections the image fills the complete paired section height; it must not stop at a fixed 16:9 frame while copy continues beside an empty area.
+- Decision: related links, recommended pages, and FAQ are presentation utilities and belong in their own compact closing section rather than inside the final narrative section.
+- Responsive contract: the TOC becomes in-flow below 1180 px; story layouts stack below 900 px; mobile spacing/type are reduced below 640 px; no supported viewport may create horizontal document overflow.
+- Reason: commercial pages should feel like dense, deliberate Georivo product pages, not a stretched article or a sequence of disconnected oversized cards.
+
+## 2026-07-25 — Georivo money pages use a dedicated commercial section system
+
+- Decision: factory-generated Georivo root money pages are transformed at render time into a dedicated sales-page composition: full product hero, compact sticky TOC rail, large alternating section cards, media/text split sections, a mid-page conversion CTA, and a final CTA.
+- Reason: SEO money pages must keep the complete validated factory content while looking and behaving like Georivo product pages, not like Blog Core articles.
+- Boundary: the transformation applies only to the three approved root money-page slugs. Article, guide, template, example, integration-guide, and ordinary use-case renderers are unchanged.
+- Responsive rule: below tablet width the TOC becomes an in-flow card, media/text sections stack, tables scroll within their section, and the page must not create horizontal document overflow.
 
 ## 2026-07-25 — Register CabinJoin as a native money-page content store
 
@@ -290,18 +258,21 @@
 This file is the durable memory of the project.
 It must be updated after every meaningful task.
 
-## 2026-08-09 — LinkedIn Company Page selection is OAuth-derived
+## 2026-07-25 — Georivo root money pages use the genuine Blog Core factory
 
-* Decision: LinkedIn Client ID and Client Secret remain server-only. Per-site setup connects a member by OAuth, reads only eligible approved organization roles from LinkedIn, and lets the operator select the personal profile or one returned Company Page. The selected author URN is never typed or guessed.
-* Reason: A valid member token does not itself prove that the member can publish for a Company Page. The dashboard must validate the exact publishing identity before enabling a Company Page workflow.
-* Files/areas affected: `app.py`, per-site `social_connections` LinkedIn credentials/settings, Setup social connection panel.
-* Operational requirement: The LinkedIn application must receive `w_organization_social` and `r_organization_admin`; the OAuth member must hold an approved Page Administrator, Content Admin, or Direct Sponsored Content Poster role.
+* Decision: `/how-it-works`, `/coverage`, and `/pricing` are generated as native `seo_money_page`/`use_case` jobs by the standard Blog Core text, factual-edit, image, localization, validation, draft, and explicit-publish pipeline.
+* Decision: A native use-case may publish at an approved root canonical only when `sources_json.canonicalRootPage` is exactly `true` and `targetPath` exactly equals `/{slug}`. Other typed pages retain their normal collection prefix.
+* Decision: Root money-page records are stored as ordinary factory `use_case` files. The Georivo renderer recognizes only the three approved root slugs as money pages and presents them with `WebPage` schema and the shared product chrome.
+* Decision: Their collection-form aliases under `/use-cases/{slug}/` and localized equivalents permanently redirect to the approved root canonical and never render duplicate pages or appear as use-case hub cards.
+* Decision: Public category/eyebrow copy comes from approved per-language `pageBrief.categoryLabels`; internal workflow terms such as `SEO Money Page` must not leak into visible copy.
+* Replaced/deprecated: The deterministic `seed_money_pages.py` implementation and its manually authored short HTML are retired. The old `money--*.json` records were replaced by factory-generated `use-cases--*.json` records and preserved only in the dated VPS backup.
+* Verification: each EN draft passed the factory contract with 1,821–2,116 words, 8 sections, 3 inline images, 6 FAQ items, contextual links, and exactly 3 recommended-next links; all DE/ES/FR/RU variants passed localization validation. The strict public audit passed all 15 canonical language URLs and all 15 collection-alias redirects.
 
 ## 2026-07-25 — Georivo SEO money pages are owned by live Blog Core
 
-* Decision: `/how-it-works`, `/coverage`, and `/pricing`, plus DE/ES/FR/RU variants, are first-class `money_page` records for Blog Core site 14 and are rendered by `georivo-blog.service`; they are not independent React commercial-page copies.
+* Replaced 2026-07-25: `/how-it-works`, `/coverage`, and `/pricing`, plus DE/ES/FR/RU variants, remain owned by Blog Core site 14 and rendered by `georivo-blog.service`, but the earlier manual `money_page` seed records are superseded by genuine factory-generated `use_case` records.
 * Reason: SEO money pages need the live content workflow while remaining visually and navigationally part of `georivo.com`.
-* Files/areas affected: `deploy/georivo/app.py`, `seed_money_pages.py`, `georivo-blog.css`, `georivo-blog-nav.js`, `georivo.com.conf`, native published records, and site 14 content jobs.
+* Files/areas affected: `deploy/georivo/app.py`, `georivo-blog.css`, `georivo-blog-nav.js`, `georivo.com.conf`, native published records, and site 14 content jobs.
 * Decision: The renderer continues to obtain the current Georivo header, footer, and native stylesheet through `LiveSiteChrome`. Money pages add only a namespaced marketing-page body, so source chrome remains the single public header/footer implementation.
 * Decision: Every money page has its own thematic hero. Coverage calls the real production coverage endpoint, and Pricing opens the existing account-aware Stripe Checkout flow. Neither interaction may simulate success.
 * Replaced/deprecated: The React-origin implementations for these three public paths are no longer the production owner after Nginx cutover.
@@ -953,7 +924,15 @@ It must be updated after every meaningful task.
 
 ## 9. Do not repeat
 
-* Do not treat the currently visible site, object, topic, language, or generated failure as a product rule. It is only a reproducible case. Never add object-name/domain-specific prompt clauses or code branches to make that case pass. Define and fix the universal invariant in the shared schema, planner, generator contract, validator, renderer, or adapter, then verify it against the current case and at least one structurally different case when verification does not incur unapproved production generation.
+### 2026-08-13 — Registered Reel masks, scene text, and final brand reference
+
+* Decision: Reel foreground mattes combine semantic segmentation with only a narrow, clean-plate-difference edge recovery. Do not broadly grow masks: that admits carpet, walls, and other foreign pixels around people and objects.
+* Decision: Reel overlay copy appears at scene start, remains continuously visible until that scene's cut, and changes only at a scene boundary. Use a soft offset shadow without a letter stroke; add a feathered color-sampled gradient scrim only when the image does not provide sufficient local contrast.
+* Decision: A final brand-resolution scene receives the connected site's verified real logo as a Gemini image reference. Prefer a source-owned SVG converted to a high-resolution transparent PNG. The logo is integrated once into a plausible physical scene touchpoint, never programmatically overlaid as a corner watermark. The final camera path pulls back to reveal the complete branded context.
+* Reason: Broad masks made extracted people visibly dirty; early text removal made copy unreadable; and an unreferenced or cropped logo undermined brand accuracy in the payoff frame.
+* Files/areas affected: `registered_scene.py`, `reel_renderer.py`, `app.py`, Instagram Reel generation for all connected sites.
+* Replaced/deprecated: aggressive 12-iteration difference-mask growth, per-scene text ending before the cut, outlined lettering, and hard-coded `usesLogoReference=false` in the director-plan adapter.
+
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
 * Do not delete installed target-site `/blog` files when removing a connected site from Blog Core.
 * Do not commit SQLite database, generated previews, virtualenv, logs, or secrets.
@@ -976,167 +955,9 @@ It must be updated after every meaningful task.
 * Do not claim a site integration is native because it shares colors or fonts. Match and verify the source DOM, computed header/footer dimensions, section rhythm, typography roles, controls, and responsive behavior.
 * Do not delegate only a title and slug to a source factory. Preserve the planned task's native path, canonical group, type, and language in the source job payload.
 * An explicit Regenerate action for a source-authoritative task must call the source factory even when the previous result is `READY` or `PUBLISHED`; merely re-syncing an old result is not regeneration.
+## 2026-08-13 — Production Reel matting and caption contrast
 
-### 2026-08-10 — Production fixes are universal, examples are never rules
-
-* Decision: every defect is resolved at the shared abstraction that owns the violated invariant. A failing object, page, domain, language, channel, or asset is evidence and a regression case only; it must never appear as a production special case in prompts or code.
-* Reason: Blog Core is a universal multi-site factory. Example-driven exceptions accumulate contradictory behavior and fail as soon as the next site or content type differs.
-* Required method: name the invariant, identify its owner (schema, planner, generator, validator, renderer, source adapter, or integration), implement one generic contract, and verify that contract without introducing example-specific vocabulary or branches.
-* Replaced/deprecated: reactive fixes such as adding rules for a suitcase, a specific site, one article, or another currently visible generated object.
-
-### 2026-08-10 — Reel foregrounds use scene-aware isolated assets and deterministic registration
-
-* Decision: Reel backgrounds and foreground subjects are generated separately. Every foreground generator receives the actual current scene as a visual reference for perspective, lighting, color temperature, and treatment, but outputs only one subject on a uniform matte. Blog Core removes the matte, color-matches the subject within bounded limits, and deterministically fits it into a collision-free normalized box without stretching or model-controlled placement.
-* Reason: Asking an image model to place a subject inside a guide rectangle is not pixel-addressable and produced drift, guide-color fringes, and overlaps. Separately generated assets plus programmatic registration make position and collision invariants enforceable for arbitrary people and objects.
-* Validation: role-specific absolute size and target-fill checks, zero box intersection, semantic composite review, intentional frame-edge portrait crops, complete object footprint, and generated contact shadows for self-supporting objects.
-* Resumability: accepted layer sources and validations are retained. A changed compositor can rebuild a layer from its existing matte source before any new paid generation.
-* Vertex path: native binary-mask insertion remains preferred when the configured project has access. A model-access `404` disables that path for the worker and activates the scene-reference matte path; it must never fall back to unconstrained full-scene editing.
-* Files/areas affected: Reel generation, spatial planner, foreground compositor, validator, worker resume flow, Instagram Reel preview.
-* Replaced/deprecated: green placement-map references, generated full-scene placement masters, extracting people from finished scene images, rembg-driven relocation, and object-name-specific prompt rules.
-
-### 2026-08-10 — Reel story structure is derived from source complexity
-
-* Decision: Instagram Reel planning uses a multi-pass text pipeline: extract the article outline, derive one ordered atomic causal beat for every source section plus any necessary additional beats, assign the truthful physical visual world independently to every beat, create one scene per irreducible beat, and then elaborate each scene separately at production detail.
-* Decision: scene count, physical-stage count, duration, and asset count are outputs of the article analysis. The planner must not target a fixed template or merge worlds to reduce generation cost, caching, or production work. An identical stage is allowed only for a literal uninterrupted continuation in the same place, time, viewpoint, and base composition.
-* Decision: source-section coverage is machine-validated in order and exactly once. Per-scene validation requires an empty production plate, distinct shot direction, motivated camera start/end, one visible state change, and self-contained isolated foreground layers that do not depend on furniture or architecture.
-* Reason: model-only requests for continuity caused unrelated article decisions to be compressed into reused backgrounds and generic scenes. Separating editorial architecture from production direction makes omissions and false continuity detectable before any image, voice, or render spend.
-* Files/areas affected: `app.py` Reel story architecture, scene skeleton, per-scene detail generator, validators, progress metadata, and Reel UI copy.
-* Replaced/deprecated: the fixed seven-scene/three-background-stage Reel template and any planner instruction that treats fewer generated assets as a quality goal.
-
-### 2026-08-10 — Reel editorial copy has one Gemini owner
-
-* Decision: the Reel architecture pass is the sole owner of hook, open loop, escalation, payoff, and every beat's final overlay text and narration. Visual skeleton and per-scene production passes use schemas that do not contain `overlayText`, `supportingText`, or `narration`; Blog Core joins approved architecture copy to visual scenes by beat ID.
-* Reason: asking multiple Gemini passes to author the same fields caused later visual passes to weaken or replace an already valid hook and payoff.
-* Decision: text generation requires `GEMINI_TEXT_API_KEY` and `gemini-3.5-flash`. It may not fall back to a general/image key or `gemini-3.1-flash-lite`. Image generation uses its separate image key route and `gemini-3.1-flash-image`; TTS may use its own key route.
-* Files/areas affected: `app.py` Reel architecture schema, visual-only schemas, copy hydration, Gemini text/image/TTS credential routing.
-* Replaced/deprecated: duplicated editorial-copy generation in scene passes and the implicit text fallback to `gemini-3.1-flash-lite`.
-
-### 2026-08-11 — Reel step three is a Gemini-authored production manifest locked to step two
-
-* Decision: the approved step-two visual scene plan is immutable creative direction. Step three must call the configured Gemini text model and decompose every approved scene into generation-ready background and layer prompts, reference instructions, normalized placement, depth, local timing, reveal/motion/exit direction, and whole-scene camera direction.
-* Validation: step three must preserve scene order/count, visual story, background identity, camera move, layer count/order/roles, non-empty approved IDs and evidence, actions, emotions, and relationships. Empty technical IDs may be filled positionally. A technical failure retries only the rejected step-three manifest; it must not regenerate or reinterpret step two.
-* Execution: the validated manifest is stored with the storyboard. Image generation consumes its background prompt, layer generation prompt, and spatial plan instead of asking a later planner to invent them again. Code remains responsible for schema validation, identity locks, bounds/timing checks, rendering, and post-generation visual validation.
-* Review boundary: text-only planning and validation generate no images, narration, music, or video. Paid media work starts only after the production manifest is accepted.
-* Files/areas affected: `app.py` Reel scene-detail prompt, locked-scene validator, Gemini asset-manifest schema/generator, storyboard persistence, and image-generation prompt/placement routing.
-* Replaced/deprecated: the 2026-08-10 assumption that step three should be a deterministic code-only compiler. Deterministic compilation may copy an already approved Gemini manifest into render jobs, but it cannot author the frame/object decomposition that belongs to Gemini step three.
-
-### 2026-08-11 — Reel layers are dependency-closed visual units with explicit keyframes
-
-* Decision: semantic nouns are not automatically independent image layers. A person, furniture, device, support, occlusion, and contact shadows that cannot be composed independently must be planned as one dependency-closed visual unit. The base plate contains only immutable environment visible before that unit appears.
-* State changes: a static image cannot change expression, pose, screen content, or object state. Every visible change requires another registered keyframe of the same unit, generated from the base plate plus the preceding approved unit as references. The renderer transitions between those keyframes and applies whole-scene camera motion.
-* Precision boundary: Gemini image generation may establish device and screen geometry but cannot be trusted to render exact readable interface copy, prices, labels, or numerical changes. Exact screen/UI content must be a programmatic renderer layer mapped into the detected screen plane.
-* Verification: a real SoloCruz first-scene chain using `gemini-3.1-flash-lite-image` generated an empty room, a complete Sarah+chair+desk+laptop initial unit, and a reference-anchored changed unit. Both composited coherently and preserved a viewer-facing screen and visible face; generated screen lettering was not exact and is therefore rejected as the final UI implementation.
-* Files/areas affected: Reel step-three assembly schema, image-generation planning, keyframe rendering, and future screen-plane overlay support.
-* Replaced/deprecated: treating Sarah, her chair, desk, and laptop as unrelated transparent assets, or describing an expression/screen change as motion of one static layer.
-
-### 2026-08-11 — Reel assets require pre-composite integrity validation and contrast-safe mattes
-
-* Decision: every generated visual unit is validated before background removal and compositing. Validation checks exact required-component counts, complete object silhouettes, visible interaction surfaces, physical support/coherence, safe margins, and an extractable background. A rejected unit is regenerated before downstream media work starts.
-* Decision: state keyframes are also validated as a pair. Identity, body/limb completeness, furniture supports, device geometry, scale, perspective, and canvas registration must remain unchanged; only the explicitly planned state-bearing parts may change. A valid-looking keyframe is rejected if it adds/removes limbs, supports, or objects relative to its predecessor.
-* Decision: matte color is selected to contrast with the unit. A near-white matte is not valid for silver, white, or other light objects because keying can delete real object pixels. Chroma extraction must preserve the complete approved unit, and the composited result is visually checked again.
-* Decision: readable interface text and numerical state changes are rendered programmatically into an automatically detected screen plane; they are not accepted from image-model pixels.
-* Reason: technically successful generations produced duplicate/floating devices, a legless desk, and a person whose legs appeared only in the changed state, while white-matte removal deleted the silver laptop base. These defects survive individual-frame validation unless physical completeness and pair registration are separate gates.
-* Files/areas affected: Reel asset generation, foreground validation, matte selection/removal, screen-plane detection, compositor, and motion QA.
-* Replaced/deprecated: accepting a generated asset because its main subject is recognizable, or keying every visual unit against the same neutral matte.
-
-### 2026-08-11 — Real scene layers require specialised segmentation and matting
-
-* Decision: the layer-extraction path is `Grounding DINO` for role-aware object selection, `SAM 2.1` for instance masks, and `ViTMatte` for alpha refinement. `rembg`, chroma-key thresholds, and ad hoc OpenCV extraction are not acceptable production layer extractors.
-* Verification: the stack was installed and run locally on Apple M3 Pro/MPS against an existing SoloCruz composition. It produced usable RGBA layers for the visible person, the large foreground laptop, and the wall lamp without any new Gemini image generation.
-* Constraint: extraction preserves only pixels visible in the master frame. It must not invent occluded limbs or hidden object surfaces. A layer may be animated only within motion bounds that do not reveal unavailable pixels; a required reveal needs a separate approved source/state.
-* Hosting: the current VPS has no GPU and cannot run this stack at useful production quality. Production extraction must use an on-demand GPU worker and return transparent layers, masks, and QA artefacts to Blog Core.
-* Files/areas affected: future Reel layer-extraction worker, scene manifest, pre-render QA, and GPU-worker adapter.
-* Replaced/deprecated: generating physically connected photorealistic objects as independent Gemini layers and expecting their geometry to match.
-
-### 2026-08-11 — Layer selection must favour separable visible subjects
-
-* Decision: extraction selects 2-3 visually distinct, non-overlapping subjects from a real master frame. A person substantially occluded by another selected layer remains in the clean plate or is planned as part of a single grouped layer; it is not extracted as an incomplete independent object.
-* Verification: against the existing SoloCruz sunset-deck master, the stack extracted three separate full visible person layers while preserving deck, ship, sea, and horizon in the master frame. No new Gemini image, voice, music, or video was generated.
-* Reason: the proof must demonstrate the production requirement: physically coherent, independent visible layers from one existing scene, not extraction from a frame whose connected objects make meaningful motion impossible.
-
-### 2026-08-11 — Production layer count follows visual quality, not a quota
-
-* Decision: a scene may yield two valid foreground layers when a third detected subject is materially occluded, fragmented, or connected to another subject. The extractor must reject the bad layer instead of filling a required count.
-* Verification: in an existing SoloCruz ship-deck onboarding frame with large travellers, two foreground people were extracted as usable layers. The third detected traveller was materially fragmented by occlusion and is not a valid independent production layer.
-* Reason: clean plates and later motion can be correct only when every extracted layer is visually complete enough for its approved motion bounds.
-
-### 2026-08-11 — Physically interacting people are one visual layer
-
-* Decision: layer extraction clusters people into physically connected scene groups before segmentation. People who touch, overlap, share occlusion, or form one action are one RGBA layer; they must never be split merely because person detection found multiple boxes. Spatially separate groups at different depth are separate layers.
-* Verification: an existing SoloCruz onboarding-deck master produced exactly two layers: a foreground group of four travellers and a background group of two crew members. Internal overlaps, shared gestures, bags, and partial occlusion remain inside their respective group layer.
-* Reason: a storyboard layer is a coherent movable part of a master photograph, not a semantic count of people. Grouping prevents tear lines and competing alpha masks in the same action.
-
-### 2026-08-11 — Group layers own carried and worn objects
-
-* Decision: a visual group is assembled as a connected scene graph. It starts with people and incorporates recognised carried, worn, or contact objects such as bags, backpacks, suitcases, cameras, umbrellas, strollers, and sports equipment. An item may belong to one depth group only; when projected groups overlap, ownership goes to the nearest qualifying group.
-* Verification: the SoloCruz onboarding foreground group retained its backpack, duffel, handbag, camera bag, and suitcase in the same RGBA layer. The nearby camera bag was no longer duplicated into the distant crew layer.
-* Reason: person-class segmentation alone removes objects held by people and tears visible legs/arms at occlusion boundaries. The renderer animates the complete connected group as one unit.
-
-### 2026-08-11 — Movability is a scene relationship, not a layer label
-
-* Decision: the pipeline classifies every candidate group as `movable`, `static_base`, or `reject`. A group projected behind a nearer/larger group remains in the base composition when moving it would expose unavailable hidden pixels. This is decided from the scene's visual relationships; geometry provides a validation gate, not the semantic decision.
-* Verification: in the SoloCruz onboarding master, the distant crew group is retained as `static_base` because it is partially covered by the nearer traveller group. The complete foreground traveller-and-baggage group is the only movable layer.
-* Production architecture: CV proposes masks and physical-contact candidates; the vision planner must classify ownership, depth, occlusion, and motion eligibility from the master frame. Code validates the returned contract and blocks unsafe extraction rather than hard-coding site-, object-, or depth-specific behavior.
-
-### 2026-08-11 — Vision scene-role analysis precedes layer extraction
-
-* Decision: before extraction, Blog Core sends each existing master frame to the configured Gemini vision-capable text model for a structured scene-role contract. The contract lists physical groups, owned objects, depth, `movable|static_base|reject`, clean-plate preservation instructions, and rejection risks. It analyses existing pixels only and produces no media.
-* Verification: the analyser correctly classified three existing SoloCruz frames: two independent foreground traveller groups plus static crowd on a gangway; one four-person walking group on a shore excursion; and one complete dining-couple/table/chair group with static background diners.
-* Files/areas affected: future Reel scene-role planner, CV candidate validator, clean-plate request builder, and renderer. The proof utility is `staging/layer-lab/analyze_scene_roles.py`.
-
-### 2026-08-11 — Scene-role vision output is a proposal, never sole grouping evidence
-
-* Decision: Gemini vision may identify people, objects, ownership candidates, and scene intent, but it cannot be accepted alone for grouping decisions. The extractor must verify every proposed separation or merge with instance masks and contact/occlusion geometry before generating any asset.
-* Verification: the SoloCruz shore-walk analysis incorrectly called all four walkers independent. Its attempted manual correction was also rejected because it guessed the wrong pair. The result is invalid as a grouping reference. A reviewer or CV contact graph must identify the actual touching/overlapping silhouettes before any extraction; do not record guessed person groupings as fact.
-* Replaced/deprecated: the earlier same-day statement that the vision analyser correctly classified the shore-excursion frame. It correctly identified scene entities, but not the final layer grouping.
-
-### 2026-08-11 — Layered-motion input frames require visual separability
-
-* Decision: a master frame is eligible only when the intended foreground groups are sufficiently large, well lit, visibly complete, and separable from the environment. Low-light dining/table scenes, crowded scenes, or scenes whose subjects cannot be reliably isolated are rejected before clean-plate or layer work.
-* Grouping rule: separate people remain separate candidates whenever a visible background gap exists between their silhouettes. Physical merge requires mask-confirmed touch/overlap/occlusion or a shared contact object; bounding-box proximity, common direction, or common activity is never enough.
-* Production architecture: Gemini must return a suitability decision and explain each merge with the visible connection. CV starts from individual detections and may merge only after instance-mask and vision-contract agreement.
-* Clean-plate rule: reject a scene when an intended movable person/group is materially anchored to or crosses shared furniture, fixtures, controls, tableware, screens, railings, or other base geometry. The system must not accept a weaker cutout that requires reconstructing structured contact geometry, shadows, or lighting.
-* Prompt rule: clean-plate image editing uses one dominant instruction: keep the entire frame identical to the supplied image except for explicitly named groups; remove only those groups and naturally fill the areas they occupied from the immediate surrounding background. Do not prescribe numeric output dimensions to Gemini or dilute this command with scenery descriptions.
-* Verification: the concise in-place edit prompt produced an acceptable clean plate from SoloCruz frame `05-boarding-group.jpg`: the designated foreground handshake group, independent woman, and their luggage were removed while the gangway, ship, harbour, and background pedestrians remained. This is a review artifact only; no layer extraction, animation, audio, video, or publication followed.
-* Follow-up verification: the same prompt produced an acceptable clean plate from `05-shared-shore-day.jpg`, removing only the three approved foreground groups while retaining the street, ship, buildings, and distant pedestrians.
-
-### 2026-08-11 — Gemini motion direction needs validation for cross-scene variety
-
-* Verification: a text-only Gemini creative-direction pass received the two approved SoloCruz scenes, available groups, and editorial essence. It correctly kept the clean plate first, staged group appearances, and kept typography as renderer overlays, but proposed the same slow push-in plus fade-and-drift treatment for both scenes despite being told not to repeat effects.
-* Decision: the creative-direction output is a proposal, not an accepted motion plan. A validator must reject repeated camera/reveal combinations across consecutive scenes and require a new text-only proposal before any layer or video generation.
-* No image, layer, audio, music, or video was generated by this planning pass.
-* Follow-up: two scenes are now planned in one Gemini request so it can intentionally contrast them. The paired proposal uses a forward/upward camera with radial/right-to-left reveals and top-left copy for boarding, versus a lateral pan with vertical/split reveals and bottom-centre copy for the shore walk. It remains review-only until its overlay/graphic choices are approved.
-
-### 2026-08-11 — Full-canvas clean-plate motion renderer verified
-
-* Decision: renderers receive only full-canvas RGBA layers matching the clean plate and composite every layer at `(0, 0)`. They must never use coordinates to position or independently rescale a layer. Segmentation hints may exist only during one-time mask preparation, then are discarded from renderer input.
-* Verification: a 9-second, 24 fps SoloCruz review render assembled two approved clean-plate scenes with source-registered foreground reveals, distinct whole-scene camera paths, renderer text, and restrained graphics. No image, audio, or video model was called for rendering; no publication occurred.
-* Visual QA: initial v2 exposed an invisible text-alpha bug, fixed in v3. The final v3 keyframe shows legible dark copy on the bright boarding composition and source-registered foreground layers.
-
-### 2026-08-11 — Motion review overlays and entrances strengthened
-
-* Decision: visual layers may use distinct entrance directions when they settle back into their registered full-canvas positions: left, right, top, or bottom. The renderer must preserve native registration after the entrance and must not independently place or resize the layer.
-* Decision: text overlays use large type, a soft halo, and a contrasting contour so they remain readable over both bright and dark photographic areas without a solid black panel. Graphics use visible route nodes, rings, arrows, split paths, and timing markers rather than hairline decoration.
-* Verification: produced `solocruz-two-scene-motion-review-v5.mp4` from the existing approved layers only. No new image, audio, voice, music, or video-model generation was used.
-* Files/areas affected: review renderer overlays, layer entrance motion, shadow treatment, and graphics.
-
-### 2026-08-11 — Directional entrances and camera focus clarified
-
-* Decision: directional entries are whole-subject moves only. A layer entering from a side or falling from above/below uses its complete approved alpha; reveal masks are not combined with that entrance. Appearance masks remain available only for explicitly planned reveal beats.
-* Decision: decorative graphics are disabled in the current visual direction. Camera motion is expressed as timed focus shots with scale and focus transitions, including close-ups and focus changes between subjects.
-* Decision: text is screen-anchored after camera compositing and chooses a light/dark fill and opposing contour from the actual pixels beneath its text area.
-* Verification: produced `solocruz-two-scene-motion-review-v6.mp4` from the existing approved assets only. No new media generation was used.
-
-### 2026-08-11 — Motion masks, camera sequencing, and text placement hardened
-
-* Decision: production-quality review layers use cached SAM masks for people and their owned/contact objects rather than raw master/clean-plate difference masks. Person, clothing, carried bag, backpack, camera, suitcase, and handle masks are combined before rendering; small enclosed mask holes are repaired before edge feathering.
-* Decision: camera movement begins only after the current subject entrance is complete. The shot holds during each entrance, then moves to a close-up of the appeared subject, holds again during the next entrance, and transfers focus only after that subject has settled.
-* Decision: overlay placement is selected from safe candidate zones by measuring local texture and edge density. The renderer favours genuinely empty space, fits the largest readable type within it, and then chooses dark or light text from the actual local luminance.
-* Verification: `solocruz-two-scene-motion-review-v8.mp4` shows repaired clothing/accessory masks, a close-up of the first group, a later focus transfer, and top-of-frame text in the open sky of the shore scene. No decorative graphics or new generated media were used.
-
-### 2026-08-11 — Contact areas and overlay safe zones verified
-
-* Decision: when a segmentation mask loses hands, arms, clothing, or an object at a physical contact boundary, repair only that narrow contact area from the master-versus-clean-plate difference. Never expand the repair to nearby background objects.
-* Decision: overlay copy is restricted to verified quiet upper zones when the lower frame is occupied. Its fill, contour, and shadow are selected from the pixels under the final text rectangle; dark copy must not use a dark contour.
-* Decision: the camera remains static while a layer enters, then moves into a close-up and transfers focus only after the next layer has fully settled.
-* Verification: `solocruz-two-scene-motion-review-v10.mp4` preserves the complete boarding handshake and luggage without moving the nearby red background suitcase. Both shore groups are complete, copy remains in open upper space, and close-up/focus-transfer shots remain intact.
+* Instagram Reel registered layers must use SAM 2.1 large for box-prompted semantic segmentation and ViTMatte for alpha refinement. The old quantized `rembg` SAM path and manual clean-difference edge growth are deprecated because they produce jagged people contours and damaged clothing/hands.
+* The SAM 2.1 checkpoint is deployment data at `models/sam2.1_hiera_large.pt` and must not be committed. Production must fail clearly when the smart matting stack is unavailable; it must not silently fall back to lower-quality segmentation.
+* Reel captions are always light with a soft dark shadow. They must never switch to dark text based on local luminance; an adaptive local gradient may be used when the photographic background needs more contrast.
+* Reel rendering is locked per site/post so the scheduler and a manual production request cannot write the same temporary render concurrently.

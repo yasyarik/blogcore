@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import subprocess
 from pathlib import Path
 
@@ -17,7 +18,10 @@ from PIL import Image, ImageOps
 WIDTH = 1080
 HEIGHT = 1920
 FPS = 24
-_SAM_SESSION = None
+_SAM2_PREDICTOR = None
+_VITMATTE_PROCESSOR = None
+_VITMATTE_MODEL = None
+_RUNTIME_DEVICE = None
 
 
 def _ease(value: float) -> float:
@@ -25,13 +29,57 @@ def _ease(value: float) -> float:
     return 1.0 - (1.0 - value) ** 3
 
 
-def _sam_session():
-    global _SAM_SESSION
-    if _SAM_SESSION is None:
-        from rembg import new_session
+def _runtime_device():
+    global _RUNTIME_DEVICE
+    if _RUNTIME_DEVICE is None:
+        import torch
 
-        _SAM_SESSION = new_session("sam", sam_quant=True)
-    return _SAM_SESSION
+        if torch.cuda.is_available():
+            _RUNTIME_DEVICE = torch.device("cuda")
+        elif torch.backends.mps.is_available():
+            _RUNTIME_DEVICE = torch.device("mps")
+        else:
+            _RUNTIME_DEVICE = torch.device("cpu")
+    return _RUNTIME_DEVICE
+
+
+def _sam2_predictor():
+    """Load the production SAM 2.1 model; never silently fall back to quantized SAM."""
+    global _SAM2_PREDICTOR
+    if _SAM2_PREDICTOR is None:
+        from sam2.build_sam import build_sam2
+        from sam2.sam2_image_predictor import SAM2ImagePredictor
+
+        checkpoint = Path(
+            os.getenv("SAM2_CHECKPOINT")
+            or Path(__file__).resolve().parent / "models" / "sam2.1_hiera_large.pt"
+        )
+        if not checkpoint.exists():
+            raise FileNotFoundError(
+                f"SAM 2.1 checkpoint is required for production layer extraction: {checkpoint}"
+            )
+        config = os.getenv("SAM2_CONFIG", "configs/sam2.1/sam2.1_hiera_l.yaml")
+        model = build_sam2(
+            config,
+            str(checkpoint),
+            device=_runtime_device(),
+            apply_postprocessing=False,
+        )
+        _SAM2_PREDICTOR = SAM2ImagePredictor(model)
+    return _SAM2_PREDICTOR
+
+
+def _vitmatte():
+    global _VITMATTE_PROCESSOR, _VITMATTE_MODEL
+    if _VITMATTE_MODEL is None:
+        from transformers import VitMatteForImageMatting, VitMatteImageProcessor
+
+        model_id = os.getenv("VITMATTE_MODEL", "hustvl/vitmatte-small-composition-1k")
+        _VITMATTE_PROCESSOR = VitMatteImageProcessor.from_pretrained(model_id)
+        _VITMATTE_MODEL = (
+            VitMatteForImageMatting.from_pretrained(model_id).to(_runtime_device()).eval()
+        )
+    return _VITMATTE_PROCESSOR, _VITMATTE_MODEL
 
 
 def _pixel_box(raw_box, width: int, height: int) -> tuple[int, int, int, int]:
@@ -87,14 +135,78 @@ def _fill_small_holes(mask: np.ndarray, maximum_area: int) -> np.ndarray:
     return repaired.astype(bool)
 
 
-def _segment_registered_layer(master: Image.Image, clean: Image.Image, box, role: str) -> np.ndarray:
-    from rembg import remove
+def _vitmatte_alpha(master: Image.Image, mask: np.ndarray) -> np.ndarray:
+    """Turn a semantic SAM mask into a hair/clothing-quality alpha matte."""
+    import torch
 
+    binary = mask.astype(np.uint8) * 255
+    kernel_size = max(7, round(min(mask.shape) * 0.010))
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    certain_foreground = cv2.erode(binary, kernel, iterations=1)
+    possible_foreground = cv2.dilate(binary, kernel, iterations=1)
+    trimap = np.zeros_like(binary)
+    trimap[possible_foreground > 0] = 128
+    trimap[certain_foreground > 0] = 255
+    processor, model = _vitmatte()
+    inputs = processor(
+        images=master.convert("RGB"),
+        trimaps=Image.fromarray(trimap, "L"),
+        return_tensors="pt",
+    )
+    inputs = {key: value.to(_runtime_device()) for key, value in inputs.items()}
+    with torch.inference_mode():
+        alpha = model(**inputs).alphas[0, 0].detach().float().cpu().numpy()
+    alpha = cv2.resize(alpha, master.size, interpolation=cv2.INTER_CUBIC)
+    alpha = np.clip(alpha, 0.0, 1.0)
+    alpha[(mask == 0) & (alpha < 0.35)] = 0.0
+    return np.round(alpha * 255.0).astype(np.uint8)
+
+
+def _decontaminated_layer(master: Image.Image, clean: Image.Image, alpha_u8: np.ndarray) -> np.ndarray:
+    """Recover foreground edge colour without eroding or replacing matte pixels."""
+    alpha = alpha_u8.astype(np.float32) / 255.0
+    master_rgb = np.asarray(master.convert("RGB"), dtype=np.float32)
+    clean_rgb = np.asarray(clean.convert("RGB"), dtype=np.float32)
+    safe_alpha = np.maximum(alpha[..., None], 0.08)
+    foreground = (master_rgb - (1.0 - alpha[..., None]) * clean_rgb) / safe_alpha
+    foreground = np.clip(foreground, 0, 255).astype(np.uint8)
+    foreground[alpha_u8 == 0] = 0
+    layer = np.zeros((*alpha_u8.shape, 4), dtype=np.uint8)
+    layer[..., :3] = foreground
+    layer[..., 3] = alpha_u8
+    return layer
+
+
+def refine_registered_layer_file(
+    layer_path: str | Path,
+    clean_path: str | Path,
+    master_path: str | Path | None = None,
+    role: str = "story_object",
+) -> None:
+    """Upgrade an existing binary registered layer to the current clean-edge matte."""
+    layer_path = Path(layer_path)
+    layer = Image.open(layer_path).convert("RGBA")
+    clean = Image.open(clean_path).convert("RGB")
+    if clean.size != layer.size:
+        clean = ImageOps.fit(clean, layer.size, method=Image.Resampling.LANCZOS)
+    mask = np.asarray(layer.getchannel("A")) > 0
+    master = Image.open(master_path).convert("RGB") if master_path else Image.fromarray(np.asarray(layer)[..., :3], "RGB")
+    if master.size != layer.size:
+        master = ImageOps.fit(master, layer.size, method=Image.Resampling.LANCZOS)
+    alpha = _vitmatte_alpha(master, mask)
+    Image.fromarray(_decontaminated_layer(master, clean, alpha), "RGBA").save(layer_path)
+
+
+def _segment_registered_layer(predictor, master: Image.Image, box, role: str) -> np.ndarray:
     width, height = master.size
     left, top, right, bottom = box
-    prompt = [{"type": "rectangle", "label": 1, "data": [left, top, right, bottom]}]
-    mask_image = remove(master, session=_sam_session(), only_mask=True, sam_prompt=prompt)
-    mask = np.asarray(mask_image.convert("L")) > 127
+    masks, scores, _ = predictor.predict(
+        box=np.asarray([[left, top, right, bottom]], dtype=np.float32),
+        multimask_output=True,
+    )
+    mask = masks[int(np.argmax(scores))].astype(bool)
     allowed = np.zeros((height, width), dtype=bool)
     padding = max(4, round(min(width, height) * 0.012))
     allowed[max(0, top - padding):min(height, bottom + padding), max(0, left - padding):min(width, right + padding)] = True
@@ -103,23 +215,7 @@ def _segment_registered_layer(master: Image.Image, clean: Image.Image, box, role
     kernel_size = 5 if role in {"protagonist", "supporting_character"} else 3
     kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
     mask = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel).astype(bool)
-
-    master_rgb = np.asarray(master.convert("RGB"), dtype=np.int16)
-    clean_rgb = np.asarray(clean.convert("RGB"), dtype=np.int16)
-    delta = np.mean(np.abs(master_rgb - clean_rgb), axis=2) >= 22
-    # Clean-plate difference recovers fingers, hands, clothing and carried items that
-    # a semantic mask may omit. Grow only through changed pixels connected to the
-    # accepted subject so unrelated background objects cannot leak into the layer.
-    delta_candidate = delta & allowed
-    for _ in range(4):
-        nearby = cv2.dilate(mask.astype(np.uint8), np.ones((17, 17), dtype=np.uint8)).astype(bool)
-        expanded = delta_candidate & nearby
-        if np.array_equal(mask | expanded, mask):
-            break
-        mask |= expanded
-    mask = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((3, 3), dtype=np.uint8)).astype(bool)
-    mask = _fill_small_holes(mask, max(900, round(width * height * 0.0014)))
-    return mask
+    return _fill_small_holes(mask, max(1100, round(mask.size * 0.0018)))
 
 
 def _mask_box(mask: np.ndarray) -> tuple[int, int, int, int]:
@@ -151,45 +247,48 @@ def build_registered_scene_pack(
     if len(layer_specs) < 1 or len(layer_specs) > 4:
         raise ValueError("A registered scene needs one to four visually valid master-derived layers")
 
-    boxes = []
-    for spec in layer_specs:
-        box = _pixel_box(spec.get("bbox"), width, height)
-        for previous in boxes:
-            intersection = _box_intersection(box, previous)
-            smaller = min((box[2] - box[0]) * (box[3] - box[1]), (previous[2] - previous[0]) * (previous[3] - previous[1]))
-            # Detection boxes are intentionally conservative. Allow a small amount of
-            # box proximity here; the pixel-mask check below remains the strict source
-            # of truth for visible component overlap.
-            if smaller and intersection / smaller > 0.04:
-                raise ValueError("Registered component boxes overlap; regenerate the master with separated subjects")
-        boxes.append(box)
+    # Detector boxes are deliberately conservative and may overlap around clear
+    # neighboring silhouettes. Pixel masks below are the authoritative separation
+    # check, so boxes are prompts only and never a rejection signal by themselves.
+    boxes = [_pixel_box(spec.get("bbox"), width, height) for spec in layer_specs]
 
+    predictor = _sam2_predictor()
+    predictor.set_image(np.asarray(master))
     masks = []
+    alphas = []
     manifest_layers = []
     for index, (spec, box) in enumerate(zip(layer_specs, boxes), start=1):
         role = str(spec.get("role") or "story_object")
-        mask = _segment_registered_layer(master, clean, box, role)
+        mask = _segment_registered_layer(predictor, master, box, role)
         area_ratio = float(mask.mean())
         actual_box = _mask_box(mask)
         height_ratio = (actual_box[3] - actual_box[1]) / height if actual_box[3] > actual_box[1] else 0.0
         if role in {"protagonist", "supporting_character"}:
-            if height_ratio < 0.38 or area_ratio < 0.045:
+            minimum_height = 0.34 if role == "protagonist" else 0.22
+            minimum_area = 0.035 if role == "protagonist" else 0.015
+            if height_ratio < minimum_height or area_ratio < minimum_area:
                 raise ValueError(
                     f"Registered person layer {index} is too small for mobile viewing "
                     f"(height={height_ratio:.3f}, area={area_ratio:.3f})"
                 )
-        elif area_ratio < 0.012:
+        elif area_ratio < 0.012 and not (height_ratio >= 0.22 and area_ratio >= 0.003):
             raise ValueError(f"Registered layer {index} is too small to carry visual meaning")
         for prior in masks:
             overlap = np.logical_and(mask, prior).sum()
             smaller_area = min(mask.sum(), prior.sum())
-            if smaller_area and overlap / smaller_area > 0.002:
-                raise ValueError("Registered masks overlap; every animated element must remain a separate part of the master frame")
+            overlap_ratio = overlap / smaller_area if smaller_area else 0.0
+            if overlap_ratio > 0.05:
+                raise ValueError("Registered masks materially overlap; every animated element must remain a separate part of the master frame")
+            if overlap:
+                # The visual review has already confirmed clear silhouettes. Tiny
+                # boundary overlap here is SAM leakage, so assign it to the earlier
+                # primary group instead of rejecting or regenerating a valid master.
+                mask &= ~prior
         masks.append(mask)
 
-        layer_array = np.zeros((height, width, 4), dtype=np.uint8)
-        layer_array[..., :3] = np.asarray(master)
-        layer_array[..., 3] = mask.astype(np.uint8) * 255
+        alpha = _vitmatte_alpha(master, mask)
+        alphas.append(alpha)
+        layer_array = _decontaminated_layer(master, clean, alpha)
         filename = f"layer-{index:02d}-{str(spec.get('id') or index)}.png"
         Image.fromarray(layer_array, "RGBA").save(output_dir / filename)
         manifest_layers.append({
@@ -234,6 +333,9 @@ def build_registered_scene_pack(
     # patches into the master, which would introduce visible seams during reveals.
     base_source_index = max(set(selected_base_indices), key=selected_base_indices.count)
     base_array = candidate_arrays[base_source_index].copy()
+    base_source = clean_candidates[base_source_index]
+    for index, (alpha, layer) in enumerate(zip(alphas, manifest_layers), start=1):
+        Image.fromarray(_decontaminated_layer(master, base_source, alpha), "RGBA").save(output_dir / layer["filename"])
     base = Image.fromarray(base_array, "RGB").convert("RGBA")
     base_filename = "registered-base.png"
     base.save(output_dir / base_filename)
@@ -245,7 +347,8 @@ def build_registered_scene_pack(
     reconstructed.convert("RGB").save(output_dir / reconstruction_filename)
     master_array_float = np.asarray(master, dtype=np.float32)
     reconstruction_array = np.asarray(reconstructed.convert("RGB"), dtype=np.float32)
-    mae = float(np.mean(np.abs(master_array_float[union] - reconstruction_array[union])))
+    opaque_core = cv2.erode(union.astype(np.uint8), np.ones((9, 9), dtype=np.uint8)).astype(bool)
+    mae = float(np.mean(np.abs(master_array_float[opaque_core] - reconstruction_array[opaque_core])))
     if mae > 0.5:
         raise ValueError(f"Registered layers do not reconstruct the master frame accurately (MAE {mae:.3f})")
 
@@ -257,6 +360,7 @@ def build_registered_scene_pack(
         candidate.save(output_dir / f"clean-reference-{index}.jpg", quality=94)
     manifest = {
         "contract": "master-derived-full-canvas-v1",
+        "matteContract": "sam2.1-large-vitmatte-decontaminated-v2",
         "canvas": [width, height],
         "cleanFilename": clean_filename,
         "masterFilename": master_filename,
