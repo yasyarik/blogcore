@@ -1,42 +1,86 @@
+## 2026-08-13 — Reel layers use natural shadows and one continuous camera path
+
+* Visible light/white silhouette outlines are deprecated because uneven mattes make them look torn or sticker-like. Registered layers use only a broad soft offset shadow plus a restrained contact shadow for separation from the background.
+* Director camera beats are framing destinations on one continuous whole-scene spline, not separate start-stop commands. Camera scale and center move from scene start through every destination and retain continuous velocity, then continue a restrained drift until the cut.
+* A Reel scene must not visibly zoom, hold, zoom again, or jump between camera stages. Wide, medium, close, and focus-transfer framing remain useful film grammar, but the transition between them is one uninterrupted movement.
+
+## 2026-08-13 — Reel renders use immutable versioned media URLs
+
+* Every completed Reel render writes a unique timestamped MP4 and poster filename and stores that URL in the social-post payload. Replacing bytes behind a stable Reel URL is deprecated because browser/CDN caches can show an older draft after a successful re-render.
+* Reel review HTML and social-asset routes return `Cache-Control: no-store, no-cache, must-revalidate, max-age=0`; the review page also appends the render token as a query parameter.
+
+## 2026-08-13 — Reel typography and cinematic framing follow the final assembled scene
+
+* Reel overlay copy is a 2-to-7-word glanceable headline, rendered as one title rather than paged fragments. The renderer starts at 132 px, may use up to three lines, and must not shrink below 88 px; detail belongs in narration/caption rather than on-screen copy.
+* Text placement is selected from upper, middle, and lower zones on either side by measuring occupied pixels, person safety regions, texture, and local contrast. Placement is not fixed at the top or bottom. A soft color-sampled gradient scrim may fade in only when local contrast needs it.
+* The reading window is at least 0.28 seconds per word plus 0.8 seconds and should finish before the strongest close-up whenever timing permits, leaving faces and meaningful objects unobscured.
+* Legacy registered layers preserve narrow anatomy and clothing details. Do not conceal edge contamination by eroding silhouettes. Use a fine light object outline plus a separate soft offset shadow to hide small matte irregularities and separate the layer from the background.
+* Camera execution uses real film scale: establishing wide, medium relationship framing, and a genuine face/upper-body or object close-up around 2.2-2.34x. Lateral moves and focus transfers must land on meaningful close framing rather than remain small digital pans.
+* Render-only corrections reuse saved visual checkpoints and remain unpublished drafts. They must not generate replacement images, speech, or other paid media.
+
 # PROJECT_MEMORY.md
 
-## 2026-08-11 - Reel pipeline begins with the editorial problem brief
+## 2026-08-13 — Reel typography, cinematic camera, and clean-edge matte contract
 
-* Reel planning stage one is a text-only editorial brief generated from the finished source article before any storyboards, visual worlds, scenes, assets, voices, music, or rendering.
-* The only required stage-one output is: one central reader problem, one source-grounded hook, three to five ranked solution steps or decision criteria, and the factual final role of the site's brand in resolving that problem.
-* The hook must challenge a false assumption, expose a real cost/risk, or frame a consequential unresolved question in the article. Generic topic introductions and fictional customer drama are invalid.
-* The planning checkpoint version is 14. Older version-13 Reel checkpoints are intentionally not resumed under this workflow.
-* Replaced/deprecated: beginning Reel planning by selecting scenes, protagonists, visual worlds, or a six-to-eight-screen architecture before the article's editorial problem and resolution path are explicit and reviewable.
+* Reel overlay copy must remain mobile-readable: 82-118 px in the 1080x1920 renderer, at most three large lines on one screen. Longer locked copy is shown as sequential phrase groups; it is never shrunk into a paragraph.
+* Camera direction is executed against real registered-layer alpha geometry and layer type. Person close-ups target the upper body/face, object close-ups target the object center, and an object camera beat must not silently focus a person (or vice versa).
+* After layer entrances settle, a scene may establish, push to a true close-up, transfer to another subject or object, and pull out. Adjacent scenes should not repeat the same camera sequence; the camera always transforms the complete assembled scene rather than moving background and layers independently.
+* Legacy binary checkpoint layers are tightened and antialiased inside the subject boundary at render time. New registered packs save a decontaminated soft inner matte derived against the selected clean plate. Edge cleanup must reduce source-background fringe without cutting hands, feet, hair, clothing, or owned objects.
+* Render-only improvements reuse accepted visual checkpoints. They do not trigger new Gemini image generation or speech generation.
 
-## 2026-08-11 - Reel hooks must expose a concrete stake
+## 2026-08-12 — Approved Reel plans render through resumable visual checkpoints
 
-* A source-grounded but generic phrase is not an acceptable Reel hook. The stage-one contract requires the model to explicitly identify whether the tension is a cost, risk, contradiction, or consequence; state the concrete stake; formulate the viewer's unresolved practical question; and state the final payoff it promises.
-* Hook overlay and narration must make the stake legible immediately while withholding the answer. The overlay itself must literally contain a meaningful word from the declared stake, so a category label, slogan, polite introduction, or broad observation fails even if it is grammatically valid.
+* An accepted time-coded director plan is the production source of truth. Production adapts that plan to registered layers without asking Gemini to redesign the story, overlay copy, timing, or camera sequence.
+* Each accepted visual scene is checkpointed with its background, full-canvas foreground layers, stable layer IDs, and completion time. A resumed run reuses those files and starts at the first unfinished scene; it must not regenerate accepted images.
+* Voice is an explicit production option and may be disabled independently. A no-voice Reel generates no speech asset; an existing site soundtrack may still be mixed continuously as background music.
+* The visual master must be one coherent vertical photograph with no collage or split-screen composition. People and objects are complete, separated, front-lit, large enough for mobile viewing, and free of selection contours, halos, or cutout styling.
+* Semantic masks derived from the coherent master are authoritative. Clean-plate difference may repair only a narrow boundary around that mask; it must not grow into unrelated background regions.
+* A visually conflicting optional kinetic-support object may be removed before extraction only when at least three useful layers remain and a non-human story object is still present. People and direct editorial evidence are never silently removed.
 
-## 2026-08-11 - Reel retention is explicit in the editorial brief
+## 2026-08-12 — Operator-facing explanations use plain language
 
-* The stage-one brief must define how the viewer is retained after the hook: an early promise, a withheld practical resolution, a payoff rank, and the exact ranked order in which solution steps are presented.
-* When the article supports a real bounded checklist, the Reveal uses a reverse countdown. Rank 1 is the most decisive solution, appears last, and is explicitly promised before the earlier steps. `Keep watching` or a generic number label is not retention.
-* If a source article names a factual brand mechanism that directly resolves the central reader problem, it must be ranked as the final payoff rather than bolted onto generic advice after the list.
+* Plans, scenarios, previews, progress reports, and final answers must be written in normal human-readable language by default.
+* Do not show JSON, schema fields, internal enum values, database payloads, or implementation identifiers unless the user explicitly requests technical output.
+* Translate internal production state into concrete descriptions of what appears, what moves, how it moves, and what the viewer sees.
 
-## 2026-08-11 - Reel scene concepts are coherent moments, not decorative travel shots
+## 2026-08-12 — Reel layers are immutable rigid images
 
-* Stage two produces one text-only, source-grounded scene concept for each locked editorial beat. It explains the scene objective, explicit `visibleAction`, observable visual moment, opening and ending understanding, integrated frame, planned groups, continuity, retained question, editorial handoff, and natural text-safe zone.
-* A scene concept is invalid if it uses background/mid-ground/distant people, readable devices or signage, collage logic, romance/couple-coded staging, or a person merely standing, smiling, or looking. Every frame must contain a beat-specific visible action or spatial relationship that explains the current editorial point.
-* Replaced/deprecated: a fixed English verb list as the validator for `visibleAction`. That is a language-specific implementation shortcut; the universal scene brief requires the action semantically and later review evaluates whether it truly carries the beat.
-* Replaced/deprecated: accepting generic scenic travel images as a visual plan because the on-screen copy happens to carry the real meaning.
+* Every movable Reel layer is one complete static full-canvas image. The renderer may change only its x/y translation or uniform whole-layer scale; pixels inside the layer never move relative to one another.
+* Stage two owns motion feasibility. Every approved layer records a fixed `transformMode`, `appearanceChange: none`, `occlusionState: fully_visible`, and `entrancePathState: unobstructed`. Stage three copies that transform and cannot reinterpret it.
+* Movable subjects may include people and complete independent scene-native objects such as vessels, furniture assemblies, clouds, or luggage when they are visually meaningful. At least one non-human object layer moves in every scene.
+* A movable layer is invalid when the intended action requires deformation, articulation, a different pose/expression, a changed material state, a different visible side, or an occluded entrance path. Choose another complete object instead of asking later stages to simulate an impossible action.
+* The clean plate is the exact master frame without all approved layers. Every layer remains fully visible, unobstructed, and surrounded by recoverable background at its registered final position.
+* Replaced/deprecated: the earlier same-day rule allowed story objects to open, swing, roll, or change state. A single extracted still cannot execute those internal changes.
 
-## 2026-08-11 - Reel stage two is a Gemini-owned master-frame production plan
+## 2026-08-12 — Reel scenes require object motion, not focus-count padding
 
-* Stage two is the only text-only bridge between the approved editorial brief and image generation. Gemini, not an operator-authored substitute, must return one master-frame production plan for every locked editorial beat.
-* Each planned scene explicitly contains: the complete coherent master frame, the identical clean plate created by removing only approved movable groups, the master-frame state and entrance of every movable group, purposeful whole-scene camera work after all entries settle, locked overlay copy, and a high-contrast quiet text zone.
-* The master frame is the source of truth. The clean plate cannot become a separately invented scene and movable groups cannot be described as unrelated stock assets.
-* Replaced/deprecated: stage-two fields that merely named a generic visual moment or visible action while withholding the master frame, clean plate, exact groups, entrance mechanics, camera plan, and text placement needed to assess the actual downstream production plan.
-* Every Stage 2 scene must state `evidenceInMasterFrame`: the visible source-grounded spatial condition, interaction, or before/after relationship that makes the current editorial beat legible. A themed location or a person merely posing in it is not evidence and is rejected at the contract level.
-* Prompt and validator responsibilities are distinct: the prompt forbids inappropriate visual content, while the lexical validator must permit a negative statement that such content is absent. A word-only rejection of a compliant negative quality constraint is a validator defect, not a reason to spend another model call.
-* Replaced/deprecated: broad lexical scene-content rejection after structured JSON parsing. It cannot distinguish prohibited visual content from a safe quality statement and hides the actual Gemini plan. Stage two relies on the explicit source-grounded prompt contract and human checkpoint review before media generation.
-* Natural physical descriptions such as standing, looking, walking, talking, smiling, and laughing are valid Stage 2 language. They are not evidence alone; the plan must state the source-grounded spatial relationship or interaction that makes their use meaningful.
-* Every movable human group is planned as a complete free-standing floor/deck figure with visible separation from fixed architecture. Article-unmentioned portable props and a new scenic or celebratory final world are forbidden; the resolution continues the factual payoff world and mechanism.
+* Every stage-two Reel scene contains three or four registered full-canvas layers and at least one `story_object`; people cannot be the only movable content.
+* Stage two classifies layers as `direct_evidence` or `kinetic_support`. Direct evidence carries an exact source quote. A direct-evidence object is valid only when its concrete object words are literally present in that quote; abstract concepts cannot be converted into invented notebooks, boards, signs, luggage, barriers, or similar proxies.
+* Kinetic support is an honest movable part of the photographed environment that physically admits, reveals, frames, or supports one named direct-evidence layer. It provides motion but never claims to prove the editorial point.
+* Every stage-three scene has at least three physical events on three distinct registered layers, including at least one object event. Focus shifts, camera movement, text animation, lighting, and noticing a static relationship do not count toward these events.
+* A kinetic-support event's purpose names the exact direct-evidence layer it physically assists and cannot assign the support object symbolic, emotional, or editorial meaning. The final camera beat lands on a direct-evidence layer, never on kinetic support.
+* Immutable stage-two identity fields are copied into stage three deterministically; Gemini controls timing and motion direction but cannot rewrite layer name, type, role, grounding quote, supported layer, final position, master frame, clean plate, or overlay copy.
+* Reel planning checkpoint version 15 invalidates old static stage-two/three plans while preserving an accepted editorial brief when available.
+* Replaced/deprecated: using one person entrance plus two fixed focus/relationship reveals to satisfy a nominal three-event requirement.
+
+## 2026-08-11 — Reel step three is a time-coded director plan
+
+* Step two remains the approved scene-concept boundary. Step three must not reinterpret its story; it turns each approved scene into a detailed execution plan.
+* The active step-three director pass consumes the step-two scene concepts directly. The prior parallel skeleton/manifest path is not a valid source for this review checkpoint because it can contain a different scene composition.
+* Every scene plan now requires at least three visible, time-coded actions, including at least two foreground actions, plus an independent whole-scene camera move that starts only after foreground entrances settle.
+* Clarification: a visual action must reveal or introduce an identifiable source-grounded person, object, or physical detail. Generic light sweeps, atmosphere, texture, reflection, or a bare camera pan do not count. Each scene also requires text and at least two distinct whole-scene camera beats.
+* Step three's active positive contract calls these actions `visualBeats`: at least three distinct physical story reveals selected from the approved step-two master inventory. Each declares a registered group/object entrance or fixed-detail reveal, source anchor, reveal method, from-state, trajectory, easing, final state, and story purpose. Text and camera never count toward the three visual beats.
+* Each scene requires at least two sequential camera beats with explicit movement type, from/to framing, focus target, easing, and purpose. Camera starts only after the last registered entrance settles.
+* Step-three physical events must be anchored by an exact phrase from the approved scene's `evidenceInMasterFrame`. The event roles are registered-group entrance, material-evidence reveal, and spatial-relationship reveal. Incidental scenery and text-placement space are not story evidence.
+* Registered people remain complete head-to-feet layers through every entrance. Material/relationship reveals use existing depth, focus, or a real source-grounded occlusion; generated lighting, vignettes, glows, and decorative masks are not executable story events.
+* In a scene with one cohesive registered group, its three events target different things: the registered group entrance, a concrete internal interaction/posture, and the named relationship between that group and the fixed environment. Repeating the group name as all three event subjects is invalid.
+* The accepted step-three plan is persisted as `planningCheckpoint.directorPlan`; partial accepted scenes live in `directorScenes`. Resume validates and reuses that prefix and generates only the first unfinished director scene. No media starts during this checkpoint.
+* Reel planning is operator-gated in the panel: step one can continue to step two, step two can continue to step three, and the accepted step-three plan opens as a readable preview. Advancing a stage reuses the stored checkpoint and never starts image, voice, music, or video generation.
+* Distribution has a site-wide `Instagram Reel planning` list independent of content pagination. It exposes the current accepted phase and scene count plus only the valid next action.
+* Reel text contrast starts with type color, a fine outline, or a soft shadow. If the image still prevents clean reading, a soft color-sampled, feathered, edge-to-transparent gradient scrim is allowed when it remains visually integrated and preserves image texture. Opaque black rectangles, hard-edged black plaques, solid panels, banners, and boxed text backgrounds are invalid. Replaced: the stricter typography-only rule recorded earlier on 2026-08-12.
+* The plan includes exact locked overlay copy, local display timing, kinetic entrance, placement and contrast direction; it also includes an extraction constraint for every approved movable group.
+* The director plan must use technical group IDs, local scene seconds, and explicit final states. A prose-only scene description is invalid.
+* Replaced/deprecated: treating stage-three camera/layer prose as sufficient direction for production.
 
 ## 2026-08-11 - Reel layerability is owned by story architecture
 
@@ -880,6 +924,15 @@ It must be updated after every meaningful task.
 
 ## 9. Do not repeat
 
+### 2026-08-13 — Registered Reel masks, scene text, and final brand reference
+
+* Decision: Reel foreground mattes combine semantic segmentation with only a narrow, clean-plate-difference edge recovery. Do not broadly grow masks: that admits carpet, walls, and other foreign pixels around people and objects.
+* Decision: Reel overlay copy appears at scene start, remains continuously visible until that scene's cut, and changes only at a scene boundary. Use a soft offset shadow without a letter stroke; add a feathered color-sampled gradient scrim only when the image does not provide sufficient local contrast.
+* Decision: A final brand-resolution scene receives the connected site's verified real logo as a Gemini image reference. Prefer a source-owned SVG converted to a high-resolution transparent PNG. The logo is integrated once into a plausible physical scene touchpoint, never programmatically overlaid as a corner watermark. The final camera path pulls back to reveal the complete branded context.
+* Reason: Broad masks made extracted people visibly dirty; early text removal made copy unreadable; and an unreferenced or cropped logo undermined brand accuracy in the payoff frame.
+* Files/areas affected: `registered_scene.py`, `reel_renderer.py`, `app.py`, Instagram Reel generation for all connected sites.
+* Replaced/deprecated: aggressive 12-iteration difference-mask growth, per-scene text ending before the cut, outlined lettering, and hard-coded `usesLogoReference=false` in the director-plan adapter.
+
 * Do not rely on local `/blog` installation for third-party sites; use CNAME hosting unless the local webroot is truly available.
 * Do not delete installed target-site `/blog` files when removing a connected site from Blog Core.
 * Do not commit SQLite database, generated previews, virtualenv, logs, or secrets.
@@ -908,3 +961,13 @@ It must be updated after every meaningful task.
 * The SAM 2.1 checkpoint is deployment data at `models/sam2.1_hiera_large.pt` and must not be committed. Production must fail clearly when the smart matting stack is unavailable; it must not silently fall back to lower-quality segmentation.
 * Reel captions are always light with a soft dark shadow. They must never switch to dark text based on local luminance; an adaptive local gradient may be used when the photographic background needs more contrast.
 * Reel rendering is locked per site/post so the scheduler and a manual production request cannot write the same temporary render concurrently.
+
+## 2026-08-13 — Universal source-grounded Reel direction
+
+* Reel planning is a gated three-stage process: editorial problem/solution brief, source-grounded photographable scene concepts, then executable layer/camera/text direction. Each stage must finish and validate before the next starts; no image, voice, or video generation may begin from a rejected text plan.
+* The hook, all solution beats, and the final brand resolution must answer one common reader problem. A narrow consequence may create the hook only when later beats truthfully contribute to the same larger decision. Retention promises belong inside the hook and handoffs, never in a standalone empty screen.
+* Every scene must remain identifiable without overlay text through exact article-grounded domain anchors. A new physical environment is allowed only when the current beat literally names that environment; otherwise the scene reuses an already approved visual world. Category convention cannot authorize invented terminals, counters, offices, rooms, journey stages, or outcomes.
+* Every movable direct-evidence or support layer carries an exact source quote. Support layers cannot be random luggage, furniture, drinks, cushions, decorative architecture, or other filler added to satisfy an event count. Abstract claims cannot become invented bills, documents, signs, confirmations, transactions, or symbolic props.
+* Step two owns the exact overlay copy and a protected text zone. Step three must prove that the zone stays clear through the clean plate, every layer path and final position, and every camera framing. Hook copy has the highest visual priority.
+* Camera motion is one continuous scene path synchronized to named evidence-layer arrivals. Every direct-evidence layer triggers camera attention; timing is authoritative, while descriptive phase labels are derived from that timeline. Per-scene checkpoint calls receive the total scene count so the complete Reel remains 27-33 seconds.
+* Do not add project-, industry-, site-, or object-specific exceptions to solve a failed Reel. Improve the shared Gemini evidence, scene, and direction contracts and use the current article only as verification data.

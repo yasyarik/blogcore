@@ -26,7 +26,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_from_directory
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps, ImageStat
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
 from native_site_chrome import LiveSiteChrome
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -3771,6 +3771,17 @@ INSTAGRAM_REEL_MASTER_REVIEW_SCHEMA = {
         "backgroundPeopleClear": {"type": "boolean"},
         "quietTextZone": {"type": "string", "enum": ["top_left", "top_right", "lower_left", "lower_right"]},
         "reason": {"type": "string"},
+        "conflicts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "firstId": {"type": "string"},
+                    "secondId": {"type": "string"},
+                },
+                "required": ["firstId", "secondId"],
+            },
+        },
         "groups": {
             "type": "array",
             "items": {
@@ -3789,7 +3800,7 @@ INSTAGRAM_REEL_MASTER_REVIEW_SCHEMA = {
             },
         },
     },
-    "required": ["approved", "singleCoherentPhotograph", "allGroupsComplete", "allGroupsLargeEnough", "groupsVisuallySeparable", "backgroundPeopleClear", "quietTextZone", "reason", "groups"],
+    "required": ["approved", "singleCoherentPhotograph", "allGroupsComplete", "allGroupsLargeEnough", "groupsVisuallySeparable", "backgroundPeopleClear", "quietTextZone", "reason", "conflicts", "groups"],
 }
 
 
@@ -3810,9 +3821,15 @@ INSTAGRAM_REEL_LAYER_PACK_REVIEW_SCHEMA = {
 def build_instagram_reel_master_prompt(site, job, scene, retry_reason="", has_logo_reference=False):
     groups = []
     for layer in scene.get("layers") or []:
+        role = str(layer.get("role") or "")
+        separation = (
+            "The complete person/group includes all clothing and worn accessories, has relaxed empty hands, and does not hold, touch, sit on, lean on, or overlap any separately listed group."
+            if role in {"protagonist", "supporting_character"}
+            else "The complete standalone object includes all of its own physical parts and does not touch, overlap, support, or become held by any separately listed person or object."
+        )
         groups.append(
             f"- {layer.get('id')}: {layer.get('prompt')}. Visible action/state: {layer.get('action')}. "
-            f"This is one cohesive movable group and includes every carried, worn, held, or physically contacting item."
+            f"{separation}"
         )
     text_preference = str((scene.get("composition") or {}).get("textPlacement") or "top_left")
     retry = f"\nPRIOR CANDIDATE REJECTION: {retry_reason}\nCreate a completely new compliant master frame." if retry_reason else ""
@@ -3827,16 +3844,20 @@ SHOT: {scene.get('shotFraming')}
 MOVABLE VISUAL GROUPS TO SHOW:
 {chr(10).join(groups)}
 
-This master is the authoritative source from which every animated layer will be extracted. Build one continuous camera view and one physically coherent moment, never a collage, poster, split panel, or collection of cutouts.
+This master is the authoritative source from which every animated layer will be extracted. The entire 9:16 canvas is one photograph captured through one camera lens at one instant in one room, with one continuous floor, one continuous background, one vanishing point, and one lighting setup. Never divide, stack, tile, splice, or frame the canvas into multiple views. Never create a collage, poster, split screen, diptych, panel, before/after, storyboard sheet, or collection of cutouts.
 
 EXTRACTION-SAFE COMPOSITION:
-- Show exactly the listed movable groups as the prominent subjects. Do not add unrelated foreground or middle-distance people, crowds, luggage, furniture, or objects near their silhouettes.
-- Every listed person and group must be large enough for mobile viewing and completely visible inside the frame. Preserve complete heads, hair, shoulders, arms, elbows, hands, fingers, clothing edges, legs, feet, and carried or worn items. Nothing important may touch or cross the frame edge.
+- The listed movable groups are the authoritative physical inventory. Every listed group is separate and has visible background space around its outer silhouette. A separately listed suitcase, bag, chair, table, lamp, planter, sculpture, credenza, or other object is not held, worn, touched, sat on, leaned against, or overlapped by a person or another listed group. If the scene prose implies such contact, keep the meaning but place the complete groups close to one another without contact.
+- LOCATION AND VISUAL WORLD describes the empty environment only. Any mention there of removed people or objects means those pixels belong to the clean plate; it never overrides the separate-group inventory above and never authorizes physical contact between groups.
+- Show exactly the listed movable groups as the only people and prominent objects anywhere in the photograph. Do not add background people, distant people, silhouettes, crowds, waiters, staff, passengers, reflections of people, luggage, furniture, or unlisted objects near their silhouettes.
+- Every listed person and group must be large enough for mobile viewing and completely visible inside the frame. Each standing person's head-to-feet silhouette must occupy roughly 40% to 60% of the total image height. Preserve complete heads, hair, shoulders, arms, elbows, hands, fingers, clothing edges, legs, feet, and carried or worn items. Keep the complete outer silhouette of every listed group inside an inner safe frame with clear photographic background visible between every outermost part and all four canvas edges. Light every face and body naturally from the camera side so facial features, eyes, skin tone, clothing, hands, and feet remain clearly visible; never render a person as a dark silhouette against a brighter wall or window.
+- For an assembly such as a table with chairs or a furniture group, the complete assembly means every tabletop edge, chair back, seat, leg, base, accessory, and contact shadow. Frame the camera wide enough that its outermost component remains inside the inner safe frame.
+- Compose for the narrow vertical canvas before choosing camera proximity. Place large multi-part assemblies in the middle ground, never as oversized foreground crops. Give every independent listed group its own non-overlapping visual zone, with visible floor, wall, or open background separating it from every other listed group. A fixed wall-side object must not sit behind a person or another group. Pull the camera farther back or choose a larger room until the entire listed inventory fits naturally and remains readable.
 - People who touch, shake hands, embrace, carry one shared item, or overlap belong to one listed cohesive group. Different listed groups must have clear visible background space between their silhouettes and must not touch, overlap, cover, or pass behind one another.
-- Keep background pedestrians distant, small, soft, and spatially separated from every movable group. Prefer an uncrowded angle. If the location would normally be crowded, choose a cleaner viewpoint rather than filling the frame with people.
-- Every object has complete edges and a visible physically correct contact or ownership relationship. Match perspective, light, focus, contact shadows, reflections, and color temperature across the whole photograph.
+- Use an uncrowded angle with no additional people anywhere in the background.
+- Every object has complete edges and physically correct contact only with the fixed floor or fixed background surface beneath it. No separately listed movable group owns or touches it. Match perspective, light, focus, contact shadows, reflections, and color temperature across the whole photograph.
 - Reserve a genuinely calm, uncluttered text-safe area near {text_preference}; the renderer will verify and may choose another quieter zone. Do not place a face, hand, meaningful object, signage, or high-contrast detail there.
-- Do not render overlay text, captions, logos, UI, labels, icons, arrows, diagrams, borders, or watermarks.{" A verified logo reference is attached; use it only when the approved scene meaning genuinely requires a real brand mark on a physical surface, otherwise ignore it." if has_logo_reference else ""}
+- Do not render overlay text, captions, UI, labels, icons, arrows, diagrams, borders, cutout effects, selection contours, strokes, halos, stickers, or watermarks. Every person and object must have natural photographic edges only.{" This final brand-resolution scene has the verified real logo attached as an image reference. The exact attached SoloCruz mark must be visibly present once and remain legible at mobile size, naturally printed, embroidered, engraved, or displayed on one plausible physical brand touchpoint that belongs in this scene. Choose that physical touchpoint from the scene's real objects and surfaces. Preserve the supplied mark's exact geometry, colors, and spelling. Do not redraw it, invent an approximation, turn it into a floating overlay, or place it as a corner watermark." if has_logo_reference else " Do not render or invent any logo."}
 {retry}
 """.strip()
 
@@ -3850,32 +3871,71 @@ EXPECTED MOVABLE GROUP IDS: {json.dumps(expected)}
 
 Approve only if this is one coherent photograph and every expected group is visibly present, mobile-readable, fully inside the frame, and complete. For people, complete means no missing or cropped head, hair, shoulder, arm, elbow, hand, finger, clothing edge, leg, foot, or carried/worn item. A physically interacting set of people is one group. Different expected groups must have visible background space between their silhouettes and must not touch, overlap, occlude, or share an object.
 
-Set `backgroundPeopleClear=true` only when unrelated people and objects are distant and do not touch, overlap, merge with, or sit immediately behind any expected group. Reject crowded compositions that would make segmentation ambiguous. Return one tight normalized 0..1000 bounding box per expected group, including its complete silhouette, owned items, and contact shadow. Return each expected ID exactly once. Choose `quietTextZone` by inspecting where the assembled photograph has the most genuinely empty, low-detail space.
+Set `backgroundPeopleClear=true` only when unrelated people and objects are distant and do not touch, overlap, merge with, or sit immediately behind any expected group. Reject crowded compositions that would make segmentation ambiguous. In `conflicts`, list every pair of expected IDs whose silhouettes touch, overlap, or occlude one another; otherwise return an empty list. Return one tight normalized 0..1000 bounding box per expected group in Gemini image order `[top, left, bottom, right]`, including its complete silhouette, owned items, and contact shadow. Return each expected ID exactly once. Choose `quietTextZone` by inspecting where the assembled photograph has the most genuinely empty, low-detail space.
 """.strip()
     return _gemini_text_json_with_image(prompt, master_bytes, "image/jpeg", INSTAGRAM_REEL_MASTER_REVIEW_SCHEMA, temperature=0.0)
 
 
 def normalize_instagram_reel_master_review(data, scene):
-    required_flags = ("approved", "singleCoherentPhotograph", "allGroupsComplete", "allGroupsLargeEnough", "groupsVisuallySeparable", "backgroundPeopleClear")
+    required_flags = ("singleCoherentPhotograph", "backgroundPeopleClear")
     if not isinstance(data, dict) or not all(data.get(flag) for flag in required_flags):
         raise ValueError("Master frame failed extraction-suitability review: " + str((data or {}).get("reason") or "incomplete, crowded, small, or overlapping groups")[:500])
     expected_layers = list(scene.get("layers") or [])
+    layers_by_id = {str(layer.get("id") or ""): layer for layer in expected_layers}
+    dropped_ids = set()
+    conflicts = data.get("conflicts") if isinstance(data.get("conflicts"), list) else []
     raw_groups = data.get("groups") if isinstance(data.get("groups"), list) else []
     by_id = {str(item.get("id") or ""): item for item in raw_groups if isinstance(item, dict)}
+    for layer in expected_layers:
+        layer_id = str(layer.get("id") or "")
+        group = by_id.get(layer_id) or {}
+        is_support_object = (
+            str(layer.get("storyRole") or "") == "kinetic_support"
+            and str(layer.get("role") or "") == "story_object"
+        )
+        invalid = not all(group.get(flag) for flag in ("visible", "complete", "largeEnough", "insideFrame", "ownsContactItems"))
+        if is_support_object and invalid:
+            remaining = [item for item in expected_layers if str(item.get("id") or "") not in dropped_ids | {layer_id}]
+            if len(remaining) >= 3 and any(str(item.get("role") or "") == "story_object" for item in remaining):
+                dropped_ids.add(layer_id)
+    for conflict in conflicts:
+        if not isinstance(conflict, dict):
+            continue
+        pair = [str(conflict.get("firstId") or ""), str(conflict.get("secondId") or "")]
+        support_candidates = [
+            layer_id for layer_id in pair
+            if str((layers_by_id.get(layer_id) or {}).get("storyRole") or "") == "kinetic_support"
+            and str((layers_by_id.get(layer_id) or {}).get("role") or "") == "story_object"
+        ]
+        for candidate in support_candidates:
+            remaining = [layer for layer in expected_layers if str(layer.get("id") or "") not in dropped_ids | {candidate}]
+            remaining_objects = [layer for layer in remaining if str(layer.get("role") or "") == "story_object"]
+            if len(remaining) >= 3 and remaining_objects:
+                dropped_ids.add(candidate)
+                break
+    if not data.get("approved") and not dropped_ids:
+        raise ValueError("Master frame failed extraction-suitability review: " + str(data.get("reason") or "incomplete, crowded, small, or overlapping groups")[:500])
+    expected_layers = [layer for layer in expected_layers if str(layer.get("id") or "") not in dropped_ids]
     specs = []
     for layer in expected_layers:
         layer_id = str(layer.get("id") or "")
         group = by_id.get(layer_id)
-        if not group or not all(group.get(flag) for flag in ("visible", "complete", "largeEnough", "insideFrame", "separable", "ownsContactItems")):
+        conflict_partners = {
+            other
+            for conflict in conflicts if isinstance(conflict, dict)
+            for current, other in ((str(conflict.get("firstId") or ""), str(conflict.get("secondId") or "")), (str(conflict.get("secondId") or ""), str(conflict.get("firstId") or "")))
+            if current == layer_id
+        }
+        separable_after_pruning = bool(group and (group.get("separable") or (conflict_partners and conflict_partners <= dropped_ids)))
+        if not group or not all(group.get(flag) for flag in ("visible", "complete", "largeEnough", "insideFrame", "ownsContactItems")) or not separable_after_pruning:
             raise ValueError(f"Master frame group {layer_id} is not a complete independent extraction unit")
         bbox = group.get("bbox")
         if not isinstance(bbox, list) or len(bbox) != 4:
             raise ValueError(f"Master frame group {layer_id} has no usable bounds")
-        values = [round(float(value), 2) for value in bbox]
+        raw_values = [round(float(value), 2) for value in bbox]
+        values = [raw_values[1], raw_values[0], raw_values[3], raw_values[2]]
         if min(values) < 0 or max(values) > 1000 or values[2] <= values[0] or values[3] <= values[1]:
             raise ValueError(f"Master frame group {layer_id} has invalid bounds")
-        if values[0] < 5 or values[1] < 5 or values[2] > 995 or values[3] > 995:
-            raise ValueError(f"Master frame group {layer_id} touches the frame edge")
         specs.append({
             "id": layer_id,
             "role": str(layer.get("role") or "supporting_character"),
@@ -3886,18 +3946,33 @@ def normalize_instagram_reel_master_review(data, scene):
     quiet_zone = str(data.get("quietTextZone") or "top_left")
     if quiet_zone not in {"top_left", "top_right", "lower_left", "lower_right"}:
         quiet_zone = "top_left"
-    return {"specs": specs, "quietTextZone": quiet_zone, "reason": _reel_copy(data.get("reason"), 500)}
+    return {"specs": specs, "quietTextZone": quiet_zone, "reason": _reel_copy(data.get("reason"), 500), "droppedLayerIds": sorted(dropped_ids)}
 
 
 def build_instagram_reel_clean_plate_prompt(specs):
-    groups = "\n".join(f"- {item['id']}: {item['description']}" for item in specs)
-    return f"""
-Create an exact clean plate from the attached master photograph.
+    def spatial_label(item):
+        box = item.get("bbox") if isinstance(item.get("bbox"), list) else []
+        if len(box) != 4:
+            return "at its exact visible position"
+        center_x = (float(box[0]) + float(box[2])) / 2
+        center_y = (float(box[1]) + float(box[3])) / 2
+        horizontal = "left" if center_x < 360 else "right" if center_x > 640 else "center"
+        vertical = "upper" if center_y < 360 else "lower" if center_y > 640 else "middle"
+        return f"in the {vertical}-{horizontal} area"
 
-Keep the entire frame identical to the supplied image except for the following explicitly named movable groups:
+    groups = "\n".join(
+        f"- {item['id']} {spatial_label(item)}: {item['description']}"
+        for item in specs
+    )
+    return f"""
+Perform one exact object-removal edit on the attached master photograph and return the resulting clean plate.
+
+The final clean plate must contain NONE of these explicitly named movable groups:
 {groups}
 
-Remove only those complete groups, including their people, clothing, carried or worn items, contact objects, and contact shadows. Naturally reconstruct only the pixels they occupied from the immediate surrounding background. Preserve every other pixel relationship: camera, crop, dimensions, architecture, distant people, surfaces, horizon, perspective, lighting, focus, color, grain, and all unlisted objects. Do not redesign, restage, recolor, relight, crop, resize, or add anything. Return the same photograph with only the listed groups absent.
+Remove every listed person and every listed object completely from its named spatial area. Remove their full silhouettes, clothing, carried or worn items, contact objects, and contact shadows. Do not preserve, replace, redraw, move, restyle, or substitute any listed group. Every listed former position must show only the correctly reconstructed empty environment behind it. Before returning the image, inspect every named area and confirm that none of the listed pixels remain.
+
+Everything not listed must stay identical to the supplied master: camera, crop, dimensions, architecture, surfaces, horizon, perspective, lighting, focus, color, grain, and all unlisted objects. Reconstruct only the background pixels that the listed groups covered. Do not redesign, restage, recolor, relight, crop, resize, or add anything. This is the same photograph with all listed groups absent, not a new composition.
 """.strip()
 
 
@@ -3964,9 +4039,9 @@ def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, refere
             str(layer.get(field) or "")
             for field in ("prompt", "action", "relationship", "initialState", "finalState")
         )
-        if _reel_layer_has_invalid_movable_geometry(geometry_text):
+        if str(layer.get("role") or "") in {"protagonist", "supporting_character"} and _reel_layer_has_invalid_movable_geometry(geometry_text):
             raise ValueError(f"Reel scene {index} contains a cropped or fixed-contact movable layer; rebuild its text-only storyboard")
-        if str(layer.get("manifestReveal") or "") not in {"slide_left", "slide_right", "drop", "rise", "focus"}:
+        if str(layer.get("manifestReveal") or "") not in {"slide_left", "slide_right", "drop", "rise", "focus", "settle"}:
             raise ValueError(f"Reel scene {index} has no approved registered-layer reveal; rebuild its text-only storyboard")
         if str(layer.get("manifestMotion") or "") != "hold":
             raise ValueError(f"Reel scene {index} has unsupported post-entrance layer motion; rebuild its text-only storyboard")
@@ -3976,7 +4051,14 @@ def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, refere
         except (TypeError, ValueError) as error:
             raise ValueError(f"Reel scene {index} has invalid registered-layer timing") from error
         duration = float(scene.get("durationSeconds") or 0)
-        if duration <= 0 or not 0 <= start < end <= duration * 0.38:
+        camera_plan = scene.get("directorCameraPlan") if isinstance(scene.get("directorCameraPlan"), dict) else {}
+        camera_starts = [
+            float(item.get("startSeconds"))
+            for item in camera_plan.get("beats") or []
+            if isinstance(item, dict) and item.get("startSeconds") is not None
+        ]
+        camera_start = min(camera_starts) if camera_starts else duration
+        if duration <= 0 or not 0 <= start < end <= camera_start:
             raise ValueError(f"Reel scene {index} entrance timing must finish before camera motion")
     # Image generation is deliberately one-pass. The prompt carries the complete
     # production contract up front; validators may stop a bad asset but must never
@@ -3985,32 +4067,40 @@ def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, refere
         attempt_dir = asset_dir / f"scene-{index:02d}-attempt-{attempt}"
         attempt_dir.mkdir(parents=True, exist_ok=True)
         try:
-            master_bytes = _gemini_image_jpeg(
-                build_instagram_reel_master_prompt(
-                    site,
-                    job,
-                    scene,
-                    retry_reason=failures[-1] if failures else "",
-                    has_logo_reference=bool(reference_logo and scene.get("usesLogoReference")),
-                ),
-                aspect_ratio="9:16",
-                reference_image=reference_logo if reference_logo and scene.get("usesLogoReference") else None,
-            )
+            master_path = attempt_dir / "master.jpg"
+            master_bytes = master_path.read_bytes() if master_path.is_file() else _gemini_image_jpeg(
+                    build_instagram_reel_master_prompt(
+                        site,
+                        job,
+                        scene,
+                        retry_reason=failures[-1] if failures else "",
+                        has_logo_reference=bool(reference_logo and scene.get("usesLogoReference")),
+                    ),
+                    aspect_ratio="9:16",
+                    reference_image=reference_logo if reference_logo and scene.get("usesLogoReference") else None,
+                )
             if not master_bytes.startswith(b"\xff\xd8"):
                 raise RuntimeError("Gemini did not return a JPEG master frame")
-            master_path = attempt_dir / "master.jpg"
-            master_path.write_bytes(master_bytes)
+            if not master_path.is_file():
+                master_path.write_bytes(master_bytes)
             master_review = normalize_instagram_reel_master_review(review_instagram_reel_master(master_bytes, scene), scene)
             specs = master_review["specs"]
-            clean_bytes = _gemini_image_jpeg(
-                build_instagram_reel_clean_plate_prompt(specs),
-                aspect_ratio="9:16",
-                reference_image={"mime_type": "image/jpeg", "data": b64encode(master_bytes).decode("ascii")},
-            )
+            dropped_layer_ids = set(master_review.get("droppedLayerIds") or [])
+            if dropped_layer_ids:
+                scene["layers"] = [
+                    layer for layer in scene.get("layers") or []
+                    if str(layer.get("id") or "") not in dropped_layer_ids
+                ]
+            clean_path = attempt_dir / "clean.jpg"
+            clean_bytes = clean_path.read_bytes() if clean_path.is_file() else _gemini_image_jpeg(
+                    build_instagram_reel_clean_plate_prompt(specs),
+                    aspect_ratio="9:16",
+                    reference_image={"mime_type": "image/jpeg", "data": b64encode(master_bytes).decode("ascii")},
+                )
             if not clean_bytes.startswith(b"\xff\xd8"):
                 raise RuntimeError("Gemini did not return a JPEG clean plate")
-            clean_path = attempt_dir / "clean.jpg"
-            clean_path.write_bytes(clean_bytes)
+            if not clean_path.is_file():
+                clean_path.write_bytes(clean_bytes)
             specs_path = attempt_dir / "specs.json"
             specs_path.write_text(json.dumps(specs, ensure_ascii=False, indent=2), encoding="utf-8")
             worker = subprocess.run(
@@ -4240,7 +4330,7 @@ INSTAGRAM_REEL_SCHEMA = {
                     "composition": {
                         "type": "object",
                         "properties": {
-                            "textPlacement": {"type": "string", "enum": ["top_left", "top_right", "lower_left", "lower_right"]},
+                            "textPlacement": {"type": "string", "enum": ["top_left", "top_right", "middle_left", "middle_right", "lower_left", "lower_right"]},
                         },
                         "required": ["textPlacement"],
                     },
@@ -4285,6 +4375,68 @@ INSTAGRAM_REEL_VISUAL_SCENE_SCHEMA["required"] = [
     field for field in INSTAGRAM_REEL_VISUAL_SCENE_SCHEMA["required"]
     if field not in {"overlayText", "narration"}
 ]
+
+# Step three is a director's execution plan.  It deliberately extends the
+# visual-only scene contract without changing step two's creative concepts.
+INSTAGRAM_REEL_SCENE_DETAIL_SCHEMA = json.loads(json.dumps(INSTAGRAM_REEL_VISUAL_SCHEMA))
+INSTAGRAM_REEL_SCENE_DETAIL_ITEM_SCHEMA = INSTAGRAM_REEL_SCENE_DETAIL_SCHEMA["properties"]["scenes"]["items"]
+INSTAGRAM_REEL_SCENE_DETAIL_ITEM_SCHEMA["properties"].update({
+    "directorTimeline": {
+        "type": "array",
+        "minItems": 3,
+        "items": {
+            "type": "object",
+            "properties": {
+                "startSeconds": {"type": "number"},
+                "endSeconds": {"type": "number"},
+                "subject": {"type": "string"},
+                "action": {"type": "string"},
+                "effect": {"type": "string"},
+                "finalState": {"type": "string"},
+            },
+            "required": ["startSeconds", "endSeconds", "subject", "action", "effect", "finalState"],
+        },
+    },
+    "cameraPlan": {
+        "type": "object",
+        "properties": {
+            "startSeconds": {"type": "number"},
+            "endSeconds": {"type": "number"},
+            "focusTarget": {"type": "string"},
+            "path": {"type": "string"},
+            "purpose": {"type": "string"},
+        },
+        "required": ["startSeconds", "endSeconds", "focusTarget", "path", "purpose"],
+    },
+    "textDirection": {
+        "type": "object",
+        "properties": {
+            "copy": {"type": "string"},
+            "startSeconds": {"type": "number"},
+            "endSeconds": {"type": "number"},
+            "appearance": {"type": "string"},
+            "placement": {"type": "string"},
+            "contrastTreatment": {"type": "string"},
+        },
+        "required": ["copy", "startSeconds", "endSeconds", "appearance", "placement", "contrastTreatment"],
+    },
+    "extractionConstraints": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+            "type": "object",
+            "properties": {
+                "movableGroup": {"type": "string"},
+                "mustStayClearOf": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["movableGroup", "mustStayClearOf", "reason"],
+        },
+    },
+})
+INSTAGRAM_REEL_SCENE_DETAIL_ITEM_SCHEMA["required"].extend([
+    "directorTimeline", "cameraPlan", "textDirection", "extractionConstraints",
+])
 
 # Deprecated v1 contract retained for stored plans. The active step-three flow
 # asks Gemini to produce the technical manifest from the locked step-two scene,
@@ -4725,8 +4877,9 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
                 "overlayStake": {"type": "string"},
                 "viewerQuestion": {"type": "string"},
                 "payoffPromise": {"type": "string"},
+                "domainContext": {"type": "string"},
             },
-            "required": ["overlayText", "narration", "whyItHooks", "tensionType", "concreteStake", "overlayStake", "viewerQuestion", "payoffPromise"],
+            "required": ["overlayText", "narration", "whyItHooks", "tensionType", "concreteStake", "overlayStake", "viewerQuestion", "payoffPromise", "domainContext"],
         },
         "solutionSteps": {
             "type": "array",
@@ -4735,10 +4888,13 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
                 "properties": {
                     "rank": {"type": "number"},
                     "step": {"type": "string"},
+                    "overlayText": {"type": "string"},
                     "sourceGrounding": {"type": "string"},
                     "whyItMatters": {"type": "string"},
+                    "problemConnection": {"type": "string"},
+                    "domainContext": {"type": "string"},
                 },
-                "required": ["rank", "step", "sourceGrounding", "whyItMatters"],
+                "required": ["rank", "step", "overlayText", "sourceGrounding", "whyItMatters", "problemConnection", "domainContext"],
             },
         },
         "retentionPlan": {
@@ -4756,10 +4912,12 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
             "type": "object",
             "properties": {
                 "answer": {"type": "string"},
+                "overlayText": {"type": "string"},
                 "brandRole": {"type": "string"},
                 "sourceGrounding": {"type": "string"},
+                "domainContext": {"type": "string"},
             },
-            "required": ["answer", "brandRole", "sourceGrounding"],
+            "required": ["answer", "overlayText", "brandRole", "sourceGrounding", "domainContext"],
         },
     },
     "required": ["centralProblem", "problemSourceGrounding", "hook", "solutionSteps", "retentionPlan", "finalResolution"],
@@ -4800,24 +4958,29 @@ SOURCE:
 
 YOUR ONLY JOB IN THIS STEP:
 1. Identify the article's ONE central reader problem.
-2. Write one source-grounded, attention-grabbing hook about that problem.
-3. Extract 3 to 5 source-grounded solution steps or decision criteria that solve the problem. Rank them by value, where rank 1 is the most decisive answer.
+2. Write one source-grounded, attention-grabbing hook about that problem. Preserve the article's real-world domain in `domainContext` with visible environmental anchors that make the subject identifiable even when all text is hidden.
+3. Extract 3 to 5 source-grounded solution steps or decision criteria that solve the problem. Rank them by value, where rank 1 is the most decisive answer. For every step, write its own short `overlayText`, explain in `problemConnection` exactly how that step changes the central problem, and state in `domainContext` which visible real-world context makes the subject unmistakable.
 4. Build the retention plan for revealing those steps. When the article supports a real bounded checklist, use a reverse countdown that presents the least decisive step first and reserves rank 1 for the final reveal. In the first seconds, state a specific early promise of what rank 1 will solve or unlock. If a countdown would be artificial, use an open loop instead and state exactly what final resolution remains withheld.
-5. State the final answer: how the brand's real offer, workflow, or platform resolves the problem. Explain its practical role without turning this into an ad or inventing capabilities. The final resolution may expand rank 1, but it must not introduce a solution that was absent from the ranked steps.
+5. State the final answer: how the brand's real offer, workflow, or platform resolves the problem. Give it a separate short `overlayText` and source-grounded `domainContext`. Explain its practical role without turning this into an ad or inventing capabilities. The final resolution may expand rank 1, but it must not introduce a solution that was absent from the ranked steps.
 
 STRICT RULES:
 - Do not write scenes, visual concepts, characters, photographs, layers, camera moves, text animation, audio, captions, or a production plan.
 - Do not turn the article into a dating story, personal drama, or fictional customer journey. The Reel must remain about the article's actual reader problem and solution.
+- Choose the central problem at the level actually solved by every selected step. Do not promote one subsection's narrow cost, risk, or symptom into the Reel's central promise when most of the article's criteria address a broader decision. A concrete hook may spotlight one consequence, but the viewer question and all later steps must still form one truthful answer to the same decision.
 - The hook is not a title, category label, slogan, or broad observation. It must name one concrete stake: a cost, risk, contradiction, or consequence that the reader faces by making the wrong choice or believing the wrong assumption.
 - `tensionType` must be exactly one of `cost`, `risk`, `contradiction`, or `consequence`. `concreteStake` explains the specific loss, uncertainty, or unwanted outcome in one complete sentence. `viewerQuestion` is the unresolved practical question created by the hook. `payoffPromise` states the answer that the final resolution will deliver.
 - `overlayStake` identifies the exact cost, risk, contradiction, or consequence stated literally in `overlayText`. The overlay itself must carry that stake, not merely name a topic or a phenomenon. For example, use the actual loss or consequence, not a label such as "the trap" or "the problem".
 - The overlay and narration must make the stake legible immediately, while preserving the final answer. A generic phrase that could introduce any article is invalid even if it is grammatically correct or source-grounded.
 - Every solution step must add a distinct part of the answer. Do not repeat article headings or create vague advice.
+- Every solution-step overlay must be understandable in silent playback. It cannot be only a rank, category label, unexplained imperative, or fragment such as "find community early". It must preserve the article's subject and the step's consequence within 3 to 8 words. A viewer who sees only the hook and this overlay must understand what is being solved and why this step belongs in the same story.
+- `problemConnection` is a literal cause-and-effect sentence: this specific criterion changes the cost, risk, contradiction, or consequence named by the hook in this specific way. Do not claim that a social, comfort, safety, or community criterion reduces a financial cost unless the source explicitly proves that connection. Parallel benefits remain parallel benefits, not invented causes.
+- Every `domainContext`, including the hook and resolution, names source-grounded visible environmental anchors that distinguish the article's real domain from a generic corridor, room, office, restaurant, or group of people. It is not a list of decorative props and may not invent a location absent from the source. Prefer architecture, equipment, product context, or activity relationships that remain recognizable across several scenes and create one coherent visual world.
 - `retentionPlan.earlyPromise` must tell the viewer why waiting for the payoff matters. It cannot merely say "keep watching", "number one", or "the final tip". `withheldResolution` names the practical answer held back until the payoff. `presentationOrder` gives the exact rank order in which the Reel reveals the steps.
 - When `mode` is `countdown`, `presentationOrder` must run from the lowest-ranked step to rank 1 and `payoffRank` must be 1. This makes the final reveal the most consequential answer. The hook or narration must introduce the early promise before the ordinary steps appear.
 - When the article names a real brand mechanism that directly resolves the central problem, that mechanism must be rank 1 and the final resolution must expand it factually. Do not demote it to an unrelated closing promotion after a list of generic advice.
 - The final resolution must close the hook's question. `brandRole` says exactly what the brand enables in this solution; it must be factual and source-grounded.
-- Write in {language_name}. Keep the hook overlay mobile-readable: 3 to 8 words. Keep hook narration: 5 to 14 words.
+- Write in {language_name}. Keep the hook overlay mobile-readable: 3 to 7 words. Keep hook narration: 5 to 14 words.
+- Every later solution overlay is 3 to 7 words and every resolution overlay is 2 to 7 words. It is a glanceable editorial headline, not the complete spoken sentence or article summary. A viewer must be able to read it comfortably in about 1.5 seconds; put detail in narration, not on screen.
 """.strip()
 
 
@@ -4838,12 +5001,15 @@ def normalize_instagram_reel_editorial_brief(data):
             "overlayStake": _reel_copy(hook_raw.get("overlayStake"), 180),
             "viewerQuestion": _reel_copy(hook_raw.get("viewerQuestion"), 500),
             "payoffPromise": _reel_copy(hook_raw.get("payoffPromise"), 600),
+            "domainContext": _reel_copy(hook_raw.get("domainContext"), 500),
         },
         "solutionSteps": [],
         "finalResolution": {
             "answer": _reel_copy(resolution_raw.get("answer"), 700),
+            "overlayText": _reel_copy(resolution_raw.get("overlayText"), 120),
             "brandRole": _reel_copy(resolution_raw.get("brandRole"), 700),
             "sourceGrounding": _reel_copy(resolution_raw.get("sourceGrounding"), 700),
+            "domainContext": _reel_copy(resolution_raw.get("domainContext"), 500),
         },
     }
     raw_steps = data.get("solutionSteps") if isinstance(data.get("solutionSteps"), list) else []
@@ -4855,11 +5021,16 @@ def normalize_instagram_reel_editorial_brief(data):
         step = {
             "rank": int(raw_step.get("rank") or 0),
             "step": _reel_copy(raw_step.get("step"), 500),
+            "overlayText": _reel_copy(raw_step.get("overlayText"), 120),
             "sourceGrounding": _reel_copy(raw_step.get("sourceGrounding"), 700),
             "whyItMatters": _reel_copy(raw_step.get("whyItMatters"), 500),
+            "problemConnection": _reel_copy(raw_step.get("problemConnection"), 700),
+            "domainContext": _reel_copy(raw_step.get("domainContext"), 500),
         }
-        if step["rank"] != index or not all([step["step"], step["sourceGrounding"], step["whyItMatters"]]):
-            raise ValueError(f"Instagram Reel editorial brief step {index} is incomplete or out of order")
+        if not all([step["rank"], step["step"], step["overlayText"], step["sourceGrounding"], step["whyItMatters"], step["problemConnection"], step["domainContext"]]):
+            raise ValueError(f"Instagram Reel editorial brief step {index} is incomplete")
+        if not 3 <= len(step["overlayText"].split()) <= 8:
+            raise ValueError(f"Instagram Reel editorial brief step {index} overlay is not self-contained")
         brief["solutionSteps"].append(step)
     retention_raw = data.get("retentionPlan") if isinstance(data.get("retentionPlan"), dict) else {}
     presentation_order = []
@@ -4878,12 +5049,14 @@ def normalize_instagram_reel_editorial_brief(data):
     if not all([
         brief["centralProblem"], brief["problemSourceGrounding"], brief["hook"]["overlayText"],
         brief["hook"]["narration"], brief["hook"]["whyItHooks"], brief["hook"]["tensionType"],
-        brief["hook"]["concreteStake"], brief["hook"]["overlayStake"], brief["hook"]["viewerQuestion"], brief["hook"]["payoffPromise"], brief["finalResolution"]["answer"],
-        brief["retentionPlan"]["mode"], brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["withheldResolution"], brief["finalResolution"]["brandRole"], brief["finalResolution"]["sourceGrounding"],
+        brief["hook"]["concreteStake"], brief["hook"]["overlayStake"], brief["hook"]["viewerQuestion"], brief["hook"]["payoffPromise"], brief["hook"]["domainContext"], brief["finalResolution"]["answer"], brief["finalResolution"]["overlayText"],
+        brief["retentionPlan"]["mode"], brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["withheldResolution"], brief["finalResolution"]["brandRole"], brief["finalResolution"]["sourceGrounding"], brief["finalResolution"]["domainContext"],
     ]):
         raise ValueError("Instagram Reel editorial brief is incomplete")
-    if not 3 <= len(brief["hook"]["overlayText"].split()) <= 8 or not 5 <= len(brief["hook"]["narration"].split()) <= 14:
+    if not 3 <= len(brief["hook"]["overlayText"].split()) <= 7 or not 5 <= len(brief["hook"]["narration"].split()) <= 14:
         raise ValueError("Instagram Reel editorial brief hook is not mobile-readable")
+    if not 2 <= len(brief["finalResolution"]["overlayText"].split()) <= 7:
+        raise ValueError("Instagram Reel editorial brief resolution overlay is not mobile-readable")
     if brief["hook"]["tensionType"] not in {"cost", "risk", "contradiction", "consequence"}:
         raise ValueError("Instagram Reel editorial brief hook must identify a concrete tension type")
     if len(brief["hook"]["concreteStake"].split()) < 6 or len(brief["hook"]["viewerQuestion"].split()) < 5 or len(brief["hook"]["payoffPromise"].split()) < 5:
@@ -4893,8 +5066,11 @@ def normalize_instagram_reel_editorial_brief(data):
     if not stake_tokens or not stake_tokens.intersection(overlay_tokens):
         raise ValueError("Instagram Reel editorial brief overlay must literally state its concrete stake")
     step_ranks = [step["rank"] for step in brief["solutionSteps"]]
-    if step_ranks != list(range(1, len(brief["solutionSteps"]) + 1)):
+    expected_ranks = list(range(1, len(brief["solutionSteps"]) + 1))
+    if sorted(step_ranks) != expected_ranks or len(set(step_ranks)) != len(step_ranks):
         raise ValueError("Instagram Reel editorial brief solution steps must rank value from 1 through the final rank")
+    brief["solutionSteps"] = sorted(brief["solutionSteps"], key=lambda step: step["rank"])
+    step_ranks = expected_ranks
     retention = brief["retentionPlan"]
     if retention["mode"] not in {"countdown", "open_loop"} or retention["payoffRank"] not in step_ranks or len(retention["earlyPromise"].split()) < 6 or len(retention["withheldResolution"].split()) < 5:
         raise ValueError("Instagram Reel editorial brief needs a concrete retention plan")
@@ -4925,6 +5101,13 @@ INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
                     "beatId": {"type": "string"},
                     "sceneObjective": {"type": "string"},
                     "evidenceInMasterFrame": {"type": "string"},
+                    "problemConnectionInFrame": {"type": "string"},
+                    "domainAnchorsInFrame": {"type": "string"},
+                    "domainAnchorQuotes": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+                    "environmentSourceQuote": {"type": "string"},
+                    "environmentStrategy": {"type": "string", "enum": ["new_source_named_setting", "reuse_prior_world"]},
+                    "reusedFromBeatId": {"type": "string"},
+                    "visualWorldKey": {"type": "string"},
                     "masterFrame": {"type": "string"},
                     "cleanPlate": {"type": "string"},
                     "movableGroups": {
@@ -4933,11 +5116,20 @@ INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
                             "type": "object",
                             "properties": {
                                 "name": {"type": "string"},
+                                "layerType": {"type": "string", "enum": ["person_group", "story_object"]},
+                                "storyRole": {"type": "string", "enum": ["direct_evidence", "kinetic_support"]},
+                                "sourceGroundingQuote": {"type": "string"},
+                                "supportsLayer": {"type": "string"},
                                 "masterFrameState": {"type": "string"},
+                                "transformMode": {"type": "string", "enum": ["slide_left", "slide_right", "rise", "drop", "scale_in", "settle", "shift_left", "shift_right", "lift", "lower"]},
+                                "appearanceChange": {"type": "string", "enum": ["none"]},
+                                "occlusionState": {"type": "string", "enum": ["fully_visible"]},
+                                "entrancePathState": {"type": "string", "enum": ["unobstructed"]},
+                                "rigidTransformProof": {"type": "string"},
                                 "entrance": {"type": "string"},
                                 "finalPosition": {"type": "string"},
                             },
-                            "required": ["name", "masterFrameState", "entrance", "finalPosition"],
+                            "required": ["name", "layerType", "storyRole", "sourceGroundingQuote", "supportsLayer", "masterFrameState", "transformMode", "appearanceChange", "occlusionState", "entrancePathState", "rigidTransformProof", "entrance", "finalPosition"],
                         },
                     },
                     "cameraAfterEntrance": {"type": "string"},
@@ -4947,7 +5139,114 @@ INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
                     "retentionIntoNext": {"type": "string"},
                     "transitionIntent": {"type": "string"},
                 },
-                "required": ["beatId", "sceneObjective", "evidenceInMasterFrame", "masterFrame", "cleanPlate", "movableGroups", "cameraAfterEntrance", "overlayText", "textPlacement", "continuityFromPrevious", "retentionIntoNext", "transitionIntent"],
+                "required": ["beatId", "sceneObjective", "evidenceInMasterFrame", "problemConnectionInFrame", "domainAnchorsInFrame", "domainAnchorQuotes", "environmentSourceQuote", "environmentStrategy", "reusedFromBeatId", "visualWorldKey", "masterFrame", "cleanPlate", "movableGroups", "cameraAfterEntrance", "overlayText", "textPlacement", "continuityFromPrevious", "retentionIntoNext", "transitionIntent"],
+            },
+        },
+    },
+    "required": ["scenes"],
+}
+
+
+# The active director pass consumes the approved stage-two concepts directly.
+# It does not inherit the older parallel skeleton/manifest representation.
+INSTAGRAM_REEL_DIRECTOR_PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scenes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "beatId": {"type": "string"},
+                    "durationSeconds": {"type": "number"},
+                    "masterFrame": {"type": "string"},
+                    "cleanPlate": {"type": "string"},
+                    "movableGroups": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "layerType": {"type": "string", "enum": ["person_group", "story_object"]},
+                                "storyRole": {"type": "string", "enum": ["direct_evidence", "kinetic_support"]},
+                                "sourceGroundingQuote": {"type": "string"},
+                                "supportsLayer": {"type": "string"},
+                                "transformMode": {"type": "string", "enum": ["slide_left", "slide_right", "rise", "drop", "scale_in", "settle", "shift_left", "shift_right", "lift", "lower"]},
+                                "startSeconds": {"type": "number"},
+                                "endSeconds": {"type": "number"},
+                                "entranceAction": {"type": "string"},
+                                "finalPosition": {"type": "string"},
+                                "extractionConstraint": {"type": "string"},
+                            },
+                            "required": ["name", "layerType", "storyRole", "sourceGroundingQuote", "supportsLayer", "transformMode", "startSeconds", "endSeconds", "entranceAction", "finalPosition", "extractionConstraint"],
+                        },
+                    },
+                    "visualBeats": {
+                        "type": "array",
+                        "minItems": 3,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "order": {"type": "integer"},
+                                "startSeconds": {"type": "number"},
+                                "endSeconds": {"type": "number"},
+                                "kind": {"type": "string", "enum": ["registered_group_entrance", "registered_object_entrance"]},
+                                "sourceAnchor": {"type": "string"},
+                                "subject": {"type": "string"},
+                                "revealMethod": {"type": "string", "enum": ["slide_left", "slide_right", "rise", "drop", "scale_in", "settle", "shift_left", "shift_right", "lift", "lower"]},
+                                "fromState": {"type": "string"},
+                                "trajectory": {"type": "string"},
+                                "easing": {"type": "string"},
+                                "finalState": {"type": "string"},
+                                "storyPurpose": {"type": "string"},
+                            },
+                            "required": ["order", "startSeconds", "endSeconds", "kind", "sourceAnchor", "subject", "revealMethod", "fromState", "trajectory", "easing", "finalState", "storyPurpose"],
+                        },
+                    },
+                    "cameraPlan": {
+                        "type": "object",
+                        "properties": {
+                            "beats": {
+                                "type": "array",
+                                "minItems": 2,
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "startSeconds": {"type": "number"},
+                                        "endSeconds": {"type": "number"},
+                                        "movement": {"type": "string", "enum": ["push_in", "pull_out", "pan_left", "pan_right", "track_left", "track_right", "follow", "crane_up", "crane_down", "orbit", "rack_focus", "face_zoom", "object_zoom", "focus_transfer"]},
+                                        "fromFraming": {"type": "string"},
+                                        "toFraming": {"type": "string"},
+                                        "focusTarget": {"type": "string"},
+                                        "triggerLayer": {"type": "string"},
+                                        "triggerMoment": {"type": "string", "enum": ["during_entrance", "on_settle", "after_settle"]},
+                                        "easing": {"type": "string"},
+                                        "purpose": {"type": "string"},
+                                    },
+                                    "required": ["startSeconds", "endSeconds", "movement", "fromFraming", "toFraming", "focusTarget", "triggerLayer", "triggerMoment", "easing", "purpose"],
+                                },
+                            },
+                        },
+                        "required": ["beats"],
+                    },
+                    "textDirection": {
+                        "type": "object",
+                        "properties": {
+                            "copy": {"type": "string"},
+                            "startSeconds": {"type": "number"},
+                            "endSeconds": {"type": "number"},
+                            "appearance": {"type": "string", "enum": ["word_stagger", "line_wipe", "slide_up", "slide_left", "slide_right", "scale_up", "focus_resolve"]},
+                            "placement": {"type": "string"},
+                            "contrastTreatment": {"type": "string"},
+                            "protectedZoneProof": {"type": "string"},
+                            "maxLines": {"type": "integer"},
+                        },
+                        "required": ["copy", "startSeconds", "endSeconds", "appearance", "placement", "contrastTreatment", "protectedZoneProof", "maxLines"],
+                    },
+                    "continuityFromPrevious": {"type": "string"},
+                    "retentionIntoNext": {"type": "string"},
+                },
+                "required": ["beatId", "durationSeconds", "masterFrame", "cleanPlate", "movableGroups", "visualBeats", "cameraPlan", "textDirection", "continuityFromPrevious", "retentionIntoNext"],
             },
         },
     },
@@ -4964,25 +5263,26 @@ def derive_instagram_reel_editorial_beats(brief):
         "id": "beat-01",
         "kind": "hook",
         "editorialInput": brief["hook"]["overlayText"],
+        "overlayText": brief["hook"]["overlayText"],
         "sourceGrounding": brief["problemSourceGrounding"],
+        "problemConnection": brief["hook"]["concreteStake"],
+        "domainContext": brief["hook"]["domainContext"],
+        "retentionPromise": brief["retentionPlan"]["earlyPromise"],
         "viewerQuestion": brief["hook"]["viewerQuestion"],
         "withheldAnswer": brief["hook"]["payoffPromise"],
-    }, {
-        "id": "beat-02",
-        "kind": "retention-bridge",
-        "editorialInput": brief["retentionPlan"]["earlyPromise"],
-        "sourceGrounding": brief["problemSourceGrounding"],
-        "viewerQuestion": brief["hook"]["viewerQuestion"],
-        "withheldAnswer": brief["retentionPlan"]["withheldResolution"],
     }]
-    for sequence, rank in enumerate(ordered_ranks, start=3):
+    for sequence, rank in enumerate(ordered_ranks, start=2):
         step = steps[rank]
         beats.append({
             "id": f"beat-{sequence:02d}",
             "kind": "solution-payoff" if rank == brief["retentionPlan"]["payoffRank"] else "solution-step",
             "rank": rank,
             "editorialInput": step["step"],
+            "overlayText": step["overlayText"],
             "sourceGrounding": step["sourceGrounding"],
+            "problemConnection": step["problemConnection"],
+            "domainContext": step["domainContext"],
+            "retentionPromise": brief["retentionPlan"]["withheldResolution"],
             "viewerQuestion": brief["hook"]["viewerQuestion"],
             "withheldAnswer": "" if rank == brief["retentionPlan"]["payoffRank"] else brief["retentionPlan"]["withheldResolution"],
         })
@@ -4990,7 +5290,11 @@ def derive_instagram_reel_editorial_beats(brief):
         "id": f"beat-{len(beats) + 1:02d}",
         "kind": "resolution",
         "editorialInput": brief["finalResolution"]["answer"],
+        "overlayText": brief["finalResolution"]["overlayText"],
         "sourceGrounding": brief["finalResolution"]["sourceGrounding"],
+        "problemConnection": brief["finalResolution"]["brandRole"],
+        "domainContext": brief["finalResolution"]["domainContext"],
+        "retentionPromise": "The promised practical answer is now fully resolved.",
         "viewerQuestion": "resolved",
         "withheldAnswer": "",
     })
@@ -5011,33 +5315,51 @@ SOURCE:
 - approved editorial beats: {json.dumps(editorial_beats, ensure_ascii=False)}
 
 YOUR ONLY JOB:
-For every supplied beat, design one coherent, photographable scene concept that makes that beat understandable and carries the viewer into the next beat. Preserve the supplied order, problem, retention question, source grounding, and final payoff. Do not add, remove, merge, reorder, or rewrite editorial beats.
+For every supplied beat, design one coherent, photographable scene concept that makes that beat understandable and carries the viewer into the next beat. Preserve the supplied order, problem, retention question, source grounding, exact overlay copy, and final payoff. Do not add, remove, merge, reorder, or rewrite editorial beats.
 
 SCENE-CONCEPT CONTRACT:
 - This is text-only pre-production. Do not generate image prompts, images, voice, music, captions, video, or rendering instructions.
+- Work beat by beat. Before designing a scene, privately build an evidence inventory containing only exact consecutive phrases from that beat's `editorialInput`, `sourceGrounding`, `problemConnection`, and `domainContext`, then verify every phrase also occurs literally in the full article. Choose the environment, domain anchors, direct evidence, and support layers only from that verified inventory or from a deliberately reused prior visual world. Do not search unrelated sections of the article for convenient scenery or props.
+- Treat every supplied `overlayText` as immutable. Copy it exactly. Do not replace it with a rank label, teaser fragment, category label, or generic imperative. The supplied `retentionPromise` belongs in the hook's continuing tension and the handoff to later scenes; it never becomes a separate empty scene.
+- Each scene must pass a three-part comprehension test with all text hidden: the viewer can identify the article's real domain, can see the exact physical evidence for this beat, and can understand how that evidence advances or qualifies the central problem. Record these answers in `domainAnchorsInFrame`, `evidenceInMasterFrame`, and `problemConnectionInFrame`.
+- `domainAnchorsInFrame` implements the beat's supplied `domainContext` with at least two substantial source-grounded anchors integrated into the environment, activity, architecture, equipment, interface, or product relationship. Put the exact consecutive article phrase supporting each anchor into `domainAnchorQuotes`; every quote must occur literally in the supplied article. Reuse a coherent family of anchors across adjacent scenes so the Reel feels like one world. A generic room, corridor, restaurant, office, outdoor view, or group of people is invalid when the same frame could illustrate an unrelated article. Never infer a location, service counter, journey stage, device, workflow, or outcome solely because it is common in the category.
+- Choose exactly one environment strategy. Use `new_source_named_setting` only when `environmentSourceQuote` literally names a physical place or environment; a forum, app, community, service, initiative, action, feeling, or abstract condition is not a physical setting. In that case `reusedFromBeatId` is empty and the setting in `masterFrame` is exactly the named place. Otherwise use `reuse_prior_world`, set `environmentSourceQuote` empty, name the earlier beat in `reusedFromBeatId`, copy its `visualWorldKey`, and continue inside that already established setting with a new composition. Never infer a terminal, lobby, counter, office, room, corridor, venue, exterior, or process stage from category convention.
+- A physical place mentioned elsewhere in the article is not permission for this beat. `new_source_named_setting` is valid only when that place occurs in the current beat's verified evidence inventory and materially helps explain this beat. For a digital, pre-event, planning, comparison, or abstract beat with no such place, `reuse_prior_world` is mandatory.
+- `problemConnectionInFrame` states what the visible evidence proves and how it connects to the central problem. If the article presents a criterion as a parallel benefit rather than a direct fix for the hook's cost or risk, say so honestly and frame it as one dimension of the larger decision. Never imply a false cause-and-effect relationship merely to preserve the hook.
 - Each beat becomes one source-grounded 9:16 photographed scene. Before writing it, identify the concrete `evidenceInMasterFrame`: the exact visible spatial condition, interaction, or before/after relationship that proves this beat without relying on a generic themed location. If you cannot name such evidence, choose a different scene. The abstract part of a cost, risk, or consequence may remain in the overlay, but the physical condition causing it must be visible.
 - The required `masterFrame` is the complete final composition before animation: location, light, viewpoint, every person/group, the named evidence, and intentionally empty space for copy. It is a real cohesive moment, never a collage, stock-travel filler, or a fictional customer journey. `standing`, `looking`, `walking`, talking, smiling, and laughing are valid physical descriptions when the frame also makes the beat's exact spatial condition or interaction visible. Do not reject or avoid those natural states. For every named person/group, explain in `evidenceInMasterFrame` what visible condition their position, action, or relationship proves for this specific beat.
-- `cleanPlate` describes the derivative of that exact master frame after removing only the named `movableGroups`. It must say that architecture, light, camera position, perspective, scale, and every non-movable pixel stay identical. Never propose a separately invented background.
-- `movableGroups` contains one to four complete people, cohesive people-with-owned-item groups, or substantial objects that already exist in the master frame. Every listed group must take part in `evidenceInMasterFrame`; do not add atmospheric people. Every human group must be standing or walking on an unobstructed floor/deck plane, fully visible from head through both feet, and visibly separated from fixed furniture and architecture. Do not plan a seated, reclining, leaning, doorway-framed, table-supported, railing-supported, window-obscured, or background human: those cannot become registered movable groups. `masterFrameState` may use ordinary states such as standing, looking, walking, talking, smiling, or laughing, but it must also state the beat-specific physical relationship that makes that state meaningful. `entrance` says how that complete group moves into its final master-frame position: for example, enters from left/right/bottom, drops from above, or resolves in focus in place. `finalPosition` gives the group’s exact relationship to the fixed scene and other groups.
+- `cleanPlate` describes the derivative of that exact master frame after removing every named `movableGroup`, including people and story objects. It must say that architecture, light, camera position, perspective, scale, and every non-movable pixel stay identical. Never propose a separately invented background.
+- Every scene is built for layered motion, not as a static photograph with one moving person. `movableGroups` must contain three or four independently animatable layers already visible in the final master frame. At least one layer has `layerType: story_object`, and at least one layer must be `direct_evidence`; support layers exist only to make that evidence readable and dynamic. Use `person_group` for a complete person or cohesive overlapping people, and `story_object` for a complete independently readable object, product, source-named interface, or cohesive object group that can move as one unchanged image layer.
+- `storyRole` states why the layer is allowed. Use `direct_evidence` when the article claim depends on that exact physical person, object, occupancy state, arrangement, or explicitly named digital mechanism. Its `sourceGroundingQuote` must copy one exact consecutive phrase from the supplied full article material that directly supports this precise layer and state; paraphrases are invalid. Its `supportsLayer` is empty. A `story_object` can be direct evidence only when the quote literally names that concrete object or digital mechanism: reuse the quoted noun in the layer name and do not add an implied bill, document, confirmation, sign, fixture, prop, transaction, or substitute. An abstract checklist cannot become a notebook, community cannot become a display, matching cannot become a confirmation screen, and an initiative cannot become luggage.
+- Every movable layer's exact quote must also belong to this beat's `sourceGrounding`, `editorialInput`, `domainContext`, or to the immediately reused visual world's already approved physical inventory. A fact appearing elsewhere in the article does not authorize an unrelated layer here. Relevance to the current beat is mandatory in addition to global source truth.
+- Technical layer names preserve the source noun. When a source-named digital mechanism is shown on a physical carrier, name the layer after the quoted mechanism itself and describe the carrier only in `masterFrameState`; do not append unquoted words such as device, screen, display, dashboard, or phone to the layer name. A quoted role or relationship authorizes only that role or relationship. It does not authorize an unquoted action such as arriving, boarding, checking in, purchasing, celebrating, or completing a transaction. When the quote names no action, compose a neutral stationary relationship that visibly preserves the quoted fact.
+- Materialize each abstract beat through this hierarchy: first use a literal source-named object or environment; otherwise use a literal source-named person/group relationship; otherwise use a source-named digital mechanism on an ordinary physical carrier. The carrier itself is `kinetic_support`, not direct evidence. Never invent a bill, document, badge, sign, counter, terminal, transaction, or completion ritual to turn an abstract claim into a prop.
+- Use `kinetic_support` for a complete independent scene-native object whose whole-layer arrival frames, spatially supports, or directs attention toward one direct-evidence layer without claiming to prove the editorial idea itself. Its `sourceGroundingQuote` is an exact article phrase that literally names that physical object or cohesive group, and `supportsLayer` exactly names one `direct_evidence` layer in the same scene. The support must work through the arrival of its complete unchanged silhouette, not through an articulated part, changing material, or changing internal state. If the article supplies no meaningful third physical layer, redesign the scene around another source-grounded relationship; never fill the quota with luggage, furniture, drinks, cushions, decorative objects, or generic architecture absent from the source.
+- A story object is not decoration and never symbolizes an abstract idea. It must be large enough for mobile viewing, have a complete silhouette or coherent boundary, remain unobstructed by other movable layers, and occupy a final position that makes physical sense in the shared master frame. It cannot be invented as a visual proxy for cost, safety, community, organization, compatibility, privacy, or another concept. A partition does not prove a lower fare; a board does not prove community; a rope barrier does not prove an organized activity; a sofa does not prove social connection. If an object would require language such as `represents`, `indicates`, `symbolizes`, or `shows how` to connect it to the claim, choose a different object or classify it only as honest kinetic support.
+- Every `direct_evidence` layer must take part in `evidenceInMasterFrame`; every `kinetic_support` layer must directly enable or frame one named direct-evidence layer and must not be described as evidence itself. Do not add atmospheric people or filler objects. Every human group must be standing or walking on an unobstructed floor/deck plane, fully visible from head through both feet, and visibly separated from fixed furniture and architecture. Do not plan a seated, reclining, leaning, doorway-framed, table-supported, railing-supported, window-obscured, or background human: those cannot become registered movable groups. `masterFrameState` states the layer's complete literal physical state and relationship.
+- The renderer can animate only a complete static full-canvas layer. Select `transformMode` from the schema and design the layer so that the exact same pixels can execute that motion by x/y translation or uniform whole-layer scaling. Set `appearanceChange` to `none`. In `rigidTransformProof`, explicitly confirm that geometry, silhouette, internal arrangement, orientation, pose, expression, articulation, and material state remain identical from the first visible frame through the final master-frame registration. `entrance` describes only that whole-layer rigid transform into the final position. It must never depend on opening, closing, folding, unfolding, bending, billowing, rolling up, hinging, parting, changing pose, changing expression, moving a limb, or revealing a different side of the layer. If the intended action needs any of those changes, choose a different independently movable object for the scene.
+- A valid layer is already complete in the master frame and remains complete while it moves. It may enter from left, right, above, or below; translate a short distance; settle; or uniformly scale from a motivated depth plane. Its visual contents never animate internally. `finalPosition` gives the layer's exact relationship to the fixed scene and other groups.
+- Every movable layer remains fully visible and extractable in its final registered position. Set `occlusionState` to `fully_visible` and `entrancePathState` to `unobstructed`. Fixed architecture, furniture, another movable layer, the frame edge, reflection, shadow, or foreground detail must not pass in front of any part of it. Its entrance path also stays clear. Compose the master so visible background space surrounds the complete layer at the final position; place fixed framing elements behind or away from its silhouette rather than sending the layer behind them.
 - Every human group must be large, complete from head through feet, visually separated by clear background space, and free from occlusion. If people naturally overlap, name them as one cohesive group. There must be no unplanned humans in the background, middle distance, reflections, or silhouettes.
-- The still master must itself explain the beat through `evidenceInMasterFrame`. Do not use empty decks, empty lounges, generic cabins, scenic horizons, or a themed interior as a substitute for evidence. For an abstract fact such as price, risk, or safety, show the source-grounded physical condition and let `overlayText` carry the abstract claim. Do not invent devices, receipts, cards, luggage, badges, documents, screens, signs, UI, or symbolic props unless that exact object is a material fact in the supplied article.
-- Do not add any portable, handheld, tabletop, or decorative object merely to make a frame feel realistic. Apart from fixed architecture and source-proven material facts, every visual element must be a required human/group or a fixed part of the physical setting. Never use personal belongings, drinks, food, clothing items, or interior fixtures as a proxy for an article claim.
+- The still master must itself explain the beat through `evidenceInMasterFrame`. Do not use empty decks, empty lounges, generic cabins, scenic horizons, or a themed interior as a substitute for evidence. For an abstract fact such as price, risk, or safety, construct the final frame from source-grounded people plus substantial story objects whose assembled physical relationship proves the condition, while `overlayText` carries only the irreducibly abstract claim.
+- Do not add an object merely to make a frame feel realistic. Personal belongings, drinks, clothing accessories, generic furniture, generic devices, badges, symbols, and filler props cannot satisfy the required story-object layer. A device or interface is valid direct evidence only when the article explicitly names that digital mechanism; show its layout without generated readable microcopy. When the article gives no movable material evidence, use another source-grounded person/group relationship or reuse a source-grounded object from the established visual world. Never invent decorative support and never use a fixed architectural component whose intended action requires its shape, articulation, or material state to change.
 - Cover the complete meaning of the supplied `editorialInput`, not just one convenient noun from it. When a beat contains linked criteria, show the physical relationship that connects them. When no extra physical event is stated by the article, preserve and reframe the prior established world instead of substituting a generic new setting.
-- `cameraAfterEntrance` starts only after all named groups have reached their final positions. State a purposeful whole-scene move: focus transfer, push toward the relevant group, pull back to reveal a relationship, or lateral follow across the assembled composition. Do not describe camera motion before entries settle.
-- `overlayText` is the exact short on-screen copy locked by the editorial beat. `textPlacement` names the largest naturally quiet part of the master frame and why its local contrast supports large readable type. Do not put text into crowded or low-contrast space.
-- The concepts must progress within the article's real domain. A performer may recur only as a neutral visual anchor, never as a fictional protagonist who learns, books, pays, discovers, succeeds, or forms a romance. Use only places, roles, actions, and conditions supported by the source. Do not add airports, terminals, check-in procedures, passports, boarding, or travel-process scenes merely because the topic is cruising.
-- When a bridge beat is an editorial promise rather than a separate physical event, continue or reframe the already established physical condition. Do not invent a new travel location to make that bridge look busy. For a source claim about a social community or an organized activity, the master frame must show a real peer interaction or a deliberate group arrangement, not one isolated person near a travel-related setting. For a source claim about a matching mechanism, the final frame must make that mechanism's factual before/after relationship visible, not substitute a generic friendship or holiday-success tableau.
-- A source phrase such as `before departure` does not authorize a terminal, airport, harbor, hotel, check-in, boarding, passport, ship exterior, or another invented travel-process setting. If the article does not name the place, use an unbranded neutral physical setting whose only purpose is the source-grounded interaction. The final resolution must remain inside the factual mechanism already established by the payoff beat; do not move to a scenic ending or infer that matching guarantees friendship, a holiday outcome, or a personal transformation.
-- The resolution scene must reuse the payoff scene's physical world and evidence, changing only the framing or the assembled relationship needed to state the brand's factual role. It must not introduce a new neutral lounge, outdoor view, celebratory pose, or generic confidence tableau.
-- Privately audit every scene before returning JSON: (1) could this master frame fit a different article in the same category? If yes, rebuild it around the beat's actual evidence; (2) is every human/group required to make that evidence visible? If not, remove or replace it; (3) does the clean plate differ from the master only by the approved movable groups? If not, rebuild it.
-- Never mention prohibited devices, interfaces, readable objects, crowds, or signage in a returned field, even to say that they are absent. Describe only what is actually present in the planned frame.
+- Plan at least three visible whole-layer events in every scene before camera work: introduce three distinct approved registered layers, including at least one story object and at least one `direct_evidence` layer. Use every source-grounded person/object relationship available in the beat; when the article does not supply three material facts, kinetic support supplies the remaining physical motion but never editorial proof. Vary rigid whole-layer transforms according to geometry and meaning instead of repeating one reveal effect. Focus, light, text, camera, internal object articulation, and merely noticing a fixed relationship are not events.
+- `cameraAfterEntrance` states the semantic camera relationship required by the scene: which arriving evidence the camera follows, which assembled relationship receives the close-up, and where it lands for the handoff. Step three will time one continuous path around the entrances, so do not prescribe a disconnected zoom after everything has happened.
+- `overlayText` is the exact short on-screen copy locked by the editorial beat and contains 2 to 7 words. `textPlacement` names the largest naturally quiet part of the master frame and proves why it remains free at the clean-plate state, throughout every named layer entrance path, in the assembled master frame, and through the intended camera reframing. Consider upper, middle, and lower zones on both sides. Keep all faces, bodies, hands, important story objects, and their trajectories outside that protected zone; do not assume text belongs at the top. The hook receives the strongest visual priority and largest protected text zone in the Reel.
+- The concepts must progress within the article's real domain. A performer may recur only as a neutral visual anchor, never as a fictional protagonist who learns, buys, books, pays, discovers, succeeds, or forms an invented relationship. Use only places, roles, actions, and conditions supported by the source. Do not infer a generic customer journey from the article category.
+- The resolution scene must reuse the payoff scene's physical world and evidence, changing only the framing or assembled relationship needed to state the brand's factual role. It must not abandon the established domain for a scenic ending, celebratory pose, generic confidence tableau, or unsupported outcome.
+- Assign a concise `visualWorldKey` to every scene. The resolution scene must copy the payoff scene's `visualWorldKey` exactly and reuse its location and principal direct-evidence layers; only framing, emphasis, or the final assembled relationship may change.
+- In the resolution, use only the exact brand mechanism named by the approved final beat. Do not substitute another device, app, service step, or article mechanism merely because it appears elsewhere in the source.
+- Privately audit every scene before returning JSON: (1) could this master frame fit a different article in the same category? If yes, rebuild it around the beat's actual evidence; (2) can every direct-evidence layer be justified by its exact article quote without interpretation, and does every direct story-object name use only concrete object words actually present in that quote? If not, demote or remove it; (3) does the direct evidence literally demonstrate the beat without symbolic interpretation? If not, redesign the composition; (4) is every movable layer a complete static image that can perform its selected `transformMode` without any internal pixel relationship changing? If not, choose another layer; (5) does each kinetic-support object perform only an honest physical function for its named supported layer? If not, replace it; (6) does the clean plate differ from the master only by all approved movable layers? If not, rebuild it; (7) after the rigid layers enter, does the assembled still exactly equal the master frame? If not, rebuild it.
+- Never rely on generated signage, labels, menus, price cards, or interface microcopy to explain the beat. Describe only what is physically present; editorial meaning belongs in the locked overlay.
 - The viewer must see why the frame answers this exact beat. Avoid a generic pose only when it has no stated relationship to the source-grounded condition. Do not say a scene symbolizes, represents, or highlights an idea: describe what is literally visible.
 - `continuityFromPrevious` explains how this scene develops the prior idea rather than resetting the story. `retentionIntoNext` states the exact useful answer still awaited. The final resolution scene must explicitly say the main question is resolved. `transitionIntent` describes the editorial handoff, not an editing effect.
-- Write in {language_name}. Do not use readable signage, labels, boards, menus, interfaces, phones, tablets, laptops, maps, price cards, symbols, or visual metaphors to carry the answer.
+- Write in {language_name}. Source-named devices or interfaces may appear as physical evidence, but their screens use non-readable structural shapes; do not use readable signage, labels, boards, menus, maps, price cards, symbols, or visual metaphors to carry the answer.
 """.strip()
 
 
-def normalize_instagram_reel_scene_concepts(data, editorial_beats):
+def normalize_instagram_reel_scene_concepts(data, editorial_beats, source_material=""):
     if not isinstance(data, dict) or not isinstance(data.get("scenes"), list):
         raise ValueError("Instagram Reel scene concepts must contain a scenes array")
     expected_ids = [beat["id"] for beat in editorial_beats]
@@ -5052,11 +5374,27 @@ def normalize_instagram_reel_scene_concepts(data, editorial_beats):
             "beatId": _reel_copy(raw_scene.get("beatId"), 32).lower(),
             "sceneObjective": _reel_copy(raw_scene.get("sceneObjective"), 500),
             "evidenceInMasterFrame": _reel_copy(raw_scene.get("evidenceInMasterFrame"), 700),
+            "problemConnectionInFrame": _reel_copy(raw_scene.get("problemConnectionInFrame"), 700),
+            "domainAnchorsInFrame": _reel_copy(raw_scene.get("domainAnchorsInFrame"), 700),
+            "domainAnchorQuotes": [_reel_copy(value, 500) for value in (raw_scene.get("domainAnchorQuotes") if isinstance(raw_scene.get("domainAnchorQuotes"), list) else []) if _reel_copy(value, 500)],
+            "environmentSourceQuote": _reel_copy(raw_scene.get("environmentSourceQuote"), 500),
+            "environmentStrategy": _reel_copy(raw_scene.get("environmentStrategy"), 40),
+            "reusedFromBeatId": _reel_copy(raw_scene.get("reusedFromBeatId"), 32).lower(),
+            "visualWorldKey": _reel_copy(raw_scene.get("visualWorldKey"), 160),
             "masterFrame": _reel_copy(raw_scene.get("masterFrame"), 1400),
             "cleanPlate": _reel_copy(raw_scene.get("cleanPlate"), 700),
             "movableGroups": [{
                 "name": _reel_copy(group.get("name"), 160),
+                "layerType": _reel_copy(group.get("layerType"), 40),
+                "storyRole": _reel_copy(group.get("storyRole"), 40),
+                "sourceGroundingQuote": _reel_copy(group.get("sourceGroundingQuote"), 500),
+                "supportsLayer": _reel_copy(group.get("supportsLayer"), 160),
                 "masterFrameState": _reel_copy(group.get("masterFrameState"), 600),
+                "transformMode": _reel_copy(group.get("transformMode"), 40),
+                "appearanceChange": _reel_copy(group.get("appearanceChange"), 20),
+                "occlusionState": _reel_copy(group.get("occlusionState"), 30),
+                "entrancePathState": _reel_copy(group.get("entrancePathState"), 30),
+                "rigidTransformProof": _reel_copy(group.get("rigidTransformProof"), 600),
                 "entrance": _reel_copy(group.get("entrance"), 500),
                 "finalPosition": _reel_copy(group.get("finalPosition"), 500),
             } for group in (raw_scene.get("movableGroups") if isinstance(raw_scene.get("movableGroups"), list) else []) if isinstance(group, dict)],
@@ -5067,9 +5405,55 @@ def normalize_instagram_reel_scene_concepts(data, editorial_beats):
             "retentionIntoNext": _reel_copy(raw_scene.get("retentionIntoNext"), 500),
             "transitionIntent": _reel_copy(raw_scene.get("transitionIntent"), 400),
         }
-        if scene["beatId"] != expected_ids[index] or not all([scene["sceneObjective"], scene["evidenceInMasterFrame"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], scene["overlayText"], scene["textPlacement"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"]]) or not 1 <= len(scene["movableGroups"]) <= 4 or any(not all(group.values()) for group in scene["movableGroups"]):
+        if not 2 <= len(scene["overlayText"].split()) <= 7:
+            raise ValueError(f"Instagram Reel scene concept {index + 1} overlay must contain 2-7 readable words")
+        group_types = [group["layerType"] for group in scene["movableGroups"]]
+        group_roles = [group["storyRole"] for group in scene["movableGroups"]]
+        required_group_fields = ("name", "layerType", "storyRole", "masterFrameState", "transformMode", "appearanceChange", "occlusionState", "entrancePathState", "rigidTransformProof", "entrance", "finalPosition")
+        if scene["beatId"] != expected_ids[index] or scene["overlayText"] != editorial_beats[index]["overlayText"] or len(scene["domainAnchorQuotes"]) < 2 or not all([scene["sceneObjective"], scene["evidenceInMasterFrame"], scene["problemConnectionInFrame"], scene["domainAnchorsInFrame"], scene["environmentStrategy"], scene["visualWorldKey"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], scene["overlayText"], scene["textPlacement"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"]]) or not 3 <= len(scene["movableGroups"]) <= 4 or any(not all(group[field] for field in required_group_fields) for group in scene["movableGroups"]):
             raise ValueError(f"Instagram Reel scene concept {index + 1} is incomplete or out of sequence")
+        if any(layer_type not in {"person_group", "story_object"} for layer_type in group_types) or "story_object" not in group_types:
+            raise ValueError(f"Instagram Reel scene concept {index + 1} needs three registered layers including a story object")
+        if any(role not in {"direct_evidence", "kinetic_support"} for role in group_roles) or group_roles.count("direct_evidence") < 1:
+            raise ValueError(f"Instagram Reel scene concept {index + 1} needs direct evidence")
+        symbolic_language = re.compile(r"\b(symboli[sz](?:e|es|ing|ed)|represent(?:s|ing|ed)?|indicat(?:e|es|ing|ed)|proxy for|metaphor|stands for)\b", re.I)
+        source_text = source_material or " ".join(str(beat.get("sourceGrounding") or "") for beat in editorial_beats)
+        source_normalized = re.sub(r"[^a-z0-9]+", " ", source_text.lower()).strip()
+        beat_material = " ".join(str(editorial_beats[index].get(field) or "") for field in ("editorialInput", "sourceGrounding", "problemConnection", "domainContext"))
+        beat_normalized = re.sub(r"[^a-z0-9]+", " ", beat_material.lower()).strip()
+        for anchor_quote in scene["domainAnchorQuotes"]:
+            anchor_normalized = re.sub(r"[^a-z0-9]+", " ", anchor_quote.lower()).strip()
+            if not anchor_normalized or anchor_normalized not in source_normalized:
+                raise ValueError(f"Instagram Reel scene concept {index + 1} invents a domain anchor")
+        environment_normalized = re.sub(r"[^a-z0-9]+", " ", scene["environmentSourceQuote"].lower()).strip()
+        if scene["environmentStrategy"] == "new_source_named_setting":
+            if not environment_normalized or environment_normalized not in source_normalized or environment_normalized not in beat_normalized or scene["reusedFromBeatId"]:
+                raise ValueError(f"Instagram Reel scene concept {index + 1} invents its environment")
+        elif scene["environmentStrategy"] == "reuse_prior_world":
+            prior_by_id = {prior["beatId"]: prior for prior in scenes}
+            reused = prior_by_id.get(scene["reusedFromBeatId"])
+            if environment_normalized or not reused or scene["visualWorldKey"] != reused["visualWorldKey"]:
+                raise ValueError(f"Instagram Reel scene concept {index + 1} does not reuse an approved world")
+        else:
+            raise ValueError(f"Instagram Reel scene concept {index + 1} has no valid environment strategy")
+        layer_names = {group["name"] for group in scene["movableGroups"]}
+        direct_layer_names = {group["name"] for group in scene["movableGroups"] if group["storyRole"] == "direct_evidence"}
+        allowed_transforms = {"slide_left", "slide_right", "rise", "drop", "scale_in", "settle", "shift_left", "shift_right", "lift", "lower"}
+        internal_change_language = re.compile(r"\b(open(?:s|ed|ing)?|clos(?:e|es|ed|ing)|fold(?:s|ed|ing)?|unfold(?:s|ed|ing)?|bend(?:s|ing)?|billow(?:s|ed|ing)?|hinge(?:s|d|ing)?|part(?:s|ed|ing)?|roll(?:s|ed|ing)?\s+(?:up|down)|retract(?:s|ed|ing)?|extend(?:s|ed|ing)?|change(?:s|d|ing)?\s+(?:pose|expression|shape|state|orientation)|turn(?:s|ed|ing)?\s+(?:head|body)|raise(?:s|d|ing)?\s+(?:arm|hand)|lower(?:s|ed|ing)?\s+(?:arm|hand)|behind\s+(?:a|an|the)?\s*(?:door|frame|railing|column|wall|furniture)|partly\s+(?:hidden|occluded)|partially\s+(?:hidden|occluded))\b", re.I)
+        for group in scene["movableGroups"]:
+            if group["transformMode"] not in allowed_transforms or group["appearanceChange"] != "none" or group["occlusionState"] != "fully_visible" or group["entrancePathState"] != "unobstructed" or internal_change_language.search(group["entrance"]):
+                raise ValueError(f"Instagram Reel scene concept {index + 1} contains a layer that cannot move as one unchanged image")
+            if group["storyRole"] == "direct_evidence":
+                quote_normalized = re.sub(r"[^a-z0-9]+", " ", group["sourceGroundingQuote"].lower()).strip()
+                if not quote_normalized or quote_normalized not in source_normalized or group["supportsLayer"]:
+                    raise ValueError(f"Instagram Reel scene concept {index + 1} has ungrounded direct evidence")
+            else:
+                support_quote = re.sub(r"[^a-z0-9]+", " ", group["sourceGroundingQuote"].lower()).strip()
+                if not group["supportsLayer"] or group["supportsLayer"] not in layer_names or group["supportsLayer"] not in direct_layer_names or not support_quote or support_quote not in source_normalized or symbolic_language.search(" ".join((group["masterFrameState"], group["entrance"], group["finalPosition"]))):
+                    raise ValueError(f"Instagram Reel scene concept {index + 1} has invalid kinetic support")
         scenes.append(scene)
+    if len(scenes) >= 2 and editorial_beats[-1].get("kind") == "resolution" and scenes[-1]["visualWorldKey"] != scenes[-2]["visualWorldKey"]:
+        raise ValueError("Instagram Reel resolution must stay in the payoff visual world")
     return {"editorialBeats": editorial_beats, "scenes": scenes, "sceneCount": len(scenes)}
 
 
@@ -5080,7 +5464,293 @@ def generate_instagram_reel_scene_concepts(site, job, language, editorial_brief)
         response_schema=INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA,
         temperature=0.4,
         repair=False,
-    ), editorial_beats)
+    ), editorial_beats, social_source_text(job, limit=16000))
+
+
+def build_instagram_reel_director_plan_prompt(site, job, language, scene_concepts):
+    scene_count = max(1, int(scene_concepts.get("totalSceneCount") or len(scene_concepts.get("scenes") or [])))
+    target_scene_seconds = round(30.0 / scene_count, 2)
+    return f"""
+You are step three: the technical motion director of a layered 30-second vertical Instagram Reel. Step two has already made every creative decision. Your output is the exact executable motion score for those approved still compositions.
+Return JSON only using the supplied schema. This is text-only direction. Do not generate images, voice, music, or video.
+
+BRAND: {site['brand_name'] or site['domain']}
+ARTICLE: {job['title'] or job['topic']}
+LANGUAGE: {LANGUAGE_NAMES.get(language, language.upper())}
+APPROVED STEP-TWO SCENES (immutable):
+{json.dumps(scene_concepts['scenes'], ensure_ascii=False)}
+
+AUTHORITATIVE INPUT:
+- `masterFrame` is the final fully assembled photograph and the inventory of everything physically available.
+- `cleanPlate` is the identical photograph after every approved movable layer is removed.
+- `movableGroups` are registered complete static image layers available for independent rigid animation. `layerType`, `storyRole`, `sourceGroundingQuote`, `supportsLayer`, and `transformMode` are immutable.
+- Fixed architecture and every non-removed detail remain permanently in the clean plate. They can receive camera attention but never count as layer events.
+
+Preserve beat order, master frame, clean plate, movable group identity and final position, overlay copy, continuity, retention, and resolution exactly. Do not redesign step two.
+
+For each scene:
+- Copy `beatId`, `masterFrame`, and `cleanPlate` verbatim. The complete Reel has {scene_count} scenes and must total 27-33 seconds, so use about {target_scene_seconds} seconds per scene while giving the hook and payoff enough reading time. Do not apply a fixed duration copied from another Reel.
+- Copy the exact same movable layers in the same order. Copy each name, `layerType`, `storyRole`, `sourceGroundingQuote`, `supportsLayer`, `transformMode`, and final position verbatim. Give every layer one timed rigid whole-layer entrance and an extraction constraint. The complete registered layer moves from outside the visible canvas, from a translated offset, or from a uniformly reduced depth scale into the exact approved final master-frame registration. Its internal pixels never move relative to one another.
+- Each layer entrance lasts roughly 0.6-1.5 seconds and finishes early enough for the camera to examine the assembled evidence. The layer's `startSeconds` and `endSeconds` must equal its corresponding `visualBeat` timing exactly. Use canvas-relative paths such as from the left edge, from above, or from a short depth scale; never output pixel coordinates, percentages, or a zero-size layer.
+- Create one `visualBeat` for every approved movable layer. There must be at least three beats and at least one `registered_object_entrance`. Every beat copies an exact meaningful phrase from that layer's own approved `masterFrameState` into `sourceAnchor`; this is the authoritative physical evidence for that specific layer. Text-placement space and incidental scenery never qualify.
+- Each beat is a real independent layer event. `subject` equals exactly one approved movable-layer name. Use `registered_group_entrance` for `person_group` and `registered_object_entrance` for `story_object`. A camera move, focus change, light change, text animation, static relationship, or the viewer merely noticing a fixed detail is not a visual beat.
+- Use exactly the approved layer's `transformMode` as its `revealMethod`. A complete layer may translate from a canvas edge, translate from a short offset, rise, drop, lift, lower, settle, or uniformly scale from a motivated depth plane. Do not reinterpret the approved method and do not add rotation, perspective change, deformation, articulation, pose change, expression change, or material-state change.
+- Every event changes what the viewer can physically see because one complete unchanged layer arrives at its registered position. Describe its full `fromState`, canvas-relative trajectory, easing, exact final state, and why this arrival advances the article beat. Because every layer is a full-canvas registered asset, do not invent pixel coordinates.
+- For a `kinetic_support` layer, `storyPurpose` must include the exact technical `supportsLayer` name character for character and describe only how the complete support layer's arrival frames, spatially supports, or directs attention toward it. The support event never symbolizes, represents, demonstrates, reinforces, emphasizes, proves, or resolves the editorial idea; never assign it an emotional transformation or conceptual meaning.
+- Every registered human layer remains a complete head-to-feet silhouette before, during, and after its entrance. `fromState` describes a complete layer outside the canvas or a complete in-place layer awaiting focus; it never crops, clips, hides, reconstructs, or changes any body part.
+- The layer sequence must make the source claim progressively clearer. The first action establishes the situation, the next adds concrete physical evidence, and the third completes the meaningful assembled relationship. Atmosphere, lighting, focus, wall surfaces, reflections, generic mood, empty copy space, and the future text area are production conditions and cannot become a `visualBeat`.
+- `visualBeats` contain only independent physical registered-layer events. Text, camera, focus, and static relationships are separate and never count toward the minimum three events.
+- `cameraPlan.beats` is one continuous whole-frame camera path synchronized with the evidence arrivals, not a random zoom sequence performed after the scene is already complete. Every camera beat names one exact approved `triggerLayer` and says whether it responds `during_entrance`, `on_settle`, or `after_settle`. Every direct-evidence layer must trigger at least one camera beat. During an entrance, follow or anticipate that layer's trajectory. On settle, transfer attention to the relationship it creates. After settle, use a genuine close-up only when it clarifies the evidence, then continue smoothly toward the next arrival or the final relationship. The camera begins at 0.0 seconds, never stops, jumps, restarts, or executes visible separate zoom steps; position, scale, direction, and velocity remain continuous through every destination and drift until the cut. A small digital push is not a close-up. Adjacent scenes must not repeat the same path. State exact seconds, movement enum, starting framing, ending framing, focus target, trigger layer, trigger moment, easing, and the semantic reason this reframing makes the arriving evidence easier to understand.
+- The final camera beat must finish on a `direct_evidence` layer or the visible relationship between direct-evidence layers. Its `focusTarget` must include at least one exact technical name of a direct-evidence layer character for character. A kinetic-support object may guide an earlier transition but is never the final focus or payoff.
+- Camera transforms the complete canvas, not one extracted layer independently. Its timing supports the approved layer events: it can move while a layer enters, settle with it, and continue toward the relationship created by the next layer.
+- `textDirection.copy` equals the approved 2-to-7-word `overlayText` character for character. It appears when the scene begins and remains continuously visible until the scene cut; set `startSeconds` to 0 and `endSeconds` to the full scene duration. Give one kinetic entrance enum, the exact protected zone approved in step two, and no more than three large mobile-readable lines. `protectedZoneProof` must audit that zone at the clean plate, every layer's complete trajectory, every layer's final position, and every camera framing. If any face, hand, body, object, or focal destination crosses it at any moment, change the camera path or layer timing; never place text over the evidence. The hook is the dominant visual element in its scene and must remain immediately readable. Use a locally contrasting light text color with a soft offset shadow and no outline. When local contrast still prevents clean reading, use an aesthetic color-sampled gradient scrim that is soft, feathered, locally integrated, and transparent toward the image. Never use an opaque black rectangle, hard-edged plaque, solid panel, banner, boxed text background, or outlined lettering.
+- Use `continuityFromPrevious` and `retentionIntoNext` to preserve the approved handoff. The final scene explicitly resolves the viewer question.
+
+Before returning JSON, simulate the edit from 0.0 seconds to scene end. A producer must be able to execute every reveal and camera move without interpreting prose or inventing a missing asset.
+""".strip()
+
+
+def normalize_instagram_reel_director_plan(data, scene_concepts, require_total_duration=True):
+    if not isinstance(data, dict) or not isinstance(data.get("scenes"), list):
+        raise ValueError("Instagram Reel director plan must contain a scenes array")
+    locked_scenes = scene_concepts.get("scenes") if isinstance(scene_concepts.get("scenes"), list) else []
+    if len(data["scenes"]) != len(locked_scenes):
+        raise ValueError("Instagram Reel director plan must contain exactly one scene per step-two concept")
+    result, total_duration = [], 0.0
+    for index, (raw, locked) in enumerate(zip(data["scenes"], locked_scenes), start=1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"Instagram Reel director scene {index} is invalid")
+        try:
+            duration = float(raw.get("durationSeconds"))
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Instagram Reel director scene {index} has invalid duration") from error
+        if not 2.5 <= duration <= 6 or raw.get("beatId") != locked.get("beatId"):
+            raise ValueError(f"Instagram Reel director scene {index} changed beat or has invalid duration")
+        if raw.get("masterFrame") != locked.get("masterFrame") or raw.get("cleanPlate") != locked.get("cleanPlate"):
+            raise ValueError(f"Instagram Reel director scene {index} changed approved step-two composition")
+        raw_groups = raw.get("movableGroups") if isinstance(raw.get("movableGroups"), list) else []
+        locked_groups = locked.get("movableGroups") if isinstance(locked.get("movableGroups"), list) else []
+        if len(raw_groups) != len(locked_groups):
+            raise ValueError(f"Instagram Reel director scene {index} changed approved group count")
+        groups = []
+        for group_index, (group, locked_group) in enumerate(zip(raw_groups, locked_groups), start=1):
+            if not isinstance(group, dict) or group.get("name") != locked_group.get("name") or group.get("layerType") != locked_group.get("layerType") or group.get("storyRole") != locked_group.get("storyRole") or group.get("sourceGroundingQuote") != locked_group.get("sourceGroundingQuote") or group.get("supportsLayer") != locked_group.get("supportsLayer") or group.get("transformMode") != locked_group.get("transformMode") or group.get("finalPosition") != locked_group.get("finalPosition"):
+                raise ValueError(f"Instagram Reel director scene {index} changed approved group {group_index}")
+            try:
+                start, end = float(group.get("startSeconds")), float(group.get("endSeconds"))
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"Instagram Reel director scene {index} group {group_index} has invalid timing") from error
+            if not 0 <= start < end <= duration or not _reel_copy(group.get("entranceAction"), 500) or not _reel_copy(group.get("extractionConstraint"), 500):
+                raise ValueError(f"Instagram Reel director scene {index} group {group_index} lacks executable direction")
+            if end - start > 1.8:
+                raise ValueError(f"Instagram Reel director scene {index} group {group_index} entrance consumes the scene")
+            groups.append({"name": group["name"], "layerType": group["layerType"], "storyRole": group["storyRole"], "sourceGroundingQuote": group["sourceGroundingQuote"], "supportsLayer": group["supportsLayer"], "transformMode": group["transformMode"], "startSeconds": start, "endSeconds": end, "entranceAction": _reel_copy(group.get("entranceAction"), 500), "finalPosition": group["finalPosition"], "extractionConstraint": _reel_copy(group.get("extractionConstraint"), 500)})
+        raw_visual_beats = raw.get("visualBeats") if isinstance(raw.get("visualBeats"), list) else []
+        if len(raw_visual_beats) < 3:
+            raise ValueError(f"Instagram Reel director scene {index} needs at least three physical visual beats")
+        visual_beats, visual_subjects = [], set()
+        allowed_reveals = {"slide_left", "slide_right", "rise", "drop", "scale_in", "settle", "shift_left", "shift_right", "lift", "lower"}
+        locked_group_types = {str(group.get("name") or "").strip().lower(): str(group.get("layerType") or "") for group in locked_groups}
+        locked_group_roles = {str(group.get("name") or "").strip().lower(): str(group.get("storyRole") or "") for group in locked_groups}
+        locked_group_supports = {str(group.get("name") or "").strip().lower(): str(group.get("supportsLayer") or "").strip().lower() for group in locked_groups}
+        locked_group_transforms = {str(group.get("name") or "").strip().lower(): str(group.get("transformMode") or "") for group in locked_groups}
+        locked_group_states = {str(group.get("name") or "").strip().lower(): _reel_copy(group.get("masterFrameState"), 1200) for group in locked_groups}
+        entrance_count = 0
+        object_event_count = 0
+        non_executable_phrases = re.compile(r"\b(crop(?:ped)?|clip(?:ped)?|cut off|ankle crop|waist crop|vignette|glow|light sweep|lighting change|color change|text overlay area)\b", re.I)
+        for beat_index, visual_beat in enumerate(raw_visual_beats, start=1):
+            if not isinstance(visual_beat, dict):
+                raise ValueError(f"Instagram Reel director scene {index} visual beat {beat_index} is invalid")
+            try:
+                order = int(visual_beat.get("order"))
+                start, end = float(visual_beat.get("startSeconds")), float(visual_beat.get("endSeconds"))
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"Instagram Reel director scene {index} visual beat {beat_index} has invalid timing") from error
+            kind = _reel_copy(visual_beat.get("kind"), 80)
+            reveal = _reel_copy(visual_beat.get("revealMethod"), 80)
+            values = {field: _reel_copy(visual_beat.get(field), 700) for field in ("sourceAnchor", "subject", "fromState", "trajectory", "easing", "finalState", "storyPurpose")}
+            subject_key = values["subject"].strip().lower()
+            if order != beat_index or kind not in {"registered_group_entrance", "registered_object_entrance"} or reveal not in allowed_reveals or not 0 <= start < end <= duration or not all(values.values()):
+                raise ValueError(f"Instagram Reel director scene {index} visual beat {beat_index} is incomplete")
+            if subject_key not in locked_group_types:
+                raise ValueError(f"Instagram Reel director scene {index} event {beat_index} is not an approved registered layer")
+            if reveal != locked_group_transforms[subject_key]:
+                raise ValueError(f"Instagram Reel director scene {index} event {beat_index} changed the approved rigid transform")
+            anchor_normalized = re.sub(r"[^a-z0-9]+", " ", values["sourceAnchor"].lower()).strip()
+            state_normalized = re.sub(r"[^a-z0-9]+", " ", locked_group_states[subject_key].lower()).strip()
+            if not anchor_normalized or anchor_normalized not in state_normalized:
+                raise ValueError(f"Instagram Reel director scene {index} event {beat_index} is not anchored in its approved layer state")
+            expected_kind = "registered_object_entrance" if locked_group_types[subject_key] == "story_object" else "registered_group_entrance"
+            if kind != expected_kind:
+                raise ValueError(f"Instagram Reel director scene {index} event {beat_index} does not match its registered layer type")
+            if subject_key in visual_subjects:
+                raise ValueError(f"Instagram Reel director scene {index} repeats a layer instead of animating three distinct layers")
+            if re.search(r"\b\d+\s*px\b|\bx\s*=|\by\s*=", values["trajectory"], re.I):
+                raise ValueError(f"Instagram Reel director scene {index} event {beat_index} invents pixel coordinates")
+            if non_executable_phrases.search(" ".join((values["fromState"], values["trajectory"], values["finalState"]))):
+                raise ValueError(f"Instagram Reel director scene {index} event {beat_index} damages the registered layer")
+            if locked_group_roles[subject_key] == "kinetic_support":
+                purpose_normalized = re.sub(r"[^a-z0-9_]+", " ", values["storyPurpose"].lower()).strip()
+                support_name = locked_group_supports[subject_key]
+                symbolic_purpose = re.compile(r"\b(symboli[sz]|represent|demonstrat|reinforc|emphasi[sz]|prov|resolv|hope|confidence|success|isolation|openness|welcoming)\w*\b", re.I)
+                if not support_name or support_name not in purpose_normalized or symbolic_purpose.search(values["storyPurpose"]):
+                    raise ValueError(f"Instagram Reel director scene {index} support event {beat_index} claims editorial meaning")
+            entrance_count += 1
+            if locked_group_types[subject_key] == "story_object":
+                object_event_count += 1
+            visual_subjects.add(subject_key)
+            visual_beats.append({"order": order, "startSeconds": start, "endSeconds": end, "kind": kind, "revealMethod": reveal, **values})
+        if len(visual_subjects) < 3 or entrance_count < 3:
+            raise ValueError(f"Instagram Reel director scene {index} needs three distinct registered-layer events")
+        if object_event_count < 1:
+            raise ValueError(f"Instagram Reel director scene {index} needs a moving story-object event")
+        camera = raw.get("cameraPlan") if isinstance(raw.get("cameraPlan"), dict) else {}
+        text = raw.get("textDirection") if isinstance(raw.get("textDirection"), dict) else {}
+        group_timings = {str(group["name"]).strip().lower(): (group["startSeconds"], group["endSeconds"]) for group in groups}
+        for visual_beat in visual_beats:
+            if group_timings.get(visual_beat["subject"].strip().lower()) != (visual_beat["startSeconds"], visual_beat["endSeconds"]):
+                raise ValueError(f"Instagram Reel director scene {index} layer and visual-beat timings disagree")
+        try:
+            text_start, text_end = float(text.get("startSeconds")), float(text.get("endSeconds"))
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Instagram Reel director scene {index} camera or text timing is invalid") from error
+        text_values = {field: _reel_copy(text.get(field), 700) for field in ("appearance", "placement", "contrastTreatment", "protectedZoneProof")}
+        try:
+            max_lines = int(text.get("maxLines"))
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Instagram Reel director scene {index} text maxLines is invalid") from error
+        camera_beats = camera.get("beats") if isinstance(camera.get("beats"), list) else []
+        if len(camera_beats) < 2:
+            raise ValueError(f"Instagram Reel director scene {index} needs at least two camera beats")
+        normalized_camera_beats = []
+        previous_end = 0.0
+        camera_triggers = set()
+        for beat_index, beat in enumerate(camera_beats, start=1):
+            if not isinstance(beat, dict):
+                raise ValueError(f"Instagram Reel director scene {index} camera beat {beat_index} is invalid")
+            try:
+                start, end = float(beat.get("startSeconds")), float(beat.get("endSeconds"))
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"Instagram Reel director scene {index} camera beat {beat_index} has invalid timing") from error
+            values = {field: _reel_copy(beat.get(field), 700) for field in ("movement", "fromFraming", "toFraming", "focusTarget", "triggerLayer", "triggerMoment", "easing", "purpose")}
+            trigger_key = values["triggerLayer"].strip().lower()
+            if not previous_end - 0.05 <= start < end <= duration or not all(values.values()) or trigger_key not in group_timings:
+                raise ValueError(f"Instagram Reel director scene {index} camera beat {beat_index} is not synchronized to an approved layer")
+            entrance_start, entrance_end = group_timings[trigger_key]
+            if end < entrance_start:
+                raise ValueError(f"Instagram Reel director scene {index} camera beat {beat_index} finishes before its trigger layer appears")
+            if start <= entrance_end and end >= entrance_start:
+                values["triggerMoment"] = "during_entrance"
+            elif start <= entrance_end + 1.5:
+                values["triggerMoment"] = "on_settle"
+            else:
+                values["triggerMoment"] = "after_settle"
+            normalized_camera_beats.append({"startSeconds": start, "endSeconds": end, **values})
+            camera_triggers.add(trigger_key)
+            previous_end = end
+        if normalized_camera_beats[0]["startSeconds"] > 0.05:
+            raise ValueError(f"Instagram Reel director scene {index} camera path must begin with the scene")
+        final_focus = re.sub(r"[^a-z0-9_]+", " ", normalized_camera_beats[-1]["focusTarget"].lower()).strip()
+        direct_names = [name for name, role in locked_group_roles.items() if role == "direct_evidence"]
+        if not set(direct_names).issubset(camera_triggers):
+            raise ValueError(f"Instagram Reel director scene {index} camera path ignores arriving direct evidence")
+        if not any(name in final_focus for name in direct_names):
+            raise ValueError(f"Instagram Reel director scene {index} final camera beat does not land on direct evidence")
+        if text.get("copy") != locked.get("overlayText") or not 0 <= text_start < text_end <= duration or not 1 <= max_lines <= 4 or not all(text_values.values()):
+            raise ValueError(f"Instagram Reel director scene {index} text direction is incomplete or changed")
+        if text_start > 0.05 or duration - text_end > 0.05:
+            raise ValueError(f"Instagram Reel director scene {index} text must remain visible for the complete scene")
+        if re.search(r"\b(opaque black rectangle|solid black rectangle|hard-edged black plaque|solid black plaque|solid black panel|boxed text background|black banner)\b", text_values["contrastTreatment"], re.I):
+            raise ValueError(f"Instagram Reel director scene {index} uses a crude black text plaque")
+        continuity = _reel_copy(raw.get("continuityFromPrevious"), 500)
+        retention = _reel_copy(raw.get("retentionIntoNext"), 500)
+        if not continuity or not retention:
+            raise ValueError(f"Instagram Reel director scene {index} lacks continuity direction")
+        result.append({"beatId": raw["beatId"], "durationSeconds": duration, "masterFrame": raw["masterFrame"], "cleanPlate": raw["cleanPlate"], "movableGroups": groups, "visualBeats": visual_beats, "cameraPlan": {"beats": normalized_camera_beats}, "textDirection": {"copy": text["copy"], "startSeconds": text_start, "endSeconds": text_end, "maxLines": max_lines, **text_values}, "continuityFromPrevious": continuity, "retentionIntoNext": retention})
+        total_duration += duration
+    if require_total_duration and not 27 <= total_duration <= 33:
+        raise ValueError("Instagram Reel director plan must total 27-33 seconds")
+    return {"version": "reel-director-plan-v1", "mediaGenerated": False, "sceneCount": len(result), "durationSeconds": round(total_duration, 1), "scenes": result}
+
+
+def hydrate_instagram_reel_director_locks(candidate, locked_scene):
+    """Copy immutable step-two identity fields; Gemini owns timing and direction only."""
+    if not isinstance(candidate, dict) or not isinstance(candidate.get("scenes"), list) or len(candidate["scenes"]) != 1:
+        return candidate
+    scene = candidate["scenes"][0]
+    if not isinstance(scene, dict):
+        return candidate
+    for field in ("beatId", "masterFrame", "cleanPlate", "continuityFromPrevious", "retentionIntoNext"):
+        scene[field] = locked_scene.get(field)
+    raw_groups = scene.get("movableGroups") if isinstance(scene.get("movableGroups"), list) else []
+    locked_groups = locked_scene.get("movableGroups") if isinstance(locked_scene.get("movableGroups"), list) else []
+    visual_timings = {
+        str(beat.get("subject") or "").strip().lower(): (beat.get("startSeconds"), beat.get("endSeconds"))
+        for beat in (scene.get("visualBeats") if isinstance(scene.get("visualBeats"), list) else [])
+        if isinstance(beat, dict)
+    }
+    for raw_group, locked_group in zip(raw_groups, locked_groups):
+        if not isinstance(raw_group, dict):
+            continue
+        for field in ("name", "layerType", "storyRole", "sourceGroundingQuote", "supportsLayer", "transformMode", "finalPosition"):
+            raw_group[field] = locked_group.get(field)
+        timing = visual_timings.get(str(locked_group.get("name") or "").strip().lower())
+        if timing:
+            raw_group["startSeconds"], raw_group["endSeconds"] = timing
+    locked_by_name = {
+        str(group.get("name") or "").strip().lower(): group
+        for group in locked_groups if isinstance(group, dict)
+    }
+    for visual_beat in (scene.get("visualBeats") if isinstance(scene.get("visualBeats"), list) else []):
+        if not isinstance(visual_beat, dict):
+            continue
+        locked_group = locked_by_name.get(str(visual_beat.get("subject") or "").strip().lower())
+        if locked_group:
+            visual_beat["sourceAnchor"] = locked_group.get("masterFrameState")
+        if locked_group and locked_group.get("storyRole") == "kinetic_support":
+            supported = str(locked_group.get("supportsLayer") or "").strip()
+            visual_beat["storyPurpose"] = f"The complete rigid layer arrives to frame {supported} spatially without carrying editorial meaning."
+    text = scene.get("textDirection") if isinstance(scene.get("textDirection"), dict) else None
+    if text is not None:
+        text["copy"] = locked_scene.get("overlayText")
+    return candidate
+
+
+def generate_instagram_reel_director_plan(site, job, language, scene_concepts, progress_callback=None, rejection_callback=None, require_total_duration=True, initial_scenes=None):
+    """Checkpoint detailed direction scene by scene; never retry media or prior scenes."""
+    approved = list(initial_scenes) if isinstance(initial_scenes, list) else []
+    locked_scenes = scene_concepts.get("scenes") if isinstance(scene_concepts.get("scenes"), list) else []
+    if len(approved) > len(locked_scenes):
+        raise ValueError("Instagram Reel director checkpoint contains too many scenes")
+    for prefix_index, prefix_scene in enumerate(approved):
+        normalize_instagram_reel_director_plan(
+            {"scenes": [prefix_scene]},
+            {"scenes": [locked_scenes[prefix_index]]},
+            require_total_duration=False,
+        )
+    for index, locked_scene in enumerate(locked_scenes[len(approved):], start=len(approved) + 1):
+        candidate = None
+        try:
+            candidate = _gemini_text_json(
+                build_instagram_reel_director_plan_prompt(site, job, language, {"scenes": [locked_scene], "totalSceneCount": len(locked_scenes)}),
+                response_schema=INSTAGRAM_REEL_DIRECTOR_PLAN_SCHEMA,
+                temperature=0.3,
+                repair=False,
+            )
+            hydrate_instagram_reel_director_locks(candidate, locked_scene)
+            scene = normalize_instagram_reel_director_plan(
+                candidate, {"scenes": [locked_scene]}, require_total_duration=False
+            )["scenes"][0]
+        except Exception as error:
+            if rejection_callback and isinstance(candidate, dict):
+                rejection_callback("director_plan", index, len(locked_scenes), candidate, error)
+            raise ValueError(f"Instagram Reel director scene {index} failed: {str(error)[:900]}") from error
+        approved.append(scene)
+        if progress_callback:
+            progress_callback(index, len(locked_scenes), scene)
+    return normalize_instagram_reel_director_plan(
+        {"scenes": approved}, scene_concepts, require_total_duration=require_total_duration
+    )
 
 
 def build_instagram_reel_story_architecture_prompt(site, job, language, source_outline):
@@ -5377,7 +6047,7 @@ VISUAL CONTINUITY:
 - A separate `story_object` must be a substantial self-supporting physical object with a clear footprint and mobile-readable scale. It must be fully visible with safe canvas margin and must not be held, carried, worn, touched, or include a person/body part. Any handheld, worn, attached, or mutually interacting item belongs inside the same cohesive character layer instead of becoming a separate layer.
 - For a separate `story_object`, write its `action` as its own visible floor-level state or state change, such as standing closed on the deck or resting open on the floor with its complete footprint visible. Never describe what a person does to it.
 - Make layers describe the complete intended master composition. The image model creates all listed groups together once; a visual gate rejects the master before extraction when groups are small, cropped, crowded, touching unrelated people, ambiguous, or inseparable. Prefer an uncrowded camera angle with no unrelated foreground or middle-distance people near movable silhouettes.
-- Before returning JSON, design every movable group as an extraction-safe part of one future master photograph: free-standing, walking, turning, gesturing, or naturally interacting, with a complete unobstructed silhouette visible continuously from the top of the head through both feet. Do not specify a waist-up, chest-up, head-to-thigh, partial-body, or editorial crop. A seated, reclining, naturally occluded, cropped, furniture-supported, or fixed-contact person is never a movable layer because translating it would reveal a missing body or move the furniture. Express that beat through a different source-grounded free-standing action. Fixed architecture, floors, walls, railings, doors, bars, counters, tables, chairs, benches, sofas, loungers, and built-in furniture remain part of the background. A movable person must have visible air gap from them: no hand, arm, body, clothing, or owned item rests on, crosses behind, or is hidden by fixed architecture. A bartender behind a bar, a traveler at a counter, and a person touching a railing are not movable layers and must be recomposed on open floor or deck space. Carried or worn items remain inside the complete person/group silhouette only when the source actually requires them.
+- Before returning JSON, design every movable group as an extraction-safe part of one future master photograph: free-standing, walking, turning, gesturing, or naturally interacting, with a complete unobstructed silhouette visible continuously from the top of the head through both feet. Preserve clear tonal and edge contrast against the immediate background around the complete outline; avoid backlighting, same-color mergers, patterned detail directly behind a silhouette, and low-contrast hair or clothing edges. Leave visible breathing room around hair, hands, feet, and genuinely carried items. Do not specify a waist-up, chest-up, head-to-thigh, partial-body, or editorial crop. A seated, reclining, naturally occluded, cropped, furniture-supported, or fixed-contact person is never a movable layer because translating it would reveal a missing body or move the furniture. Express that beat through a different source-grounded free-standing action. Fixed architecture, floors, walls, railings, doors, bars, counters, tables, chairs, benches, sofas, loungers, and built-in furniture remain part of the background. A movable person must have visible air gap from them: no hand, arm, body, clothing, or owned item rests on, crosses behind, or is hidden by fixed architecture. A bartender behind a bar, a traveler at a counter, and a person touching a railing are not movable layers and must be recomposed on open floor or deck space. Carried or worn items remain inside the complete person/group silhouette only when the source actually requires them.
 - Every character/group is one accepted still pose from the integrated master photograph. Its `action`, `prompt`, `initialState`, and `finalState` must not claim that the same still changes pose, gaze, expression, gesture, limb position, or relationship after extraction. The registered group may enter the frame as one rigid complete silhouette and then hold; continuing life comes from staggered group entrances, kinetic text, and whole-scene camera movement. Different scenes may show the recurring performer in genuinely different photographed poses and emotions. Its prompt must account for every visible owned item so the entire group can be removed from the master and restored as one registered layer. A separate `story_object` remains large, standalone, complete, grounded, and visually separated from every character group; handheld and worn items belong to their character group instead.
 - Every element must include `sourceEvidence` as an exact 2-14-word quotation from the article, not your paraphrase. It must name the specific fact or action that the visual makes visible. An element may never be a symbolic stand-in, generic metaphor, mood prop, or visual representation of an abstract cost, dilemma, journey, burden, freedom, or choice. If the source does not call for the object or person, do not include it.
 - A standalone `story_object` is permitted only when the article itself explicitly names that concrete object. Its prompt must name that same object. Do not invent luggage, trunks, tickets, maps, menus, documents, instruments, or other travel props to communicate an abstract article point; use a source-grounded person or interacting group instead.
@@ -5621,6 +6291,34 @@ def normalize_instagram_reel(data, story_architecture=None, require_production_d
             "composition": {"textPlacement": text_placement},
             "usesLogoReference": bool(raw.get("usesLogoReference")),
             "layers": normalized_layers,
+            "directorTimeline": [{
+                "startSeconds": item.get("startSeconds"),
+                "endSeconds": item.get("endSeconds"),
+                "subject": _reel_copy(item.get("subject"), 180),
+                "action": _reel_copy(item.get("action"), 420),
+                "effect": _reel_copy(item.get("effect"), 420),
+                "finalState": _reel_copy(item.get("finalState"), 420),
+            } for item in (raw.get("directorTimeline") if isinstance(raw.get("directorTimeline"), list) else []) if isinstance(item, dict)],
+            "cameraPlan": {
+                "startSeconds": (raw.get("cameraPlan") or {}).get("startSeconds"),
+                "endSeconds": (raw.get("cameraPlan") or {}).get("endSeconds"),
+                "focusTarget": _reel_copy((raw.get("cameraPlan") or {}).get("focusTarget"), 240),
+                "path": _reel_copy((raw.get("cameraPlan") or {}).get("path"), 500),
+                "purpose": _reel_copy((raw.get("cameraPlan") or {}).get("purpose"), 500),
+            } if isinstance(raw.get("cameraPlan"), dict) else {},
+            "textDirection": {
+                "copy": _reel_copy((raw.get("textDirection") or {}).get("copy"), 160),
+                "startSeconds": (raw.get("textDirection") or {}).get("startSeconds"),
+                "endSeconds": (raw.get("textDirection") or {}).get("endSeconds"),
+                "appearance": _reel_copy((raw.get("textDirection") or {}).get("appearance"), 420),
+                "placement": _reel_copy((raw.get("textDirection") or {}).get("placement"), 420),
+                "contrastTreatment": _reel_copy((raw.get("textDirection") or {}).get("contrastTreatment"), 420),
+            } if isinstance(raw.get("textDirection"), dict) else {},
+            "extractionConstraints": [{
+                "movableGroup": _reel_copy(item.get("movableGroup"), 180),
+                "mustStayClearOf": _reel_copy(item.get("mustStayClearOf"), 420),
+                "reason": _reel_copy(item.get("reason"), 420),
+            } for item in (raw.get("extractionConstraints") if isinstance(raw.get("extractionConstraints"), list) else []) if isinstance(item, dict)],
         })
         total_duration += duration
         prior_stage_id = stage_id
@@ -5699,6 +6397,13 @@ The output is a decomposition of one coherent photograph:
 - no hand, arm, body, clothing, or owned item touches, rests on, crosses behind, or is hidden by a railing, bar, counter, desk, table, chair, wall, door, or built-in furniture;
 - animation fields state how that approved still group enters as one rigid registered layer and then holds; they never describe a pose, gaze, gesture, expression, or anatomy change;
 - camera fields describe movement of the fully assembled scene, never independent repositioning of a layer.
+
+DIRECTOR'S EXECUTION PLAN (required fields):
+- `directorTimeline` is a scene-local seconds timeline, not prose. It contains at least three visible actions. Use the locked technical IDs (`element-01`, and so on) as `subject` for every foreground action, `on-screen text` for the copy action, and `camera` only when describing the camera event. Each event specifies its start/end seconds, exactly what is visibly happening, how it enters or changes on screen, and the final held state.
+- Every scene needs at least two concrete foreground actions plus the on-screen-text action; the active `cameraPlan` is required in addition. Use varied reveal behaviour where the locked subject makes it physically plausible: a complete group can enter from a named edge, rise, drop, or resolve in place; do not pretend a still person changes pose after entry. Do not add decorative graphics, symbolic effects, or invented props merely to reach the action count.
+- `cameraPlan` begins only after the final foreground entrance has settled. It gives local start/end seconds, a named focus target, a path that literally includes the locked `{scene.get('cameraMove')}` move, and the viewer reason for that move. The camera path is whole-scene movement, not movement of a cut-out.
+- `textDirection.copy` is the exact locked `overlayText` character for character. Give its local start/end seconds, a specific kinetic entrance, a calm placement chosen from the approved empty space, and a contrast treatment derived from the local plate. Never use a black plaque, banner, or generic graphic panel.
+- `extractionConstraints` has exactly one entry for every approved layer ID. For each one, state what fixed architecture, furniture, other people, frame edge, or occluding surface it must remain clear of in the master frame and why that preserves a complete extractable silhouette. This is a constraint for the master photograph, not an instruction to redraw or move the group after generation.
 
 Do not reinterpret the message, improve the story, invent a stronger hook, introduce visual metaphors, or choose alternative imagery. If the approved scene is not technically decomposable, return it faithfully rather than replacing it; validation will send the problem back to step two.
 
@@ -5836,6 +6541,72 @@ def validate_instagram_reel_locked_scene_detail(scene, locked_scene, scene_index
     return scene
 
 
+def validate_instagram_reel_director_plan(scene, locked_scene, scene_index):
+    """Make step three an executable director's plan, not descriptive prose."""
+    try:
+        duration = float(locked_scene.get("durationSeconds") or 0)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"scene {scene_index} has no usable locked duration") from error
+    timeline = scene.get("directorTimeline") if isinstance(scene.get("directorTimeline"), list) else []
+    if len(timeline) < 3:
+        raise ValueError(f"scene {scene_index} needs at least three visible director actions")
+    layer_ids = [str(layer.get("id") or "") for layer in (scene.get("layers") or [])]
+    layer_event_ends = []
+    visible_actions = 0
+    for event_index, event in enumerate(timeline, start=1):
+        try:
+            start = float(event.get("startSeconds"))
+            end = float(event.get("endSeconds"))
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"scene {scene_index} director action {event_index} has invalid timing") from error
+        if not 0 <= start < end <= duration:
+            raise ValueError(f"scene {scene_index} director action {event_index} exceeds the scene duration")
+        if not all(_reel_copy(event.get(field), 500) for field in ("subject", "action", "effect", "finalState")):
+            raise ValueError(f"scene {scene_index} director action {event_index} is incomplete")
+        subject = _reel_copy(event.get("subject"), 240).lower()
+        if subject not in {"camera", "on-screen text", "text"}:
+            visible_actions += 1
+            if any(layer_id.lower() in subject for layer_id in layer_ids):
+                layer_event_ends.append(end)
+    if visible_actions < 2:
+        raise ValueError(f"scene {scene_index} needs at least two concrete subject actions before camera work")
+
+    text = scene.get("textDirection") if isinstance(scene.get("textDirection"), dict) else {}
+    try:
+        text_start = float(text.get("startSeconds"))
+        text_end = float(text.get("endSeconds"))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"scene {scene_index} text plan has invalid timing") from error
+    if text.get("copy") != locked_scene.get("overlayText") or not 0 <= text_start < text_end <= duration:
+        raise ValueError(f"scene {scene_index} text plan must show the locked overlay copy within scene timing")
+    if not all(_reel_copy(text.get(field), 500) for field in ("appearance", "placement", "contrastTreatment")):
+        raise ValueError(f"scene {scene_index} text plan lacks appearance, placement, or contrast direction")
+
+    camera = scene.get("cameraPlan") if isinstance(scene.get("cameraPlan"), dict) else {}
+    try:
+        camera_start = float(camera.get("startSeconds"))
+        camera_end = float(camera.get("endSeconds"))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"scene {scene_index} camera plan has invalid timing") from error
+    if not 0 <= camera_start < camera_end <= duration:
+        raise ValueError(f"scene {scene_index} camera plan exceeds the scene duration")
+    if layer_event_ends and camera_start < max(layer_event_ends):
+        raise ValueError(f"scene {scene_index} camera must begin after foreground entrances settle")
+    if not all(_reel_copy(camera.get(field), 600) for field in ("focusTarget", "path", "purpose")):
+        raise ValueError(f"scene {scene_index} camera plan is incomplete")
+    if str(locked_scene.get("cameraMove") or "") not in _reel_copy(camera.get("path"), 600):
+        raise ValueError(f"scene {scene_index} camera plan must execute locked move {locked_scene.get('cameraMove')}")
+
+    constraints = scene.get("extractionConstraints") if isinstance(scene.get("extractionConstraints"), list) else []
+    constrained = {str(item.get("movableGroup") or "") for item in constraints if isinstance(item, dict)}
+    if set(layer_ids) != constrained:
+        raise ValueError(f"scene {scene_index} must state extraction constraints for every movable group")
+    for constraint in constraints:
+        if not all(_reel_copy(constraint.get(field), 500) for field in ("movableGroup", "mustStayClearOf", "reason")):
+            raise ValueError(f"scene {scene_index} has an incomplete extraction constraint")
+    return scene
+
+
 def validate_instagram_reel_source_grounding(scenes, job):
     """Reject visual props that the article did not actually give the story.
 
@@ -5869,6 +6640,10 @@ def validate_instagram_reel_source_grounding(scenes, job):
             if re.search(pattern, editorial_state) and not re.search(pattern, source):
                 raise ValueError(f"scene {scene_index} invents an unsourced character knowledge event: {label}")
         for layer in scene.get("layers") or []:
+            if layer.get("storyRole") == "kinetic_support" and layer.get("supportsLayer"):
+                # A kinetic support object gives a source-grounded subject physical
+                # context but carries no editorial claim of its own.
+                continue
             evidence = _reel_copy(layer.get("sourceEvidence"), 700)
             evidence_normalized = re.sub(r"\s+", " ", evidence.lower()).strip(" .,:;\"'")
             evidence_words = re.findall(r"[a-z][a-z0-9'-]{2,}", evidence_normalized)
@@ -5921,6 +6696,7 @@ def elaborate_instagram_reel_scenes(
             try:
                 validated = validate_instagram_reel_scene_detail(initial_scenes[scene_index], scene_index + 1)
                 validated = validate_instagram_reel_locked_scene_detail(validated, locked_scene, scene_index + 1)
+                validated = validate_instagram_reel_director_plan(validated, locked_scene, scene_index + 1)
                 validate_instagram_reel_source_grounding([validated], job)
                 if detailed and instagram_reel_framing_similarity(validated.get("shotFraming"), detailed[-1].get("shotFraming")) >= 0.62:
                     raise ValueError(f"scene {scene_index + 1} repeats the prior shot design instead of directing this beat")
@@ -5936,7 +6712,7 @@ def elaborate_instagram_reel_scenes(
             try:
                 candidate = _gemini_text_json(
                     build_instagram_reel_scene_detail_prompt(site, job, language, architecture, skeleton, scene_index, detailed) + retry,
-                    response_schema=INSTAGRAM_REEL_VISUAL_SCENE_SCHEMA,
+                    response_schema=INSTAGRAM_REEL_SCENE_DETAIL_ITEM_SCHEMA,
                     temperature=0.4,
                     repair=False,
                 )
@@ -5966,6 +6742,7 @@ def elaborate_instagram_reel_scenes(
                     raise ValueError(f"scene {scene_index + 1} failed to reuse its stage background verbatim")
                 validated = validate_instagram_reel_scene_detail(candidate, scene_index + 1)
                 validated = validate_instagram_reel_locked_scene_detail(validated, locked_scene, scene_index + 1)
+                validated = validate_instagram_reel_director_plan(validated, locked_scene, scene_index + 1)
                 validate_instagram_reel_source_grounding([validated], job)
                 if detailed and instagram_reel_framing_similarity(validated.get("shotFraming"), detailed[-1].get("shotFraming")) >= 0.62:
                     raise ValueError(f"scene {scene_index + 1} repeats the prior shot design instead of directing this beat")
@@ -5982,11 +6759,11 @@ def elaborate_instagram_reel_scenes(
     return detailed
 
 
-def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=None, checkpoint_callback=None, stop_after_editorial_brief=False, stop_after_scene_concepts=True):
+def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=None, checkpoint_callback=None, stop_after_editorial_brief=False, stop_after_scene_concepts=True, stop_after_director_plan=True):
     checkpoint = dict(resume_checkpoint) if isinstance(resume_checkpoint, dict) else {}
 
     def save_checkpoint(phase, scene=0, total=0):
-        checkpoint["version"] = 14
+        checkpoint["version"] = 16
         checkpoint["phase"] = phase
         checkpoint["scene"] = scene
         checkpoint["totalScenes"] = total
@@ -6024,7 +6801,7 @@ def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=No
         try:
             editorial_brief = normalize_instagram_reel_editorial_brief(stored_editorial_brief)
         except Exception:
-            for key in ("editorialBrief", "architecture", "skeleton", "detailedScenes", "manifestScenes", "storyboard"):
+            for key in ("editorialBrief", "sceneConcepts", "directorScenes", "directorPlan", "architecture", "skeleton", "detailedScenes", "manifestScenes", "storyboard"):
                 checkpoint.pop(key, None)
             stored_editorial_brief = None
     if not isinstance(stored_editorial_brief, dict):
@@ -6038,9 +6815,9 @@ def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=No
     editorial_beats = derive_instagram_reel_editorial_beats(editorial_brief)
     if isinstance(stored_scene_concepts, dict):
         try:
-            scene_concepts = normalize_instagram_reel_scene_concepts(stored_scene_concepts, editorial_beats)
+            scene_concepts = normalize_instagram_reel_scene_concepts(stored_scene_concepts, editorial_beats, social_source_text(job, limit=16000))
         except Exception:
-            for key in ("sceneConcepts", "architecture", "skeleton", "detailedScenes", "manifestScenes", "storyboard"):
+            for key in ("sceneConcepts", "directorScenes", "directorPlan", "architecture", "skeleton", "detailedScenes", "manifestScenes", "storyboard"):
                 checkpoint.pop(key, None)
             stored_scene_concepts = None
     if not isinstance(stored_scene_concepts, dict):
@@ -6049,6 +6826,42 @@ def generate_instagram_reel_storyboard(site, job, language, resume_checkpoint=No
         save_checkpoint("scene_concepts_ready", total=scene_concepts["sceneCount"])
     if stop_after_scene_concepts:
         return {"editorialBrief": editorial_brief, "sceneConcepts": scene_concepts, "planningCheckpoint": checkpoint}
+
+    stored_director_plan = checkpoint.get("directorPlan")
+    if isinstance(stored_director_plan, dict):
+        try:
+            director_plan = normalize_instagram_reel_director_plan(stored_director_plan, scene_concepts)
+        except Exception:
+            for key in ("directorPlan", "directorScenes", "architecture", "skeleton", "detailedScenes", "manifestScenes", "storyboard"):
+                checkpoint.pop(key, None)
+            stored_director_plan = None
+    if not isinstance(stored_director_plan, dict):
+        stored_director_scenes = checkpoint.get("directorScenes")
+        if not isinstance(stored_director_scenes, list):
+            stored_director_scenes = []
+
+        def save_director_scene(scene, total, result):
+            save_scene_checkpoint("directorScenes", "director_scene_ready", scene, total, result)
+
+        director_plan = generate_instagram_reel_director_plan(
+            site,
+            job,
+            language,
+            scene_concepts,
+            progress_callback=save_director_scene,
+            rejection_callback=save_rejected_stage,
+            initial_scenes=stored_director_scenes,
+        )
+        checkpoint["directorPlan"] = director_plan
+        checkpoint.pop("rejectedStage", None)
+        save_checkpoint("director_plan_ready", scene=director_plan["sceneCount"], total=director_plan["sceneCount"])
+    if stop_after_director_plan:
+        return {
+            "editorialBrief": editorial_brief,
+            "sceneConcepts": scene_concepts,
+            "directorPlan": director_plan,
+            "planningCheckpoint": checkpoint,
+        }
 
     source_outline = instagram_reel_source_outline(job)
     checkpoint["sourceOutline"] = source_outline
@@ -7039,7 +7852,7 @@ def queue_instagram_reel(site_id, job_id):
             "instagramReel": {
                 "progress": {"phase": "queued", "scene": 0, "totalScenes": 0, "message": "Waiting for Gemini to derive the story structure"},
                 "motionSystem": "validated coherent master frame, identical clean plate, master-derived registered layers, subject-focused camera beats, and quiet-zone kinetic type",
-                "version": 14,
+                "version": 16,
             },
         }
         cursor = conn.execute(
@@ -7075,10 +7888,20 @@ def regenerate_instagram_reel(site_id, post_id):
         payload["instagramReel"] = {
             "progress": {"phase": "queued", "scene": 0, "totalScenes": 0, "message": "Waiting for Gemini to derive the story structure"},
             "motionSystem": "validated coherent master frame, identical clean plate, master-derived registered layers, subject-focused camera beats, and quiet-zone kinetic type",
-            "version": 14,
+            "version": 16,
         }
-        if prior_checkpoint and int(prior_checkpoint.get("version") or 0) == 14:
-            payload["instagramReel"]["planningCheckpoint"] = prior_checkpoint
+        if prior_checkpoint:
+            if int(prior_checkpoint.get("version") or 0) == 16:
+                payload["instagramReel"]["planningCheckpoint"] = prior_checkpoint
+            elif isinstance(prior_checkpoint.get("editorialBrief"), dict):
+                payload["instagramReel"]["planningCheckpoint"] = {
+                    "version": 16,
+                    "phase": "editorial_brief_ready",
+                    "scene": 0,
+                    "totalScenes": len(prior_checkpoint["editorialBrief"].get("solutionSteps") or []),
+                    "updatedAt": now_iso(),
+                    "editorialBrief": prior_checkpoint["editorialBrief"],
+                }
         conn.execute(
             "update social_posts set content_text='',content_json=?,remote_url='',status='GENERATING',validation_json='{}',char_count=0,updated_at=? where id=?",
             (json.dumps(payload, ensure_ascii=False), now_iso(), post_id),
@@ -7088,6 +7911,244 @@ def regenerate_instagram_reel(site_id, post_id):
             (site_id, post["source_job_id"], now_iso(), "INFO", "instagram-reel", "Regenerated Reel through the current story-first production contract"),
         )
     return {"ok": True, "postId": int(post_id), "status": "GENERATING"}
+
+
+def advance_instagram_reel_planning(site_id, post_id):
+    with db() as conn:
+        post = conn.execute(
+            """select * from social_posts where id=? and site_id=? and channel='instagram' and asset_type=?""",
+            (post_id, site_id, INSTAGRAM_REEL_ASSET_TYPE),
+        ).fetchone()
+        if not post:
+            raise KeyError("Instagram Reel not found")
+        if post["status"] == "GENERATING":
+            return {"ok": True, "postId": int(post_id), "status": "GENERATING", "existing": True}
+        if post["status"] != "DRAFT":
+            raise ValueError("Only a reviewed Reel planning draft can continue")
+        payload = parse_json_object(post["content_json"])
+        reel = payload.get("instagramReel") if isinstance(payload.get("instagramReel"), dict) else {}
+        checkpoint = reel.get("planningCheckpoint") if isinstance(reel.get("planningCheckpoint"), dict) else {}
+        phase = str(checkpoint.get("phase") or "")
+        if phase == "editorial_brief_ready":
+            message = "Generating source-grounded scene concepts from the approved editorial brief"
+        elif phase in {"scene_concepts_ready", "director_scene_ready", "director_plan_rejected"}:
+            message = "Turning the approved scene concepts into the executable director plan"
+        elif phase == "director_plan_ready":
+            raise ValueError("The director plan is already complete and ready for review")
+        else:
+            raise ValueError("This Reel has no reviewable planning checkpoint to continue")
+        reel["progress"] = {
+            "phase": "planning_resume_queued",
+            "scene": int(checkpoint.get("scene") or 0),
+            "totalScenes": int(checkpoint.get("totalScenes") or 0),
+            "message": message,
+        }
+        payload["instagramReel"] = reel
+        conn.execute(
+            "update social_posts set content_json=?,status='GENERATING',updated_at=? where id=?",
+            (json.dumps(payload, ensure_ascii=False), now_iso(), post_id),
+        )
+    return {"ok": True, "postId": int(post_id), "status": "GENERATING", "fromPhase": phase}
+
+
+def build_instagram_reel_production_storyboard(reel, job):
+    """Adapt the accepted v16 director plan without asking Gemini to redesign it."""
+    director = reel.get("directorPlan") if isinstance(reel.get("directorPlan"), dict) else {}
+    concepts = reel.get("sceneConcepts") if isinstance(reel.get("sceneConcepts"), dict) else {}
+    brief = reel.get("editorialBrief") if isinstance(reel.get("editorialBrief"), dict) else {}
+    concept_by_id = {
+        str(item.get("beatId") or ""): item
+        for item in concepts.get("scenes") or []
+        if isinstance(item, dict)
+    }
+    planned_scene_count = len(director.get("scenes") or [])
+    scenes = []
+    for index, planned in enumerate(director.get("scenes") or [], start=1):
+        beat_id = str(planned.get("beatId") or f"beat-{index:02d}")
+        concept = concept_by_id.get(beat_id, {})
+        beats_by_subject = {
+            str(item.get("subject") or ""): item
+            for item in planned.get("visualBeats") or []
+            if isinstance(item, dict)
+        }
+        groups = []
+        person_number = 0
+        for group in planned.get("movableGroups") or []:
+            if not isinstance(group, dict):
+                continue
+            group_id = str(group.get("name") or f"element-{len(groups) + 1:02d}")
+            visual_beat = beats_by_subject.get(group_id, {})
+            is_person = str(group.get("layerType") or "") == "person_group"
+            if is_person:
+                person_number += 1
+            role = ("protagonist" if person_number == 1 else "supporting_character") if is_person else "story_object"
+            source_anchor = str(visual_beat.get("sourceAnchor") or group.get("finalPosition") or group_id)
+            if is_person:
+                source_anchor = (
+                    "One complete adult traveler standing in the near-to-middle foreground, fully visible from head to feet and occupying 40% to 60% of image height. "
+                    "The person has relaxed empty hands, natural front lighting, free outer contours, and visible background space around the entire silhouette. "
+                    "The person does not touch any separately listed person, object, furniture, or architecture."
+                )
+            groups.append({
+                "id": group_id,
+                "role": role,
+                "storyRole": str(group.get("storyRole") or "direct_evidence"),
+                "supportsLayer": str(group.get("supportsLayer") or ""),
+                "prompt": source_anchor,
+                "action": str(group.get("entranceAction") or visual_beat.get("trajectory") or "Enters as one rigid registered image."),
+                "relationship": str(group.get("finalPosition") or visual_beat.get("finalState") or "Registered in the coherent master frame."),
+                "initialState": str(visual_beat.get("fromState") or "Outside its final registered state."),
+                "finalState": str(visual_beat.get("finalState") or group.get("finalPosition") or "Holds at final registration."),
+                "sourceEvidence": str(group.get("sourceGroundingQuote") or ""),
+                "manifestReveal": str(group.get("transformMode") or visual_beat.get("revealMethod") or "settle"),
+                "manifestMotion": "hold",
+                "manifestStartSeconds": float(group.get("startSeconds") or visual_beat.get("startSeconds") or 0),
+                "manifestEndSeconds": float(group.get("endSeconds") or visual_beat.get("endSeconds") or 0.8),
+            })
+        expanded_groups = []
+        for group in groups:
+            match = re.search(r"\bgroup of (two|three|four|[2-4])\b", str(group.get("prompt") or ""), re.I)
+            count_map = {"two": 2, "three": 3, "four": 4, "2": 2, "3": 3, "4": 4}
+            count = count_map.get(str(match.group(1)).lower()) if match and group.get("role") in {"protagonist", "supporting_character"} else None
+            if not count:
+                expanded_groups.append(group)
+                continue
+            positions = {
+                2: ["left", "right"],
+                3: ["left", "center", "right"],
+                4: ["far left", "center-left", "center-right", "far right"],
+            }[count]
+            start = float(group.get("manifestStartSeconds") or 0)
+            end = float(group.get("manifestEndSeconds") or start + 0.8)
+            entrance_duration = min(0.55, max(0.35, end - start))
+            for member_index, position in enumerate(positions, start=1):
+                member_start = start + (member_index - 1) * 0.32
+                expanded_groups.append({
+                    **group,
+                    "id": f"{group['id']}_member_{member_index}",
+                    "role": "protagonist" if member_index == 1 else "supporting_character",
+                    "prompt": (
+                        f"One complete adult traveler standing in the {position} part of the scene, fully visible from head to feet, "
+                        "with relaxed empty hands and natural photographic edges. This person has visible background space around the entire silhouette and does not touch any other person, object, furniture, or architecture."
+                    ),
+                    "relationship": f"Standing independently in the {position} part of the scene with clear background separation.",
+                    "initialState": "Completely outside the visible canvas before entering as one rigid full-body layer.",
+                    "finalState": f"Fully registered and stationary in the {position} part of the scene.",
+                    "manifestReveal": ("slide_right", "settle", "slide_left", "rise")[member_index - 1],
+                    "manifestStartSeconds": member_start,
+                    "manifestEndSeconds": member_start + entrance_duration,
+                })
+        groups = expanded_groups
+        if len(groups) >= 4:
+            person_groups = [group for group in groups if group.get("role") in {"protagonist", "supporting_character"}]
+            object_groups = [group for group in groups if group.get("role") == "story_object"]
+            if len(person_groups) >= 2 and object_groups:
+                groups = [*person_groups[:2], object_groups[-1]]
+                groups[-1]["supportsLayer"] = str(person_groups[0].get("id") or "")
+        if len(groups) > 4:
+            person_groups = [group for group in groups if group.get("role") in {"protagonist", "supporting_character"}]
+            object_groups = [group for group in groups if group.get("role") == "story_object"]
+            selected_objects = object_groups[:1]
+            if selected_objects and re.search(r"\b(?:assembly|surrounded by chairs|furniture group)\b", str(selected_objects[0].get("prompt") or ""), re.I):
+                selected_objects[0] = {
+                    **selected_objects[0],
+                    "id": "compact_context_object",
+                    "prompt": "One small freestanding scene-native context object no wider than one standing person's shoulders, fully visible in its own side zone with clear background around its entire silhouette. It is one rigid object, not a table, chair, furniture set, or multi-part assembly.",
+                    "relationship": "A small freestanding context object in its own side zone, never behind a person and never touching a frame edge.",
+                }
+            groups = [*person_groups[:2], *selected_objects[:1]]
+            if selected_objects and person_groups:
+                groups[-1]["supportsLayer"] = str(person_groups[0].get("id") or "")
+            for group_index, group in enumerate(groups):
+                group["manifestStartSeconds"] = group_index * 0.38
+                group["manifestEndSeconds"] = group_index * 0.38 + 0.5
+        text = planned.get("textDirection") if isinstance(planned.get("textDirection"), dict) else {}
+        camera = planned.get("cameraPlan") if isinstance(planned.get("cameraPlan"), dict) else {}
+        clean_plate_source = str(planned.get("cleanPlate") or concept.get("cleanPlate") or "")
+        clean_environment = re.split(r",?\s+(?:with the camera|but with)\b", clean_plate_source, maxsplit=1, flags=re.I)[0].strip(" ,.")
+        scenes.append({
+            "index": index,
+            "stageId": beat_id,
+            "durationSeconds": float(planned.get("durationSeconds") or 4.0),
+            "visualStory": str(concept.get("sceneObjective") or concept.get("evidenceInMasterFrame") or ""),
+            "productionBackgroundPrompt": (
+                "Use only this empty environmental location, architecture, floor, and lighting: "
+                + (clean_environment or "a premium uncrowded shipboard interior")
+            ),
+            "stageBackgroundPrompt": str(planned.get("cleanPlate") or concept.get("cleanPlate") or ""),
+            "shotFraming": "Premium vertical wide editorial photograph with every listed group completely visible and mutually separated",
+            "overlayText": str(text.get("copy") or concept.get("overlayText") or ""),
+            "supportingText": "",
+            "narration": "",
+            "textDirection": text,
+            "directorCameraPlan": camera,
+            "cameraMove": str(((camera.get("beats") or [{}])[0]).get("movement") or "push_in"),
+            "composition": {"textPlacement": next(
+                (
+                    zone for zone in (
+                        "top_left", "top_right", "middle_left", "middle_right", "lower_left", "lower_right"
+                    )
+                    if zone.replace("_", " ") in str(text.get("placement") or "").lower()
+                ),
+                "top_right" if "right" in str(text.get("placement") or "").lower() else "top_left",
+            )},
+            "layers": groups,
+            "usesLogoReference": bool(
+                concept.get("usesLogoReference")
+                or planned.get("usesLogoReference")
+                or index == planned_scene_count
+            ),
+            "continuityAnchor": str(planned.get("continuityFromPrevious") or ""),
+        })
+    if not scenes or len(scenes) != int(director.get("sceneCount") or len(scenes)):
+        raise ValueError("Accepted director plan has no complete scene list")
+    resolution = ((brief.get("finalResolution") or {}).get("answer") or "") if isinstance(brief.get("finalResolution"), dict) else ""
+    caption = f"{job['title'] or job['topic']}\n\n{resolution}".strip()
+    return {
+        "version": "director-production-v16",
+        "durationSeconds": round(sum(scene["durationSeconds"] for scene in scenes), 2),
+        "caption": caption,
+        "scenes": scenes,
+        "sceneCount": len(scenes),
+        "generationCount": len(scenes) * 2,
+        "stageCount": len(scenes),
+        "continuityAnchor": str(concepts.get("continuityAnchor") or ""),
+        "planningRationale": "Direct execution of the accepted time-coded director plan.",
+    }
+
+
+def produce_instagram_reel(site_id, post_id, voice_enabled=False):
+    with db() as conn:
+        post = conn.execute(
+            "select * from social_posts where id=? and site_id=? and channel='instagram' and asset_type=?",
+            (post_id, site_id, INSTAGRAM_REEL_ASSET_TYPE),
+        ).fetchone()
+        if not post:
+            raise KeyError("Instagram Reel not found")
+        if post["status"] == "GENERATING":
+            return {"ok": True, "postId": int(post_id), "status": "GENERATING", "existing": True}
+        if post["status"] not in {"DRAFT", "ERROR"}:
+            raise ValueError("Only a reviewed director-plan draft can enter production")
+        payload = parse_json_object(post["content_json"])
+        reel = payload.get("instagramReel") if isinstance(payload.get("instagramReel"), dict) else {}
+        checkpoint = reel.get("planningCheckpoint") if isinstance(reel.get("planningCheckpoint"), dict) else {}
+        if str(checkpoint.get("phase") or "") != "director_plan_ready" or not isinstance(reel.get("directorPlan"), dict):
+            raise ValueError("Complete and review the director plan before media production")
+        reel["productionRequested"] = True
+        reel["voiceEnabled"] = bool(voice_enabled)
+        reel["audioMode"] = "voice_and_music" if voice_enabled else "music_only"
+        reel["progress"] = {
+            "phase": "production_queued",
+            "scene": len(reel.get("visualProductionScenes") or []),
+            "totalScenes": int(reel["directorPlan"].get("sceneCount") or 0),
+            "message": "Producing accepted scenes from the director plan",
+        }
+        payload["instagramReel"] = reel
+        conn.execute(
+            "update social_posts set content_json=?,status='GENERATING',updated_at=? where id=?",
+            (json.dumps(payload, ensure_ascii=False), now_iso(), post_id),
+        )
+    return {"ok": True, "postId": int(post_id), "status": "GENERATING", "voiceEnabled": bool(voice_enabled)}
 
 
 def _generate_instagram_reel_post_unlocked(site_id, post_id):
@@ -7115,6 +8176,8 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
         messages = {
             "editorial_brief_ready": "Core problem, hook, solution steps, and brand resolution validated and saved",
             "scene_concepts_ready": "Seven source-grounded scene concepts validated and saved; no media generation started",
+            "director_scene_ready": f"Scene {scene} motion direction validated and saved; no media generation started",
+            "director_plan_ready": "Complete time-coded director plan validated and saved; no media generation started",
             "architecture_ready": "Article analysis and editorial architecture validated and saved",
             "skeleton_ready": "Visual story structure validated and saved",
             "scene_detail_ready": f"Scene {scene} production detail validated and saved",
@@ -7137,7 +8200,26 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
         storyboard = None
         resuming_storyboard = False
         existing_storyboard = reel.get("storyboard")
-        if isinstance(existing_storyboard, dict):
+        if reel.get("productionRequested") and isinstance(reel.get("directorPlan"), dict):
+            storyboard = build_instagram_reel_production_storyboard(reel, job)
+            resuming_storyboard = bool(reel.get("visualProductionScenes"))
+            prior_scenes = {
+                int(item.get("index")): item
+                for item in (existing_storyboard or {}).get("scenes") or []
+                if isinstance(item, dict) and item.get("index")
+            }
+            saved_counts = {
+                int(item.get("sceneIndex")): len(item.get("foregroundFilenames") or [])
+                for item in reel.get("visualProductionScenes") or []
+                if isinstance(item, dict) and item.get("sceneIndex")
+            }
+            for production_scene in storyboard.get("scenes") or []:
+                scene_index = int(production_scene.get("index") or 0)
+                prior_scene = prior_scenes.get(scene_index) or {}
+                prior_layers = prior_scene.get("layers") if isinstance(prior_scene.get("layers"), list) else []
+                if scene_index in saved_counts and saved_counts[scene_index] <= len(prior_layers):
+                    production_scene["layers"] = prior_layers[:saved_counts[scene_index]]
+        elif isinstance(existing_storyboard, dict):
             try:
                 stored_architecture = existing_storyboard.get("storyArchitecture") if isinstance(existing_storyboard.get("storyArchitecture"), dict) else None
                 storyboard = normalize_instagram_reel(existing_storyboard, stored_architecture)
@@ -7155,35 +8237,72 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
                 storyboard = None
         if storyboard is None:
             stored_checkpoint = reel.get("planningCheckpoint") if isinstance(reel.get("planningCheckpoint"), dict) else None
-            if stored_checkpoint and int(stored_checkpoint.get("version") or 0) != 14:
-                stored_checkpoint = None
-            editorial_stage = generate_instagram_reel_storyboard(
-                site,
-                job,
-                language,
-                resume_checkpoint=stored_checkpoint,
-                checkpoint_callback=planning_checkpoint,
-                stop_after_editorial_brief=True,
-            )
-            reel["editorialBrief"] = editorial_stage["editorialBrief"]
-            reel["planningCheckpoint"] = editorial_stage["planningCheckpoint"]
+            if stored_checkpoint and int(stored_checkpoint.get("version") or 0) != 16:
+                legacy_brief = stored_checkpoint.get("editorialBrief") if isinstance(stored_checkpoint.get("editorialBrief"), dict) else None
+                stored_checkpoint = {
+                    "version": 16,
+                    "phase": "editorial_brief_ready",
+                    "scene": 0,
+                    "totalScenes": len(legacy_brief.get("solutionSteps") or []) if legacy_brief else 0,
+                    "updatedAt": now_iso(),
+                    "editorialBrief": legacy_brief,
+                } if legacy_brief else None
+            stored_phase = str((stored_checkpoint or {}).get("phase") or "")
+            if not stored_checkpoint or not isinstance(stored_checkpoint.get("editorialBrief"), dict):
+                planning_stage = generate_instagram_reel_storyboard(
+                    site, job, language, resume_checkpoint=stored_checkpoint,
+                    checkpoint_callback=planning_checkpoint, stop_after_editorial_brief=True,
+                )
+                ready_phase = "editorial_brief_ready"
+                ready_message = "Editorial brief ready for review; scene planning has not started"
+            elif not isinstance(stored_checkpoint.get("sceneConcepts"), dict):
+                planning_stage = generate_instagram_reel_storyboard(
+                    site, job, language, resume_checkpoint=stored_checkpoint,
+                    checkpoint_callback=planning_checkpoint, stop_after_editorial_brief=False,
+                    stop_after_scene_concepts=True,
+                )
+                ready_phase = "scene_concepts_ready"
+                ready_message = "Scene concepts ready for review; director planning has not started"
+            elif not isinstance(stored_checkpoint.get("directorPlan"), dict):
+                planning_stage = generate_instagram_reel_storyboard(
+                    site, job, language, resume_checkpoint=stored_checkpoint,
+                    checkpoint_callback=planning_checkpoint, stop_after_editorial_brief=False,
+                    stop_after_scene_concepts=False, stop_after_director_plan=True,
+                )
+                ready_phase = "director_plan_ready"
+                ready_message = "Time-coded director plan ready for review; no media generated"
+            else:
+                planning_stage = {
+                    "editorialBrief": stored_checkpoint["editorialBrief"],
+                    "sceneConcepts": stored_checkpoint["sceneConcepts"],
+                    "directorPlan": stored_checkpoint["directorPlan"],
+                    "planningCheckpoint": stored_checkpoint,
+                }
+                ready_phase = "director_plan_ready"
+                ready_message = "Time-coded director plan ready for review; no media generated"
+            for key in ("editorialBrief", "sceneConcepts", "directorPlan"):
+                if isinstance(planning_stage.get(key), dict):
+                    reel[key] = planning_stage[key]
+            reel["planningCheckpoint"] = planning_stage["planningCheckpoint"]
+            ready_total = int((planning_stage.get("directorPlan") or planning_stage.get("sceneConcepts") or {}).get("sceneCount") or len((planning_stage.get("editorialBrief") or {}).get("solutionSteps") or []))
             reel["progress"] = {
-                "phase": "editorial_brief_ready",
-                "scene": 0,
-                "totalScenes": len(editorial_stage["editorialBrief"]["solutionSteps"]),
-                "message": "Editorial brief ready for review; visual planning has not started",
+                "phase": ready_phase,
+                "scene": ready_total if ready_phase == "director_plan_ready" else 0,
+                "totalScenes": ready_total,
+                "message": ready_message,
             }
             _save_instagram_reel_payload(post_id, payload, "DRAFT")
             return {
                 "ok": True,
                 "postId": post_id,
                 "status": "DRAFT",
-                "awaitingEditorialApproval": True,
-                "editorialBrief": editorial_stage["editorialBrief"],
+                "planningPhase": ready_phase,
+                "awaitingReview": True,
+                "previewUrl": f"/sites/{site_id}/social-posts/{post_id}/instagram-reel",
             }
         existing_asset_key = str(reel.get("assetKey") or "")
         existing_asset_dir = instagram_reel_asset_dir(site_id, existing_asset_key) if existing_asset_key else None
-        asset_key = existing_asset_key if existing_asset_dir and existing_asset_dir.is_dir() and resuming_storyboard else social_asset_key(job["id"])
+        asset_key = existing_asset_key if existing_asset_dir and existing_asset_dir.is_dir() and (resuming_storyboard or reel.get("productionRequested")) else social_asset_key(job["id"])
         asset_dir = instagram_reel_asset_dir(site_id, asset_key)
         asset_dir.mkdir(parents=True, exist_ok=True)
         reference_logo = site_logo_reference(site_id)
@@ -7202,22 +8321,36 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
                 "mix": "continuous low background bed with speech ducking",
                 "audioUrl": reel_music_audio_url(site_id, music_track["id"], music_track["audio_filename"]),
             } if music_track and music_path else {"source": "none"}),
-            "version": 14,
+            "version": 16,
         })
         render_scenes = []
         accepted_visual_scenes = []
-        settings = get_podcast_settings(site_id)
-        voice_name = settings["voice_name"] if settings and settings["voice_name"] in PODCAST_VOICES else "Kore"
+        saved_visuals = {
+            int(item.get("sceneIndex")): item
+            for item in reel.get("visualProductionScenes") or []
+            if isinstance(item, dict) and item.get("sceneIndex")
+        }
         for scene in storyboard["scenes"]:
             index = int(scene["index"])
-            progress("master", scene=index, message=f"Generating and validating one coherent extraction-safe master frame for scene {index}")
-            visual_pack = generate_instagram_reel_registered_scene(
-                site,
-                job,
-                scene,
-                asset_dir,
-                reference_logo=reference_logo,
-            )
+            saved = saved_visuals.get(index) or {}
+            saved_background = asset_dir / str(saved.get("backgroundFilename") or "")
+            saved_foregrounds = [asset_dir / str(name) for name in saved.get("foregroundFilenames") or []]
+            if saved_background.is_file() and saved_foregrounds and all(path.is_file() for path in saved_foregrounds):
+                visual_pack = {
+                    "backgroundPath": saved_background,
+                    "backgroundFilename": saved_background.name,
+                    "foregroundPaths": [str(path) for path in saved_foregrounds],
+                    "foregroundFilenames": [path.name for path in saved_foregrounds],
+                }
+            else:
+                progress("master", scene=index, message=f"Generating and validating one coherent extraction-safe master frame for scene {index}")
+                visual_pack = generate_instagram_reel_registered_scene(
+                    site,
+                    job,
+                    scene,
+                    asset_dir,
+                    reference_logo=reference_logo,
+                )
             foreground_urls = [
                 social_asset_url(site_id, asset_key, "instagram", filename)
                 for filename in visual_pack["foregroundFilenames"]
@@ -7227,44 +8360,70 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
                 "foregroundUrls": foreground_urls,
             }
             accepted_visual_scenes.append((scene, visual_pack))
+            saved_visuals[index] = {
+                "sceneIndex": index,
+                "backgroundFilename": visual_pack["backgroundFilename"],
+                "foregroundFilenames": visual_pack["foregroundFilenames"],
+                "layerIds": [str(layer.get("id") or "") for layer in scene.get("layers") or []],
+                "completedAt": now_iso(),
+            }
+            reel["visualProductionScenes"] = [saved_visuals[key] for key in sorted(saved_visuals)]
+            reel["storyboard"] = storyboard
+            reel.pop("error", None)
+            reel["progress"] = {
+                "phase": "visual_scene_ready",
+                "scene": index,
+                "totalScenes": len(storyboard["scenes"]),
+                "message": f"Scene {index} master, clean plate, and registered layers validated and saved",
+            }
+            _save_instagram_reel_payload(post_id, payload, "GENERATING")
 
         # Voice is deliberately deferred until every visual scene has passed master,
         # clean-plate, segmentation, reconstruction and layer-integrity validation.
+        voice_enabled = bool(reel.get("voiceEnabled"))
+        settings = get_podcast_settings(site_id) if voice_enabled else None
+        voice_name = settings["voice_name"] if settings and settings["voice_name"] in PODCAST_VOICES else "Kore"
         for scene, visual_pack in accepted_visual_scenes:
             index = int(scene["index"])
-            progress("voice", scene=index, message=f"All visual scenes are valid; synthesizing narration for scene {index}")
-            voice_path = asset_dir / f"scene-{index:02d}-voice.wav"
-            if not voice_path.is_file():
-                pcm = _gemini_tts_pcm(f"Deliver this as one warm, brisk two-to-three second Reel thought. No preamble, no extra words, no slow pauses. Do not read this instruction aloud.\n\n{scene['narration']}", voice_name)
-                _write_reel_wav(voice_path, pcm)
-            scene["assets"]["voiceUrl"] = social_asset_url(site_id, asset_key, "instagram", voice_path.name)
-            render_scenes.append({
+            render_scene = {
                 **scene,
                 "backgroundPath": str(visual_pack["backgroundPath"]),
                 "foregroundPaths": visual_pack["foregroundPaths"],
-                "voicePath": str(voice_path),
                 "fullCanvasLayers": True,
-            })
+            }
+            if voice_enabled:
+                progress("voice", scene=index, message=f"All visual scenes are valid; synthesizing narration for scene {index}")
+                voice_path = asset_dir / f"scene-{index:02d}-voice.wav"
+                if not voice_path.is_file():
+                    pcm = _gemini_tts_pcm(f"Deliver this as one warm, brisk two-to-three second Reel thought. No preamble, no extra words, no slow pauses. Do not read this instruction aloud.\n\n{scene['narration']}", voice_name)
+                    _write_reel_wav(voice_path, pcm)
+                scene["assets"]["voiceUrl"] = social_asset_url(site_id, asset_key, "instagram", voice_path.name)
+                render_scene["voicePath"] = str(voice_path)
+            render_scenes.append(render_scene)
         total_scenes = len(storyboard["scenes"])
         progress("render", scene=total_scenes, message="Rendering vertical H.264 video with layered movement and camera work")
         from reel_renderer import render_vertical_reel
+        render_token = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        video_filename = f"instagram-reel-{render_token}.mp4"
         rendered = render_vertical_reel(
             render_scenes,
-            asset_dir / "instagram-reel.mp4",
+            asset_dir / video_filename,
             asset_dir / "render-work",
             accent_hex=_reel_accent(site_id),
             music_path=music_path,
         )
+        cover_filename = Path(rendered["thumbnailPath"]).name
         reel.update({
-            "videoUrl": social_asset_url(site_id, asset_key, "instagram", "instagram-reel.mp4"),
-            "coverUrl": social_asset_url(site_id, asset_key, "instagram", "instagram-reel.jpg"),
+            "videoUrl": social_asset_url(site_id, asset_key, "instagram", video_filename),
+            "coverUrl": social_asset_url(site_id, asset_key, "instagram", cover_filename),
+            "renderToken": render_token,
             "durationSeconds": rendered["durationSeconds"],
             "fps": rendered["fps"],
-            "voice": {"provider": "Gemini TTS", "voice": voice_name},
+            "voice": ({"provider": "Gemini TTS", "voice": voice_name} if voice_enabled else {"provider": "none", "mode": "disabled"}),
             "musicMode": rendered.get("musicMode") or "none",
             "progress": {"phase": "ready", "scene": total_scenes, "totalScenes": total_scenes, "message": "Reel draft is ready for review"},
         })
-        payload["validation"] = {"version": 14, "caption": {"charCount": len(storyboard["caption"]), "maxChars": SOCIAL_CHANNEL_LIMITS["instagram"]}, "durationTargetSeconds": storyboard.get("storyArchitecture", {}).get("durationTargetSeconds") or 30, "scenes": total_scenes, "stages": storyboard.get("stageCount") or len({scene["stageId"] for scene in storyboard["scenes"]}), "plannedImageGenerations": storyboard.get("generationCount"), "layerContract": "each scene is one visually approved coherent master frame; the clean plate removes only approved complete groups; every animated layer is extracted from that master at immutable full-canvas registration", "motionElementsPerScene": "1-4 quality-gated source-grounded groups, whole-subject entrances, delayed subject-focused camera beats, and quiet-zone kinetic type", "cameraMoves": [scene["cameraMove"] for scene in storyboard["scenes"]], "brandMusic": bool(rendered.get("musicApplied")), "musicMode": rendered.get("musicMode") or "none", "continuityAnchor": storyboard.get("continuityAnchor") or "", "planningRationale": storyboard.get("planningRationale") or "", "allVisualsValidatedBeforeVoice": True}
+        payload["validation"] = {"version": 16, "caption": {"charCount": len(storyboard["caption"]), "maxChars": SOCIAL_CHANNEL_LIMITS["instagram"]}, "durationTargetSeconds": storyboard.get("durationSeconds") or 30, "scenes": total_scenes, "stages": storyboard.get("stageCount") or len({scene["stageId"] for scene in storyboard["scenes"]}), "plannedImageGenerations": storyboard.get("generationCount"), "layerContract": "each scene is one visually approved coherent master frame; the clean plate removes only approved complete groups; every animated layer is extracted from that master at immutable full-canvas registration", "motionElementsPerScene": "3-4 approved registered groups, exact scene-local entrance timing, camera beats after entrances, and quiet-zone kinetic type", "cameraMoves": [scene["cameraMove"] for scene in storyboard["scenes"]], "brandMusic": bool(rendered.get("musicApplied")), "musicMode": rendered.get("musicMode") or "none", "voiceEnabled": voice_enabled, "continuityAnchor": storyboard.get("continuityAnchor") or "", "planningRationale": storyboard.get("planningRationale") or "", "allVisualsValidatedBeforeVoice": True}
         _save_instagram_reel_payload(post_id, payload, "DRAFT", char_count=len(storyboard["caption"]))
         with db() as conn:
             conn.execute("update social_posts set content_text=?, validation_json=?, updated_at=? where id=?", (storyboard["caption"], json.dumps(payload["validation"], ensure_ascii=False), now_iso(), post_id))
@@ -8734,8 +9893,19 @@ def instagram_reel_action(site_id, job_id):
         message = escape(str(progress.get("message") or "Rendering Instagram Reel"))
         scene = escape(str(progress.get("scene") or 0))
         return f"<div class='generation-progress reel-progress' data-reel-post-id='{int(row['id'])}'><div class='generation-progress-head'><span class='generation-spinner' aria-hidden='true'></span><span class='generation-progress-title'>Building IG Reel</span><span class='generation-progress-time' data-reel-progress-text>{message} · scene {scene}/7</span></div><div class='generation-progress-bar'><span></span></div></div>"
-    preview = f"<a class='ghost mini-action social-preview-action' target='_blank' href='/sites/{int(site_id)}/social-posts/{int(row['id'])}/instagram-reel'>IG Reel</a>"
+    payload = parse_json_object(row["content_json"])
+    reel = payload.get("instagramReel") if isinstance(payload.get("instagramReel"), dict) else {}
+    checkpoint = reel.get("planningCheckpoint") if isinstance(reel.get("planningCheckpoint"), dict) else {}
+    phase = str(checkpoint.get("phase") or (reel.get("progress") or {}).get("phase") or "")
+    preview_label = "Director plan" if phase == "director_plan_ready" and not reel.get("videoUrl") else "IG Reel"
+    preview = f"<a class='ghost mini-action social-preview-action' target='_blank' href='/sites/{int(site_id)}/social-posts/{int(row['id'])}/instagram-reel'>{preview_label}</a>"
     if row["status"] == "DRAFT":
+        if phase == "editorial_brief_ready":
+            return preview + f"<button class='ghost mini-action social-draft-action' type='button' onclick=\"advanceInstagramReel({int(row['id'])},'Building approved scene concepts')\">Continue to scenes</button>"
+        if phase in {"scene_concepts_ready", "director_scene_ready", "director_plan_rejected"}:
+            return preview + f"<button class='ghost mini-action social-draft-action' type='button' onclick=\"advanceInstagramReel({int(row['id'])},'Building the time-coded director plan')\">Continue to director plan</button>"
+        if phase == "director_plan_ready" and not reel.get("videoUrl"):
+            return preview + f"<button class='ghost mini-action social-draft-action' type='button' onclick=\"produceInstagramReel({int(row['id'])})\">Produce without voice</button>"
         regenerate = f"<button class='ghost mini-action social-draft-action' type='button' onclick=\"regenerateInstagramReel({int(row['id'])})\" title='Rebuild this unpublished Reel with the current production contract'>Regenerate Reel</button>"
         publish = f"<button class='ghost mini-action publish-action' type='button' onclick=\"publishInstagramReel('{escape(job_id, quote=True)}',{int(row['id'])})\">Publish Reel</button>"
         return preview + regenerate + publish
@@ -9055,6 +10225,51 @@ def render_reel_music_panel(site):
     """
 
 
+def render_reel_planning_panel(site_id):
+    with db() as conn:
+        rows = conn.execute(
+            """select sp.*, cj.title, cj.topic from social_posts sp
+               join content_jobs cj on cj.id=sp.job_id and cj.site_id=sp.site_id
+               where sp.site_id=? and sp.channel='instagram' and sp.asset_type=?
+               order by sp.updated_at desc, sp.id desc limit 30""",
+            (site_id, INSTAGRAM_REEL_ASSET_TYPE),
+        ).fetchall()
+    items = []
+    for row in rows:
+        payload = parse_json_object(row["content_json"])
+        reel = payload.get("instagramReel") if isinstance(payload.get("instagramReel"), dict) else {}
+        checkpoint = reel.get("planningCheckpoint") if isinstance(reel.get("planningCheckpoint"), dict) else {}
+        progress = reel.get("progress") if isinstance(reel.get("progress"), dict) else {}
+        phase = str(checkpoint.get("phase") or progress.get("phase") or "not_started")
+        scene_count = int(checkpoint.get("scene") or progress.get("scene") or 0)
+        phase_label = {
+            "editorial_brief_ready": "Step 1 ready",
+            "scene_concepts_ready": "Step 2 ready",
+            "director_scene_ready": "Step 3 in progress",
+            "director_plan_ready": "Step 3 ready",
+        }.get(phase, phase.replace("_", " ").title())
+        actions = f"<a class='ghost mini-action social-preview-action' target='_blank' href='/sites/{int(site_id)}/social-posts/{int(row['id'])}/instagram-reel'>Open plan</a>"
+        if row["status"] == "DRAFT" and phase == "editorial_brief_ready":
+            actions += f"<button class='ghost mini-action' type='button' onclick=\"advanceInstagramReel({int(row['id'])},'Building approved scene concepts')\">Continue to step 2</button>"
+        elif row["status"] == "DRAFT" and phase in {"scene_concepts_ready", "director_scene_ready", "director_plan_rejected"}:
+            actions += f"<button class='ghost mini-action' type='button' onclick=\"advanceInstagramReel({int(row['id'])},'Building the time-coded director plan')\">Continue to step 3</button>"
+        elif row["status"] == "DRAFT" and phase == "director_plan_ready" and not reel.get("videoUrl"):
+            actions += f"<button class='ghost mini-action' type='button' onclick=\"produceInstagramReel({int(row['id'])})\">Produce without voice</button>"
+        items.append(f"""
+        <article class='podcast-row reel-planning-row' data-reel-post-id='{int(row['id'])}'>
+          <div><strong>{escape(row['title'] or row['topic'] or 'Untitled Reel')}</strong><span>{escape(phase_label)} · {scene_count} accepted scene{'s' if scene_count != 1 else ''} · {escape(row['status'])}</span></div>
+          <div class='podcast-actions'>{actions}</div>
+        </article>
+        """)
+    listing = "".join(items) or "<div class='planned-empty'>No Instagram Reel plans yet.</div>"
+    return f"""
+      <section class='visual-pin-panel reel-planning-panel'>
+        <div class='panel-title-row'><div><h3>Instagram Reel planning</h3><div class='hint'>Review and advance one text-only stage at a time. Accepted stages are reused. Images, voice, music, and video do not start from these controls.</div></div></div>
+        <div class='visual-pin-list'>{listing}</div>
+      </section>
+    """
+
+
 def render_distribution_settings(site_id):
     site = get_site(site_id)
     site_languages = parse_languages(site["languages"] if site else "[]")
@@ -9154,6 +10369,7 @@ def render_distribution_settings(site_id):
         <div class="field full"><label>Short-form video</label><div class="channel-grid unified-channels">{reel_card}</div></div>
         <div class="actions full"><button type="submit">Save factory distribution settings</button></div>
       </form>
+      {render_reel_planning_panel(site_id)}
       {render_reel_music_panel(site)}
         <div class="planned-publications-block">
         <h3>Planned publications</h3>
@@ -11592,7 +12808,7 @@ def site_logo_reference(site_id):
         # Local sites often retain an obsolete root logo after their visual system
         # has moved to assets/brand or a similar source-owned directory.
         local_candidates = []
-        image_suffixes = {".png", ".jpg", ".jpeg", ".webp"}
+        image_suffixes = {".svg", ".png", ".jpg", ".jpeg", ".webp"}
         skipped_dirs = {".git", ".next", "node_modules", "data", "previews", "backups"}
         for directory, child_dirs, filenames in os.walk(root):
             relative = Path(directory).relative_to(root)
@@ -11619,6 +12835,8 @@ def site_logo_reference(site_id):
                 score = 0
                 if "brand" in parts or "branding" in parts:
                     score -= 100
+                if candidate.suffix.lower() == ".svg":
+                    score -= 15
                 if "logo" in candidate.stem.lower() or "wordmark" in candidate.stem.lower():
                     score -= 20
                 if relative == Path("."):
@@ -11628,8 +12846,22 @@ def site_logo_reference(site_id):
                 local_candidates.append((score, -size, str(candidate).lower(), candidate))
         for _, _, _, candidate in sorted(local_candidates):
             try:
-                data = candidate.read_bytes()
-                mime_type = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(candidate.suffix.lower())
+                suffix = candidate.suffix.lower()
+                if suffix == ".svg":
+                    conversion = subprocess.run(
+                        [
+                            "convert", "-background", "none", "-density", "300",
+                            str(candidate), "-resize", "1024x1024", "png:-",
+                        ],
+                        check=True,
+                        capture_output=True,
+                        timeout=20,
+                    )
+                    data = conversion.stdout
+                    mime_type = "image/png"
+                else:
+                    data = candidate.read_bytes()
+                    mime_type = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(suffix)
                 if mime_type and data:
                     return {"mime_type": mime_type, "data": b64encode(data).decode("ascii"), "source": str(candidate)}
             except Exception:
@@ -14378,6 +15610,31 @@ def social_post_status_route(site_id, post_id):
     return jsonify({"ok": True, "id": int(post["id"]), "status": post["status"], "assetType": post["asset_type"] or "post", "payload": payload})
 
 
+@app.post("/api/sites/<int:site_id>/social-posts/<int:post_id>/instagram-reel/advance")
+def advance_instagram_reel_route(site_id, post_id):
+    try:
+        return jsonify(advance_instagram_reel_planning(site_id, post_id))
+    except KeyError:
+        return jsonify({"error": "Instagram Reel not found"}), 404
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
+
+
+@app.post("/api/sites/<int:site_id>/social-posts/<int:post_id>/instagram-reel/produce")
+def produce_instagram_reel_route(site_id, post_id):
+    payload = request.get_json(silent=True) or {}
+    try:
+        return jsonify(produce_instagram_reel(site_id, post_id, voice_enabled=bool(payload.get("voiceEnabled"))))
+    except KeyError:
+        return jsonify({"error": "Instagram Reel not found"}), 404
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
+
+
 @app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/social-publish/linkedin")
 def publish_linkedin_social_drafts_route(site_id, job_id):
     try:
@@ -14504,7 +15761,11 @@ def serve_social_asset(site_id, asset_key, channel, filename):
     directory = social_asset_job_dir(site_id, asset_key, channel)
     if not (directory / filename).is_file():
         abort(404)
-    return send_from_directory(directory, filename)
+    response = send_from_directory(directory, filename, conditional=True, max_age=0)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.get("/sites/<int:site_id>/reel-music/<track_id>/<filename>")
@@ -14696,24 +15957,72 @@ def instagram_reel_preview(site_id, post_id):
         abort(404)
     payload = parse_json_object(post["content_json"])
     reel = payload.get("instagramReel") if isinstance(payload.get("instagramReel"), dict) else {}
+    checkpoint = reel.get("planningCheckpoint") if isinstance(reel.get("planningCheckpoint"), dict) else {}
+    editorial_brief = reel.get("editorialBrief") if isinstance(reel.get("editorialBrief"), dict) else checkpoint.get("editorialBrief") if isinstance(checkpoint.get("editorialBrief"), dict) else {}
+    scene_concepts = reel.get("sceneConcepts") if isinstance(reel.get("sceneConcepts"), dict) else checkpoint.get("sceneConcepts") if isinstance(checkpoint.get("sceneConcepts"), dict) else {}
+    director_plan = reel.get("directorPlan") if isinstance(reel.get("directorPlan"), dict) else checkpoint.get("directorPlan") if isinstance(checkpoint.get("directorPlan"), dict) else {}
     storyboard = reel.get("storyboard") if isinstance(reel.get("storyboard"), dict) else {}
     scenes = storyboard.get("scenes") if isinstance(storyboard.get("scenes"), list) else []
     progress = reel.get("progress") if isinstance(reel.get("progress"), dict) else {}
     video_url = str(reel.get("videoUrl") or "")
-    video = f"<video controls preload='metadata' poster='{escape(str(reel.get('coverUrl') or ''), quote=True)}' src='{escape(video_url, quote=True)}'></video>" if video_url else f"<div class='waiting'>{escape(str(progress.get('message') or 'The Reel is waiting for the VPS worker.'))}</div>"
+    if video_url:
+        render_token = str(reel.get("renderToken") or post["updated_at"] or "").replace(":", "").replace("+", "")
+        separator = "&" if "?" in video_url else "?"
+        versioned_video_url = f"{video_url}{separator}v={urllib.parse.quote(render_token, safe='')}"
+        cover_url = str(reel.get("coverUrl") or "")
+        if cover_url:
+            cover_url = f"{cover_url}{'&' if '?' in cover_url else '?'}v={urllib.parse.quote(render_token, safe='')}"
+        media_panel = f"<video controls preload='metadata' poster='{escape(cover_url, quote=True)}' src='{escape(versioned_video_url, quote=True)}'></video>"
+    else:
+        phase_label = {
+            "editorial_brief_ready": "Step 1 ready",
+            "scene_concepts_ready": "Step 2 ready",
+            "director_plan_ready": "Step 3 ready",
+        }.get(str(checkpoint.get("phase") or progress.get("phase") or ""), "Planning")
+        media_panel = f"<div class='planning-state'><strong>{escape(phase_label)}</strong><span>{escape(str(progress.get('message') or 'Text-only planning is ready for review.'))}</span><small>No images, voice, music, or video were generated.</small></div>"
     scene_rows = []
-    for scene in scenes:
-        assets = scene.get("assets") if isinstance(scene.get("assets"), dict) else {}
-        background = str(assets.get("backgroundUrl") or "")
-        scene_rows.append(f"""
-        <article class='scene'>
-          <img src='{escape(background, quote=True)}' alt='Scene {escape(str(scene.get('index') or ''))} background'>
-          <div><span>Scene {escape(str(scene.get('index') or ''))} · {escape(str(scene.get('cameraMove') or 'camera move'))}</span><h2>{escape(str(scene.get('overlayText') or ''))}</h2><p>{escape(str(scene.get('narration') or ''))}</p><small>{escape(str(scene.get('visualStory') or ''))}</small></div>
-        </article>
-        """)
-    timeline = "".join(scene_rows) or "<div class='waiting'>Storyboard is being written.</div>"
-    html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='robots' content='noindex,nofollow'><title>Instagram Reel review</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#090f1a;color:#f8fafc;font:16px/1.55 Inter,system-ui,sans-serif}}main{{max-width:1040px;margin:auto;padding:32px 18px 70px}}a{{color:#c4b5fd}}h1{{font-size:clamp(32px,6vw,58px);line-height:1;margin:10px 0}}.muted,small,span{{color:#a6b0c3}}.grid{{display:grid;grid-template-columns:minmax(0,430px) minmax(0,1fr);gap:28px;align-items:start;margin-top:24px}}video{{width:100%;display:block;aspect-ratio:9/16;border-radius:18px;background:#111827}}.caption,.waiting{{white-space:pre-wrap;border:1px solid #334155;background:#111827;border-radius:16px;padding:16px;margin-top:18px}}.timeline{{display:grid;gap:12px}}.scene{{display:grid;grid-template-columns:150px 1fr;gap:14px;padding:12px;border:1px solid #334155;background:#111827;border-radius:16px}}.scene img{{display:block;width:150px;aspect-ratio:9/16;object-fit:cover;border-radius:10px;background:#0b1020}}.scene h2{{font-size:19px;line-height:1.15;margin:6px 0}}.scene p{{margin:7px 0}}@media(max-width:760px){{.grid{{grid-template-columns:1fr}}.scene{{grid-template-columns:105px 1fr}}.scene img{{width:105px}}}}</style></head><body><main><a href='/sites/{int(site_id)}#distribution'>Back to dashboard</a><h1>Instagram Reel draft</h1><p class='muted'>{escape(post['brand_name'] or post['domain'])} · {escape(post['status'])} · {escape(str(reel.get('durationSeconds') or storyboard.get('durationSeconds') or ''))} seconds · 7-scene narrative</p><div class='grid'><section>{video}<div class='caption'>{escape(post['content_text'] or storyboard.get('caption') or '')}</div></section><section><h2>Storyboard</h2><div class='timeline'>{timeline}</div></section></div></main></body></html>"""
-    return Response(html, mimetype="text/html")
+    if isinstance(director_plan.get("scenes"), list):
+        for index, scene in enumerate(director_plan["scenes"], start=1):
+            layers = "".join(
+                f"<li><b>{escape(str(layer.get('name') or ''))}</b><span>{escape(str(layer.get('layerType') or ''))} · {escape(str(layer.get('storyRole') or ''))}</span><small>{'supports '+escape(str(layer.get('supportsLayer'))) if layer.get('supportsLayer') else 'source-grounded evidence'}</small></li>"
+                for layer in scene.get("movableGroups") or [] if isinstance(layer, dict)
+            )
+            actions = "".join(
+                f"<li><b>{int(action.get('order') or 0)} · {escape(str(action.get('subject') or ''))}</b><span>{escape(str(action.get('startSeconds')))}-{escape(str(action.get('endSeconds')))} s · {escape(str(action.get('revealMethod') or ''))}</span><p>{escape(str(action.get('fromState') or ''))} → {escape(str(action.get('finalState') or ''))}</p><small>{escape(str(action.get('storyPurpose') or ''))}</small></li>"
+                for action in scene.get("visualBeats") or [] if isinstance(action, dict)
+            )
+            cameras = "".join(
+                f"<li><b>{escape(str(camera.get('movement') or ''))}</b><span>{escape(str(camera.get('startSeconds')))}-{escape(str(camera.get('endSeconds')))} s · focus: {escape(str(camera.get('focusTarget') or ''))}</span><p>{escape(str(camera.get('fromFraming') or ''))} → {escape(str(camera.get('toFraming') or ''))}</p></li>"
+                for camera in (scene.get("cameraPlan") or {}).get("beats") or [] if isinstance(camera, dict)
+            )
+            text = scene.get("textDirection") if isinstance(scene.get("textDirection"), dict) else {}
+            scene_rows.append(f"""
+            <article class='director-scene'>
+              <header><span>Scene {index} · {escape(str(scene.get('durationSeconds') or ''))} s</span><h2>{escape(str(text.get('copy') or ''))}</h2><small>{escape(str(text.get('appearance') or ''))} · {escape(str(text.get('placement') or ''))} · {escape(str(text.get('contrastTreatment') or ''))}</small></header>
+              <section><h3>Registered layers</h3><ol class='layer-list'>{layers}</ol></section>
+              <div class='scene-columns'><section><h3>Physical events</h3><ol>{actions}</ol></section><section><h3>Camera</h3><ol>{cameras}</ol></section></div>
+            </article>
+            """)
+        timeline_title = "Step 3 · Director plan"
+    elif isinstance(scene_concepts.get("scenes"), list):
+        for index, scene in enumerate(scene_concepts["scenes"], start=1):
+            groups = ", ".join(str(group.get("name") or "") for group in scene.get("movableGroups") or [] if isinstance(group, dict))
+            scene_rows.append(f"<article class='director-scene'><header><span>Scene {index}</span><h2>{escape(str(scene.get('overlayText') or ''))}</h2></header><p><b>Evidence:</b> {escape(str(scene.get('evidenceInMasterFrame') or ''))}</p><p><b>Master frame:</b> {escape(str(scene.get('masterFrame') or ''))}</p><small>Movable groups: {escape(groups)}</small></article>")
+        timeline_title = "Step 2 · Scene concepts"
+    elif editorial_brief:
+        steps = "".join(f"<li><b>#{escape(str(step.get('rank') or ''))}</b> {escape(str(step.get('step') or ''))}</li>" for step in editorial_brief.get("solutionSteps") or [] if isinstance(step, dict))
+        scene_rows.append(f"<article class='director-scene'><header><span>Central problem</span><h2>{escape(str(editorial_brief.get('centralProblem') or ''))}</h2></header><p><b>Hook:</b> {escape(str((editorial_brief.get('hook') or {}).get('overlayText') or ''))}</p><h3>Ranked solution</h3><ol>{steps}</ol><p><b>Resolution:</b> {escape(str((editorial_brief.get('finalResolution') or {}).get('answer') or ''))}</p></article>")
+        timeline_title = "Step 1 · Editorial brief"
+    else:
+        timeline_title = "Planning"
+    timeline = "".join(scene_rows) or "<div class='waiting'>Planning result is not available yet.</div>"
+    duration = reel.get("durationSeconds") or director_plan.get("durationSeconds") or storyboard.get("durationSeconds") or ""
+    html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='robots' content='noindex,nofollow'><title>Instagram Reel review</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#090f1a;color:#f8fafc;font:16px/1.55 Inter,system-ui,sans-serif}}main{{max-width:1180px;margin:auto;padding:32px 18px 70px}}a{{color:#c4b5fd}}h1{{font-size:clamp(32px,6vw,58px);line-height:1;margin:10px 0;letter-spacing:0}}h2{{line-height:1.2}}h3{{font-size:15px;text-transform:uppercase;color:#a78bfa;letter-spacing:0}}.muted,small,span{{color:#a6b0c3}}.grid{{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:28px;align-items:start;margin-top:24px}}video{{width:100%;display:block;aspect-ratio:9/16;background:#111827}}.caption,.waiting,.planning-state{{white-space:pre-wrap;border:1px solid #334155;background:#111827;padding:16px;margin-top:18px}}.planning-state{{display:grid;gap:8px;margin-top:0;position:sticky;top:18px}}.planning-state strong{{font-size:25px}}.timeline{{display:grid;gap:14px}}.director-scene{{padding:18px;border:1px solid #334155;background:#111827}}.director-scene header{{padding-bottom:12px;border-bottom:1px solid #293548}}.director-scene header h2{{font-size:22px;margin:5px 0}}.scene-columns{{display:grid;grid-template-columns:1fr 1fr;gap:18px}}.layer-list{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;padding:0;list-style:none}}.layer-list li{{border:1px solid #293548;padding:10px}}ol{{padding-left:22px}}li{{margin:0 0 14px}}li b,li span{{display:block}}li p{{margin:4px 0}}@media(max-width:820px){{.grid,.scene-columns{{grid-template-columns:1fr}}.planning-state{{position:static}}}}</style></head><body><main><a href='/sites/{int(site_id)}#distribution'>Back to dashboard</a><h1>Instagram Reel planning</h1><p class='muted'>{escape(post['brand_name'] or post['domain'])} · {escape(post['status'])}{' · '+escape(str(duration))+' seconds' if duration else ''}</p><div class='grid'><section>{media_panel}<div class='caption'>{escape(post['content_text'] or storyboard.get('caption') or '')}</div></section><section><h2>{escape(timeline_title)}</h2><div class='timeline'>{timeline}</div></section></div></main></body></html>"""
+    response = Response(html, mimetype="text/html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.get("/sites/<int:site_id>/social-posts/<int:post_id>/threads")
@@ -15359,6 +16668,8 @@ function clearBulkProgress(){document.querySelectorAll('.planned-bulkbar button,
 async function bulkPlannedAction(action){const tasks=selectedPlannedTasks();const groupIds=tasks.map(item=>item.groupId);if(!groupIds.length){showToast('Select at least one planned task');return;}if(action==='generate'){if(!confirm('Generate '+tasks.length+' selected planned task groups now?')) return;let ok=0;let failed=0;for(let i=0;i<tasks.length;i++){const task=tasks[i];setBulkProgress('Generating '+(i+1)+'/'+tasks.length+'. Keep this tab open.');showToast('Generating '+(i+1)+'/'+tasks.length+'...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(task.jobId)+'/generate',{method:'POST'});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);ok++;}catch(e){failed++;}}setBulkProgress('Bulk generation finished: '+ok+' ok, '+failed+' failed. Reloading...', false);showToast('Bulk generation finished: '+ok+' ok, '+failed+' failed');setTimeout(()=>location.reload(),1800);return;}if(action==='delete'&&!confirm('Delete '+groupIds.length+' selected planned task groups from Blog Core? This does not delete live site files.')) return;setBulkProgress('Deleting '+groupIds.length+' planned task groups...');showToast('Deleting '+groupIds.length+' planned task groups...');try{const res=await fetch('/api/sites/'+SITE_ID+'/planned-groups/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,groupIds})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);setBulkProgress('Deleted '+(data.deletedJobs||0)+' job rows. Reloading...', false);showToast('Deleted '+(data.deletedJobs||0)+' job rows in '+(data.groups||groupIds.length)+' groups');setTimeout(()=>location.reload(),1200);}catch(e){clearBulkProgress();showToast('Bulk delete failed: '+e.message);}}
 async function generateSocialDrafts(jobId){showToast('Preparing social drafts...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);const summary=(data.drafts||[]).map(d=>d.channel+': '+d.charCount+'/'+d.maxChars).join(' · ');showToast('Social drafts ready: '+summary);setTimeout(()=>location.reload(),1200);}catch(e){showToast('Social drafts failed: '+e.message);}}
 async function queueInstagramReel(jobId){if(!confirm('Queue an intelligently structured Instagram Reel draft from this article? It will render on the VPS and remain unpublished for review.'))return;showToast('Instagram Reel queued. Gemini is deriving the storyboard structure...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/instagram-reels',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast(data.existing?'Opening the existing Reel draft...':'Instagram Reel queued. Progress will appear in this row.');setTimeout(()=>location.reload(),600);}catch(e){showToast('Instagram Reel queue failed: '+e.message);}}
+async function advanceInstagramReel(postId,message){showToast(message+'...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-posts/'+encodeURIComponent(postId)+'/instagram-reel/advance',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast(message+' queued. Accepted prior stages will be reused.');setTimeout(()=>location.reload(),600);}catch(e){showToast('Reel planning failed: '+e.message);}}
+async function produceInstagramReel(postId){if(!confirm('Produce the approved Reel now without voice narration?'))return;showToast('Producing approved Reel scenes without voice...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-posts/'+encodeURIComponent(postId)+'/instagram-reel/produce',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({voiceEnabled:false})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Production queued. Each accepted visual scene will be saved.');setTimeout(()=>location.reload(),600);}catch(e){showToast('Reel production failed: '+e.message);}}
 async function regenerateInstagramReel(postId){if(!confirm('Regenerate this unpublished Reel with the current story-first production rules? It will remain unpublished for review.'))return;showToast('Regenerating Instagram Reel with the current production contract...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-posts/'+encodeURIComponent(postId)+'/instagram-reel/regenerate',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Instagram Reel regeneration queued. Progress will appear in this row.');setTimeout(()=>location.reload(),600);}catch(e){showToast('Instagram Reel regeneration failed: '+e.message);}}
 async function publishInstagramReel(jobId,postId){if(!confirm('Submit this reviewed Instagram Reel to Zernio now?'))return;showToast('Submitting Instagram Reel to Zernio...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-publish/zernio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({socialPostIds:[postId]})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);const result=(data.results||[])[0]||{};showToast(result.ok?'Instagram Reel accepted by Zernio.':'Instagram Reel failed: '+(result.error||'unknown error'));setTimeout(()=>location.reload(),900);}catch(e){showToast('Instagram Reel publication failed: '+e.message);}}
 function initReelPollers(){const rows=[...document.querySelectorAll('[data-reel-post-id]')];if(!rows.length)return;const update=async()=>{let complete=false;for(const row of rows){try{const res=await fetch('/api/sites/'+SITE_ID+'/social-posts/'+encodeURIComponent(row.dataset.reelPostId));const data=await res.json();if(!res.ok)continue;const reel=(data.payload?.instagramReel)||{};const progress=reel.progress||{};const target=row.querySelector('[data-reel-progress-text]');const count=Number(progress.totalScenes||0);const position=count?' · scene '+(progress.scene||0)+'/'+count:' · planning structure';if(target)target.textContent=(progress.message||'Rendering Instagram Reel')+position;if(data.status!=='GENERATING')complete=true;}catch(e){}}if(complete)location.reload();};update();setInterval(update,7000);}

@@ -1,181 +1,314 @@
+## 2026-08-13 — Remove Reel outlines and make camera motion continuous
+
+### Summary
+* Removed the uneven white silhouette treatment from the real SoloCruz Reel and retained only natural soft/contact shadows.
+* Replaced start-stop camera beat execution with one continuous cubic trajectory through wide, medium, close-up, and target-transfer destinations.
+* Re-rendered the existing seven scenes without generating new images or voice.
+
+### Files changed
+* `app.py` — universal director prompt now requires uninterrupted camera velocity and treats beats as destinations rather than separate moves.
+* `reel_renderer.py` — natural two-depth shadows and continuous Catmull-Rom/Hermite camera interpolation.
+* `docs/PROJECT_MEMORY.md` — durable shadow and continuous-camera contract.
+* `docs/CHANGELOG_AI.md` — recorded this correction.
+
+### Checks run
+* Compiled `app.py` and `reel_renderer.py` in the VPS virtual environment.
+* Numerically sampled the camera trajectory at 100 fps and verified smooth interpolation from establishing framing to close-up.
+* Re-rendered a 30.041667-second, 1080x1920 H.264 draft from existing visual checkpoints.
+* Extracted and visually reviewed 25 frames across all seven scenes; confirmed outlines are gone and framing progresses continuously through wide, medium, and close views.
+* Blog Core health returned `ok`; post 33 remains `DRAFT` with no generated voice and no publication.
+
+### Risks / TODO
+* Hard cuts between separate scenes remain intentional; continuity applies within each scene up to its cut.
+
+## 2026-08-13 — Prevent stale Reel previews after re-render
+
+### Summary
+* Fixed the Reel review page showing an older MP4 after a successful re-render.
+* Every future Reel render now writes a uniquely versioned video and poster filename.
+* Reel preview HTML and social-asset responses now explicitly disable browser and intermediary caching; the preview also appends the render token to media URLs.
+* Pointed SoloCruz post 33 at a new versioned copy of the already-rendered final video without generating media again.
+
+### Files changed
+* `app.py` — versioned Reel filenames, cache-busted preview media URLs, and no-store response headers for review HTML and social assets.
+* `docs/CHANGELOG_AI.md` — recorded the stale-preview correction.
+
+### Checks run
+* Compiled `app.py` and restarted `blog-yas-core`; `/health` returned `ok`.
+* Verified the preview references `instagram-reel-20260813T161210Z.mp4?v=20260813T161210Z`.
+* Verified preview HTML returns `Cache-Control: no-store` with Cloudflare `DYNAMIC` status.
+* Verified the new MP4 returns `Cache-Control: no-store` with Cloudflare `BYPASS`, a new filename, and a `2026-08-13 16:12:10 UTC` modification time.
+
+### Risks / TODO
+* Old immutable Reel files remain on disk until a separate retention cleanup is implemented; they are no longer referenced by the current preview.
+
+## 2026-08-13 — Finish adaptive Reel type, object separation, and real close-ups
+
+### Summary
+* Re-rendered the real seven-scene SoloCruz Reel from existing approved image checkpoints only.
+* Replaced long 7-22-word overlays with 5-7-word headlines that preserve the countdown and SoloCruz resolution.
+* Removed in-scene text pagination, added six-zone subject-aware placement and adaptive color-sampled gradient scrims.
+* Added a light silhouette outline and soft offset shadow to every registered layer while reducing destructive legacy matte erosion.
+* Upgraded camera execution from gentle crops to wide, medium, and genuine person/object close-ups with lateral transfers and pull-outs.
+
+### Files changed
+* `app.py` — universal overlay-length, reading-time, safe-placement, gradient-scrim, and cinematic camera prompt/validation contract.
+* `reel_renderer.py` — six-zone type placement, 88-132 px single-title rendering, cached adaptive scrims, object outlines/shadows, preserved silhouette details, and 2.2-2.34x close framing.
+* `docs/PROJECT_MEMORY.md` — durable Reel typography, edge treatment, placement, and film-scale camera rules.
+* `docs/CHANGELOG_AI.md` — recorded this correction and verification.
+
+### Decisions
+* Small matte irregularities are hidden with a restrained outline and shadow; hands, feet, clothing, hair, and owned objects are never sacrificed by aggressive erosion.
+* On-screen copy is intentionally shorter than article/narration prose and is always displayed as one readable title.
+* Strong close-ups remain clear of overlay text whenever the scene duration permits.
+
+### Checks run
+* `python3 -m py_compile app.py reel_renderer.py` passed locally and on the VPS.
+* Restarted `blog-yas-core` and `blog-yas-core-scheduler`; `/health` returned `ok`.
+* Re-rendered post 33 as a 30.041667-second, 1080x1920, 24 fps H.264 draft without image generation or voice.
+* Extracted and visually inspected 15 full-resolution frames across all seven scenes, covering entrances, full titles, clean text exits, wide shots, medium relationships, and close-ups.
+* Confirmed social post 33 returned to `DRAFT`; it was not published.
+
+### Risks / TODO
+* Existing source masters still determine pose and photographic quality. The renderer now preserves and separates their silhouettes but does not regenerate or redesign accepted photography during render-only correction.
+
 # CHANGELOG_AI.md
 
-## 2026-08-11 - Make Gemini own the Reel scene-production plan
+## 2026-08-13 — Clean Reel cutouts, persistent scene text, and verified final logo
 
 ### Summary
-* Replaced the underspecified Stage 2 Reel scene-concept contract with a Gemini-generated master-frame plan suitable for the active master/clean-plate/extracted-group pipeline.
-* The stage remains text-only: no image, voice, music, or video generation occurs before its output is reviewed.
+
+* Reworked registered-layer edge recovery so missing anatomy/object edges are restored only along a narrow clean-plate difference boundary instead of admitting surrounding floor or wall pixels.
+* Made every overlay remain visible from scene start through the exact scene cut. Removed text strokes and retained a soft shadow, with a feathered color-sampled gradient only when local contrast requires it.
+* Enabled the real connected-site logo reference for the final brand-resolution scene, added source SVG rasterization, and made the final camera pull back to reveal the logo in context.
+* Rebuilt SoloCruz Reel post 33 without voice. Six existing scenes were reused; only the final master/clean pair was regenerated. The final output is a 30.04-second 1080x1920 H.264 draft.
 
 ### Files changed
-* `app.py` - Expanded the Stage 2 JSON schema, prompt, and normalizer to require master frames, derivative clean plates, exact movable groups and entrances, post-entry camera plans, overlay copy, and readable text placement.
-* `docs/PROJECT_MEMORY.md` - Recorded the durable Stage 2 ownership and production contract.
+
+* `app.py` — extraction-safe prompt, clean-plate spatial removal instructions, final-scene logo reference, high-resolution SVG logo conversion.
+* `registered_scene.py` — narrow semantic-plus-difference mask repair and softer anatomy-preserving alpha edge.
+* `reel_renderer.py` — persistent text, no stroke, conditional gradient scrim, soft text shadow, final brand-context camera reveal.
+* `docs/PROJECT_MEMORY.md` — durable Reel mask/text/logo contracts.
+* `docs/INTEGRATIONS.md` — Gemini logo-reference contract.
+* `docs/CHANGELOG_AI.md` — task record.
 
 ### Decisions
-* Scene composition, group extraction intent, and camera timing are generated by Gemini from the locked editorial beats; Codex must not replace this stage with a manual storyboard.
-* A clean plate is always a derivative of the accepted master frame, never an independently generated background.
+
+* Do not hide poor masks with a white outline. Correct the extraction matte from semantic and clean-plate evidence.
+* Final brand usage is produced by Gemini from a verified reference and remains part of the photographed scene, not a renderer overlay.
 
 ### Checks run
-* `python3 -m py_compile app.py`
-* `git diff --check`
+
+* `python3 -m py_compile app.py reel_renderer.py registered_scene.py` passed locally and on the VPS.
+* Blog Core `/health` returned `ok`; `blog-yas-core` and `blog-yas-core-scheduler` are online.
+* Gemini layer-pack review approved the rebuilt final scene: complete silhouettes, no missing anatomy, no holes, and no foreign pixels.
+* Frame QA at all seven scene boundaries confirmed text remains present through each cut.
+* Final-frame QA confirmed the real SoloCruz mark, final text, complete person, and both story objects remain visible together.
+* `ffprobe` confirmed 1080x1920 H.264, 30.041667 seconds; voice generation remained disabled.
 
 ### Risks / TODO
-* Run the new text-only Stage 2 contract against a real source article and review all scene plans before generating any media.
 
-## 2026-08-11 - Require visible evidence in every Reel scene
+* Some prior scene photography is reused from the approved master set; future generations benefit from the stronger extraction-safe source prompt, but old master composition is intentionally not regenerated in this task.
+
+## 2026-08-13 — Improve Reel readability, matte quality, and cinematic camera work
 
 ### Summary
-* Strengthened Stage 2 after a real Gemini result returned generic people in category-appropriate locations rather than visual proof of editorial beats.
+* Rebuilt the existing seven-scene SoloCruz Reel from its accepted visual checkpoints without generating new images or speech.
+* Increased overlay typography and split long copy into sequential mobile-readable phrase groups.
+* Added target-aware close-ups, focus transfers, direction changes, pull-outs, and varied scene-local camera sequences.
+* Added soft inner mattes and foreground-edge decontamination for new registered layers, plus safe cleanup for legacy binary checkpoint layers.
 
 ### Files changed
-* `app.py` - Requires `evidenceInMasterFrame` and makes Gemini audit every scene for source-specific visual evidence, necessary groups, and a truly identical clean plate.
-* `docs/PROJECT_MEMORY.md` - Records the durable rule that passive poses and thematic scenery are not scene evidence.
+* `app.py` — strengthened universal director and typography instructions for future Reels.
+* `reel_renderer.py` — large paged captions, typed camera targets, cinematic camera beats, and legacy edge cleanup.
+* `registered_scene.py` — decontaminated soft inner mattes for newly extracted registered layers.
+* `requirements.txt` — added SciPy for nearest-interior edge-color recovery.
+* `docs/PROJECT_MEMORY.md` — recorded the durable Reel typography, camera, matte, and checkpoint-reuse contracts.
+* `docs/CHANGELOG_AI.md` — recorded this task.
 
 ### Decisions
-* The shared prompt is corrected at the planning boundary. The service must never cure generic scene concepts through a site- or article-specific post-processing rule.
+* Preserve complete silhouettes even when a more aggressive erosion would remove the last bright edge; cutting anatomy or owned objects is not an acceptable cleanup method.
+* Camera movement acts on the complete assembled photograph only after registered entrances settle.
+* Render refinements must reuse accepted scenes and must not incur new image or voice generation.
 
 ### Checks run
-* `python3 -m py_compile app.py`
-* `git diff --check`
+* Compiled `app.py`, `reel_renderer.py`, and `registered_scene.py` in the VPS virtual environment.
+* Restarted `blog-yas-core` and `blog-yas-core-scheduler`; `/health` returned `ok`.
+* Re-rendered and visually inspected full-resolution frames across all seven real SoloCruz scenes, including wide frames, person close-ups, object close-ups, focus transfers, and pull-outs.
+* Verified a 30.041667-second 1080x1920 H.264/AAC result at 24 fps with continuous music and no generated voice.
 
 ### Risks / TODO
-* Run the corrected text-only Stage 2 contract against the real article and review its full seven-scene plan before any media generation.
+* Some bright rim lighting belongs to the generated master photograph itself. Removing it more aggressively from old checkpoint masks damages real silhouette detail; future scenes use the clean-edge matte contract at extraction time.
+* The Reel remains a draft for operator review and was not published.
 
-## 2026-08-11 - Preserve compliant negative scene constraints
+## 2026-08-12 — Produce the first checkpointed SoloCruz Reel without voice
 
 ### Summary
-* Corrected the Stage 2 validator so a candidate that says a prohibited visual element is absent is not rejected merely for naming it.
+* Connected the accepted seven-scene director plan directly to real media production instead of redesigning it in a second storyboard pass.
+* Generated and validated coherent vertical masters, matching clean plates, and registered foreground layers for all seven scenes.
+* Added per-scene visual checkpoints so accepted assets survive interruption and are reused on resume.
+* Added an explicit no-voice production path while retaining the site's continuous background soundtrack.
+* Tightened universal master composition, clean-plate removal, layer segmentation, camera timing, and optional support-object handling.
 
 ### Files changed
-* `app.py` - Removes negative quality constraints from lexical forbidden-content checks while retaining checks for prohibited visual content that the model actually proposes.
+* `app.py` — production entry point, accepted-plan adapter, visual checkpoints, universal image prompts/reviews, no-voice mode, and production UI action.
+* `registered_scene.py` — authoritative semantic masks, narrow clean-plate boundary repair, role-aware geometry checks, and layer overlap handling.
+* `reel_renderer.py` — approved whole-layer entrances, post-entrance camera beats, caption timing, and music-only rendering.
+* `docs/PROJECT_MEMORY.md` — recorded the durable checkpoint, visual, and no-voice production contracts.
+* `docs/CHANGELOG_AI.md` — recorded this task.
 
 ### Decisions
-* Prompt contracts should prevent prohibited content; validators must distinguish that content from a negative statement about its absence.
+* An accepted director plan is executed, not rewritten during media production.
+* Accepted visual scenes are never regenerated merely because a later scene or final render is interrupted.
+* No speech API call or voice file is allowed when production is started without voice.
 
 ### Checks run
-* `python3 -m py_compile app.py`
+* Python compilation for `app.py`, `registered_scene.py`, and `reel_renderer.py` locally and on the VPS.
+* Real SoloCruz production created seven accepted visual scene checkpoints with three or four registered layers per scene.
+* Confirmed production state records voice disabled and music-only audio mode.
+* Rendered and visually reviewed the complete 30.04-second 1080x1920 H.264 Reel; confirmed all seven scenes, complete final copy, continuous AAC music, and zero voice files.
+* Verified the private preview and public MP4 asset both return HTTP 200, and the Blog Core health endpoint is healthy.
 
 ### Risks / TODO
-* The next Stage 2 call must be reviewed for source-specific evidence, not treated as accepted merely because the lexical validator passes.
+* The Reel remains a draft for operator review; it has not been published to Instagram.
 
-## 2026-08-11 - Expose Gemini Stage 2 plans for review
+## 2026-08-12 — Use plain language in operator-facing output
 
 ### Summary
-* Removed the broad word-based content blocker that concealed a complete Gemini scene plan after structured schema validation.
+* Recorded that project plans, scenarios, previews, and status explanations must use normal language rather than JSON or internal schema terminology.
 
 ### Files changed
-* `app.py` - Keeps structural validation of Stage 2 output and leaves visual-quality acceptance to the explicit prompt contract plus the operator review checkpoint.
+* `docs/PROJECT_MEMORY.md` — added the durable communication preference.
+* `docs/CHANGELOG_AI.md` — recorded this task.
 
 ### Decisions
-* A structured plan must be visible for review. A brittle token blacklist cannot be the authority on whether a scene concept is usable.
+* Technical payloads are shown only when explicitly requested.
 
 ### Checks run
-* `python3 -m py_compile app.py`
-* Live health check: `http://127.0.0.1:3299/health`
+* Reviewed the memory entry for clarity and absence of secrets.
 
 ### Risks / TODO
-* The received SoloCruz candidate is rejected before media generation: it still invents unsupported props, passive staging, background actors, and a fictional success arc. The Stage 2 prompt needs another source- and composition-level correction before a new explicit model run.
+* None.
 
-## 2026-08-11 - Ground Stage 2 in free-standing source evidence
+## 2026-08-12 — Restrict Reel motion to executable rigid layers
 
 ### Summary
-* Refined the shared Stage 2 prompt to allow normal human states while requiring every frame to state the source-grounded relationship they make visible.
-* Restricted planned movable groups to complete free-standing figures and removed ungrounded portable props and scenic-resolution substitutions.
+* Removed impossible internal object animation from Reel scene planning and direction.
+* Made stage two choose an immutable rigid transform for every complete person or object layer.
+* Added structured checks for unchanged appearance, full final visibility, and an unobstructed entrance path.
+* Made stage three copy the approved transform instead of inventing a new reveal method.
+* Rebuilt the SoloCruz text-only plan as seven scenes with moving people and complete objects; no media was generated.
 
 ### Files changed
-* `app.py` - Strengthened universal source-to-visual, extractability, bridge, and payoff-resolution rules for Gemini Stage 2 planning.
+* `app.py` — updated Reel schemas, stage-two and stage-three prompts, validators, checkpoint versioning, and deterministic immutable-field hydration.
+* `docs/PROJECT_MEMORY.md` — recorded the rigid full-canvas layer contract and deprecated state-changing still-image motion.
+* `docs/CHANGELOG_AI.md` — recorded this task.
 
 ### Decisions
-* The resolution must continue the payoff's factual physical world rather than inventing a celebratory travel ending.
-* A bridge without its own physical event must reframe a previously established source-grounded world rather than create a generic new location.
+* Whole-layer translation and uniform scale are the only supported layer transforms in the current renderer.
+* A bad object choice is corrected in stage two; later stages must not reinterpret an impossible layer action.
+* Immutable source anchors and neutral kinetic-support purposes are hydrated by code rather than consuming another model call.
 
 ### Checks run
-* `python3 -m py_compile app.py`
-* Live health check: `http://127.0.0.1:3299/health`
-* Text-only Stage 2 Gemini run for the SoloCruz article; no image, voice, music, or video calls.
+* Python compilation, VPS deployment, PM2 restarts for both app and scheduler, and `/health` check.
+* Generated a version-16 SoloCruz plan with 7 scenes, 25 layers, 25 distinct physical events, 14 object layers, and a 30.0-second duration.
+* Verified every event uses its stage-two `transformMode`; only `settle`, `slide_left`, `slide_right`, and `rise` are present.
+* Verified every layer has unchanged appearance, full visibility, and an unobstructed path; no hinge, swing, fold, billow, `roll_in`, or `arc_in` behavior remains.
+* Verified the planning preview returns HTTP 200 and `mediaGenerated` is false.
 
 ### Risks / TODO
-* The text-only Stage 2 plan remains at the operator-review checkpoint. Do not proceed to master-image generation until its seven source-grounded scenes are accepted.
+* The text-only director plan still requires operator approval before any image, voice, music, or video production.
 
-## 2026-08-11 - Add checkpointed Reel scene-concept planning
-
-### Summary
-* Added a second, text-only Reel stage that derives immutable editorial beats from the approved brief and creates one coherent scene concept for each beat.
-* The stage explicitly remains before all image, asset, voice, music, camera, and rendering work. Each scene now has an explicit physical `visibleAction`, rather than allowing static posing to masquerade as a scene.
-* Strengthened the stage-two contract to reject generic posed travel shots, background crowds, readable visual shortcuts, and romance-coded staging. Removed an invalid fixed-English-verb validator that rejected otherwise structured action descriptions.
-
-### Files changed
-* `app.py` - added editorial-beat derivation, scene-concept schema/prompt/validation, and the `scene_concepts_ready` checkpoint.
-* `docs/PROJECT_MEMORY.md` - recorded the durable stage-two visual-story rule.
-* `docs/CHANGELOG_AI.md` - recorded this task.
-
-### Checks run
-* Python compilation and one text-only stage-two run against the SoloCruz article.
-* The initial candidate was rejected before media because it used generic standing/looking actions, background people, and readable-location shortcuts.
-
-### Risks / TODO
-* The corrected stage-two prompt must be rerun and approved before any technical frame, image, or animation work begins.
-
-## 2026-08-11 - Make Reel retention visible before the final solution
+## 2026-08-12 — Require real object layers and three physical Reel events
 
 ### Summary
-* Added a required retention plan to the text-only editorial brief: early promise, withheld resolution, payoff rank, and presentation order.
-* Bounded checklists now use a reverse countdown that reserves the decisive rank-one solution for the final reveal.
-* When the article contains a real product mechanism that resolves the central problem, the brief must make it the factual payoff rather than append it as promotion.
+* Rebuilt stage two so every scene plans three or four registered layers, including a moving story object.
+* Separated source-grounded direct evidence from honest kinetic support and blocked symbolic object substitutions.
+* Rebuilt stage three so focus, camera, text, and static relationships cannot satisfy the three-event requirement.
+* Added deterministic hydration of immutable stage-two fields instead of asking Gemini to copy them exactly.
+* Generated and installed a new seven-scene, 29.4-second SoloCruz text-only director plan with three independent physical layer events per scene.
+* Exposed registered layer type and role in the Reel review page.
 
 ### Files changed
-* `app.py` - added retention-plan schema, prompt requirements, and validation.
-* `docs/PROJECT_MEMORY.md` - recorded the durable retention contract.
-* `docs/CHANGELOG_AI.md` - recorded this task.
-
-### Checks run
-* Python compilation and a text-only rerun against the SoloCruz article.
-* No image, voice, music, video, or rendering request was made.
-
-### Risks / TODO
-* Visual stages remain blocked until the revised editorial brief is approved.
-
-## 2026-08-11 - Reject generic Reel hooks before visual planning
-
-### Summary
-* Strengthened the mandatory editorial-brief hook contract so a generic statement cannot pass merely because it is source-grounded and the right length.
-* The model must now declare the concrete tension type, stake, literal overlay stake, viewer question, and final payoff promise alongside the overlay and narration.
-
-### Files changed
-* `app.py` - added hook-stake fields and validation to the text-only Reel editorial brief.
-* `docs/PROJECT_MEMORY.md` - recorded the durable hook-quality rule.
-* `docs/CHANGELOG_AI.md` - recorded this task.
-
-### Checks run
-* Python compilation and one text-only rerun against the SoloCruz source article.
-* No image, voice, music, video, or rendering request was made.
-
-### Risks / TODO
-* The subsequent visual stages remain intentionally unstarted until the revised first-stage brief is approved.
-
-## 2026-08-11 - Add the mandatory Reel editorial brief as pipeline stage one
-
-### Summary
-* Added a dedicated, text-only first Gemini stage for every Instagram Reel.
-* The stage returns only the main reader problem, a source-grounded hook, three to five ranked solution steps, and the factual final role of the brand in resolving the problem.
-* It explicitly forbids scenes, visual concepts, characters, photographs, layers, camera work, audio, captions, and rendering.
-* Ran it once for the SoloCruz article `What Makes a Cruise Truly Solo-Friendly? A Checklist Beyond the Single Cabin`; no visual or audio generation was requested.
-
-### Files changed
-* `app.py` - added the editorial-brief schema, prompt, validation, checkpoint, and version-14 pipeline boundary.
-* `docs/PROJECT_MEMORY.md` - recorded the durable stage-one contract.
-* `docs/CHANGELOG_AI.md` - recorded this task.
+* `app.py` — updated schemas, prompts, validators, checkpoint compatibility, director hydration, and planning UI.
+* `docs/PROJECT_MEMORY.md` — recorded the durable object-layer and physical-event contract.
+* `docs/CHANGELOG_AI.md` — recorded this task.
 
 ### Decisions
-* No visual planning may be considered until the source problem, hook, solution path, and product resolution are explicit.
-* The first stage is not permitted to reinterpret an informational article as a fictional dating or personal-drama story.
+* An abstract article concept is never converted into a symbolic prop. Objects either have literal source grounding or operate only as kinetic support.
+* Minimum events describe real independent layer motion, not optical attention changes.
 
 ### Checks run
-* Python compilation and a one-call Gemini text run against the specified SoloCruz article.
-* The result contains one problem, one hook, four ranked source-grounded solution steps, and one source-grounded SoloCruz resolution.
-* No photo, voice, music, or video request was made.
+* Python compilation, VPS deployment, PM2 restart, and health check.
+* Step two generated seven scenes with three registered layers each and at least one story object per scene.
+* Step three resumed from per-scene checkpoints and produced seven scenes totaling 29.4 seconds; every scene has three distinct layer events and two camera beats.
+* Verified that kinetic-support events name the direct-evidence layer they physically assist and every final camera beat lands on direct evidence.
+* Confirmed `mediaGenerated: false`; no image, voice, music, or video generation ran.
 
 ### Risks / TODO
-* Subsequent Reel stages must be rebuilt to consume this locked editorial brief; they are intentionally not started in this task.
+* The new director plan remains text-only and must be reviewed before media production.
+
+## 2026-08-12 — Rebuild Reel step-three prompt from approved scene evidence
+
+### Summary
+* Left the accepted step-two scene concepts unchanged.
+* Replaced vague motion prose with an executable scene contract: registered entrances, material evidence, spatial relationships, kinetic copy, and sequential camera beats.
+* Anchored every visual action to exact step-two evidence and rejected incidental scenery, decorative lighting, cropped people, invented coordinates, and repeated pseudo-subjects.
+* Added resumable `directorScenes` and complete `directorPlan` checkpoints to the real Reel planning pipeline.
+* Refined text contrast after review: aesthetic color-sampled feathered gradients are allowed; opaque black rectangles and hard-edged black plaques remain forbidden.
+* Added explicit panel controls to advance only the next text-planning stage and a readable step-one, step-two, or step-three preview.
+* Installed the accepted seven-scene SoloCruz director plan into the operational panel record without generating media.
+* Added a Distribution-level Reel planning list so accepted plans and next-stage actions are visible independently of the article inventory page.
+
+### Files changed
+* `app.py` — rebuilt the step-three schema, prompt, validator, per-scene resume, and pipeline checkpoint integration.
+* `docs/PROJECT_MEMORY.md` — recorded the durable step-three production contract.
+* `docs/CHANGELOG_AI.md` — recorded this task.
+
+### Decisions
+* Step three directs only the approved step-two composition and never redesigns it.
+* Images, voice, music, and video remain blocked until the complete director plan is validated.
+
+### Checks run
+* Python compilation and Git whitespace checks.
+* VPS deployment, PM2 restart, and `GET /health`.
+* Real text-only SoloCruz run from the existing seven accepted step-two scenes: 7 scenes, 29.3 seconds, no media generated; all structural assertions passed.
+* Checkpoint-resume smoke test reused the complete accepted `directorPlan` with 7 scenes and generated no images, voice, music, or video.
+* The stage-advance API rejected a repeated step-three request with HTTP 400 instead of regenerating the accepted plan.
+* Browser verification confirmed the Distribution planning list, direct plan navigation, all seven readable scene cards, physical events, camera beats, text direction, and the explicit no-media state.
+
+### Risks / TODO
+* The plan is ready for human review before any asset-generation stage begins.
+
+## 2026-08-11 — Make Reel step three an executable director plan
+
+### Summary
+* Kept approved step-two scene concepts unchanged.
+* Added time-coded director actions, camera plans, exact text direction, and extraction constraints to every step-three scene.
+* Required at least three visible actions per scene, two tied to approved foreground groups, and a dynamic camera move after the entrances settle.
+* Strengthened the contract after review: each scene now has six timed events minimum, three identifiable visual actions, text, and two camera beats; generic lighting or atmosphere changes cannot satisfy the action requirement.
+* Replaced the vague event-list prompt with a positive technical motion score: three physical `visualBeats`, registered-layer or fixed-detail reveal mechanics, and two fully specified camera beats per scene.
+* Anchored every physical beat to exact approved step-two evidence and separated registered entrances, material evidence, and spatial relationships so decorative scenery cannot satisfy the story-action requirement.
+* Rejected cropped registered people and decorative lighting/vignette reveals at the step-three validation boundary.
+* Defined role-specific subjects for one-group resolution scenes so the group entrance, internal evidence, and group-to-setting relationship remain distinct executable events.
+* Fixed director-plan resume so a single regenerated scene is duration-validated locally and the 27-33 second total is enforced only after merging the complete plan.
+* Connected the director pass directly to the approved step-two scene concepts rather than the obsolete parallel skeleton.
+
+### Files changed
+* `app.py` — added the step-three schema, prompt contract, normalization, and validation.
+* `docs/PROJECT_MEMORY.md` — recorded the durable production boundary.
+* `docs/CHANGELOG_AI.md` — recorded this task.
+
+### Decisions
+* Step three is a separate reviewable director checkpoint; it does not generate media or alter editorial/scene concepts.
+
+### Checks run
+* Python compilation and diff whitespace validation.
+* Deployed to the Blog Core VPS; `python3 -m py_compile app.py` and `GET /health` passed.
+* Ran the new text-only director pass from the existing seven approved step-two SoloCruz concepts: seven scenes, 29.0 seconds, `mediaGenerated: false`.
+
+### Risks / TODO
+* The director plan is ready for operator review; image, voice, music, and video generation remain blocked until that review is approved.
 
 ## 2026-08-11 - Reject non-layerable Reel concepts at architecture stage
 
@@ -4691,3 +4824,37 @@ This file is updated by Codex after every task.
 
 ### Risks / TODO
 * CPU ViTMatte is intentionally slower than the deprecated quantized SAM path.
+
+## 2026-08-13 — Made the Gemini Reel director source-grounded and causally coherent
+
+### Summary
+
+* Reworked the shared three-stage Instagram Reel planning contract so the hook, every solution beat, and the resolution form one truthful answer to the article's central problem.
+* Removed the empty retention-bridge scene; the unresolved promise now stays inside the hook and scene handoffs.
+* Required each scene to preserve recognizable source-grounded domain context, protect its text zone through all entrances and camera framings, and keep the resolution in the payoff's visual world.
+* Made camera motion continuous and explicitly synchronized to named evidence-layer entrances instead of starting as an unrelated zoom sequence after all motion.
+* Replaced duplicated timing ownership with one authoritative visual-beat timeline and passed the full scene count into checkpointed per-scene director calls.
+* Added fail-fast source contracts for physical settings and movable layers so an abstract idea cannot be materialized as an invented location, sign, document, confirmation, transaction, or filler prop.
+
+### Files changed
+
+* `app.py` — universal editorial brief, scene-concept, director-plan prompts, schemas, normalization, validation, and checkpoint orchestration.
+* `docs/PROJECT_MEMORY.md` — durable universal Reel planning contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* The article used for verification is test data only. Production prompts contain no site-, industry-, or object-specific exception.
+* Text planning must fail before image, voice, or video generation when Gemini invents unsupported physical evidence or a setting.
+* Semantic source grounding is owned by Gemini's explicit evidence inventory plus exact article quotes; brittle word-overlap heuristics must not cause paid retries for otherwise valid plans.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed locally and on the VPS after each deployed revision.
+* Restarted `blog-yas-core`; `http://127.0.0.1:3299/health` returned `ok` after deployment.
+* Completed a text-only six-scene, 30-second director plan with protected text zones and camera triggers linked to approved layers; generated no images, voice, or video.
+* Verified the stricter scene-concept pass rejects an unsupported new physical setting before media generation.
+
+### Risks / TODO
+
+* Current real-article verification intentionally ends at text planning when Gemini proposes a setting not grounded in the current beat. Media production must remain blocked until a complete strict plan passes.
