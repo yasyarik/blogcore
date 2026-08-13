@@ -4858,3 +4858,29 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * Current real-article verification intentionally ends at text planning when Gemini proposes a setting not grounded in the current beat. Media production must remain blocked until a complete strict plan passes.
+
+## 2026-08-13 — Made Reel solutions answer one auditable stake
+
+### Summary
+
+* Replaced vague activity-based Reel advice with an auditable causal contract: provider/counterparty, changed or shared resource, mechanism, and concrete outcome.
+* Added one `primaryStakeMetric` per Reel brief. Every accepted solution must directly change that same metric and repeat it in both its causal explanation and outcome.
+* Excluded parallel benefits from the ranked answer. Communication, meetings, community, and comfort can support a real mechanism but cannot masquerade as solutions to a financial hook.
+* Restored the agreed Gemini key priority so text generation uses the working shared Gemini billing key before the depleted legacy text-only key.
+
+### Files changed
+
+* `app.py` — editorial schema, prompt, validation, and Gemini text-key priority.
+* `docs/PROJECT_MEMORY.md` — durable single-stake Reel rule.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed locally and on the VPS.
+* Restarted `blog-yas-core`; health returned `ok`.
+* Ran text-only step one against a real published article. The accepted result contains only three direct cost mechanisms: waived/reduced supplements, purpose-built solo cabins, and compatible cabin sharing.
+* Generated no images, voice, or video.
+
+### Risks / TODO
+
+* This task validates the editorial brief only. Scene and director stages remain gated until this brief is accepted as the intended story.

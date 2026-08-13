@@ -971,3 +971,11 @@ It must be updated after every meaningful task.
 * Step two owns the exact overlay copy and a protected text zone. Step three must prove that the zone stays clear through the clean plate, every layer path and final position, and every camera framing. Hook copy has the highest visual priority.
 * Camera motion is one continuous scene path synchronized to named evidence-layer arrivals. Every direct-evidence layer triggers camera attention; timing is authoritative, while descriptive phase labels are derived from that timeline. Per-scene checkpoint calls receive the total scene count so the complete Reel remains 27-33 seconds.
 * Do not add project-, industry-, site-, or object-specific exceptions to solve a failed Reel. Improve the shared Gemini evidence, scene, and direction contracts and use the current article only as verification data.
+
+## 2026-08-13 — One primary stake per Reel
+
+* A Reel editorial brief owns exactly one `primaryStakeMetric`. Do not combine independent costs, risks, comfort, community, confidence, or other benefits merely to include more article sections.
+* Every ranked solution must expose an auditable causal chain: provider or counterparty, changed/shared resource or action, causal mechanism, and concrete outcome. The outcome and problem connection must explicitly name the same primary stake metric.
+* An activity label such as communication, meetings, research, community, an app, or a checklist is not a solution by itself. It may support a solution only when the prompt explains who participates, what resource or decision changes, how the change occurs, and how it changes the primary stake.
+* A useful parallel benefit must not be presented as a causal answer to a financial or risk hook. Omit it from that Reel's ranked solutions unless the article explicitly proves the connection.
+* Shared `GEMINI_API_KEY`/`GOOGLE_API_KEY` is the primary key for Gemini text and image generation. `GEMINI_TEXT_API_KEY` is a compatibility fallback, not the first choice.

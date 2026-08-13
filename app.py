@@ -4866,6 +4866,7 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
     "properties": {
         "centralProblem": {"type": "string"},
         "problemSourceGrounding": {"type": "string"},
+        "primaryStakeMetric": {"type": "string"},
         "hook": {
             "type": "object",
             "properties": {
@@ -4892,9 +4893,14 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
                     "sourceGrounding": {"type": "string"},
                     "whyItMatters": {"type": "string"},
                     "problemConnection": {"type": "string"},
+                    "counterpartyOrProvider": {"type": "string"},
+                    "sharedResourceOrAction": {"type": "string"},
+                    "causalMechanism": {"type": "string"},
+                    "concreteOutcome": {"type": "string"},
+                    "directlyChangesPrimaryStake": {"type": "boolean"},
                     "domainContext": {"type": "string"},
                 },
-                "required": ["rank", "step", "overlayText", "sourceGrounding", "whyItMatters", "problemConnection", "domainContext"],
+                "required": ["rank", "step", "overlayText", "sourceGrounding", "whyItMatters", "problemConnection", "counterpartyOrProvider", "sharedResourceOrAction", "causalMechanism", "concreteOutcome", "directlyChangesPrimaryStake", "domainContext"],
             },
         },
         "retentionPlan": {
@@ -4920,7 +4926,7 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
             "required": ["answer", "overlayText", "brandRole", "sourceGrounding", "domainContext"],
         },
     },
-    "required": ["centralProblem", "problemSourceGrounding", "hook", "solutionSteps", "retentionPlan", "finalResolution"],
+    "required": ["centralProblem", "problemSourceGrounding", "primaryStakeMetric", "hook", "solutionSteps", "retentionPlan", "finalResolution"],
 }
 
 
@@ -4957,30 +4963,33 @@ SOURCE:
 - full article material: {source_text}
 
 YOUR ONLY JOB IN THIS STEP:
-1. Identify the article's ONE central reader problem.
+1. Identify the article's ONE central reader problem and name its single concrete `primaryStakeMetric`. This metric is the one cost, risk, constraint, or outcome that every selected solution must directly change.
 2. Write one source-grounded, attention-grabbing hook about that problem. Preserve the article's real-world domain in `domainContext` with visible environmental anchors that make the subject identifiable even when all text is hidden.
-3. Extract 3 to 5 source-grounded solution steps or decision criteria that solve the problem. Rank them by value, where rank 1 is the most decisive answer. For every step, write its own short `overlayText`, explain in `problemConnection` exactly how that step changes the central problem, and state in `domainContext` which visible real-world context makes the subject unmistakable.
+3. Extract 3 to 5 source-grounded solution mechanisms or decision criteria that directly change the central stake. Rank them by value, where rank 1 is the most decisive answer. Each item must name the responsible party, provider, or counterpart in `counterpartyOrProvider`; the resource, cost, constraint, or action being changed or shared in `sharedResourceOrAction`; the cause-and-effect path in `causalMechanism`; and the concrete reader result in `concreteOutcome`. Then write a self-contained `overlayText`, summarize the complete causal chain in `problemConnection`, and state in `domainContext` which visible real-world context makes the subject unmistakable.
 4. Build the retention plan for revealing those steps. When the article supports a real bounded checklist, use a reverse countdown that presents the least decisive step first and reserves rank 1 for the final reveal. In the first seconds, state a specific early promise of what rank 1 will solve or unlock. If a countdown would be artificial, use an open loop instead and state exactly what final resolution remains withheld.
 5. State the final answer: how the brand's real offer, workflow, or platform resolves the problem. Give it a separate short `overlayText` and source-grounded `domainContext`. Explain its practical role without turning this into an ad or inventing capabilities. The final resolution may expand rank 1, but it must not introduce a solution that was absent from the ranked steps.
 
 STRICT RULES:
 - Do not write scenes, visual concepts, characters, photographs, layers, camera moves, text animation, audio, captions, or a production plan.
 - Do not turn the article into a dating story, personal drama, or fictional customer journey. The Reel must remain about the article's actual reader problem and solution.
-- Choose the central problem at the level actually solved by every selected step. Do not promote one subsection's narrow cost, risk, or symptom into the Reel's central promise when most of the article's criteria address a broader decision. A concrete hook may spotlight one consequence, but the viewer question and all later steps must still form one truthful answer to the same decision.
+- Choose exactly one central stake. Do not join independent problems with "and", "plus", or an equivalent compound construction merely to admit unrelated article sections. If the hook is about a financial penalty, every solution must directly change that financial penalty; comfort, community, confidence, and anxiety are parallel benefits and are excluded from this particular solution list unless the source explicitly proves how they alter the same financial metric.
+- `primaryStakeMetric` is a short literal noun phrase, such as "solo cruise accommodation cost", "checkout abandonment risk", or "manual processing time". Copy this exact phrase verbatim inside every solution's `concreteOutcome` and `problemConnection` so the causal relationship is auditable.
 - The hook is not a title, category label, slogan, or broad observation. It must name one concrete stake: a cost, risk, contradiction, or consequence that the reader faces by making the wrong choice or believing the wrong assumption.
 - `tensionType` must be exactly one of `cost`, `risk`, `contradiction`, or `consequence`. `concreteStake` explains the specific loss, uncertainty, or unwanted outcome in one complete sentence. `viewerQuestion` is the unresolved practical question created by the hook. `payoffPromise` states the answer that the final resolution will deliver.
-- `overlayStake` identifies the exact cost, risk, contradiction, or consequence stated literally in `overlayText`. The overlay itself must carry that stake, not merely name a topic or a phenomenon. For example, use the actual loss or consequence, not a label such as "the trap" or "the problem".
+- `overlayStake` must copy one meaningful consecutive phrase from `overlayText` verbatim, including the same wording and inflection. That copied phrase must itself name the exact cost, risk, contradiction, or consequence. The overlay must carry the stake, not merely name a topic or a phenomenon.
 - The overlay and narration must make the stake legible immediately, while preserving the final answer. A generic phrase that could introduce any article is invalid even if it is grammatically correct or source-grounded.
-- Every solution step must add a distinct part of the answer. Do not repeat article headings or create vague advice.
-- Every solution-step overlay must be understandable in silent playback. It cannot be only a rank, category label, unexplained imperative, or fragment such as "find community early". It must preserve the article's subject and the step's consequence within 3 to 8 words. A viewer who sees only the hook and this overlay must understand what is being solved and why this step belongs in the same story.
-- `problemConnection` is a literal cause-and-effect sentence: this specific criterion changes the cost, risk, contradiction, or consequence named by the hook in this specific way. Do not claim that a social, comfort, safety, or community criterion reduces a financial cost unless the source explicitly proves that connection. Parallel benefits remain parallel benefits, not invented causes.
+- Every solution step must add a distinct mechanism that directly changes the central stake. Do not repeat article headings, name an activity without its outcome, or promote a supporting tactic into a standalone solution. Communication, research, a meeting, a community, an app, or a checklist is not itself a solution unless the item says who participates, what resource or decision it changes, how that change occurs, and what concrete result follows.
+- Every solution-step overlay must be understandable in silent playback. It cannot be only a rank, category label, unexplained activity, unexplained imperative, or fragment such as "find community early". It must name the actual mechanism and result within 4 to 10 words. A viewer who sees only the hook and this overlay must understand who or what acts, what changes, and why this step answers the hook.
+- `counterpartyOrProvider` identifies who supplies the changed terms or who shares the relevant resource. `sharedResourceOrAction` names precisely what is waived, reduced, shared, selected, verified, or otherwise changed. `causalMechanism` states the intermediate action that produces the result. `concreteOutcome` states the resulting change to the same cost, risk, contradiction, or consequence named in the hook.
+- Set `directlyChangesPrimaryStake` to true only when the source explicitly supports the entire causal chain. Never set it true for a useful supporting activity that changes a different outcome. Exclude every candidate that would be false.
+- `problemConnection` is one literal causal chain joining those four fields: actor or provider -> changed/shared resource or action -> mechanism -> concrete outcome. If that complete chain is not explicitly supported by the source, omit the candidate. Do not claim that a social, comfort, safety, or community benefit changes a financial cost unless the source explicitly proves the financial mechanism. A supporting activity may appear inside a valid mechanism, but it cannot replace the mechanism.
 - Every `domainContext`, including the hook and resolution, names source-grounded visible environmental anchors that distinguish the article's real domain from a generic corridor, room, office, restaurant, or group of people. It is not a list of decorative props and may not invent a location absent from the source. Prefer architecture, equipment, product context, or activity relationships that remain recognizable across several scenes and create one coherent visual world.
 - `retentionPlan.earlyPromise` must tell the viewer why waiting for the payoff matters. It cannot merely say "keep watching", "number one", or "the final tip". `withheldResolution` names the practical answer held back until the payoff. `presentationOrder` gives the exact rank order in which the Reel reveals the steps.
 - When `mode` is `countdown`, `presentationOrder` must run from the lowest-ranked step to rank 1 and `payoffRank` must be 1. This makes the final reveal the most consequential answer. The hook or narration must introduce the early promise before the ordinary steps appear.
 - When the article names a real brand mechanism that directly resolves the central problem, that mechanism must be rank 1 and the final resolution must expand it factually. Do not demote it to an unrelated closing promotion after a list of generic advice.
 - The final resolution must close the hook's question. `brandRole` says exactly what the brand enables in this solution; it must be factual and source-grounded.
 - Write in {language_name}. Keep the hook overlay mobile-readable: 3 to 7 words. Keep hook narration: 5 to 14 words.
-- Every later solution overlay is 3 to 7 words and every resolution overlay is 2 to 7 words. It is a glanceable editorial headline, not the complete spoken sentence or article summary. A viewer must be able to read it comfortably in about 1.5 seconds; put detail in narration, not on screen.
+- Every later solution overlay is 4 to 10 words and every resolution overlay is 2 to 7 words. It is a glanceable editorial headline, not the complete spoken sentence or article summary. A viewer must be able to read it comfortably; put supporting detail in narration, but keep the mechanism and result in the overlay.
 """.strip()
 
 
@@ -4992,6 +5001,7 @@ def normalize_instagram_reel_editorial_brief(data):
     brief = {
         "centralProblem": _reel_copy(data.get("centralProblem"), 700),
         "problemSourceGrounding": _reel_copy(data.get("problemSourceGrounding"), 700),
+        "primaryStakeMetric": _reel_copy(data.get("primaryStakeMetric"), 180),
         "hook": {
             "overlayText": _reel_copy(hook_raw.get("overlayText"), 100),
             "narration": _reel_copy(hook_raw.get("narration"), 260),
@@ -5025,11 +5035,19 @@ def normalize_instagram_reel_editorial_brief(data):
             "sourceGrounding": _reel_copy(raw_step.get("sourceGrounding"), 700),
             "whyItMatters": _reel_copy(raw_step.get("whyItMatters"), 500),
             "problemConnection": _reel_copy(raw_step.get("problemConnection"), 700),
+            "counterpartyOrProvider": _reel_copy(raw_step.get("counterpartyOrProvider"), 400),
+            "sharedResourceOrAction": _reel_copy(raw_step.get("sharedResourceOrAction"), 500),
+            "causalMechanism": _reel_copy(raw_step.get("causalMechanism"), 700),
+            "concreteOutcome": _reel_copy(raw_step.get("concreteOutcome"), 500),
+            "directlyChangesPrimaryStake": raw_step.get("directlyChangesPrimaryStake") is True,
             "domainContext": _reel_copy(raw_step.get("domainContext"), 500),
         }
-        if not all([step["rank"], step["step"], step["overlayText"], step["sourceGrounding"], step["whyItMatters"], step["problemConnection"], step["domainContext"]]):
+        if not all([step["rank"], step["step"], step["overlayText"], step["sourceGrounding"], step["whyItMatters"], step["problemConnection"], step["counterpartyOrProvider"], step["sharedResourceOrAction"], step["causalMechanism"], step["concreteOutcome"], step["directlyChangesPrimaryStake"], step["domainContext"]]):
             raise ValueError(f"Instagram Reel editorial brief step {index} is incomplete")
-        if not 3 <= len(step["overlayText"].split()) <= 8:
+        metric = brief["primaryStakeMetric"].lower()
+        if metric not in step["concreteOutcome"].lower() or metric not in step["problemConnection"].lower():
+            raise ValueError(f"Instagram Reel editorial brief step {index} does not change the primary stake metric")
+        if not 4 <= len(step["overlayText"].split()) <= 10:
             raise ValueError(f"Instagram Reel editorial brief step {index} overlay is not self-contained")
         brief["solutionSteps"].append(step)
     retention_raw = data.get("retentionPlan") if isinstance(data.get("retentionPlan"), dict) else {}
@@ -5047,7 +5065,7 @@ def normalize_instagram_reel_editorial_brief(data):
         "presentationOrder": presentation_order,
     }
     if not all([
-        brief["centralProblem"], brief["problemSourceGrounding"], brief["hook"]["overlayText"],
+        brief["centralProblem"], brief["problemSourceGrounding"], brief["primaryStakeMetric"], brief["hook"]["overlayText"],
         brief["hook"]["narration"], brief["hook"]["whyItHooks"], brief["hook"]["tensionType"],
         brief["hook"]["concreteStake"], brief["hook"]["overlayStake"], brief["hook"]["viewerQuestion"], brief["hook"]["payoffPromise"], brief["hook"]["domainContext"], brief["finalResolution"]["answer"], brief["finalResolution"]["overlayText"],
         brief["retentionPlan"]["mode"], brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["withheldResolution"], brief["finalResolution"]["brandRole"], brief["finalResolution"]["sourceGrounding"], brief["finalResolution"]["domainContext"],
@@ -11815,9 +11833,9 @@ def _parse_json_text(text):
 
 
 def _gemini_generate_text(prompt, temperature=0.55, timeout=180, response_schema=None):
-    # Text may use a separate quota/billing project; image and TTS paths retain
-    # their existing Gemini/Google key resolution below.
-    api_key = os.environ.get("GEMINI_TEXT_API_KEY")
+    # The shared Gemini project is the primary billing source for both text and
+    # images. A dedicated text key remains an explicit compatibility fallback.
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_TEXT_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_TEXT_API_KEY is not configured")
     primary_model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"
@@ -11855,7 +11873,7 @@ def _gemini_generate_text(prompt, temperature=0.55, timeout=180, response_schema
 
 
 def _gemini_text_json_with_image(prompt, image_bytes, mime_type, response_schema, temperature=0.1, timeout=180):
-    api_key = os.environ.get("GEMINI_TEXT_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_TEXT_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_TEXT_API_KEY is not configured")
     primary_model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"
