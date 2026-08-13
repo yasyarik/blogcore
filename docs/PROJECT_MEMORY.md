@@ -979,3 +979,11 @@ It must be updated after every meaningful task.
 * An activity label such as communication, meetings, research, community, an app, or a checklist is not a solution by itself. It may support a solution only when the prompt explains who participates, what resource or decision changes, how the change occurs, and how it changes the primary stake.
 * A useful parallel benefit must not be presented as a causal answer to a financial or risk hook. Omit it from that Reel's ranked solutions unless the article explicitly proves the connection.
 * Shared `GEMINI_API_KEY`/`GOOGLE_API_KEY` is the primary key for Gemini text and image generation. `GEMINI_TEXT_API_KEY` is a compatibility fallback, not the first choice.
+
+## 2026-08-13 — Social-first attention contract for Reels
+
+* Every Reel is planned for a distracted, often silent, fast-scrolling social-feed viewer. It is not an article summary, slide deck, or sequence of unrelated tips.
+* Step one must define the complete attention arc: the exact first-second hook, concrete early promise, truthful midpoint escalation, withheld resolution, and payoff delivery. The first second contains the central stake, never branding, context setting, or a slow establishing introduction.
+* Each intermediate scene delivers a useful mini-payoff while making the remaining question more specific or consequential. It cannot reset the story, repeat the hook, or disclose the final mechanism early.
+* Social attention roles are immutable cross-stage data. Step two translates them into visual evidence and handoffs; step three must use them to control layer order, camera emphasis, copy hierarchy, timing, and the payoff landing.
+* Social energy may strengthen presentation, ordering, specificity, and curiosity, but never factual certainty or outcome strength. Retention and payoff claims require exact source phrases; never infer guarantees, percentages, equal splits, scarcity, safety, verification, or eliminated costs from weaker source verbs.

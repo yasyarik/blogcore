@@ -4907,12 +4907,19 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
             "type": "object",
             "properties": {
                 "mode": {"type": "string", "enum": ["countdown", "open_loop"]},
+                "firstSecondPatternInterrupt": {"type": "string"},
                 "earlyPromise": {"type": "string"},
+                "midpointEscalation": {"type": "string"},
+                "midpointSourceGrounding": {"type": "string"},
                 "withheldResolution": {"type": "string"},
+                "payoffDelivery": {"type": "string"},
+                "sourceGrounding": {"type": "string"},
+                "claimStrengthAudit": {"type": "string"},
+                "outcomeWordingFromSource": {"type": "string"},
                 "payoffRank": {"type": "number"},
                 "presentationOrder": {"type": "array", "items": {"type": "number"}},
             },
-            "required": ["mode", "earlyPromise", "withheldResolution", "payoffRank", "presentationOrder"],
+            "required": ["mode", "firstSecondPatternInterrupt", "earlyPromise", "midpointEscalation", "midpointSourceGrounding", "withheldResolution", "payoffDelivery", "sourceGrounding", "claimStrengthAudit", "outcomeWordingFromSource", "payoffRank", "presentationOrder"],
         },
         "finalResolution": {
             "type": "object",
@@ -4951,7 +4958,7 @@ def build_instagram_reel_editorial_brief_prompt(site, job, language):
     language_name = LANGUAGE_NAMES.get(language, language.upper())
     source_text = social_source_text(job, limit=16000)
     return f"""
-You are the editorial strategist for a 30-second Instagram Reel based on one finished article.
+You are the social-first editorial strategist for a 30-second Instagram Reel based on one finished article. This will be watched inside a fast-scrolling social feed, usually without sound. Your primary editorial responsibility is to stop the scroll immediately, create a truthful reason to continue watching, escalate useful information scene by scene, and deliver the promised payoff before attention drops. You are not summarizing an article or outlining a presentation.
 Return JSON only using the supplied schema. This is STEP ONE ONLY.
 
 SOURCE:
@@ -4966,10 +4973,18 @@ YOUR ONLY JOB IN THIS STEP:
 1. Identify the article's ONE central reader problem and name its single concrete `primaryStakeMetric`. This metric is the one cost, risk, constraint, or outcome that every selected solution must directly change.
 2. Write one source-grounded, attention-grabbing hook about that problem. Preserve the article's real-world domain in `domainContext` with visible environmental anchors that make the subject identifiable even when all text is hidden.
 3. Extract 3 to 5 source-grounded solution mechanisms or decision criteria that directly change the central stake. Rank them by value, where rank 1 is the most decisive answer. Each item must name the responsible party, provider, or counterpart in `counterpartyOrProvider`; the resource, cost, constraint, or action being changed or shared in `sharedResourceOrAction`; the cause-and-effect path in `causalMechanism`; and the concrete reader result in `concreteOutcome`. Then write a self-contained `overlayText`, summarize the complete causal chain in `problemConnection`, and state in `domainContext` which visible real-world context makes the subject unmistakable.
-4. Build the retention plan for revealing those steps. When the article supports a real bounded checklist, use a reverse countdown that presents the least decisive step first and reserves rank 1 for the final reveal. In the first seconds, state a specific early promise of what rank 1 will solve or unlock. If a countdown would be artificial, use an open loop instead and state exactly what final resolution remains withheld.
+4. Build the social retention plan for revealing those steps. Define the exact pattern interruption visible in the first second, the concrete early promise, the midpoint escalation that makes the unresolved answer more valuable, the information deliberately withheld, and the exact payoff delivery. When the article supports a real bounded checklist, use a reverse countdown that presents the least decisive step first and reserves rank 1 for the final reveal. If a countdown would be artificial, use an open loop instead and state exactly what final resolution remains withheld.
 5. State the final answer: how the brand's real offer, workflow, or platform resolves the problem. Give it a separate short `overlayText` and source-grounded `domainContext`. Explain its practical role without turning this into an ad or inventing capabilities. The final resolution may expand rank 1, but it must not introduce a solution that was absent from the ranked steps.
 
 STRICT RULES:
+- Treat every decision as Instagram Reel direction for a distracted social-feed viewer, not as article condensation, a slide deck, a documentary introduction, or a sequence of independent tips. The hook, order, information release, overlays, and final answer must form one continuous attention arc.
+- The first second must interrupt scrolling with the central stake itself. Set `firstSecondPatternInterrupt` exactly equal to `hook.overlayText`, character for character. Visual realization belongs to later steps. Do not put a photograph, UI, prop, scene, animation, editing instruction, logo, title, category, greeting, or context-setting sentence in this field.
+- Every intermediate solution must provide a useful mini-payoff while increasing the value of the answer still withheld. No scene may merely repeat the hook, restate a heading, reset the story, or release the final mechanism early.
+- `midpointEscalation` states what becomes more consequential or more specific around the middle of the Reel. It must be a truthful progression in the same primary stake, not manufactured drama. `midpointSourceGrounding` copies the exact consecutive article phrase that supports that escalation.
+- `payoffDelivery` states exactly how the final ranked mechanism answers the viewer question and fulfills the early promise. It must not be a generic brand appearance or CTA.
+- `retentionPlan.sourceGrounding` copies one exact consecutive phrase from the supplied article that supports the withheld resolution and payoff. Every factual claim in `earlyPromise`, `midpointEscalation`, `withheldResolution`, and `payoffDelivery` must be supported by the article. Never invent guarantees, exact savings, percentages, scarcity, urgency, safety, verification, performance, or availability. A plausible marketing inference is still an invention when the source does not state it.
+- `claimStrengthAudit` compares the strongest factual wording in the hook and retention plan with `sourceGrounding` and confirms in one complete sentence that the social framing changes presentation only, not certainty, quantity, safety, speed, scope, or outcome. When the source says only that a mechanism helps or facilitates, preserve that limited wording; do not upgrade it to guarantees, eliminates, always, proven, safely, exactly, entirely, in half, or another stronger claim.
+- `outcomeWordingFromSource` copies the exact consecutive source wording that describes what the payoff mechanism achieves. Copy that exact phrase verbatim inside `earlyPromise`, `withheldResolution`, `payoffDelivery`, `finalResolution.answer`, and `finalResolution.brandRole`; do not substitute synonyms or append a stronger outcome. Do not mathematically infer a percentage, fraction, guaranteed saving, eliminated charge, or equal allocation from words such as share, match, arrange, reduce, avoid, or facilitate. Social energy comes from the stake, information order, specificity, and delayed reveal; it never comes from strengthening the source's outcome claim.
 - Do not write scenes, visual concepts, characters, photographs, layers, camera moves, text animation, audio, captions, or a production plan.
 - Do not turn the article into a dating story, personal drama, or fictional customer journey. The Reel must remain about the article's actual reader problem and solution.
 - Choose exactly one central stake. Do not join independent problems with "and", "plus", or an equivalent compound construction merely to admit unrelated article sections. If the hook is about a financial penalty, every solution must directly change that financial penalty; comfort, community, confidence, and anxiety are parallel benefits and are excluded from this particular solution list unless the source explicitly proves how they alter the same financial metric.
@@ -5059,8 +5074,15 @@ def normalize_instagram_reel_editorial_brief(data):
             presentation_order.append(0)
     brief["retentionPlan"] = {
         "mode": _reel_copy(retention_raw.get("mode"), 32).lower(),
+        "firstSecondPatternInterrupt": _reel_copy(retention_raw.get("firstSecondPatternInterrupt"), 500),
         "earlyPromise": _reel_copy(retention_raw.get("earlyPromise"), 600),
+        "midpointEscalation": _reel_copy(retention_raw.get("midpointEscalation"), 600),
+        "midpointSourceGrounding": _reel_copy(retention_raw.get("midpointSourceGrounding"), 700),
         "withheldResolution": _reel_copy(retention_raw.get("withheldResolution"), 600),
+        "payoffDelivery": _reel_copy(retention_raw.get("payoffDelivery"), 700),
+        "sourceGrounding": _reel_copy(retention_raw.get("sourceGrounding"), 700),
+        "claimStrengthAudit": _reel_copy(retention_raw.get("claimStrengthAudit"), 700),
+        "outcomeWordingFromSource": _reel_copy(retention_raw.get("outcomeWordingFromSource"), 700),
         "payoffRank": int(retention_raw.get("payoffRank") or 0),
         "presentationOrder": presentation_order,
     }
@@ -5068,7 +5090,7 @@ def normalize_instagram_reel_editorial_brief(data):
         brief["centralProblem"], brief["problemSourceGrounding"], brief["primaryStakeMetric"], brief["hook"]["overlayText"],
         brief["hook"]["narration"], brief["hook"]["whyItHooks"], brief["hook"]["tensionType"],
         brief["hook"]["concreteStake"], brief["hook"]["overlayStake"], brief["hook"]["viewerQuestion"], brief["hook"]["payoffPromise"], brief["hook"]["domainContext"], brief["finalResolution"]["answer"], brief["finalResolution"]["overlayText"],
-        brief["retentionPlan"]["mode"], brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["withheldResolution"], brief["finalResolution"]["brandRole"], brief["finalResolution"]["sourceGrounding"], brief["finalResolution"]["domainContext"],
+        brief["retentionPlan"]["mode"], brief["retentionPlan"]["firstSecondPatternInterrupt"], brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["midpointEscalation"], brief["retentionPlan"]["midpointSourceGrounding"], brief["retentionPlan"]["withheldResolution"], brief["retentionPlan"]["payoffDelivery"], brief["retentionPlan"]["sourceGrounding"], brief["retentionPlan"]["claimStrengthAudit"], brief["retentionPlan"]["outcomeWordingFromSource"], brief["finalResolution"]["brandRole"], brief["finalResolution"]["sourceGrounding"], brief["finalResolution"]["domainContext"],
     ]):
         raise ValueError("Instagram Reel editorial brief is incomplete")
     if not 3 <= len(brief["hook"]["overlayText"].split()) <= 7 or not 5 <= len(brief["hook"]["narration"].split()) <= 14:
@@ -5100,12 +5122,37 @@ def normalize_instagram_reel_editorial_brief(data):
 
 
 def generate_instagram_reel_editorial_brief(site, job, language):
-    return normalize_instagram_reel_editorial_brief(_gemini_text_json(
+    brief = normalize_instagram_reel_editorial_brief(_gemini_text_json(
         build_instagram_reel_editorial_brief_prompt(site, job, language),
         response_schema=INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA,
         temperature=0.35,
         repair=False,
     ))
+    source_normalized = re.sub(r"[^a-z0-9]+", " ", social_source_text(job, limit=16000).lower()).strip()
+    retention_quote = re.sub(r"[^a-z0-9]+", " ", brief["retentionPlan"]["sourceGrounding"].lower()).strip()
+    midpoint_quote = re.sub(r"[^a-z0-9]+", " ", brief["retentionPlan"]["midpointSourceGrounding"].lower()).strip()
+    outcome_quote = re.sub(r"[^a-z0-9]+", " ", brief["retentionPlan"]["outcomeWordingFromSource"].lower()).strip()
+    if not retention_quote or retention_quote not in source_normalized or not midpoint_quote or midpoint_quote not in source_normalized or not outcome_quote or outcome_quote not in source_normalized:
+        raise ValueError("Instagram Reel retention plan invents its payoff grounding")
+    if brief["retentionPlan"]["firstSecondPatternInterrupt"] != brief["hook"]["overlayText"]:
+        raise ValueError("Instagram Reel first-second interruption must be the approved hook")
+    retention_claims = " ".join([
+        brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["midpointEscalation"],
+        brief["retentionPlan"]["withheldResolution"], brief["retentionPlan"]["payoffDelivery"],
+        brief["finalResolution"]["answer"], brief["finalResolution"]["brandRole"],
+    ])
+    unsupported_strength = re.compile(r"\b(guarantee(?:d|s)?|always|never|safely|verified|proven|ultimate|entirely|completely|eliminat(?:e|es|ed|ing)|exactly|in half|50%|0%)\b", re.I)
+    unsupported = [match.group(0) for match in unsupported_strength.finditer(retention_claims) if match.group(0).lower() not in source_normalized]
+    if unsupported:
+        raise ValueError(f"Instagram Reel retention plan strengthens unsupported claims: {', '.join(sorted(set(unsupported)))}")
+    required_outcome_fields = [
+        brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["withheldResolution"],
+        brief["retentionPlan"]["payoffDelivery"], brief["finalResolution"]["answer"],
+        brief["finalResolution"]["brandRole"],
+    ]
+    if any(outcome_quote not in re.sub(r"[^a-z0-9]+", " ", value.lower()).strip() for value in required_outcome_fields):
+        raise ValueError("Instagram Reel social payoff must preserve the source's exact outcome wording")
+    return brief
 
 
 INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
@@ -5156,8 +5203,9 @@ INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
                     "continuityFromPrevious": {"type": "string"},
                     "retentionIntoNext": {"type": "string"},
                     "transitionIntent": {"type": "string"},
+                    "socialFeedExecution": {"type": "string"},
                 },
-                "required": ["beatId", "sceneObjective", "evidenceInMasterFrame", "problemConnectionInFrame", "domainAnchorsInFrame", "domainAnchorQuotes", "environmentSourceQuote", "environmentStrategy", "reusedFromBeatId", "visualWorldKey", "masterFrame", "cleanPlate", "movableGroups", "cameraAfterEntrance", "overlayText", "textPlacement", "continuityFromPrevious", "retentionIntoNext", "transitionIntent"],
+                "required": ["beatId", "sceneObjective", "evidenceInMasterFrame", "problemConnectionInFrame", "domainAnchorsInFrame", "domainAnchorQuotes", "environmentSourceQuote", "environmentStrategy", "reusedFromBeatId", "visualWorldKey", "masterFrame", "cleanPlate", "movableGroups", "cameraAfterEntrance", "overlayText", "textPlacement", "continuityFromPrevious", "retentionIntoNext", "transitionIntent", "socialFeedExecution"],
             },
         },
     },
@@ -5263,8 +5311,9 @@ INSTAGRAM_REEL_DIRECTOR_PLAN_SCHEMA = {
                     },
                     "continuityFromPrevious": {"type": "string"},
                     "retentionIntoNext": {"type": "string"},
+                    "socialFeedExecution": {"type": "string"},
                 },
-                "required": ["beatId", "durationSeconds", "masterFrame", "cleanPlate", "movableGroups", "visualBeats", "cameraPlan", "textDirection", "continuityFromPrevious", "retentionIntoNext"],
+                "required": ["beatId", "durationSeconds", "masterFrame", "cleanPlate", "movableGroups", "visualBeats", "cameraPlan", "textDirection", "continuityFromPrevious", "retentionIntoNext", "socialFeedExecution"],
             },
         },
     },
@@ -5288,6 +5337,11 @@ def derive_instagram_reel_editorial_beats(brief):
         "retentionPromise": brief["retentionPlan"]["earlyPromise"],
         "viewerQuestion": brief["hook"]["viewerQuestion"],
         "withheldAnswer": brief["hook"]["payoffPromise"],
+        "socialFormat": "fast-scrolling Instagram Reel",
+        "socialAttentionRole": "stop the scroll in the first second with the concrete stake and open the central question",
+        "firstSecondPatternInterrupt": brief["retentionPlan"]["firstSecondPatternInterrupt"],
+        "midpointEscalation": brief["retentionPlan"]["midpointEscalation"],
+        "payoffDelivery": brief["retentionPlan"]["payoffDelivery"],
     }]
     for sequence, rank in enumerate(ordered_ranks, start=2):
         step = steps[rank]
@@ -5303,6 +5357,11 @@ def derive_instagram_reel_editorial_beats(brief):
             "retentionPromise": brief["retentionPlan"]["withheldResolution"],
             "viewerQuestion": brief["hook"]["viewerQuestion"],
             "withheldAnswer": "" if rank == brief["retentionPlan"]["payoffRank"] else brief["retentionPlan"]["withheldResolution"],
+            "socialFormat": "fast-scrolling Instagram Reel",
+            "socialAttentionRole": "deliver the promised payoff" if rank == brief["retentionPlan"]["payoffRank"] else "deliver a useful mini-payoff while increasing the value of the withheld answer",
+            "firstSecondPatternInterrupt": brief["retentionPlan"]["firstSecondPatternInterrupt"],
+            "midpointEscalation": brief["retentionPlan"]["midpointEscalation"],
+            "payoffDelivery": brief["retentionPlan"]["payoffDelivery"],
         })
     beats.append({
         "id": f"beat-{len(beats) + 1:02d}",
@@ -5315,6 +5374,11 @@ def derive_instagram_reel_editorial_beats(brief):
         "retentionPromise": "The promised practical answer is now fully resolved.",
         "viewerQuestion": "resolved",
         "withheldAnswer": "",
+        "socialFormat": "fast-scrolling Instagram Reel",
+        "socialAttentionRole": "close the open loop and leave one memorable resolved answer, not a generic CTA",
+        "firstSecondPatternInterrupt": brief["retentionPlan"]["firstSecondPatternInterrupt"],
+        "midpointEscalation": brief["retentionPlan"]["midpointEscalation"],
+        "payoffDelivery": brief["retentionPlan"]["payoffDelivery"],
     })
     return beats
 
@@ -5323,7 +5387,7 @@ def build_instagram_reel_scene_concept_prompt(site, job, language, editorial_bea
     language_name = LANGUAGE_NAMES.get(language, language.upper())
     source_text = social_source_text(job, limit=16000)
     return f"""
-You are stage two of a layered editorial Instagram Reel pipeline. You receive immutable editorial beats approved in stage one. Return JSON only using the supplied schema.
+You are stage two of a layered editorial Instagram Reel pipeline. You are directing for a fast-scrolling social feed, not illustrating an article and not preparing a slide presentation. Every visual decision must preserve the hook, open loop, escalating usefulness, and payoff approved in stage one. Return JSON only using the supplied schema.
 
 SOURCE:
 - brand: {site['brand_name'] or site['domain']}
@@ -5336,6 +5400,8 @@ YOUR ONLY JOB:
 For every supplied beat, design one coherent, photographable scene concept that makes that beat understandable and carries the viewer into the next beat. Preserve the supplied order, problem, retention question, source grounding, exact overlay copy, and final payoff. Do not add, remove, merge, reorder, or rewrite editorial beats.
 
 SCENE-CONCEPT CONTRACT:
+- Keep the Reel's social attention arc active in every scene. Copy the beat's `socialAttentionRole` into a concrete `socialFeedExecution` explanation of what arrests attention, what useful information becomes visible now, and why the viewer still needs the next scene. The hook scene must make its `firstSecondPatternInterrupt` visible immediately; it cannot begin with context, branding, scenery, or an establishing pause. Intermediate scenes deliver real mini-payoffs and implement the approved `midpointEscalation` when it becomes relevant. The payoff scene visibly delivers `payoffDelivery`; the resolution closes the loop without becoming a generic CTA.
+- Design transitions as changes in prediction and information, not merely changes of location. A new scene must answer part of the viewer's question and create a more specific remaining question. Never reset into another independent tip, decorative tableau, or article-heading illustration.
 - This is text-only pre-production. Do not generate image prompts, images, voice, music, captions, video, or rendering instructions.
 - Work beat by beat. Before designing a scene, privately build an evidence inventory containing only exact consecutive phrases from that beat's `editorialInput`, `sourceGrounding`, `problemConnection`, and `domainContext`, then verify every phrase also occurs literally in the full article. Choose the environment, domain anchors, direct evidence, and support layers only from that verified inventory or from a deliberately reused prior visual world. Do not search unrelated sections of the article for convenient scenery or props.
 - Treat every supplied `overlayText` as immutable. Copy it exactly. Do not replace it with a rank label, teaser fragment, category label, or generic imperative. The supplied `retentionPromise` belongs in the hook's continuing tension and the handoff to later scenes; it never becomes a separate empty scene.
@@ -5422,13 +5488,14 @@ def normalize_instagram_reel_scene_concepts(data, editorial_beats, source_materi
             "continuityFromPrevious": _reel_copy(raw_scene.get("continuityFromPrevious"), 500),
             "retentionIntoNext": _reel_copy(raw_scene.get("retentionIntoNext"), 500),
             "transitionIntent": _reel_copy(raw_scene.get("transitionIntent"), 400),
+            "socialFeedExecution": _reel_copy(raw_scene.get("socialFeedExecution"), 700),
         }
         if not 2 <= len(scene["overlayText"].split()) <= 7:
             raise ValueError(f"Instagram Reel scene concept {index + 1} overlay must contain 2-7 readable words")
         group_types = [group["layerType"] for group in scene["movableGroups"]]
         group_roles = [group["storyRole"] for group in scene["movableGroups"]]
         required_group_fields = ("name", "layerType", "storyRole", "masterFrameState", "transformMode", "appearanceChange", "occlusionState", "entrancePathState", "rigidTransformProof", "entrance", "finalPosition")
-        if scene["beatId"] != expected_ids[index] or scene["overlayText"] != editorial_beats[index]["overlayText"] or len(scene["domainAnchorQuotes"]) < 2 or not all([scene["sceneObjective"], scene["evidenceInMasterFrame"], scene["problemConnectionInFrame"], scene["domainAnchorsInFrame"], scene["environmentStrategy"], scene["visualWorldKey"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], scene["overlayText"], scene["textPlacement"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"]]) or not 3 <= len(scene["movableGroups"]) <= 4 or any(not all(group[field] for field in required_group_fields) for group in scene["movableGroups"]):
+        if scene["beatId"] != expected_ids[index] or scene["overlayText"] != editorial_beats[index]["overlayText"] or len(scene["domainAnchorQuotes"]) < 2 or not all([scene["sceneObjective"], scene["evidenceInMasterFrame"], scene["problemConnectionInFrame"], scene["domainAnchorsInFrame"], scene["environmentStrategy"], scene["visualWorldKey"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], scene["overlayText"], scene["textPlacement"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"], scene["socialFeedExecution"]]) or not 3 <= len(scene["movableGroups"]) <= 4 or any(not all(group[field] for field in required_group_fields) for group in scene["movableGroups"]):
             raise ValueError(f"Instagram Reel scene concept {index + 1} is incomplete or out of sequence")
         if any(layer_type not in {"person_group", "story_object"} for layer_type in group_types) or "story_object" not in group_types:
             raise ValueError(f"Instagram Reel scene concept {index + 1} needs three registered layers including a story object")
@@ -5489,7 +5556,7 @@ def build_instagram_reel_director_plan_prompt(site, job, language, scene_concept
     scene_count = max(1, int(scene_concepts.get("totalSceneCount") or len(scene_concepts.get("scenes") or [])))
     target_scene_seconds = round(30.0 / scene_count, 2)
     return f"""
-You are step three: the technical motion director of a layered 30-second vertical Instagram Reel. Step two has already made every creative decision. Your output is the exact executable motion score for those approved still compositions.
+You are step three: the technical motion director of a layered 30-second vertical Instagram Reel for a fast-scrolling social feed. Step two has already made every creative decision and retention decision. Your output is the exact executable motion score that makes the approved hook interrupt scrolling, makes every mini-payoff easy to grasp without sound, continuously carries the open loop, and gives the final payoff maximum clarity. This is not generic motion decoration.
 Return JSON only using the supplied schema. This is text-only direction. Do not generate images, voice, music, or video.
 
 BRAND: {site['brand_name'] or site['domain']}
@@ -5505,6 +5572,14 @@ AUTHORITATIVE INPUT:
 - Fixed architecture and every non-removed detail remain permanently in the clean plate. They can receive camera attention but never count as layer events.
 
 Preserve beat order, master frame, clean plate, movable group identity and final position, overlay copy, continuity, retention, and resolution exactly. Do not redesign step two.
+
+SOCIAL-FIRST MOTION CONTRACT:
+- Copy each approved `socialFeedExecution` verbatim. Treat it as an execution requirement for layer order, camera emphasis, text hierarchy, and timing.
+- In the hook scene, the concrete stake and first meaningful evidence must be readable in the first second. Do not use an empty establishing interval, logo reveal, scenic drift, or delayed text entrance before the hook lands.
+- In intermediate scenes, motion must reveal a useful mini-payoff and then direct attention toward the unresolved question named in `retentionIntoNext`. Do not animate every scene as an isolated card.
+- Around the approved midpoint escalation, increase specificity or consequence through evidence and framing, not arbitrary speed, visual noise, or fabricated drama.
+- In the payoff scene, reserve the clearest evidence relationship and strongest purposeful camera landing for the promised answer. The final resolution must close that answer, not replace it with branding or a generic CTA.
+- Optimize for silent mobile viewing: large persistent copy, immediate visual causality, no dependence on narration, and no tiny evidence that requires pausing or zooming by the viewer.
 
 For each scene:
 - Copy `beatId`, `masterFrame`, and `cleanPlate` verbatim. The complete Reel has {scene_count} scenes and must total 27-33 seconds, so use about {target_scene_seconds} seconds per scene while giving the hook and payoff enough reading time. Do not apply a fixed duration copied from another Reel.
@@ -5682,9 +5757,10 @@ def normalize_instagram_reel_director_plan(data, scene_concepts, require_total_d
             raise ValueError(f"Instagram Reel director scene {index} uses a crude black text plaque")
         continuity = _reel_copy(raw.get("continuityFromPrevious"), 500)
         retention = _reel_copy(raw.get("retentionIntoNext"), 500)
-        if not continuity or not retention:
+        social_feed_execution = _reel_copy(raw.get("socialFeedExecution"), 700)
+        if not continuity or not retention or not social_feed_execution or social_feed_execution != locked.get("socialFeedExecution"):
             raise ValueError(f"Instagram Reel director scene {index} lacks continuity direction")
-        result.append({"beatId": raw["beatId"], "durationSeconds": duration, "masterFrame": raw["masterFrame"], "cleanPlate": raw["cleanPlate"], "movableGroups": groups, "visualBeats": visual_beats, "cameraPlan": {"beats": normalized_camera_beats}, "textDirection": {"copy": text["copy"], "startSeconds": text_start, "endSeconds": text_end, "maxLines": max_lines, **text_values}, "continuityFromPrevious": continuity, "retentionIntoNext": retention})
+        result.append({"beatId": raw["beatId"], "durationSeconds": duration, "masterFrame": raw["masterFrame"], "cleanPlate": raw["cleanPlate"], "movableGroups": groups, "visualBeats": visual_beats, "cameraPlan": {"beats": normalized_camera_beats}, "textDirection": {"copy": text["copy"], "startSeconds": text_start, "endSeconds": text_end, "maxLines": max_lines, **text_values}, "continuityFromPrevious": continuity, "retentionIntoNext": retention, "socialFeedExecution": social_feed_execution})
         total_duration += duration
     if require_total_duration and not 27 <= total_duration <= 33:
         raise ValueError("Instagram Reel director plan must total 27-33 seconds")
@@ -5698,7 +5774,7 @@ def hydrate_instagram_reel_director_locks(candidate, locked_scene):
     scene = candidate["scenes"][0]
     if not isinstance(scene, dict):
         return candidate
-    for field in ("beatId", "masterFrame", "cleanPlate", "continuityFromPrevious", "retentionIntoNext"):
+    for field in ("beatId", "masterFrame", "cleanPlate", "continuityFromPrevious", "retentionIntoNext", "socialFeedExecution"):
         scene[field] = locked_scene.get(field)
     raw_groups = scene.get("movableGroups") if isinstance(scene.get("movableGroups"), list) else []
     locked_groups = locked_scene.get("movableGroups") if isinstance(locked_scene.get("movableGroups"), list) else []

@@ -4884,3 +4884,27 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * This task validates the editorial brief only. Scene and director stages remain gated until this brief is accepted as the intended story.
+
+## 2026-08-13 — Made social retention a cross-stage Reel contract
+
+### Summary
+
+* Made the first Reel step explicitly social-first rather than an article summary: immediate scroll stop, early promise, midpoint escalation, withheld answer, and payoff delivery.
+* Passed each beat's social attention role unchanged into scene concepts and technical direction, where it now governs layer order, camera emphasis, persistent copy, and handoffs.
+* Added source grounding and claim-strength checks so retention can intensify presentation but cannot invent guarantees, percentages, scarcity, safety, or stronger outcomes.
+
+### Files changed
+
+* `app.py` — social narrative schema, prompts, cross-stage data, normalization, and source/claim validation.
+* `docs/PROJECT_MEMORY.md` — durable social-first Reel contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed locally and on the VPS.
+* Restarted `blog-yas-core`; health returned `ok`.
+* Ran and production-validated a text-only editorial brief from a real published article. No images, voice, or video were generated.
+
+### Risks / TODO
+
+* Existing stored Reel checkpoints predate this contract and must be regenerated from step one before media production.
