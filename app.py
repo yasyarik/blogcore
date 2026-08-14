@@ -4866,6 +4866,7 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
     "properties": {
         "centralProblem": {"type": "string"},
         "problemSourceGrounding": {"type": "string"},
+        "primaryStakeMetric": {"type": "string"},
         "hook": {
             "type": "object",
             "properties": {
@@ -4877,8 +4878,9 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
                 "overlayStake": {"type": "string"},
                 "viewerQuestion": {"type": "string"},
                 "payoffPromise": {"type": "string"},
+                "domainContext": {"type": "string"},
             },
-            "required": ["overlayText", "narration", "whyItHooks", "tensionType", "concreteStake", "overlayStake", "viewerQuestion", "payoffPromise"],
+            "required": ["overlayText", "narration", "whyItHooks", "tensionType", "concreteStake", "overlayStake", "viewerQuestion", "payoffPromise", "domainContext"],
         },
         "solutionSteps": {
             "type": "array",
@@ -4887,34 +4889,51 @@ INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA = {
                 "properties": {
                     "rank": {"type": "number"},
                     "step": {"type": "string"},
+                    "overlayText": {"type": "string"},
                     "sourceGrounding": {"type": "string"},
                     "whyItMatters": {"type": "string"},
+                    "problemConnection": {"type": "string"},
+                    "counterpartyOrProvider": {"type": "string"},
+                    "sharedResourceOrAction": {"type": "string"},
+                    "causalMechanism": {"type": "string"},
+                    "concreteOutcome": {"type": "string"},
+                    "directlyChangesPrimaryStake": {"type": "boolean"},
+                    "domainContext": {"type": "string"},
                 },
-                "required": ["rank", "step", "sourceGrounding", "whyItMatters"],
+                "required": ["rank", "step", "overlayText", "sourceGrounding", "whyItMatters", "problemConnection", "counterpartyOrProvider", "sharedResourceOrAction", "causalMechanism", "concreteOutcome", "directlyChangesPrimaryStake", "domainContext"],
             },
         },
         "retentionPlan": {
             "type": "object",
             "properties": {
                 "mode": {"type": "string", "enum": ["countdown", "open_loop"]},
+                "firstSecondPatternInterrupt": {"type": "string"},
                 "earlyPromise": {"type": "string"},
+                "midpointEscalation": {"type": "string"},
+                "midpointSourceGrounding": {"type": "string"},
                 "withheldResolution": {"type": "string"},
+                "payoffDelivery": {"type": "string"},
+                "sourceGrounding": {"type": "string"},
+                "claimStrengthAudit": {"type": "string"},
+                "outcomeWordingFromSource": {"type": "string"},
                 "payoffRank": {"type": "number"},
                 "presentationOrder": {"type": "array", "items": {"type": "number"}},
             },
-            "required": ["mode", "earlyPromise", "withheldResolution", "payoffRank", "presentationOrder"],
+            "required": ["mode", "firstSecondPatternInterrupt", "earlyPromise", "midpointEscalation", "midpointSourceGrounding", "withheldResolution", "payoffDelivery", "sourceGrounding", "claimStrengthAudit", "outcomeWordingFromSource", "payoffRank", "presentationOrder"],
         },
         "finalResolution": {
             "type": "object",
             "properties": {
                 "answer": {"type": "string"},
+                "overlayText": {"type": "string"},
                 "brandRole": {"type": "string"},
                 "sourceGrounding": {"type": "string"},
+                "domainContext": {"type": "string"},
             },
-            "required": ["answer", "brandRole", "sourceGrounding"],
+            "required": ["answer", "overlayText", "brandRole", "sourceGrounding", "domainContext"],
         },
     },
-    "required": ["centralProblem", "problemSourceGrounding", "hook", "solutionSteps", "retentionPlan", "finalResolution"],
+    "required": ["centralProblem", "problemSourceGrounding", "primaryStakeMetric", "hook", "solutionSteps", "retentionPlan", "finalResolution"],
 }
 
 
@@ -4939,7 +4958,7 @@ def build_instagram_reel_editorial_brief_prompt(site, job, language):
     language_name = LANGUAGE_NAMES.get(language, language.upper())
     source_text = social_source_text(job, limit=16000)
     return f"""
-You are the editorial strategist for a 30-second Instagram Reel based on one finished article.
+You are the social-first editorial strategist for a 30-second Instagram Reel based on one finished article. This will be watched inside a fast-scrolling social feed, usually without sound. Your primary editorial responsibility is to stop the scroll immediately, create a truthful reason to continue watching, escalate useful information scene by scene, and deliver the promised payoff before attention drops. You are not summarizing an article or outlining a presentation.
 Return JSON only using the supplied schema. This is STEP ONE ONLY.
 
 SOURCE:
@@ -4951,26 +4970,41 @@ SOURCE:
 - full article material: {source_text}
 
 YOUR ONLY JOB IN THIS STEP:
-1. Identify the article's ONE central reader problem.
-2. Write one source-grounded, attention-grabbing hook about that problem.
-3. Extract 3 to 5 source-grounded solution steps or decision criteria that solve the problem. Rank them by value, where rank 1 is the most decisive answer.
-4. Build the retention plan for revealing those steps. When the article supports a real bounded checklist, use a reverse countdown that presents the least decisive step first and reserves rank 1 for the final reveal. In the first seconds, state a specific early promise of what rank 1 will solve or unlock. If a countdown would be artificial, use an open loop instead and state exactly what final resolution remains withheld.
-5. State the final answer: how the brand's real offer, workflow, or platform resolves the problem. Explain its practical role without turning this into an ad or inventing capabilities. The final resolution may expand rank 1, but it must not introduce a solution that was absent from the ranked steps.
+1. Identify the article's ONE central reader problem and name its single concrete `primaryStakeMetric`. This metric is the one cost, risk, constraint, or outcome that every selected solution must directly change.
+2. Write one source-grounded, attention-grabbing hook about that problem. Preserve the article's real-world domain in `domainContext` with visible environmental anchors that make the subject identifiable even when all text is hidden.
+3. Extract 3 to 5 source-grounded solution mechanisms or decision criteria that directly change the central stake. Rank them by value, where rank 1 is the most decisive answer. Each item must name the responsible party, provider, or counterpart in `counterpartyOrProvider`; the resource, cost, constraint, or action being changed or shared in `sharedResourceOrAction`; the cause-and-effect path in `causalMechanism`; and the concrete reader result in `concreteOutcome`. Then write a self-contained `overlayText`, summarize the complete causal chain in `problemConnection`, and state in `domainContext` which visible real-world context makes the subject unmistakable.
+4. Build the social retention plan for revealing those steps. Define the exact pattern interruption visible in the first second, the concrete early promise, the midpoint escalation that makes the unresolved answer more valuable, the information deliberately withheld, and the exact payoff delivery. When the article supports a real bounded checklist, use a reverse countdown that presents the least decisive step first and reserves rank 1 for the final reveal. If a countdown would be artificial, use an open loop instead and state exactly what final resolution remains withheld.
+5. State the final answer: how the brand's real offer, workflow, or platform resolves the problem. Give it a separate short `overlayText` and source-grounded `domainContext`. Explain its practical role without turning this into an ad or inventing capabilities. The final resolution may expand rank 1, but it must not introduce a solution that was absent from the ranked steps.
 
 STRICT RULES:
+- Treat every decision as Instagram Reel direction for a distracted social-feed viewer, not as article condensation, a slide deck, a documentary introduction, or a sequence of independent tips. The hook, order, information release, overlays, and final answer must form one continuous attention arc.
+- The first second must interrupt scrolling with the central stake itself. Set `firstSecondPatternInterrupt` exactly equal to `hook.overlayText`, character for character. Visual realization belongs to later steps. Do not put a photograph, UI, prop, scene, animation, editing instruction, logo, title, category, greeting, or context-setting sentence in this field.
+- Every intermediate solution must provide a useful mini-payoff while increasing the value of the answer still withheld. No scene may merely repeat the hook, restate a heading, reset the story, or release the final mechanism early.
+- `midpointEscalation` states what becomes more consequential or more specific around the middle of the Reel. It must be a truthful progression in the same primary stake, not manufactured drama. `midpointSourceGrounding` copies the exact consecutive article phrase that supports that escalation.
+- `payoffDelivery` states exactly how the final ranked mechanism answers the viewer question and fulfills the early promise. It must not be a generic brand appearance or CTA.
+- `retentionPlan.sourceGrounding` copies one exact consecutive phrase from the supplied article that supports the withheld resolution and payoff. Every factual claim in `earlyPromise`, `midpointEscalation`, `withheldResolution`, and `payoffDelivery` must be supported by the article. Never invent guarantees, exact savings, percentages, scarcity, urgency, safety, verification, performance, or availability. A plausible marketing inference is still an invention when the source does not state it.
+- `claimStrengthAudit` compares the strongest factual wording in the hook and retention plan with `sourceGrounding` and confirms in one complete sentence that the social framing changes presentation only, not certainty, quantity, safety, speed, scope, or outcome. When the source says only that a mechanism helps or facilitates, preserve that limited wording; do not upgrade it to guarantees, eliminates, always, proven, safely, exactly, entirely, in half, or another stronger claim.
+- `outcomeWordingFromSource` copies the exact consecutive source wording that describes what the payoff mechanism achieves. Copy that exact phrase verbatim inside `earlyPromise`, `withheldResolution`, `payoffDelivery`, `finalResolution.answer`, and `finalResolution.brandRole`; do not substitute synonyms or append a stronger outcome. Do not mathematically infer a percentage, fraction, guaranteed saving, eliminated charge, or equal allocation from words such as share, match, arrange, reduce, avoid, or facilitate. Social energy comes from the stake, information order, specificity, and delayed reveal; it never comes from strengthening the source's outcome claim.
 - Do not write scenes, visual concepts, characters, photographs, layers, camera moves, text animation, audio, captions, or a production plan.
 - Do not turn the article into a dating story, personal drama, or fictional customer journey. The Reel must remain about the article's actual reader problem and solution.
+- Choose exactly one central stake. Do not join independent problems with "and", "plus", or an equivalent compound construction merely to admit unrelated article sections. If the hook is about a financial penalty, every solution must directly change that financial penalty; comfort, community, confidence, and anxiety are parallel benefits and are excluded from this particular solution list unless the source explicitly proves how they alter the same financial metric.
+- `primaryStakeMetric` is a short literal noun phrase, such as "solo cruise accommodation cost", "checkout abandonment risk", or "manual processing time". Copy this exact phrase verbatim inside every solution's `concreteOutcome` and `problemConnection` so the causal relationship is auditable.
 - The hook is not a title, category label, slogan, or broad observation. It must name one concrete stake: a cost, risk, contradiction, or consequence that the reader faces by making the wrong choice or believing the wrong assumption.
 - `tensionType` must be exactly one of `cost`, `risk`, `contradiction`, or `consequence`. `concreteStake` explains the specific loss, uncertainty, or unwanted outcome in one complete sentence. `viewerQuestion` is the unresolved practical question created by the hook. `payoffPromise` states the answer that the final resolution will deliver.
-- `overlayStake` identifies the exact cost, risk, contradiction, or consequence stated literally in `overlayText`. The overlay itself must carry that stake, not merely name a topic or a phenomenon. For example, use the actual loss or consequence, not a label such as "the trap" or "the problem".
+- `overlayStake` must copy one meaningful consecutive phrase from `overlayText` verbatim, including the same wording and inflection. That copied phrase must itself name the exact cost, risk, contradiction, or consequence. The overlay must carry the stake, not merely name a topic or a phenomenon.
 - The overlay and narration must make the stake legible immediately, while preserving the final answer. A generic phrase that could introduce any article is invalid even if it is grammatically correct or source-grounded.
-- Every solution step must add a distinct part of the answer. Do not repeat article headings or create vague advice.
+- Every solution step must add a distinct mechanism that directly changes the central stake. Do not repeat article headings, name an activity without its outcome, or promote a supporting tactic into a standalone solution. Communication, research, a meeting, a community, an app, or a checklist is not itself a solution unless the item says who participates, what resource or decision it changes, how that change occurs, and what concrete result follows.
+- Every solution-step overlay must be understandable in silent playback. It cannot be only a rank, category label, unexplained activity, unexplained imperative, or fragment such as "find community early". It must name the actual mechanism and result within 4 to 10 words. A viewer who sees only the hook and this overlay must understand who or what acts, what changes, and why this step answers the hook.
+- `counterpartyOrProvider` identifies who supplies the changed terms or who shares the relevant resource. `sharedResourceOrAction` names precisely what is waived, reduced, shared, selected, verified, or otherwise changed. `causalMechanism` states the intermediate action that produces the result. `concreteOutcome` states the resulting change to the same cost, risk, contradiction, or consequence named in the hook.
+- Set `directlyChangesPrimaryStake` to true only when the source explicitly supports the entire causal chain. Never set it true for a useful supporting activity that changes a different outcome. Exclude every candidate that would be false.
+- `problemConnection` is one literal causal chain joining those four fields: actor or provider -> changed/shared resource or action -> mechanism -> concrete outcome. If that complete chain is not explicitly supported by the source, omit the candidate. Do not claim that a social, comfort, safety, or community benefit changes a financial cost unless the source explicitly proves the financial mechanism. A supporting activity may appear inside a valid mechanism, but it cannot replace the mechanism.
+- Every `domainContext`, including the hook and resolution, names source-grounded visible environmental anchors that distinguish the article's real domain from a generic corridor, room, office, restaurant, or group of people. It is not a list of decorative props and may not invent a location absent from the source. Prefer architecture, equipment, product context, or activity relationships that remain recognizable across several scenes and create one coherent visual world.
 - `retentionPlan.earlyPromise` must tell the viewer why waiting for the payoff matters. It cannot merely say "keep watching", "number one", or "the final tip". `withheldResolution` names the practical answer held back until the payoff. `presentationOrder` gives the exact rank order in which the Reel reveals the steps.
 - When `mode` is `countdown`, `presentationOrder` must run from the lowest-ranked step to rank 1 and `payoffRank` must be 1. This makes the final reveal the most consequential answer. The hook or narration must introduce the early promise before the ordinary steps appear.
 - When the article names a real brand mechanism that directly resolves the central problem, that mechanism must be rank 1 and the final resolution must expand it factually. Do not demote it to an unrelated closing promotion after a list of generic advice.
 - The final resolution must close the hook's question. `brandRole` says exactly what the brand enables in this solution; it must be factual and source-grounded.
-- Write in {language_name}. Keep the hook overlay mobile-readable: 3 to 8 words. Keep hook narration: 5 to 14 words.
-- Every later solution/resolution overlay is also 2 to 7 words. It is a glanceable editorial headline, not the complete spoken sentence or article summary. A viewer must be able to read it comfortably in about 1.5 seconds; put detail in narration, not on screen.
+- Write in {language_name}. Keep the hook overlay mobile-readable: 3 to 7 words. Keep hook narration: 5 to 14 words.
+- Every later solution overlay is 4 to 10 words and every resolution overlay is 2 to 7 words. It is a glanceable editorial headline, not the complete spoken sentence or article summary. A viewer must be able to read it comfortably; put supporting detail in narration, but keep the mechanism and result in the overlay.
 """.strip()
 
 
@@ -4982,6 +5016,7 @@ def normalize_instagram_reel_editorial_brief(data):
     brief = {
         "centralProblem": _reel_copy(data.get("centralProblem"), 700),
         "problemSourceGrounding": _reel_copy(data.get("problemSourceGrounding"), 700),
+        "primaryStakeMetric": _reel_copy(data.get("primaryStakeMetric"), 180),
         "hook": {
             "overlayText": _reel_copy(hook_raw.get("overlayText"), 100),
             "narration": _reel_copy(hook_raw.get("narration"), 260),
@@ -4991,12 +5026,15 @@ def normalize_instagram_reel_editorial_brief(data):
             "overlayStake": _reel_copy(hook_raw.get("overlayStake"), 180),
             "viewerQuestion": _reel_copy(hook_raw.get("viewerQuestion"), 500),
             "payoffPromise": _reel_copy(hook_raw.get("payoffPromise"), 600),
+            "domainContext": _reel_copy(hook_raw.get("domainContext"), 500),
         },
         "solutionSteps": [],
         "finalResolution": {
             "answer": _reel_copy(resolution_raw.get("answer"), 700),
+            "overlayText": _reel_copy(resolution_raw.get("overlayText"), 120),
             "brandRole": _reel_copy(resolution_raw.get("brandRole"), 700),
             "sourceGrounding": _reel_copy(resolution_raw.get("sourceGrounding"), 700),
+            "domainContext": _reel_copy(resolution_raw.get("domainContext"), 500),
         },
     }
     raw_steps = data.get("solutionSteps") if isinstance(data.get("solutionSteps"), list) else []
@@ -5008,11 +5046,24 @@ def normalize_instagram_reel_editorial_brief(data):
         step = {
             "rank": int(raw_step.get("rank") or 0),
             "step": _reel_copy(raw_step.get("step"), 500),
+            "overlayText": _reel_copy(raw_step.get("overlayText"), 120),
             "sourceGrounding": _reel_copy(raw_step.get("sourceGrounding"), 700),
             "whyItMatters": _reel_copy(raw_step.get("whyItMatters"), 500),
+            "problemConnection": _reel_copy(raw_step.get("problemConnection"), 700),
+            "counterpartyOrProvider": _reel_copy(raw_step.get("counterpartyOrProvider"), 400),
+            "sharedResourceOrAction": _reel_copy(raw_step.get("sharedResourceOrAction"), 500),
+            "causalMechanism": _reel_copy(raw_step.get("causalMechanism"), 700),
+            "concreteOutcome": _reel_copy(raw_step.get("concreteOutcome"), 500),
+            "directlyChangesPrimaryStake": raw_step.get("directlyChangesPrimaryStake") is True,
+            "domainContext": _reel_copy(raw_step.get("domainContext"), 500),
         }
-        if step["rank"] != index or not all([step["step"], step["sourceGrounding"], step["whyItMatters"]]):
-            raise ValueError(f"Instagram Reel editorial brief step {index} is incomplete or out of order")
+        if not all([step["rank"], step["step"], step["overlayText"], step["sourceGrounding"], step["whyItMatters"], step["problemConnection"], step["counterpartyOrProvider"], step["sharedResourceOrAction"], step["causalMechanism"], step["concreteOutcome"], step["directlyChangesPrimaryStake"], step["domainContext"]]):
+            raise ValueError(f"Instagram Reel editorial brief step {index} is incomplete")
+        metric = brief["primaryStakeMetric"].lower()
+        if metric not in step["concreteOutcome"].lower() or metric not in step["problemConnection"].lower():
+            raise ValueError(f"Instagram Reel editorial brief step {index} does not change the primary stake metric")
+        if not 4 <= len(step["overlayText"].split()) <= 10:
+            raise ValueError(f"Instagram Reel editorial brief step {index} overlay is not self-contained")
         brief["solutionSteps"].append(step)
     retention_raw = data.get("retentionPlan") if isinstance(data.get("retentionPlan"), dict) else {}
     presentation_order = []
@@ -5023,20 +5074,29 @@ def normalize_instagram_reel_editorial_brief(data):
             presentation_order.append(0)
     brief["retentionPlan"] = {
         "mode": _reel_copy(retention_raw.get("mode"), 32).lower(),
+        "firstSecondPatternInterrupt": _reel_copy(retention_raw.get("firstSecondPatternInterrupt"), 500),
         "earlyPromise": _reel_copy(retention_raw.get("earlyPromise"), 600),
+        "midpointEscalation": _reel_copy(retention_raw.get("midpointEscalation"), 600),
+        "midpointSourceGrounding": _reel_copy(retention_raw.get("midpointSourceGrounding"), 700),
         "withheldResolution": _reel_copy(retention_raw.get("withheldResolution"), 600),
+        "payoffDelivery": _reel_copy(retention_raw.get("payoffDelivery"), 700),
+        "sourceGrounding": _reel_copy(retention_raw.get("sourceGrounding"), 700),
+        "claimStrengthAudit": _reel_copy(retention_raw.get("claimStrengthAudit"), 700),
+        "outcomeWordingFromSource": _reel_copy(retention_raw.get("outcomeWordingFromSource"), 700),
         "payoffRank": int(retention_raw.get("payoffRank") or 0),
         "presentationOrder": presentation_order,
     }
     if not all([
-        brief["centralProblem"], brief["problemSourceGrounding"], brief["hook"]["overlayText"],
+        brief["centralProblem"], brief["problemSourceGrounding"], brief["primaryStakeMetric"], brief["hook"]["overlayText"],
         brief["hook"]["narration"], brief["hook"]["whyItHooks"], brief["hook"]["tensionType"],
-        brief["hook"]["concreteStake"], brief["hook"]["overlayStake"], brief["hook"]["viewerQuestion"], brief["hook"]["payoffPromise"], brief["finalResolution"]["answer"],
-        brief["retentionPlan"]["mode"], brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["withheldResolution"], brief["finalResolution"]["brandRole"], brief["finalResolution"]["sourceGrounding"],
+        brief["hook"]["concreteStake"], brief["hook"]["overlayStake"], brief["hook"]["viewerQuestion"], brief["hook"]["payoffPromise"], brief["hook"]["domainContext"], brief["finalResolution"]["answer"], brief["finalResolution"]["overlayText"],
+        brief["retentionPlan"]["mode"], brief["retentionPlan"]["firstSecondPatternInterrupt"], brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["midpointEscalation"], brief["retentionPlan"]["midpointSourceGrounding"], brief["retentionPlan"]["withheldResolution"], brief["retentionPlan"]["payoffDelivery"], brief["retentionPlan"]["sourceGrounding"], brief["retentionPlan"]["claimStrengthAudit"], brief["retentionPlan"]["outcomeWordingFromSource"], brief["finalResolution"]["brandRole"], brief["finalResolution"]["sourceGrounding"], brief["finalResolution"]["domainContext"],
     ]):
         raise ValueError("Instagram Reel editorial brief is incomplete")
-    if not 3 <= len(brief["hook"]["overlayText"].split()) <= 8 or not 5 <= len(brief["hook"]["narration"].split()) <= 14:
+    if not 3 <= len(brief["hook"]["overlayText"].split()) <= 7 or not 5 <= len(brief["hook"]["narration"].split()) <= 14:
         raise ValueError("Instagram Reel editorial brief hook is not mobile-readable")
+    if not 2 <= len(brief["finalResolution"]["overlayText"].split()) <= 7:
+        raise ValueError("Instagram Reel editorial brief resolution overlay is not mobile-readable")
     if brief["hook"]["tensionType"] not in {"cost", "risk", "contradiction", "consequence"}:
         raise ValueError("Instagram Reel editorial brief hook must identify a concrete tension type")
     if len(brief["hook"]["concreteStake"].split()) < 6 or len(brief["hook"]["viewerQuestion"].split()) < 5 or len(brief["hook"]["payoffPromise"].split()) < 5:
@@ -5046,8 +5106,11 @@ def normalize_instagram_reel_editorial_brief(data):
     if not stake_tokens or not stake_tokens.intersection(overlay_tokens):
         raise ValueError("Instagram Reel editorial brief overlay must literally state its concrete stake")
     step_ranks = [step["rank"] for step in brief["solutionSteps"]]
-    if step_ranks != list(range(1, len(brief["solutionSteps"]) + 1)):
+    expected_ranks = list(range(1, len(brief["solutionSteps"]) + 1))
+    if sorted(step_ranks) != expected_ranks or len(set(step_ranks)) != len(step_ranks):
         raise ValueError("Instagram Reel editorial brief solution steps must rank value from 1 through the final rank")
+    brief["solutionSteps"] = sorted(brief["solutionSteps"], key=lambda step: step["rank"])
+    step_ranks = expected_ranks
     retention = brief["retentionPlan"]
     if retention["mode"] not in {"countdown", "open_loop"} or retention["payoffRank"] not in step_ranks or len(retention["earlyPromise"].split()) < 6 or len(retention["withheldResolution"].split()) < 5:
         raise ValueError("Instagram Reel editorial brief needs a concrete retention plan")
@@ -5059,12 +5122,37 @@ def normalize_instagram_reel_editorial_brief(data):
 
 
 def generate_instagram_reel_editorial_brief(site, job, language):
-    return normalize_instagram_reel_editorial_brief(_gemini_text_json(
+    brief = normalize_instagram_reel_editorial_brief(_gemini_text_json(
         build_instagram_reel_editorial_brief_prompt(site, job, language),
         response_schema=INSTAGRAM_REEL_EDITORIAL_BRIEF_SCHEMA,
         temperature=0.35,
         repair=False,
     ))
+    source_normalized = re.sub(r"[^a-z0-9]+", " ", social_source_text(job, limit=16000).lower()).strip()
+    retention_quote = re.sub(r"[^a-z0-9]+", " ", brief["retentionPlan"]["sourceGrounding"].lower()).strip()
+    midpoint_quote = re.sub(r"[^a-z0-9]+", " ", brief["retentionPlan"]["midpointSourceGrounding"].lower()).strip()
+    outcome_quote = re.sub(r"[^a-z0-9]+", " ", brief["retentionPlan"]["outcomeWordingFromSource"].lower()).strip()
+    if not retention_quote or retention_quote not in source_normalized or not midpoint_quote or midpoint_quote not in source_normalized or not outcome_quote or outcome_quote not in source_normalized:
+        raise ValueError("Instagram Reel retention plan invents its payoff grounding")
+    if brief["retentionPlan"]["firstSecondPatternInterrupt"] != brief["hook"]["overlayText"]:
+        raise ValueError("Instagram Reel first-second interruption must be the approved hook")
+    retention_claims = " ".join([
+        brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["midpointEscalation"],
+        brief["retentionPlan"]["withheldResolution"], brief["retentionPlan"]["payoffDelivery"],
+        brief["finalResolution"]["answer"], brief["finalResolution"]["brandRole"],
+    ])
+    unsupported_strength = re.compile(r"\b(guarantee(?:d|s)?|always|never|safely|verified|proven|ultimate|entirely|completely|eliminat(?:e|es|ed|ing)|exactly|in half|50%|0%)\b", re.I)
+    unsupported = [match.group(0) for match in unsupported_strength.finditer(retention_claims) if match.group(0).lower() not in source_normalized]
+    if unsupported:
+        raise ValueError(f"Instagram Reel retention plan strengthens unsupported claims: {', '.join(sorted(set(unsupported)))}")
+    required_outcome_fields = [
+        brief["retentionPlan"]["earlyPromise"], brief["retentionPlan"]["withheldResolution"],
+        brief["retentionPlan"]["payoffDelivery"], brief["finalResolution"]["answer"],
+        brief["finalResolution"]["brandRole"],
+    ]
+    if any(outcome_quote not in re.sub(r"[^a-z0-9]+", " ", value.lower()).strip() for value in required_outcome_fields):
+        raise ValueError("Instagram Reel social payoff must preserve the source's exact outcome wording")
+    return brief
 
 
 INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
@@ -5078,16 +5166,29 @@ INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
                     "beatId": {"type": "string"},
                     "sceneObjective": {"type": "string"},
                     "evidenceInMasterFrame": {"type": "string"},
+                    "problemConnectionInFrame": {"type": "string"},
+                    "domainAnchorsInFrame": {"type": "string"},
+                    "domainAnchorQuotes": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+                    "environmentSourceQuote": {"type": "string"},
+                    "environmentStrategy": {"type": "string", "enum": ["new_source_named_setting", "new_contextual_stage", "reuse_prior_world"]},
+                    "reusedFromBeatId": {"type": "string"},
+                    "visualWorldKey": {"type": "string"},
+                    "shotScale": {"type": "string", "enum": ["establishing_wide", "wide", "medium", "close", "detail"]},
                     "masterFrame": {"type": "string"},
                     "cleanPlate": {"type": "string"},
                     "movableGroups": {
                         "type": "array",
+                        "minItems": 3,
+                        "maxItems": 4,
                         "items": {
                             "type": "object",
                             "properties": {
                                 "name": {"type": "string"},
                                 "layerType": {"type": "string", "enum": ["person_group", "story_object"]},
                                 "storyRole": {"type": "string", "enum": ["direct_evidence", "kinetic_support"]},
+                                "eventFunction": {"type": "string", "enum": ["situation", "mechanism", "result", "continuity_support"]},
+                                "independenceState": {"type": "string", "enum": ["owned_items_included", "independent_and_separated"]},
+                                "necessityProof": {"type": "string"},
                                 "sourceGroundingQuote": {"type": "string"},
                                 "supportsLayer": {"type": "string"},
                                 "masterFrameState": {"type": "string"},
@@ -5098,8 +5199,9 @@ INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
                                 "rigidTransformProof": {"type": "string"},
                                 "entrance": {"type": "string"},
                                 "finalPosition": {"type": "string"},
+                                "frameCoverage": {"type": "string", "enum": ["compact", "medium"]},
                             },
-                            "required": ["name", "layerType", "storyRole", "sourceGroundingQuote", "supportsLayer", "masterFrameState", "transformMode", "appearanceChange", "occlusionState", "entrancePathState", "rigidTransformProof", "entrance", "finalPosition"],
+                            "required": ["name", "layerType", "storyRole", "eventFunction", "independenceState", "necessityProof", "sourceGroundingQuote", "supportsLayer", "masterFrameState", "transformMode", "appearanceChange", "occlusionState", "entrancePathState", "rigidTransformProof", "entrance", "finalPosition", "frameCoverage"],
                         },
                     },
                     "cameraAfterEntrance": {"type": "string"},
@@ -5108,8 +5210,9 @@ INSTAGRAM_REEL_SCENE_CONCEPT_SCHEMA = {
                     "continuityFromPrevious": {"type": "string"},
                     "retentionIntoNext": {"type": "string"},
                     "transitionIntent": {"type": "string"},
+                    "socialFeedExecution": {"type": "string"},
                 },
-                "required": ["beatId", "sceneObjective", "evidenceInMasterFrame", "masterFrame", "cleanPlate", "movableGroups", "cameraAfterEntrance", "overlayText", "textPlacement", "continuityFromPrevious", "retentionIntoNext", "transitionIntent"],
+                "required": ["beatId", "sceneObjective", "evidenceInMasterFrame", "problemConnectionInFrame", "domainAnchorsInFrame", "domainAnchorQuotes", "environmentSourceQuote", "environmentStrategy", "reusedFromBeatId", "visualWorldKey", "shotScale", "masterFrame", "cleanPlate", "movableGroups", "cameraAfterEntrance", "overlayText", "textPlacement", "continuityFromPrevious", "retentionIntoNext", "transitionIntent", "socialFeedExecution"],
             },
         },
     },
@@ -5188,10 +5291,12 @@ INSTAGRAM_REEL_DIRECTOR_PLAN_SCHEMA = {
                                         "fromFraming": {"type": "string"},
                                         "toFraming": {"type": "string"},
                                         "focusTarget": {"type": "string"},
+                                        "triggerLayer": {"type": "string"},
+                                        "triggerMoment": {"type": "string", "enum": ["during_entrance", "on_settle", "after_settle"]},
                                         "easing": {"type": "string"},
                                         "purpose": {"type": "string"},
                                     },
-                                    "required": ["startSeconds", "endSeconds", "movement", "fromFraming", "toFraming", "focusTarget", "easing", "purpose"],
+                                    "required": ["startSeconds", "endSeconds", "movement", "fromFraming", "toFraming", "focusTarget", "triggerLayer", "triggerMoment", "easing", "purpose"],
                                 },
                             },
                         },
@@ -5206,14 +5311,16 @@ INSTAGRAM_REEL_DIRECTOR_PLAN_SCHEMA = {
                             "appearance": {"type": "string", "enum": ["word_stagger", "line_wipe", "slide_up", "slide_left", "slide_right", "scale_up", "focus_resolve"]},
                             "placement": {"type": "string"},
                             "contrastTreatment": {"type": "string"},
+                            "protectedZoneProof": {"type": "string"},
                             "maxLines": {"type": "integer"},
                         },
-                        "required": ["copy", "startSeconds", "endSeconds", "appearance", "placement", "contrastTreatment", "maxLines"],
+                        "required": ["copy", "startSeconds", "endSeconds", "appearance", "placement", "contrastTreatment", "protectedZoneProof", "maxLines"],
                     },
                     "continuityFromPrevious": {"type": "string"},
                     "retentionIntoNext": {"type": "string"},
+                    "socialFeedExecution": {"type": "string"},
                 },
-                "required": ["beatId", "durationSeconds", "masterFrame", "cleanPlate", "movableGroups", "visualBeats", "cameraPlan", "textDirection", "continuityFromPrevious", "retentionIntoNext"],
+                "required": ["beatId", "durationSeconds", "masterFrame", "cleanPlate", "movableGroups", "visualBeats", "cameraPlan", "textDirection", "continuityFromPrevious", "retentionIntoNext", "socialFeedExecution"],
             },
         },
     },
@@ -5230,35 +5337,55 @@ def derive_instagram_reel_editorial_beats(brief):
         "id": "beat-01",
         "kind": "hook",
         "editorialInput": brief["hook"]["overlayText"],
-        "sourceGrounding": brief["problemSourceGrounding"],
+        "overlayText": brief["hook"]["overlayText"],
+        "sourceGrounding": f"{brief['centralProblem']} {brief['problemSourceGrounding']}".strip(),
+        "problemConnection": brief["hook"]["concreteStake"],
+        "domainContext": brief["hook"]["domainContext"],
+        "retentionPromise": brief["retentionPlan"]["earlyPromise"],
         "viewerQuestion": brief["hook"]["viewerQuestion"],
         "withheldAnswer": brief["hook"]["payoffPromise"],
-    }, {
-        "id": "beat-02",
-        "kind": "retention-bridge",
-        "editorialInput": brief["retentionPlan"]["earlyPromise"],
-        "sourceGrounding": brief["problemSourceGrounding"],
-        "viewerQuestion": brief["hook"]["viewerQuestion"],
-        "withheldAnswer": brief["retentionPlan"]["withheldResolution"],
+        "socialFormat": "fast-scrolling Instagram Reel",
+        "socialAttentionRole": "stop the scroll in the first second with the concrete stake and open the central question",
+        "firstSecondPatternInterrupt": brief["retentionPlan"]["firstSecondPatternInterrupt"],
+        "midpointEscalation": brief["retentionPlan"]["midpointEscalation"],
+        "payoffDelivery": brief["retentionPlan"]["payoffDelivery"],
     }]
-    for sequence, rank in enumerate(ordered_ranks, start=3):
+    for sequence, rank in enumerate(ordered_ranks, start=2):
         step = steps[rank]
         beats.append({
             "id": f"beat-{sequence:02d}",
             "kind": "solution-payoff" if rank == brief["retentionPlan"]["payoffRank"] else "solution-step",
             "rank": rank,
             "editorialInput": step["step"],
+            "overlayText": step["overlayText"],
             "sourceGrounding": step["sourceGrounding"],
+            "problemConnection": step["problemConnection"],
+            "domainContext": step["domainContext"],
+            "retentionPromise": brief["retentionPlan"]["withheldResolution"],
             "viewerQuestion": brief["hook"]["viewerQuestion"],
             "withheldAnswer": "" if rank == brief["retentionPlan"]["payoffRank"] else brief["retentionPlan"]["withheldResolution"],
+            "socialFormat": "fast-scrolling Instagram Reel",
+            "socialAttentionRole": "deliver the promised payoff" if rank == brief["retentionPlan"]["payoffRank"] else "deliver a useful mini-payoff while increasing the value of the withheld answer",
+            "firstSecondPatternInterrupt": brief["retentionPlan"]["firstSecondPatternInterrupt"],
+            "midpointEscalation": brief["retentionPlan"]["midpointEscalation"],
+            "payoffDelivery": brief["retentionPlan"]["payoffDelivery"],
         })
     beats.append({
         "id": f"beat-{len(beats) + 1:02d}",
         "kind": "resolution",
         "editorialInput": brief["finalResolution"]["answer"],
+        "overlayText": brief["finalResolution"]["overlayText"],
         "sourceGrounding": brief["finalResolution"]["sourceGrounding"],
+        "problemConnection": brief["finalResolution"]["brandRole"],
+        "domainContext": brief["finalResolution"]["domainContext"],
+        "retentionPromise": "The promised practical answer is now fully resolved.",
         "viewerQuestion": "resolved",
         "withheldAnswer": "",
+        "socialFormat": "fast-scrolling Instagram Reel",
+        "socialAttentionRole": "close the open loop and leave one memorable resolved answer, not a generic CTA",
+        "firstSecondPatternInterrupt": brief["retentionPlan"]["firstSecondPatternInterrupt"],
+        "midpointEscalation": brief["retentionPlan"]["midpointEscalation"],
+        "payoffDelivery": brief["retentionPlan"]["payoffDelivery"],
     })
     return beats
 
@@ -5266,8 +5393,15 @@ def derive_instagram_reel_editorial_beats(brief):
 def build_instagram_reel_scene_concept_prompt(site, job, language, editorial_beats):
     language_name = LANGUAGE_NAMES.get(language, language.upper())
     source_text = social_source_text(job, limit=16000)
+    allowed_layer_evidence = {
+        beat["id"]: {
+            field: str(beat.get(field) or "")
+            for field in ("editorialInput", "sourceGrounding", "problemConnection", "domainContext")
+        }
+        for beat in editorial_beats
+    }
     return f"""
-You are stage two of a layered editorial Instagram Reel pipeline. You receive immutable editorial beats approved in stage one. Return JSON only using the supplied schema.
+You are stage two of a layered editorial Instagram Reel pipeline. You are directing for a fast-scrolling social feed, not illustrating an article and not preparing a slide presentation. Every visual decision must preserve the hook, open loop, escalating usefulness, and payoff approved in stage one. Return JSON only using the supplied schema.
 
 SOURCE:
 - brand: {site['brand_name'] or site['domain']}
@@ -5275,39 +5409,75 @@ SOURCE:
 - article: {job['title'] or job['topic']}
 - full article material: {source_text}
 - approved editorial beats: {json.dumps(editorial_beats, ensure_ascii=False)}
+- closed layer-evidence blocks by beat: {json.dumps(allowed_layer_evidence, ensure_ascii=False)}
 
 YOUR ONLY JOB:
-For every supplied beat, design one coherent, photographable scene concept that makes that beat understandable and carries the viewer into the next beat. Preserve the supplied order, problem, retention question, source grounding, and final payoff. Do not add, remove, merge, reorder, or rewrite editorial beats.
+For every supplied beat, design one coherent, photographable scene concept that makes that beat understandable and carries the viewer into the next beat. Preserve the supplied order, problem, retention question, source grounding, exact overlay copy, and final payoff. Do not add, remove, merge, reorder, or rewrite editorial beats.
 
 SCENE-CONCEPT CONTRACT:
+- Keep the Reel's social attention arc active in every scene. Copy the beat's `socialAttentionRole` into a concrete `socialFeedExecution` explanation of what arrests attention, what useful information becomes visible now, and why the viewer still needs the next scene. The hook scene must make its `firstSecondPatternInterrupt` visible immediately; it cannot begin with context, branding, scenery, or an establishing pause. Intermediate scenes deliver real mini-payoffs and implement the approved `midpointEscalation` when it becomes relevant. The payoff scene visibly delivers `payoffDelivery`; the resolution closes the loop without becoming a generic CTA.
+- Design transitions as changes in prediction and information, not merely changes of location. A new scene must answer part of the viewer's question and create a more specific remaining question. Never reset into another independent tip, decorative tableau, or article-heading illustration.
+- Design the complete Reel as one varied visual sequence before detailing individual scenes. Across five or more scenes, use at least three distinct truthful visual worlds. Prefer source-named environments; when the article does not name enough physical settings, use a neutral contextual stage that is ordinary for the verified domain and does not itself assert, prove, or imply the beat's claim. Never place every beat in the same room merely because it is the easiest literal noun to validate. Reusing a world preserves continuity, but no visual-world key may occupy more than two consecutive scenes.
+- Assign `shotScale` deliberately across the sequence. Use at least three distinct values across a Reel of five or more scenes, including one `establishing_wide` or `wide`, one `medium`, and one `close` or `detail`. Adjacent scenes may not use the same `shotScale`. Scale must serve the evidence: wide for spatial relationships, medium for people and action, close/detail for a compact object, interface, expression, or decisive relationship. A close scene is not a crop of an extractable person; the master composition must still keep every movable human complete head-to-feet, or keep humans fixed in the background and animate only compact layers.
 - This is text-only pre-production. Do not generate image prompts, images, voice, music, captions, video, or rendering instructions.
+- Work beat by beat. Before designing a scene, privately build an evidence inventory containing only exact consecutive phrases from that beat's `editorialInput`, `sourceGrounding`, `problemConnection`, and `domainContext`, then verify every phrase also occurs literally in the full article. Choose the environment, domain anchors, direct evidence, and support layers only from that verified inventory or from a deliberately reused prior visual world. Do not search unrelated sections of the article for convenient scenery or props.
+- Treat `closed layer-evidence blocks by beat` as a hard per-scene allowlist for every `direct_evidence` layer. Its quote is copied from that scene's own block. A `kinetic_support` object may instead use one exact physical-object phrase from the full article when it is a compact domain-authentic production prop that spatially supports a current-beat direct-evidence layer without claiming to prove the solution. It may not introduce another beat's mechanism, result, transaction, or conclusion. Before returning JSON, delete any support whose `storyPurpose` would need editorial language rather than a literal framing/attention function.
+- Build direct evidence in this mandatory order for every scene: first copy one exact consecutive phrase from the current beat's closed block into `sourceGroundingQuote`; second identify only the literal person, relationship, object, or mechanism named by that copied phrase; third design the layer around that literal noun. Never design a visually attractive layer first and search the wider article for a quote afterward. If the current block supplies a person/relationship but no compact object, use the person/relationship as the only direct-evidence layer. A mechanism from another section remains forbidden even when it belongs to the same product, location, or category.
+- Treat every supplied `overlayText` as immutable. Copy it exactly. Do not replace it with a rank label, teaser fragment, category label, or generic imperative. The supplied `retentionPromise` belongs in the hook's continuing tension and the handoff to later scenes; it never becomes a separate empty scene.
+- Each scene must pass a three-part comprehension test with all text hidden: the viewer can identify the article's real domain, can see the exact physical evidence for this beat, and can understand how that evidence advances or qualifies the central problem. Record these answers in `domainAnchorsInFrame`, `evidenceInMasterFrame`, and `problemConnectionInFrame`.
+- `domainAnchorsInFrame` implements the beat's supplied `domainContext` with at least two substantial source-grounded anchors integrated into the environment, activity, architecture, equipment, interface, or product relationship. Put the exact consecutive article phrase supporting each anchor into `domainAnchorQuotes`; every quote must occur literally in the supplied article. Reuse a coherent family of anchors across adjacent scenes so the Reel feels like one world. A generic room, corridor, restaurant, office, outdoor view, or group of people is invalid when the same frame could illustrate an unrelated article. Never infer a location, service counter, journey stage, device, workflow, or outcome solely because it is common in the category.
+- Choose exactly one environment strategy. Use `new_source_named_setting` only when `environmentSourceQuote` literally names a physical place or environment; a forum, app, community, service, initiative, action, feeling, or abstract condition is not a physical setting. In that case `reusedFromBeatId` is empty and the setting in `masterFrame` is exactly the named place. Otherwise use `reuse_prior_world`, set `environmentSourceQuote` empty, name the earlier beat in `reusedFromBeatId`, copy its `visualWorldKey`, and continue inside that already established setting with a new composition. Never infer a terminal, lobby, counter, office, room, corridor, venue, exterior, or process stage from category convention.
+- `new_contextual_stage` is allowed only to provide visual variety when the current beat has no useful source-named physical environment or when reuse would create repetitive room tableaux. Set `environmentSourceQuote` and `reusedFromBeatId` empty and choose a neutral, ordinary domain-authentic setting. This setting is production context only: `evidenceInMasterFrame` and `problemConnectionInFrame` must explicitly rely on the current beat's approved people, objects, or overlay, never on the contextual background. Do not invent a transaction, service location, event, outcome, luxury condition, safety condition, or customer journey. A contextual stage may establish category, time, or spatial variety but carries zero editorial proof.
+- Establish the hook world from the hook beat itself: its `environmentSourceQuote` is an exact physical-environment phrase copied from the hook's `editorialInput`, `sourceGrounding`, or `problemConnection`. Later scenes may vary visual worlds from a verified article-wide location inventory. Before designing them, privately extract exact phrases in the article that name photographable physical places, then keep only environments materially relevant to the approved solution. A later environment may stage current-beat evidence but never serve as proof of the beat. Treat `domainContext` as semantic guidance, not permission to invent scenery.
+- Apply a literal stand-inside test before selecting `new_source_named_setting`: a photographed person must be able to physically stand inside the exact quoted noun phrase. A service, initiative, arrangement, community, program, price, sailing, cabin type without a named physical cabin, or social activity fails this test and must reuse a prior world. The resolution scene always uses `reuse_prior_world`, points `reusedFromBeatId` to the immediately preceding payoff scene, and copies that scene's `visualWorldKey`; it never creates a new branded, social, lounge, or success setting.
+- `environmentSourceQuote` is a closed-book copy operation against the full article. Paste one exact consecutive physical-environment phrase without changing capitalization, plurality, punctuation, or adding a noun. If no verified physical environment can stage the beat truthfully, choose `reuse_prior_world`. A location quote authorizes only the setting; all people, objects, mechanisms, and claims still require current-beat grounding.
+- The camera is physically inside the quoted environment unless the exact quote itself names an exterior, deck, landscape, or outside space. A cabin, room, lounge, studio area, office, shop, vessel interior, or similar indoor quote cannot become a deck outside it, a corridor near it, an exterior view of it, or another adjacent place.
+- For `new_contextual_stage`, the master frame must identify the stage as contextual and state that it contributes no evidence. Domain anchors still need exact article quotes, but they may be integrated through fixed background architecture or activity rather than movable props.
+- A physical place mentioned elsewhere in the article is not permission for this beat. `new_source_named_setting` is valid only when that place occurs in the current beat's verified evidence inventory and materially helps explain this beat. For a digital, pre-event, planning, comparison, or abstract beat with no such place, `reuse_prior_world` is mandatory.
+- `problemConnectionInFrame` states what the visible evidence proves and how it connects to the central problem. If the article presents a criterion as a parallel benefit rather than a direct fix for the hook's cost or risk, say so honestly and frame it as one dimension of the larger decision. Never imply a false cause-and-effect relationship merely to preserve the hook.
 - Each beat becomes one source-grounded 9:16 photographed scene. Before writing it, identify the concrete `evidenceInMasterFrame`: the exact visible spatial condition, interaction, or before/after relationship that proves this beat without relying on a generic themed location. If you cannot name such evidence, choose a different scene. The abstract part of a cost, risk, or consequence may remain in the overlay, but the physical condition causing it must be visible.
 - The required `masterFrame` is the complete final composition before animation: location, light, viewpoint, every person/group, the named evidence, and intentionally empty space for copy. It is a real cohesive moment, never a collage, stock-travel filler, or a fictional customer journey. `standing`, `looking`, `walking`, talking, smiling, and laughing are valid physical descriptions when the frame also makes the beat's exact spatial condition or interaction visible. Do not reject or avoid those natural states. For every named person/group, explain in `evidenceInMasterFrame` what visible condition their position, action, or relationship proves for this specific beat.
 - `cleanPlate` describes the derivative of that exact master frame after removing every named `movableGroup`, including people and story objects. It must say that architecture, light, camera position, perspective, scale, and every non-movable pixel stay identical. Never propose a separately invented background.
-- Every scene is built for layered motion, not as a static photograph with one moving person. `movableGroups` must contain three or four independently animatable layers already visible in the final master frame. At least one layer has `layerType: story_object`; a scene made only from people is invalid. Use `person_group` for a complete person or cohesive overlapping people, and `story_object` for a complete independently readable object or cohesive object group such as a vessel, table assembly, cloud bank, chair, bag, or other scene-native subject that can move as one unchanged image layer.
-- `storyRole` states why the layer is allowed. Use `direct_evidence` when the article claim depends on that exact physical person, object, occupancy state, or arrangement. Its `sourceGroundingQuote` must copy one exact consecutive phrase from the supplied full article material that directly supports this precise layer and state; paraphrases are invalid. Its `supportsLayer` is empty. A `story_object` can be direct evidence only when the quote literally names that concrete object: reuse the quoted object words in the layer name and do not add an implied container, document, device, sign, fixture, prop, or substitute. For example, an abstract `checklist` cannot become a notebook or board, `community` cannot become a display, and an `initiative` cannot become luggage. When the article does not literally name a material object, make the object `kinetic_support` instead.
-- Use `kinetic_support` for a complete independent scene-native object whose whole-layer arrival frames, spatially supports, or directs attention toward one direct-evidence layer without claiming to prove the editorial idea itself. Its `sourceGroundingQuote` is empty and `supportsLayer` exactly names one `direct_evidence` layer in the same scene. The support must work through the arrival of its complete unchanged silhouette, not through an articulated part, changing material, or changing internal state.
+- Every scene is built around three or four distinct independently animatable physical layers already visible in the final master frame. Exactly one layer is the scene's `direct_evidence`: copy its `sourceGroundingQuote` character for character from that beat's closed evidence block, then build that layer only from literal nouns inside the copied quote. The other two or three layers are `kinetic_support`; they create physical progression around the evidence without pretending to prove a second claim. At least one layer is a meaningful non-human `story_object`. These layers produce three or four separate physical events. Text entrance, camera movement, focus, lighting, and noticing fixed scenery are additional direction and never count toward this minimum. Design the photographed situation around three truthful useful layers from the start; do not pad an otherwise static scene with decorative filler. Use `person_group` for a complete person or cohesive overlapping people, and `story_object` for a complete independently readable object, product, source-named interface, or cohesive object group that can move as one unchanged image layer.
+- Build the three physical arrivals as one causal evidence chain, not three unrelated things: the first establishes the affected subject or starting condition, the second introduces the concrete mechanism, choice, or relationship that changes that condition, and the third completes the visible consequence or usable result. The three layers may coexist in the final photograph, but their timed arrival order must make the current beat progressively clearer. Apply a counterfactual necessity test to every layer: mentally remove it from both the master frame and the entrance sequence. If the beat remains equally understandable, that layer is decorative filler and the scene must be redesigned. A domain-themed prop, travel accessory, set dressing, or atmosphere is never an event merely because it belongs in the location.
+- Keep `movableGroups` in event order. Group one has `eventFunction: situation`, group two has `eventFunction: mechanism`, and group three has `eventFunction: result`; an optional fourth group has `eventFunction: continuity_support`. `necessityProof` states the specific part of the current beat that would become impossible to understand if that layer were removed. Generic realism, mood, branding, visual interest, location recognition, or decoration is not a valid necessity proof.
+- Movable layers are foreground actors, not pieces of the set. Architecture, doors, windows, walls, floors, ceilings, decks, railings, stairs, counters, desks, tables, beds, sofas, cabinets, built-in lighting, room partitions, and other fixed or room-scale furniture remain permanently in the clean plate. They may establish domain and spatial evidence, and the whole-scene camera may reveal them, but they never enter, slide, drop, scale, settle, or count toward the three movable events.
+- A movable `story_object` must be a compact or medium standalone item that a person could reasonably carry, place, or view independently, or a source-named digital interface with a coherent boundary. It must occupy clearly less than half of the visible frame in its final position. Set `frameCoverage` to `compact` or `medium`; full-room, wall-spanning, floor-spanning, built-in, architectural, and oversized layers are invalid. Examples are category-neutral: a compact product, document explicitly named by the source, handheld item, independent sign explicitly named by the source, or bounded interface. Do not choose an object merely to satisfy the layer count.
+- Every movable object is freestanding and physically detachable in the photographed world. It is not mounted, bolted, built into architecture, attached to furniture, painted onto a surface, or dependent on a changing screen state. Its arrival must change the viewer's understanding of the current mechanism or result, not merely decorate the setting.
+- A digital interface is never free-floating in a photographic scene. It appears on one physically coherent carrier and the carrier plus visible interface are one complete registered layer. The interface may contain large structural states needed by the beat, but no generated microcopy. Never split a carrier and its screen into overlapping movable layers.
+- A `story_object` layer contains no human anatomy: no hand, arm, finger, face, torso, reflection, or person holding/touching it. Compose the complete object with clear background around its full boundary. If a person must hold or touch the object, either redesign the composition so the object stands independently or register the complete head-to-feet person and owned object together as one `person_group`; never extract a cropped body fragment as an object layer.
+- Apply ownership before listing layers. Any object worn, carried, held, touched, or overlapped by a person belongs inside that complete `person_group` and must not appear again as a `story_object`. A valid independent story object rests or stands by itself with visible background separating its complete boundary from every person and other movable layer. Every scene needs at least one such meaningful object layer. If the initial idea cannot support three independent physical layers without overlap or filler, redesign the complete scene around another truthful source-grounded activity or relationship before returning it.
+- Set `independenceState` to `owned_items_included` for every `person_group`: its clothing and every worn, carried, held, touched, or overlapping item remain inside that one human layer. Set it to `independent_and_separated` for every `story_object`: the object is not held, worn, touched, tucked under an arm, resting on another movable layer, or overlapping any person or movable object. Confirm this state in the physical composition before returning the scene.
+- A scene with `shotScale` equal to `close` or `detail` may contain a movable human only when the master is still composed head-to-feet, which normally defeats that scale. Prefer compact or medium object/interface evidence for close/detail scenes; otherwise choose `medium`. Never label a head-to-feet doorway tableau as a close-up.
+- Every scene includes at least one honest compact or medium `story_object` event. The object must materially help stage, reveal, or connect the current beat and remain independently extractable; it cannot be decoration or a symbolic proxy. Close/detail scenes may be object-led, while human relationship scenes normally use medium or wide framing and integrate the object without attaching it to a person.
+- `storyRole` states why the layer is allowed. Use `direct_evidence` when the article claim depends on that exact physical person, object, occupancy state, arrangement, or explicitly named digital mechanism. Its `sourceGroundingQuote` must copy one exact consecutive phrase from the supplied full article material that directly supports this precise layer and state; paraphrases are invalid. Its `supportsLayer` is empty. A `story_object` can be direct evidence only when the quote literally names that concrete object or digital mechanism: reuse the quoted noun in the layer name and do not add an implied bill, document, confirmation, sign, fixture, prop, transaction, or substitute. An abstract checklist cannot become a notebook, community cannot become a display, matching cannot become a confirmation screen, and an initiative cannot become luggage.
+- Every movable layer's exact quote must also belong to this beat's `sourceGrounding`, `editorialInput`, `domainContext`, or to the immediately reused visual world's already approved physical inventory. A fact appearing elsewhere in the article does not authorize an unrelated layer here. Relevance to the current beat is mandatory in addition to global source truth.
+- Technical layer names preserve the source noun. When a source-named digital mechanism is shown on a physical carrier, name the layer after the quoted mechanism itself and describe the carrier only in `masterFrameState`; do not append unquoted words such as device, screen, display, dashboard, or phone to the layer name. A quoted role or relationship authorizes only that role or relationship. It does not authorize an unquoted action such as arriving, boarding, checking in, purchasing, celebrating, or completing a transaction. When the quote names no action, compose a neutral stationary relationship that visibly preserves the quoted fact.
+- Materialize each abstract beat through this hierarchy: first use a literal source-named object or environment; otherwise use a literal source-named person/group relationship; otherwise use a source-named digital mechanism on an ordinary physical carrier. The carrier itself is `kinetic_support`, not direct evidence. Never invent a bill, document, badge, sign, counter, terminal, transaction, or completion ritual to turn an abstract claim into a prop.
+- For an abstract price, timing, season, risk, eligibility, comparison, or policy beat, do not manufacture a calendar, chart, app, planner, document, price card, notification, badge, meter, or interface unless that exact physical or digital mechanism is literally named inside the current beat's own evidence. Build the three-event scene from the source-grounded people, relationships, and independently movable domain objects that physically belong to the chosen truthful situation. The overlay may carry the irreducibly abstract fact, but all three physical arrivals must still clarify its real-world context or mechanism. If the first visual idea cannot do that, redesign the scene rather than returning a one-layer tableau or adding false evidence.
+- Use `kinetic_support` for a compact or medium complete independent scene-native object whose whole-layer arrival frames, spatially supports, or directs attention toward one direct-evidence layer without claiming to prove the editorial idea itself. Its `sourceGroundingQuote` is an exact article phrase that literally names that physical object or cohesive group, and `supportsLayer` exactly names one `direct_evidence` layer in the same scene. The support must work through the arrival of its complete unchanged silhouette, not through an articulated part, changing material, changing internal state, or moving a piece of architecture or furniture. If the article supplies no meaningful third compact layer, redesign the scene around another source-grounded activity or person relationship; never promote the set itself into motion to fill the quota.
 - A story object is not decoration and never symbolizes an abstract idea. It must be large enough for mobile viewing, have a complete silhouette or coherent boundary, remain unobstructed by other movable layers, and occupy a final position that makes physical sense in the shared master frame. It cannot be invented as a visual proxy for cost, safety, community, organization, compatibility, privacy, or another concept. A partition does not prove a lower fare; a board does not prove community; a rope barrier does not prove an organized activity; a sofa does not prove social connection. If an object would require language such as `represents`, `indicates`, `symbolizes`, or `shows how` to connect it to the claim, choose a different object or classify it only as honest kinetic support.
 - Every `direct_evidence` layer must take part in `evidenceInMasterFrame`; every `kinetic_support` layer must directly enable or frame one named direct-evidence layer and must not be described as evidence itself. Do not add atmospheric people or filler objects. Every human group must be standing or walking on an unobstructed floor/deck plane, fully visible from head through both feet, and visibly separated from fixed furniture and architecture. Do not plan a seated, reclining, leaning, doorway-framed, table-supported, railing-supported, window-obscured, or background human: those cannot become registered movable groups. `masterFrameState` states the layer's complete literal physical state and relationship.
 - The renderer can animate only a complete static full-canvas layer. Select `transformMode` from the schema and design the layer so that the exact same pixels can execute that motion by x/y translation or uniform whole-layer scaling. Set `appearanceChange` to `none`. In `rigidTransformProof`, explicitly confirm that geometry, silhouette, internal arrangement, orientation, pose, expression, articulation, and material state remain identical from the first visible frame through the final master-frame registration. `entrance` describes only that whole-layer rigid transform into the final position. It must never depend on opening, closing, folding, unfolding, bending, billowing, rolling up, hinging, parting, changing pose, changing expression, moving a limb, or revealing a different side of the layer. If the intended action needs any of those changes, choose a different independently movable object for the scene.
 - A valid layer is already complete in the master frame and remains complete while it moves. It may enter from left, right, above, or below; translate a short distance; settle; or uniformly scale from a motivated depth plane. Its visual contents never animate internally. `finalPosition` gives the layer's exact relationship to the fixed scene and other groups.
 - Every movable layer remains fully visible and extractable in its final registered position. Set `occlusionState` to `fully_visible` and `entrancePathState` to `unobstructed`. Fixed architecture, furniture, another movable layer, the frame edge, reflection, shadow, or foreground detail must not pass in front of any part of it. Its entrance path also stays clear. Compose the master so visible background space surrounds the complete layer at the final position; place fixed framing elements behind or away from its silhouette rather than sending the layer behind them.
 - Every human group must be large, complete from head through feet, visually separated by clear background space, and free from occlusion. If people naturally overlap, name them as one cohesive group. There must be no unplanned humans in the background, middle distance, reflections, or silhouettes.
+- Perform an explicit extraction audit before returning each scene: list every human movable group mentally and confirm its approved `masterFrameState` describes it standing or walking, complete from head through both feet, with clear background around the silhouette. If the scene prose contains sitting, seated, reclining, leaning, supported by furniture, cropped, obscured, or partly hidden for any movable human, redesign that scene before returning JSON. Do not rely on the validator to repair an unusable composition.
 - The still master must itself explain the beat through `evidenceInMasterFrame`. Do not use empty decks, empty lounges, generic cabins, scenic horizons, or a themed interior as a substitute for evidence. For an abstract fact such as price, risk, or safety, construct the final frame from source-grounded people plus substantial story objects whose assembled physical relationship proves the condition, while `overlayText` carries only the irreducibly abstract claim.
-- Do not add an object merely to make a frame feel realistic. Personal belongings, drinks, clothing accessories, generic devices, badges, symbols, and filler props cannot satisfy the required story-object layer. When the article gives no movable material evidence, choose an honest complete kinetic-support object native to the scene whose rigid arrival improves the composition around named direct evidence. Never use a fixed architectural component whose intended action requires its shape, articulation, or material state to change.
+- Do not add an object merely to make a frame feel realistic. Personal belongings, drinks, clothing accessories, generic furniture, generic devices, badges, symbols, and filler props cannot satisfy the required story-object layer. A device or interface is valid direct evidence only when the article explicitly names that digital mechanism; show its layout without generated readable microcopy. When the article gives no movable material evidence, use another source-grounded person/group relationship or reuse a source-grounded object from the established visual world. Never invent decorative support and never use a fixed architectural component whose intended action requires its shape, articulation, or material state to change.
 - Cover the complete meaning of the supplied `editorialInput`, not just one convenient noun from it. When a beat contains linked criteria, show the physical relationship that connects them. When no extra physical event is stated by the article, preserve and reframe the prior established world instead of substituting a generic new setting.
-- Plan at least three visible whole-layer events in every scene before camera work: introduce three distinct approved registered layers, including at least one story object and at least one `direct_evidence` layer. Use every source-grounded person/object relationship available in the beat; when the article does not supply three material facts, kinetic support supplies the remaining physical motion but never editorial proof. Vary rigid whole-layer transforms according to geometry and meaning instead of repeating one reveal effect. Focus, light, text, camera, internal object articulation, and merely noticing a fixed relationship are not events.
-- `cameraAfterEntrance` starts only after all named layers have reached their final positions. State a purposeful whole-scene move: focus transfer, push toward the relevant group, pull back to reveal a relationship, or lateral follow across the assembled composition. Do not describe camera motion before entries settle.
-- `overlayText` is the exact short on-screen copy locked by the editorial beat and contains 2 to 7 words. `textPlacement` names the largest naturally quiet part of the master frame and why its local contrast supports large readable type. Consider upper, middle, and lower zones on both sides. Keep all faces, bodies, hands, and important story objects outside that text zone; do not assume text belongs at the top.
-- The concepts must progress within the article's real domain. A performer may recur only as a neutral visual anchor, never as a fictional protagonist who learns, books, pays, discovers, succeeds, or forms a romance. Use only places, roles, actions, and conditions supported by the source. Do not add airports, terminals, check-in procedures, passports, boarding, or travel-process scenes merely because the topic is cruising.
-- When a bridge beat is an editorial promise rather than a separate physical event, continue or reframe the already established physical condition. Do not invent a new travel location to make that bridge look busy. For a source claim about a social community or an organized activity, the master frame must show a real peer interaction or a deliberate group arrangement, not one isolated person near a travel-related setting. For a source claim about a matching mechanism, the final frame must make that mechanism's factual before/after relationship visible, not substitute a generic friendship or holiday-success tableau.
-- A source phrase such as `before departure` does not authorize a terminal, airport, harbor, hotel, check-in, boarding, passport, ship exterior, or another invented travel-process setting. If the article does not name the place, use an unbranded neutral physical setting whose only purpose is the source-grounded interaction. The final resolution must remain inside the factual mechanism already established by the payoff beat; do not move to a scenic ending or infer that matching guarantees friendship, a holiday outcome, or a personal transformation.
-- The resolution scene must reuse the payoff scene's physical world and evidence, changing only the framing or the assembled relationship needed to state the brand's factual role. It must not introduce a new neutral lounge, outdoor view, celebratory pose, or generic confidence tableau.
-- Privately audit every scene before returning JSON: (1) could this master frame fit a different article in the same category? If yes, rebuild it around the beat's actual evidence; (2) can every direct-evidence layer be justified by its exact article quote without interpretation, and does every direct story-object name use only concrete object words actually present in that quote? If not, demote or remove it; (3) does the direct evidence literally demonstrate the beat without symbolic interpretation? If not, redesign the composition; (4) is every movable layer a complete static image that can perform its selected `transformMode` without any internal pixel relationship changing? If not, choose another layer; (5) does each kinetic-support object perform only an honest physical function for its named supported layer? If not, replace it; (6) does the clean plate differ from the master only by all approved movable layers? If not, rebuild it; (7) after the rigid layers enter, does the assembled still exactly equal the master frame? If not, rebuild it.
-- Never mention prohibited devices, interfaces, readable objects, crowds, or signage in a returned field, even to say that they are absent. Describe only what is actually present in the planned frame.
+- Plan one visible whole-layer entrance for every approved layer before camera work. A scene therefore has three or four separate physical layer events, including direct evidence and at least one independent object. The locked text entrance and synchronized camera path are additional events and never satisfy the physical-event minimum. If a proposed scene has fewer than three meaningful extractable elements, redesign the photographed situation instead of returning it or inventing decorative padding. Vary rigid transforms according to geometry and meaning instead of repeating one reveal effect.
+- `cameraAfterEntrance` states the semantic camera relationship required by the scene: which arriving evidence the camera follows, which assembled relationship receives the close-up, and where it lands for the handoff. Step three will time one continuous path around the entrances, so do not prescribe a disconnected zoom after everything has happened.
+- `overlayText` is the exact short on-screen copy locked by the editorial beat and contains 2 to 7 words. `textPlacement` names the largest naturally quiet part of the master frame and proves why it remains free at the clean-plate state, throughout every named layer entrance path, in the assembled master frame, and through the intended camera reframing. Consider upper, middle, and lower zones on both sides. Keep all faces, bodies, hands, important story objects, and their trajectories outside that protected zone; do not assume text belongs at the top. The hook receives the strongest visual priority and largest protected text zone in the Reel.
+- The concepts must progress within the article's real domain. A performer may recur only as a neutral visual anchor, never as a fictional protagonist who learns, buys, books, pays, discovers, succeeds, or forms an invented relationship. Use only places, roles, actions, and conditions supported by the source. Do not infer a generic customer journey from the article category.
+- The resolution scene must reuse the payoff scene's physical world and evidence, changing only the framing or assembled relationship needed to state the brand's factual role. It must not abandon the established domain for a scenic ending, celebratory pose, generic confidence tableau, or unsupported outcome.
+- Assign a concise `visualWorldKey` to every scene. The resolution scene must copy the payoff scene's `visualWorldKey` exactly and reuse its location and principal direct-evidence layers; only framing, emphasis, or the final assembled relationship may change.
+- In the resolution, use only the exact brand mechanism named by the approved final beat. Do not substitute another device, app, service step, or article mechanism merely because it appears elsewhere in the source.
+- Privately audit the complete sequence before returning JSON: (1) could a frame fit a different article in the same category? If yes, rebuild it around actual evidence; (2) is every layer's exact grounding quote present in the current beat's `editorialInput`, `sourceGrounding`, `problemConnection`, or `domainContext`, rather than merely somewhere else in the article? (3) is every movable object compact or medium, standalone, smaller than half the frame, and not architecture or furniture? (4) is every interface attached to one physical carrier rather than floating? (5) can every layer execute its rigid transform unchanged? (6) does kinetic support perform only an honest physical function? (7) does the clean plate differ from the master only by approved layers? (8) after layers enter, does the assembled still equal the master? (9) are there at least three visual worlds and three shot scales when the source permits them? (10) do adjacent scenes differ in composition and shot scale? (11) does the sequence alternate spatial overview, human relationship, and decisive detail rather than repeating room tableaux? (12) is every repeated object essential to multiple beats rather than convenient filler? Any failed item means redesign before output.
+- Never rely on generated signage, labels, menus, price cards, or interface microcopy to explain the beat. Describe only what is physically present; editorial meaning belongs in the locked overlay.
 - The viewer must see why the frame answers this exact beat. Avoid a generic pose only when it has no stated relationship to the source-grounded condition. Do not say a scene symbolizes, represents, or highlights an idea: describe what is literally visible.
 - `continuityFromPrevious` explains how this scene develops the prior idea rather than resetting the story. `retentionIntoNext` states the exact useful answer still awaited. The final resolution scene must explicitly say the main question is resolved. `transitionIntent` describes the editorial handoff, not an editing effect.
-- Write in {language_name}. Do not use readable signage, labels, boards, menus, interfaces, phones, tablets, laptops, maps, price cards, symbols, or visual metaphors to carry the answer.
+- Write in {language_name}. Source-named devices or interfaces may appear as physical evidence, but their screens use non-readable structural shapes; do not use readable signage, labels, boards, menus, maps, price cards, symbols, or visual metaphors to carry the answer.
 """.strip()
 
 
@@ -5326,12 +5496,23 @@ def normalize_instagram_reel_scene_concepts(data, editorial_beats, source_materi
             "beatId": _reel_copy(raw_scene.get("beatId"), 32).lower(),
             "sceneObjective": _reel_copy(raw_scene.get("sceneObjective"), 500),
             "evidenceInMasterFrame": _reel_copy(raw_scene.get("evidenceInMasterFrame"), 700),
+            "problemConnectionInFrame": _reel_copy(raw_scene.get("problemConnectionInFrame"), 700),
+            "domainAnchorsInFrame": _reel_copy(raw_scene.get("domainAnchorsInFrame"), 700),
+            "domainAnchorQuotes": [_reel_copy(value, 500) for value in (raw_scene.get("domainAnchorQuotes") if isinstance(raw_scene.get("domainAnchorQuotes"), list) else []) if _reel_copy(value, 500)],
+            "environmentSourceQuote": _reel_copy(raw_scene.get("environmentSourceQuote"), 500),
+            "environmentStrategy": _reel_copy(raw_scene.get("environmentStrategy"), 40),
+            "reusedFromBeatId": _reel_copy(raw_scene.get("reusedFromBeatId"), 32).lower(),
+            "visualWorldKey": _reel_copy(raw_scene.get("visualWorldKey"), 160),
+            "shotScale": _reel_copy(raw_scene.get("shotScale"), 40),
             "masterFrame": _reel_copy(raw_scene.get("masterFrame"), 1400),
             "cleanPlate": _reel_copy(raw_scene.get("cleanPlate"), 700),
             "movableGroups": [{
                 "name": _reel_copy(group.get("name"), 160),
                 "layerType": _reel_copy(group.get("layerType"), 40),
                 "storyRole": _reel_copy(group.get("storyRole"), 40),
+                "eventFunction": _reel_copy(group.get("eventFunction"), 40),
+                "independenceState": _reel_copy(group.get("independenceState"), 40),
+                "necessityProof": _reel_copy(group.get("necessityProof"), 500),
                 "sourceGroundingQuote": _reel_copy(group.get("sourceGroundingQuote"), 500),
                 "supportsLayer": _reel_copy(group.get("supportsLayer"), 160),
                 "masterFrameState": _reel_copy(group.get("masterFrameState"), 600),
@@ -5342,6 +5523,7 @@ def normalize_instagram_reel_scene_concepts(data, editorial_beats, source_materi
                 "rigidTransformProof": _reel_copy(group.get("rigidTransformProof"), 600),
                 "entrance": _reel_copy(group.get("entrance"), 500),
                 "finalPosition": _reel_copy(group.get("finalPosition"), 500),
+                "frameCoverage": _reel_copy(group.get("frameCoverage"), 20),
             } for group in (raw_scene.get("movableGroups") if isinstance(raw_scene.get("movableGroups"), list) else []) if isinstance(group, dict)],
             "cameraAfterEntrance": _reel_copy(raw_scene.get("cameraAfterEntrance"), 700),
             "overlayText": _reel_copy(raw_scene.get("overlayText"), 160),
@@ -5349,40 +5531,94 @@ def normalize_instagram_reel_scene_concepts(data, editorial_beats, source_materi
             "continuityFromPrevious": _reel_copy(raw_scene.get("continuityFromPrevious"), 500),
             "retentionIntoNext": _reel_copy(raw_scene.get("retentionIntoNext"), 500),
             "transitionIntent": _reel_copy(raw_scene.get("transitionIntent"), 400),
+            "socialFeedExecution": _reel_copy(raw_scene.get("socialFeedExecution"), 700),
         }
         if not 2 <= len(scene["overlayText"].split()) <= 7:
             raise ValueError(f"Instagram Reel scene concept {index + 1} overlay must contain 2-7 readable words")
         group_types = [group["layerType"] for group in scene["movableGroups"]]
         group_roles = [group["storyRole"] for group in scene["movableGroups"]]
-        required_group_fields = ("name", "layerType", "storyRole", "masterFrameState", "transformMode", "appearanceChange", "occlusionState", "entrancePathState", "rigidTransformProof", "entrance", "finalPosition")
-        if scene["beatId"] != expected_ids[index] or not all([scene["sceneObjective"], scene["evidenceInMasterFrame"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], scene["overlayText"], scene["textPlacement"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"]]) or not 3 <= len(scene["movableGroups"]) <= 4 or any(not all(group[field] for field in required_group_fields) for group in scene["movableGroups"]):
+        required_group_fields = ("name", "layerType", "storyRole", "eventFunction", "independenceState", "necessityProof", "masterFrameState", "transformMode", "appearanceChange", "occlusionState", "entrancePathState", "rigidTransformProof", "entrance", "finalPosition", "frameCoverage")
+        allowed_shot_scales = {"establishing_wide", "wide", "medium", "close", "detail"}
+        if scene["beatId"] != expected_ids[index] or scene["overlayText"] != editorial_beats[index]["overlayText"] or scene["shotScale"] not in allowed_shot_scales or len(scene["domainAnchorQuotes"]) < 2 or not all([scene["sceneObjective"], scene["evidenceInMasterFrame"], scene["problemConnectionInFrame"], scene["domainAnchorsInFrame"], scene["environmentStrategy"], scene["visualWorldKey"], scene["masterFrame"], scene["cleanPlate"], scene["cameraAfterEntrance"], scene["overlayText"], scene["textPlacement"], scene["continuityFromPrevious"], scene["retentionIntoNext"], scene["transitionIntent"], scene["socialFeedExecution"]]) or not 3 <= len(scene["movableGroups"]) <= 4 or any(not all(group[field] for field in required_group_fields) for group in scene["movableGroups"]):
             raise ValueError(f"Instagram Reel scene concept {index + 1} is incomplete or out of sequence")
-        if any(layer_type not in {"person_group", "story_object"} for layer_type in group_types) or "story_object" not in group_types:
-            raise ValueError(f"Instagram Reel scene concept {index + 1} needs three registered layers including a story object")
-        if any(role not in {"direct_evidence", "kinetic_support"} for role in group_roles) or group_roles.count("direct_evidence") < 1:
-            raise ValueError(f"Instagram Reel scene concept {index + 1} needs direct evidence")
+        if any(layer_type not in {"person_group", "story_object"} for layer_type in group_types):
+            raise ValueError(f"Instagram Reel scene concept {index + 1} has an invalid registered layer type")
+        if any(role not in {"direct_evidence", "kinetic_support"} for role in group_roles) or group_roles.count("direct_evidence") != 1:
+            raise ValueError(f"Instagram Reel scene concept {index + 1} needs exactly one grounded direct-evidence layer")
+        if "story_object" not in group_types:
+            raise ValueError(f"Instagram Reel scene concept {index + 1} needs a meaningful moving story object")
+        event_functions = [group["eventFunction"] for group in scene["movableGroups"]]
+        if event_functions[:3] != ["situation", "mechanism", "result"] or any(value != "continuity_support" for value in event_functions[3:]):
+            raise ValueError(f"Instagram Reel scene concept {index + 1} does not form a situation-mechanism-result event chain")
         symbolic_language = re.compile(r"\b(symboli[sz](?:e|es|ing|ed)|represent(?:s|ing|ed)?|indicat(?:e|es|ing|ed)|proxy for|metaphor|stands for)\b", re.I)
         source_text = source_material or " ".join(str(beat.get("sourceGrounding") or "") for beat in editorial_beats)
         source_normalized = re.sub(r"[^a-z0-9]+", " ", source_text.lower()).strip()
+        beat_material = " ".join(str(editorial_beats[index].get(field) or "") for field in ("editorialInput", "sourceGrounding", "problemConnection", "domainContext"))
+        beat_normalized = re.sub(r"[^a-z0-9]+", " ", beat_material.lower()).strip()
+        for anchor_quote in scene["domainAnchorQuotes"]:
+            anchor_normalized = re.sub(r"[^a-z0-9]+", " ", anchor_quote.lower()).strip()
+            if not anchor_normalized or anchor_normalized not in source_normalized:
+                raise ValueError(f"Instagram Reel scene concept {index + 1} invents a domain anchor")
+        environment_normalized = re.sub(r"[^a-z0-9]+", " ", scene["environmentSourceQuote"].lower()).strip()
+        if scene["environmentStrategy"] == "new_source_named_setting":
+            if not environment_normalized or environment_normalized not in source_normalized or scene["reusedFromBeatId"]:
+                raise ValueError(f"Instagram Reel scene concept {index + 1} invents its environment")
+        elif scene["environmentStrategy"] == "new_contextual_stage":
+            if environment_normalized or scene["reusedFromBeatId"]:
+                raise ValueError(f"Instagram Reel scene concept {index + 1} lets a contextual stage carry evidence")
+        elif scene["environmentStrategy"] == "reuse_prior_world":
+            prior_by_id = {prior["beatId"]: prior for prior in scenes}
+            reused = prior_by_id.get(scene["reusedFromBeatId"])
+            if environment_normalized or not reused or scene["visualWorldKey"] != reused["visualWorldKey"]:
+                raise ValueError(f"Instagram Reel scene concept {index + 1} does not reuse an approved world")
+        else:
+            raise ValueError(f"Instagram Reel scene concept {index + 1} has no valid environment strategy")
         layer_names = {group["name"] for group in scene["movableGroups"]}
         direct_layer_names = {group["name"] for group in scene["movableGroups"] if group["storyRole"] == "direct_evidence"}
         allowed_transforms = {"slide_left", "slide_right", "rise", "drop", "scale_in", "settle", "shift_left", "shift_right", "lift", "lower"}
         internal_change_language = re.compile(r"\b(open(?:s|ed|ing)?|clos(?:e|es|ed|ing)|fold(?:s|ed|ing)?|unfold(?:s|ed|ing)?|bend(?:s|ing)?|billow(?:s|ed|ing)?|hinge(?:s|d|ing)?|part(?:s|ed|ing)?|roll(?:s|ed|ing)?\s+(?:up|down)|retract(?:s|ed|ing)?|extend(?:s|ed|ing)?|change(?:s|d|ing)?\s+(?:pose|expression|shape|state|orientation)|turn(?:s|ed|ing)?\s+(?:head|body)|raise(?:s|d|ing)?\s+(?:arm|hand)|lower(?:s|ed|ing)?\s+(?:arm|hand)|behind\s+(?:a|an|the)?\s*(?:door|frame|railing|column|wall|furniture)|partly\s+(?:hidden|occluded)|partially\s+(?:hidden|occluded))\b", re.I)
+        non_extractable_human = re.compile(r"\b(sit(?:s|ting)?|seated|reclin(?:e|es|ed|ing)|lean(?:s|ed|ing)?|cropp(?:ed|ing)|obscur(?:e|es|ed|ing)|partly hidden|partially hidden)\b", re.I)
+        fixed_set_layer = re.compile(r"\b(door|window|wall|floor|ceiling|deck|railing|stair|counter|desk|table|bed|sofa|cabinet|partition|room|cabin|lounge|lighting panel|light panel)\b", re.I)
+        fixed_attachment = re.compile(r"\b(mounted|bolted|built[- ]?in|attached to|fixed to|painted on|integrated into)\b", re.I)
         for group in scene["movableGroups"]:
+            expected_independence = "owned_items_included" if group["layerType"] == "person_group" else "independent_and_separated"
+            if group["independenceState"] != expected_independence:
+                raise ValueError(f"Instagram Reel scene concept {index + 1} has an invalid layer ownership state")
             if group["transformMode"] not in allowed_transforms or group["appearanceChange"] != "none" or group["occlusionState"] != "fully_visible" or group["entrancePathState"] != "unobstructed" or internal_change_language.search(group["entrance"]):
                 raise ValueError(f"Instagram Reel scene concept {index + 1} contains a layer that cannot move as one unchanged image")
             if group["storyRole"] == "direct_evidence":
                 quote_normalized = re.sub(r"[^a-z0-9]+", " ", group["sourceGroundingQuote"].lower()).strip()
-                if not quote_normalized or quote_normalized not in source_normalized or group["supportsLayer"]:
+                if not quote_normalized or quote_normalized not in beat_normalized or group["supportsLayer"]:
                     raise ValueError(f"Instagram Reel scene concept {index + 1} has ungrounded direct evidence")
-                if group["layerType"] == "story_object":
-                    name_tokens = [token for token in re.sub(r"[^a-z0-9]+", " ", group["name"].lower()).split() if len(token) >= 4]
-                    quote_tokens = set(quote_normalized.split())
-                    if not name_tokens or not all(token in quote_tokens for token in name_tokens):
-                        raise ValueError(f"Instagram Reel scene concept {index + 1} invents a direct-evidence object")
-            elif not group["supportsLayer"] or group["supportsLayer"] not in layer_names or group["supportsLayer"] not in direct_layer_names or group["sourceGroundingQuote"] or symbolic_language.search(" ".join((group["masterFrameState"], group["entrance"], group["finalPosition"]))):
-                raise ValueError(f"Instagram Reel scene concept {index + 1} has invalid kinetic support")
+            else:
+                support_quote = re.sub(r"[^a-z0-9]+", " ", group["sourceGroundingQuote"].lower()).strip()
+                if not group["supportsLayer"] or group["supportsLayer"] not in layer_names or group["supportsLayer"] not in direct_layer_names or not support_quote or support_quote not in source_normalized or symbolic_language.search(" ".join((group["masterFrameState"], group["entrance"], group["finalPosition"]))):
+                    raise ValueError(f"Instagram Reel scene concept {index + 1} has invalid kinetic support")
+            if group["layerType"] == "person_group" and non_extractable_human.search(group["masterFrameState"]):
+                raise ValueError(f"Instagram Reel scene concept {index + 1} contains a non-extractable human layer")
+            if group["layerType"] == "story_object" and (group["frameCoverage"] not in {"compact", "medium"} or fixed_set_layer.search(group["name"]) or fixed_attachment.search(" ".join((group["masterFrameState"], group["finalPosition"])) )):
+                raise ValueError(f"Instagram Reel scene concept {index + 1} moves architecture or oversized furniture")
+        if re.search(r"\b(call to action|follow us|save this|click the link|link in bio)\b", scene["socialFeedExecution"], re.I):
+            raise ValueError(f"Instagram Reel scene concept {index + 1} replaces the editorial payoff with a social CTA")
         scenes.append(scene)
+    if len(scenes) >= 2 and editorial_beats[-1].get("kind") == "resolution" and scenes[-1]["visualWorldKey"] != scenes[-2]["visualWorldKey"]:
+        raise ValueError("Instagram Reel resolution must stay in the payoff visual world")
+    if len(scenes) >= 5:
+        distinct_worlds = {scene["visualWorldKey"] for scene in scenes}
+        distinct_scales = {scene["shotScale"] for scene in scenes}
+        if len(distinct_worlds) < 3:
+            raise ValueError("Instagram Reel scene concepts repeat too few visual worlds")
+        if len(distinct_scales) < 3 or not ({"establishing_wide", "wide"} & distinct_scales) or "medium" not in distinct_scales or not ({"close", "detail"} & distinct_scales):
+            raise ValueError("Instagram Reel scene concepts lack shot-scale variety")
+        if any(scenes[i]["shotScale"] == scenes[i - 1]["shotScale"] for i in range(1, len(scenes))):
+            raise ValueError("Instagram Reel adjacent scenes repeat the same shot scale")
+        if any(scenes[i]["visualWorldKey"] == scenes[i - 1]["visualWorldKey"] == scenes[i - 2]["visualWorldKey"] for i in range(2, len(scenes))):
+            raise ValueError("Instagram Reel repeats one visual world for three consecutive scenes")
+        object_names = [group["name"].strip().lower() for scene in scenes for group in scene["movableGroups"] if group["layerType"] == "story_object"]
+        if any(object_names.count(name) > 2 for name in set(object_names)):
+            raise ValueError("Instagram Reel repeats one movable prop as generic filler")
+        if sum(1 for scene in scenes if any(group["layerType"] == "story_object" for group in scene["movableGroups"])) < 1:
+            raise ValueError("Instagram Reel lacks meaningful object motion across the sequence")
     return {"editorialBeats": editorial_beats, "scenes": scenes, "sceneCount": len(scenes)}
 
 
@@ -5397,8 +5633,10 @@ def generate_instagram_reel_scene_concepts(site, job, language, editorial_brief)
 
 
 def build_instagram_reel_director_plan_prompt(site, job, language, scene_concepts):
+    scene_count = max(1, int(scene_concepts.get("totalSceneCount") or len(scene_concepts.get("scenes") or [])))
+    target_scene_seconds = round(30.0 / scene_count, 2)
     return f"""
-You are step three: the technical motion director of a layered 30-second vertical Instagram Reel. Step two has already made every creative decision. Your output is the exact executable motion score for those approved still compositions.
+You are step three: the technical motion director of a layered 30-second vertical Instagram Reel for a fast-scrolling social feed. Step two has already made every creative decision and retention decision. Your output is the exact executable motion score that makes the approved hook interrupt scrolling, makes every mini-payoff easy to grasp without sound, continuously carries the open loop, and gives the final payoff maximum clarity. This is not generic motion decoration.
 Return JSON only using the supplied schema. This is text-only direction. Do not generate images, voice, music, or video.
 
 BRAND: {site['brand_name'] or site['domain']}
@@ -5411,14 +5649,26 @@ AUTHORITATIVE INPUT:
 - `masterFrame` is the final fully assembled photograph and the inventory of everything physically available.
 - `cleanPlate` is the identical photograph after every approved movable layer is removed.
 - `movableGroups` are registered complete static image layers available for independent rigid animation. `layerType`, `storyRole`, `sourceGroundingQuote`, `supportsLayer`, and `transformMode` are immutable.
+- `shotScale` is the approved scene-level framing identity. The camera may travel through wider and tighter framings inside the scene, but its main evidence landing must honor that scale and must preserve the deliberately varied sequence created in step two.
 - Fixed architecture and every non-removed detail remain permanently in the clean plate. They can receive camera attention but never count as layer events.
 
 Preserve beat order, master frame, clean plate, movable group identity and final position, overlay copy, continuity, retention, and resolution exactly. Do not redesign step two.
 
+SOCIAL-FIRST MOTION CONTRACT:
+- Copy each approved `socialFeedExecution` verbatim. Treat it as an execution requirement for layer order, camera emphasis, text hierarchy, and timing.
+- In the hook scene, the concrete stake and first meaningful evidence must be readable in the first second. Do not use an empty establishing interval, logo reveal, scenic drift, or delayed text entrance before the hook lands.
+- In intermediate scenes, motion must reveal a useful mini-payoff and then direct attention toward the unresolved question named in `retentionIntoNext`. Do not animate every scene as an isolated card.
+- Around the approved midpoint escalation, increase specificity or consequence through evidence and framing, not arbitrary speed, visual noise, or fabricated drama.
+- Preserve sequence-level framing variety. Read the `shotScale` values across all approved scenes before directing the current one. Use a different camera path, starting composition, and evidence landing from adjacent scenes: spatial sweep for wide scenes, relationship tracking for medium scenes, and motivated close/detail landings for compact evidence. Do not turn every scene into the same wide-to-medium push-in.
+- In the payoff scene, reserve the clearest evidence relationship and strongest purposeful camera landing for the promised answer. The final resolution must close that answer, not replace it with branding or a generic CTA.
+- Optimize for silent mobile viewing: large persistent copy, immediate visual causality, no dependence on narration, and no tiny evidence that requires pausing or zooming by the viewer.
+
 For each scene:
-- Copy `beatId`, `masterFrame`, and `cleanPlate` verbatim. Choose 3.9-4.5 seconds for this scene.
+- Copy `beatId`, `masterFrame`, and `cleanPlate` verbatim. The complete Reel has {scene_count} scenes and must total 27-33 seconds, so use about {target_scene_seconds} seconds per scene while giving the hook and payoff enough reading time. Do not apply a fixed duration copied from another Reel.
+- Every timestamp in the response is local to the one supplied scene. Its clock always starts at `0.0` and ends at that scene's own `durationSeconds`; never output cumulative Reel timeline seconds or add the durations of earlier scenes. The first layer entrance normally begins at 0.0, and every `startSeconds`/`endSeconds` pair must satisfy `0 <= start < end <= durationSeconds`.
 - Copy the exact same movable layers in the same order. Copy each name, `layerType`, `storyRole`, `sourceGroundingQuote`, `supportsLayer`, `transformMode`, and final position verbatim. Give every layer one timed rigid whole-layer entrance and an extraction constraint. The complete registered layer moves from outside the visible canvas, from a translated offset, or from a uniformly reduced depth scale into the exact approved final master-frame registration. Its internal pixels never move relative to one another.
-- Create one `visualBeat` for every approved movable layer. There must be at least three beats and at least one `registered_object_entrance`. Every beat copies an exact meaningful phrase from that layer's own approved `masterFrameState` into `sourceAnchor`; this is the authoritative physical evidence for that specific layer. Text-placement space and incidental scenery never qualify.
+- Each layer entrance lasts roughly 0.6-1.5 seconds and finishes early enough for the camera to examine the assembled evidence. The layer's `startSeconds` and `endSeconds` must equal its corresponding `visualBeat` timing exactly. Use canvas-relative paths such as from the left edge, from above, or from a short depth scale; never output pixel coordinates, percentages, or a zero-size layer.
+- Create exactly one `visualBeat` for every approved movable layer. Every scene therefore contains at least three distinct physical layer beats. The persistent text entrance and synchronized camera path are additional direction and never count toward those three events. Include every approved `story_object` as a `registered_object_entrance`; never invent or omit a layer in step three. Every layer beat copies an exact meaningful phrase from that layer's approved `masterFrameState` into `sourceAnchor`.
 - Each beat is a real independent layer event. `subject` equals exactly one approved movable-layer name. Use `registered_group_entrance` for `person_group` and `registered_object_entrance` for `story_object`. A camera move, focus change, light change, text animation, static relationship, or the viewer merely noticing a fixed detail is not a visual beat.
 - Use exactly the approved layer's `transformMode` as its `revealMethod`. A complete layer may translate from a canvas edge, translate from a short offset, rise, drop, lift, lower, settle, or uniformly scale from a motivated depth plane. Do not reinterpret the approved method and do not add rotation, perspective change, deformation, articulation, pose change, expression change, or material-state change.
 - Every event changes what the viewer can physically see because one complete unchanged layer arrives at its registered position. Describe its full `fromState`, canvas-relative trajectory, easing, exact final state, and why this arrival advances the article beat. Because every layer is a full-canvas registered asset, do not invent pixel coordinates.
@@ -5426,10 +5676,12 @@ For each scene:
 - Every registered human layer remains a complete head-to-feet silhouette before, during, and after its entrance. `fromState` describes a complete layer outside the canvas or a complete in-place layer awaiting focus; it never crops, clips, hides, reconstructs, or changes any body part.
 - The layer sequence must make the source claim progressively clearer. The first action establishes the situation, the next adds concrete physical evidence, and the third completes the meaningful assembled relationship. Atmosphere, lighting, focus, wall surfaces, reflections, generic mood, empty copy space, and the future text area are production conditions and cannot become a `visualBeat`.
 - `visualBeats` contain only independent physical registered-layer events. Text, camera, focus, and static relationships are separate and never count toward the minimum three events.
-- `cameraPlan.beats` contains at least two sequential whole-frame camera destinations. The assembled scene begins with restrained continuous establishing movement at 0.0 seconds. Find the latest `endSeconds` among all registered movable-group entrances; the first stronger framing destination is reached only after those entrances settle, and every later destination occurs after the preceding one. Direct one uninterrupted camera path through establishing wide, medium relationship framing, and a genuine close-up that fills the frame with one face/upper body or one meaningful object. Reach at least one genuine close-up in every scene, then transfer toward a different target or pull back when the relationship matters. The camera never stops, holds, jumps, restarts, or executes visible separate zoom steps; position, scale, direction, and velocity remain smooth through every destination and continue with a restrained drift until the cut. A small digital push is not a close-up. Adjacent scenes must not repeat the same wide-medium-close path. Use `face_zoom` only for a person layer and `object_zoom` only for a story-object layer. Use concrete framing destinations: wide through medium to close face, close face to close object, object to relationship, continuous push into pullback, lateral transfer between two faces, close detail into wide reveal. State exact seconds, movement enum, starting framing, ending framing, focus target, easing, and story purpose.
+- `cameraPlan.beats` is one continuous whole-frame camera path synchronized with the evidence arrivals, not a random zoom sequence performed after the scene is already complete. Every camera beat names one exact approved `triggerLayer` and says whether it responds `during_entrance`, `on_settle`, or `after_settle`. Every direct-evidence layer must trigger at least one camera beat. During an entrance, follow or anticipate that layer's trajectory. On settle, transfer attention to the relationship it creates. After settle, use a genuine close-up only when it clarifies the evidence, then continue smoothly toward the next arrival or the final relationship. The camera begins at 0.0 seconds, never stops, jumps, restarts, or executes visible separate zoom steps; position, scale, direction, and velocity remain continuous through every destination and drift until the cut. A small digital push is not a close-up. Adjacent scenes must not repeat the same path. State exact seconds, movement enum, starting framing, ending framing, focus target, trigger layer, trigger moment, easing, and the semantic reason this reframing makes the arriving evidence easier to understand.
+- Before returning each scene, build a literal camera-coverage checklist from the approved `movableGroups`: collect the exact `name` of every group whose `storyRole` is `direct_evidence`; then create at least one `cameraPlan.beats` entry whose `triggerLayer` is that exact name for every collected group. No direct-evidence name may be absent, substituted, paraphrased, or covered only by another layer's camera beat. The final camera beat's `focusTarget` also contains an exact direct-evidence name.
+- Populate camera identity fields by copy/paste, not prose generation. For each camera beat, `triggerLayer` is character-for-character one approved movable-group `name`. For the final camera beat, begin `focusTarget` with one complete character-for-character `name` whose `storyRole` is `direct_evidence`, then optionally describe its visible relationship. Before returning, compare the copied strings to the approved names; a friendly label such as traveler, bed, calendar, cabin, pair, screen, or relationship is invalid unless it is itself the exact approved technical name.
 - The final camera beat must finish on a `direct_evidence` layer or the visible relationship between direct-evidence layers. Its `focusTarget` must include at least one exact technical name of a direct-evidence layer character for character. A kinetic-support object may guide an earlier transition but is never the final focus or payoff.
-- Camera transforms the complete assembled scene. It never moves one extracted layer independently. A restrained establishing drift may run while layers enter; stronger reframing and close-ups happen after entrances settle.
-- `textDirection.copy` equals the approved 2-to-7-word `overlayText` character for character. It appears when the scene begins and remains continuously visible until the scene cut; set `startSeconds` to 0 and `endSeconds` to the full scene duration. Give one kinetic entrance enum, the largest quiet zone from step two, and no more than three large mobile-readable lines. Choose among upper, middle, and lower zones on either side according to the actual master-frame quiet space; avoid faces, hands, bodies, and important objects throughout the planned camera path. Use a locally contrasting text color with a soft offset shadow and no letter outline/stroke. When local contrast still prevents clean reading, use an aesthetic color-sampled gradient scrim: it must be soft, feathered, locally integrated into the image, transparent toward the scene, and preserve visible image texture. Never use an opaque black rectangle, hard-edged black plaque, solid panel, banner, boxed text background, or outlined lettering.
+- Camera transforms the complete canvas, not one extracted layer independently. Its timing supports the approved layer events: it can move while a layer enters, settle with it, and continue toward the relationship created by the next layer.
+- `textDirection.copy` equals the approved 2-to-7-word `overlayText` character for character. It appears when the scene begins and remains continuously visible until the scene cut; set `startSeconds` to 0 and `endSeconds` to the full scene duration. Give one kinetic entrance enum, the exact protected zone approved in step two, and no more than three large mobile-readable lines. `protectedZoneProof` must audit that zone at the clean plate, every layer's complete trajectory, every layer's final position, and every camera framing. If any face, hand, body, object, or focal destination crosses it at any moment, change the camera path or layer timing; never place text over the evidence. The hook is the dominant visual element in its scene and must remain immediately readable. Use a locally contrasting light text color with a soft offset shadow and no outline. When local contrast still prevents clean reading, use an aesthetic color-sampled gradient scrim that is soft, feathered, locally integrated, and transparent toward the image. Never use an opaque black rectangle, hard-edged plaque, solid panel, banner, boxed text background, or outlined lettering.
 - Use `continuityFromPrevious` and `retentionIntoNext` to preserve the approved handoff. The final scene explicitly resolves the viewer question.
 
 Before returning JSON, simulate the edit from 0.0 seconds to scene end. A producer must be able to execute every reveal and camera move without interpreting prose or inventing a missing asset.
@@ -5458,7 +5710,7 @@ def normalize_instagram_reel_director_plan(data, scene_concepts, require_total_d
         locked_groups = locked.get("movableGroups") if isinstance(locked.get("movableGroups"), list) else []
         if len(raw_groups) != len(locked_groups):
             raise ValueError(f"Instagram Reel director scene {index} changed approved group count")
-        groups, latest_entrance = [], 0.0
+        groups = []
         for group_index, (group, locked_group) in enumerate(zip(raw_groups, locked_groups), start=1):
             if not isinstance(group, dict) or group.get("name") != locked_group.get("name") or group.get("layerType") != locked_group.get("layerType") or group.get("storyRole") != locked_group.get("storyRole") or group.get("sourceGroundingQuote") != locked_group.get("sourceGroundingQuote") or group.get("supportsLayer") != locked_group.get("supportsLayer") or group.get("transformMode") != locked_group.get("transformMode") or group.get("finalPosition") != locked_group.get("finalPosition"):
                 raise ValueError(f"Instagram Reel director scene {index} changed approved group {group_index}")
@@ -5468,11 +5720,12 @@ def normalize_instagram_reel_director_plan(data, scene_concepts, require_total_d
                 raise ValueError(f"Instagram Reel director scene {index} group {group_index} has invalid timing") from error
             if not 0 <= start < end <= duration or not _reel_copy(group.get("entranceAction"), 500) or not _reel_copy(group.get("extractionConstraint"), 500):
                 raise ValueError(f"Instagram Reel director scene {index} group {group_index} lacks executable direction")
+            if end - start > 1.8:
+                raise ValueError(f"Instagram Reel director scene {index} group {group_index} entrance consumes the scene")
             groups.append({"name": group["name"], "layerType": group["layerType"], "storyRole": group["storyRole"], "sourceGroundingQuote": group["sourceGroundingQuote"], "supportsLayer": group["supportsLayer"], "transformMode": group["transformMode"], "startSeconds": start, "endSeconds": end, "entranceAction": _reel_copy(group.get("entranceAction"), 500), "finalPosition": group["finalPosition"], "extractionConstraint": _reel_copy(group.get("extractionConstraint"), 500)})
-            latest_entrance = max(latest_entrance, end)
         raw_visual_beats = raw.get("visualBeats") if isinstance(raw.get("visualBeats"), list) else []
-        if len(raw_visual_beats) < 3:
-            raise ValueError(f"Instagram Reel director scene {index} needs at least three physical visual beats")
+        if len(raw_visual_beats) != len(locked_groups) or len(raw_visual_beats) < 3:
+            raise ValueError(f"Instagram Reel director scene {index} needs one physical event for each of at least three approved layers")
         visual_beats, visual_subjects = [], set()
         allowed_reveals = {"slide_left", "slide_right", "rise", "drop", "scale_in", "settle", "shift_left", "shift_right", "lift", "lower"}
         locked_group_types = {str(group.get("name") or "").strip().lower(): str(group.get("layerType") or "") for group in locked_groups}
@@ -5525,17 +5778,21 @@ def normalize_instagram_reel_director_plan(data, scene_concepts, require_total_d
                 object_event_count += 1
             visual_subjects.add(subject_key)
             visual_beats.append({"order": order, "startSeconds": start, "endSeconds": end, "kind": kind, "revealMethod": reveal, **values})
-        if len(visual_subjects) < 3 or entrance_count < 3:
-            raise ValueError(f"Instagram Reel director scene {index} needs three distinct registered-layer events")
+        if visual_subjects != set(locked_group_types) or entrance_count != len(locked_groups):
+            raise ValueError(f"Instagram Reel director scene {index} must animate every approved layer exactly once")
         if object_event_count < 1:
             raise ValueError(f"Instagram Reel director scene {index} needs a moving story-object event")
         camera = raw.get("cameraPlan") if isinstance(raw.get("cameraPlan"), dict) else {}
         text = raw.get("textDirection") if isinstance(raw.get("textDirection"), dict) else {}
+        group_timings = {str(group["name"]).strip().lower(): (group["startSeconds"], group["endSeconds"]) for group in groups}
+        for visual_beat in visual_beats:
+            if group_timings.get(visual_beat["subject"].strip().lower()) != (visual_beat["startSeconds"], visual_beat["endSeconds"]):
+                raise ValueError(f"Instagram Reel director scene {index} layer and visual-beat timings disagree")
         try:
             text_start, text_end = float(text.get("startSeconds")), float(text.get("endSeconds"))
         except (TypeError, ValueError) as error:
             raise ValueError(f"Instagram Reel director scene {index} camera or text timing is invalid") from error
-        text_values = {field: _reel_copy(text.get(field), 500) for field in ("appearance", "placement", "contrastTreatment")}
+        text_values = {field: _reel_copy(text.get(field), 700) for field in ("appearance", "placement", "contrastTreatment", "protectedZoneProof")}
         try:
             max_lines = int(text.get("maxLines"))
         except (TypeError, ValueError) as error:
@@ -5544,7 +5801,8 @@ def normalize_instagram_reel_director_plan(data, scene_concepts, require_total_d
         if len(camera_beats) < 2:
             raise ValueError(f"Instagram Reel director scene {index} needs at least two camera beats")
         normalized_camera_beats = []
-        previous_end = latest_entrance + 0.15
+        previous_end = 0.0
+        camera_triggers = set()
         for beat_index, beat in enumerate(camera_beats, start=1):
             if not isinstance(beat, dict):
                 raise ValueError(f"Instagram Reel director scene {index} camera beat {beat_index} is invalid")
@@ -5552,14 +5810,30 @@ def normalize_instagram_reel_director_plan(data, scene_concepts, require_total_d
                 start, end = float(beat.get("startSeconds")), float(beat.get("endSeconds"))
             except (TypeError, ValueError) as error:
                 raise ValueError(f"Instagram Reel director scene {index} camera beat {beat_index} has invalid timing") from error
-            values = {field: _reel_copy(beat.get(field), 700) for field in ("movement", "fromFraming", "toFraming", "focusTarget", "easing", "purpose")}
-            if not previous_end <= start < end <= duration or not all(values.values()):
-                raise ValueError(f"Instagram Reel director scene {index} camera beat {beat_index} must follow entrances")
+            values = {field: _reel_copy(beat.get(field), 700) for field in ("movement", "fromFraming", "toFraming", "focusTarget", "triggerLayer", "triggerMoment", "easing", "purpose")}
+            trigger_key = values["triggerLayer"].strip().lower()
+            if not previous_end - 0.05 <= start < end <= duration or not all(values.values()) or trigger_key not in group_timings:
+                raise ValueError(f"Instagram Reel director scene {index} camera beat {beat_index} is not synchronized to an approved layer")
+            entrance_start, entrance_end = group_timings[trigger_key]
+            if end < entrance_start:
+                raise ValueError(f"Instagram Reel director scene {index} camera beat {beat_index} finishes before its trigger layer appears")
+            if start <= entrance_end and end >= entrance_start:
+                values["triggerMoment"] = "during_entrance"
+            elif start <= entrance_end + 1.5:
+                values["triggerMoment"] = "on_settle"
+            else:
+                values["triggerMoment"] = "after_settle"
             normalized_camera_beats.append({"startSeconds": start, "endSeconds": end, **values})
+            camera_triggers.add(trigger_key)
             previous_end = end
+        if normalized_camera_beats[0]["startSeconds"] > 0.05:
+            raise ValueError(f"Instagram Reel director scene {index} camera path must begin with the scene")
         final_focus = re.sub(r"[^a-z0-9_]+", " ", normalized_camera_beats[-1]["focusTarget"].lower()).strip()
         direct_names = [name for name, role in locked_group_roles.items() if role == "direct_evidence"]
-        if not any(name in final_focus for name in direct_names):
+        direct_focus_names = [re.sub(r"[^a-z0-9_]+", " ", name.lower()).strip() for name in direct_names]
+        if not set(direct_names).issubset(camera_triggers):
+            raise ValueError(f"Instagram Reel director scene {index} camera path ignores arriving direct evidence")
+        if not any(name in final_focus for name in direct_focus_names):
             raise ValueError(f"Instagram Reel director scene {index} final camera beat does not land on direct evidence")
         if text.get("copy") != locked.get("overlayText") or not 0 <= text_start < text_end <= duration or not 1 <= max_lines <= 4 or not all(text_values.values()):
             raise ValueError(f"Instagram Reel director scene {index} text direction is incomplete or changed")
@@ -5569,9 +5843,10 @@ def normalize_instagram_reel_director_plan(data, scene_concepts, require_total_d
             raise ValueError(f"Instagram Reel director scene {index} uses a crude black text plaque")
         continuity = _reel_copy(raw.get("continuityFromPrevious"), 500)
         retention = _reel_copy(raw.get("retentionIntoNext"), 500)
-        if not continuity or not retention:
+        social_feed_execution = _reel_copy(raw.get("socialFeedExecution"), 700)
+        if not continuity or not retention or not social_feed_execution or social_feed_execution != locked.get("socialFeedExecution"):
             raise ValueError(f"Instagram Reel director scene {index} lacks continuity direction")
-        result.append({"beatId": raw["beatId"], "durationSeconds": duration, "masterFrame": raw["masterFrame"], "cleanPlate": raw["cleanPlate"], "movableGroups": groups, "visualBeats": visual_beats, "cameraPlan": {"beats": normalized_camera_beats}, "textDirection": {"copy": text["copy"], "startSeconds": text_start, "endSeconds": text_end, "maxLines": max_lines, **text_values}, "continuityFromPrevious": continuity, "retentionIntoNext": retention})
+        result.append({"beatId": raw["beatId"], "durationSeconds": duration, "masterFrame": raw["masterFrame"], "cleanPlate": raw["cleanPlate"], "movableGroups": groups, "visualBeats": visual_beats, "cameraPlan": {"beats": normalized_camera_beats}, "textDirection": {"copy": text["copy"], "startSeconds": text_start, "endSeconds": text_end, "maxLines": max_lines, **text_values}, "continuityFromPrevious": continuity, "retentionIntoNext": retention, "socialFeedExecution": social_feed_execution})
         total_duration += duration
     if require_total_duration and not 27 <= total_duration <= 33:
         raise ValueError("Instagram Reel director plan must total 27-33 seconds")
@@ -5585,15 +5860,23 @@ def hydrate_instagram_reel_director_locks(candidate, locked_scene):
     scene = candidate["scenes"][0]
     if not isinstance(scene, dict):
         return candidate
-    for field in ("beatId", "masterFrame", "cleanPlate", "continuityFromPrevious", "retentionIntoNext"):
+    for field in ("beatId", "masterFrame", "cleanPlate", "continuityFromPrevious", "retentionIntoNext", "socialFeedExecution"):
         scene[field] = locked_scene.get(field)
     raw_groups = scene.get("movableGroups") if isinstance(scene.get("movableGroups"), list) else []
     locked_groups = locked_scene.get("movableGroups") if isinstance(locked_scene.get("movableGroups"), list) else []
+    visual_timings = {
+        str(beat.get("subject") or "").strip().lower(): (beat.get("startSeconds"), beat.get("endSeconds"))
+        for beat in (scene.get("visualBeats") if isinstance(scene.get("visualBeats"), list) else [])
+        if isinstance(beat, dict)
+    }
     for raw_group, locked_group in zip(raw_groups, locked_groups):
         if not isinstance(raw_group, dict):
             continue
         for field in ("name", "layerType", "storyRole", "sourceGroundingQuote", "supportsLayer", "transformMode", "finalPosition"):
             raw_group[field] = locked_group.get(field)
+        timing = visual_timings.get(str(locked_group.get("name") or "").strip().lower())
+        if timing:
+            raw_group["startSeconds"], raw_group["endSeconds"] = timing
     locked_by_name = {
         str(group.get("name") or "").strip().lower(): group
         for group in locked_groups if isinstance(group, dict)
@@ -5629,7 +5912,7 @@ def generate_instagram_reel_director_plan(site, job, language, scene_concepts, p
         candidate = None
         try:
             candidate = _gemini_text_json(
-                build_instagram_reel_director_plan_prompt(site, job, language, {"scenes": [locked_scene]}),
+                build_instagram_reel_director_plan_prompt(site, job, language, {"scenes": [locked_scene], "totalSceneCount": len(locked_scenes)}),
                 response_schema=INSTAGRAM_REEL_DIRECTOR_PLAN_SCHEMA,
                 temperature=0.3,
                 repair=False,
@@ -11712,9 +11995,9 @@ def _parse_json_text(text):
 
 
 def _gemini_generate_text(prompt, temperature=0.55, timeout=180, response_schema=None):
-    # Text may use a separate quota/billing project; image and TTS paths retain
-    # their existing Gemini/Google key resolution below.
-    api_key = os.environ.get("GEMINI_TEXT_API_KEY")
+    # The shared Gemini project is the primary billing source for both text and
+    # images. A dedicated text key remains an explicit compatibility fallback.
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_TEXT_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_TEXT_API_KEY is not configured")
     primary_model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"
@@ -11752,7 +12035,7 @@ def _gemini_generate_text(prompt, temperature=0.55, timeout=180, response_schema
 
 
 def _gemini_text_json_with_image(prompt, image_bytes, mime_type, response_schema, temperature=0.1, timeout=180):
-    api_key = os.environ.get("GEMINI_TEXT_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_TEXT_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_TEXT_API_KEY is not configured")
     primary_model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"

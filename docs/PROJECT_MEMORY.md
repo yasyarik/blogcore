@@ -20,6 +20,25 @@
 
 # PROJECT_MEMORY.md
 
+## 2026-08-14 — Reel scenes require varied worlds, practical layers, and varied shot scales
+
+* A five-scene Reel uses at least three visual worlds and at least three shot scales, including wide/establishing, medium, and close/detail. Adjacent scenes cannot repeat the same scale, and one world cannot occupy three consecutive scenes.
+* Source-named environments remain preferred. A neutral contextual stage is allowed when the article lacks enough useful physical locations, but the stage carries no editorial proof; claims remain grounded in current-beat people, objects, mechanisms, and overlay copy.
+* Architecture and room-scale set pieces are always fixed background: doors, windows, walls, decks, railings, desks, tables, beds, sofas, cabinets, partitions, and built-in lighting never become movable layers.
+* Movable objects are compact or medium standalone items occupying less than half the frame. They cannot contain or overlap human anatomy. Anything worn, carried, held, or touched belongs to the complete head-to-feet human group and cannot be extracted again as a separate object.
+* A scene may contain one to four truthful layers. The pipeline must not invent filler props to reach an event quota: one layer entrance, persistent text entrance, and synchronized camera motion already provide three visible events.
+* Direct-evidence layers are built from a closed current-beat evidence block. A compact object from elsewhere in the article may serve only as honest kinetic support and cannot import another beat's mechanism or conclusion.
+* Human movable layers must explicitly state that they are fully visible from head through both feet. `standing` alone is not sufficient proof of extractability.
+
+## 2026-08-14 — Reel planning carries literal evidence and resumable director checkpoints
+
+* Stage two receives the stage-one central problem together with its source grounding. This prevents the concrete physical noun that defines the hook from disappearing between stages.
+* A new visual world may be established only from an exact physical-environment substring copied from the current beat's editorial input, source grounding, or problem connection. `domainContext`, another beat, and category knowledge cannot authorize scenery. Resolution always reuses the payoff scene's visual world.
+* Stage-two validation rejects movable human layers described as seated, reclining, leaning, cropped, obscured, or partly hidden. Layerability is enforced before any image generation.
+* Social execution may close the editorial payoff but cannot replace it with `call to action`, follow/save/link instructions, or another generic social CTA.
+* Stage three copies technical layer identities exactly. Every direct-evidence layer triggers a camera beat, and final-focus matching normalizes punctuation identically on both the generated focus text and approved layer name.
+* Director generation checkpoints each accepted scene and resumes from the accepted prefix. A failed later scene must not regenerate an earlier accepted scene.
+
 ## 2026-08-13 — Reel typography, cinematic camera, and clean-edge matte contract
 
 * Reel overlay copy must remain mobile-readable: 82-118 px in the 1080x1920 renderer, at most three large lines on one screen. Longer locked copy is shown as sequential phrase groups; it is never shrunk into a paragraph.
@@ -961,3 +980,36 @@ It must be updated after every meaningful task.
 * The SAM 2.1 checkpoint is deployment data at `models/sam2.1_hiera_large.pt` and must not be committed. Production must fail clearly when the smart matting stack is unavailable; it must not silently fall back to lower-quality segmentation.
 * Reel captions are always light with a soft dark shadow. They must never switch to dark text based on local luminance; an adaptive local gradient may be used when the photographic background needs more contrast.
 * Reel rendering is locked per site/post so the scheduler and a manual production request cannot write the same temporary render concurrently.
+
+## 2026-08-13 — Universal source-grounded Reel direction
+
+* Reel planning is a gated three-stage process: editorial problem/solution brief, source-grounded photographable scene concepts, then executable layer/camera/text direction. Each stage must finish and validate before the next starts; no image, voice, or video generation may begin from a rejected text plan.
+* The hook, all solution beats, and the final brand resolution must answer one common reader problem. A narrow consequence may create the hook only when later beats truthfully contribute to the same larger decision. Retention promises belong inside the hook and handoffs, never in a standalone empty screen.
+* Every scene must remain identifiable without overlay text through exact article-grounded domain anchors. A new physical environment is allowed only when the current beat literally names that environment; otherwise the scene reuses an already approved visual world. Category convention cannot authorize invented terminals, counters, offices, rooms, journey stages, or outcomes.
+* Every movable direct-evidence or support layer carries an exact source quote. Support layers cannot be random luggage, furniture, drinks, cushions, decorative architecture, or other filler added to satisfy an event count. Abstract claims cannot become invented bills, documents, signs, confirmations, transactions, or symbolic props.
+* Step two owns the exact overlay copy and a protected text zone. Step three must prove that the zone stays clear through the clean plate, every layer path and final position, and every camera framing. Hook copy has the highest visual priority.
+* Camera motion is one continuous scene path synchronized to named evidence-layer arrivals. Every direct-evidence layer triggers camera attention; timing is authoritative, while descriptive phase labels are derived from that timeline. Per-scene checkpoint calls receive the total scene count so the complete Reel remains 27-33 seconds.
+* Do not add project-, industry-, site-, or object-specific exceptions to solve a failed Reel. Improve the shared Gemini evidence, scene, and direction contracts and use the current article only as verification data.
+
+## 2026-08-13 — One primary stake per Reel
+
+* A Reel editorial brief owns exactly one `primaryStakeMetric`. Do not combine independent costs, risks, comfort, community, confidence, or other benefits merely to include more article sections.
+* Every ranked solution must expose an auditable causal chain: provider or counterparty, changed/shared resource or action, causal mechanism, and concrete outcome. The outcome and problem connection must explicitly name the same primary stake metric.
+* An activity label such as communication, meetings, research, community, an app, or a checklist is not a solution by itself. It may support a solution only when the prompt explains who participates, what resource or decision changes, how the change occurs, and how it changes the primary stake.
+* A useful parallel benefit must not be presented as a causal answer to a financial or risk hook. Omit it from that Reel's ranked solutions unless the article explicitly proves the connection.
+* Shared `GEMINI_API_KEY`/`GOOGLE_API_KEY` is the primary key for Gemini text and image generation. `GEMINI_TEXT_API_KEY` is a compatibility fallback, not the first choice.
+
+## 2026-08-13 — Social-first attention contract for Reels
+
+* Every Reel is planned for a distracted, often silent, fast-scrolling social-feed viewer. It is not an article summary, slide deck, or sequence of unrelated tips.
+* Step one must define the complete attention arc: the exact first-second hook, concrete early promise, truthful midpoint escalation, withheld resolution, and payoff delivery. The first second contains the central stake, never branding, context setting, or a slow establishing introduction.
+* Each intermediate scene delivers a useful mini-payoff while making the remaining question more specific or consequential. It cannot reset the story, repeat the hook, or disclose the final mechanism early.
+* Social attention roles are immutable cross-stage data. Step two translates them into visual evidence and handoffs; step three must use them to control layer order, camera emphasis, copy hierarchy, timing, and the payoff landing.
+* Social energy may strengthen presentation, ordering, specificity, and curiosity, but never factual certainty or outcome strength. Retention and payoff claims require exact source phrases; never infer guarantees, percentages, equal splits, scarcity, safety, verification, or eliminated costs from weaker source verbs.
+## 2026-08-14 — Reel scenes require three physical events in addition to text and camera
+
+* Every Reel scene must contain three or four distinct physical layer events. The persistent overlay, camera path, focus, lighting, and static-set reveals are additional direction and never count toward this minimum.
+* Step two must create three or four independently extractable layers and at least one meaningful non-human object. Step three creates exactly one timed rigid entrance for every approved layer and cannot omit or duplicate one.
+* The first three layer events form one causal evidence chain: situation, mechanism, and visible result. An optional fourth event may preserve continuity. Every layer must explain what becomes impossible to understand if it is removed; location dressing, generic accessories, atmosphere, and visual padding are not events.
+* A person layer owns every item worn, carried, held, touched, or overlapped by that person. An independent object layer must be physically separate from people and other movable layers, freestanding, detachable, and unobstructed.
+* Replaced/deprecated: the same-day rule that counted one layer entrance plus overlay text plus camera motion as a valid three-event scene.

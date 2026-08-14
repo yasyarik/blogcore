@@ -74,6 +74,71 @@
 
 # CHANGELOG_AI.md
 
+## 2026-08-14 — Rebuilt Reel direction around visual and framing variety
+
+### Summary
+
+* Rejected the technically valid but repetitive cabin-only director plan.
+* Added sequence-level world and shot-scale planning, contextual stages, compact-object constraints, complete-human extraction checks, object ownership rules, and readable-label validation.
+* Removed the requirement to manufacture three physical layers per scene. Scenes now use one to four meaningful layers, with text and camera supplying additional visible events.
+* Generated and validated a replacement five-scene, 30-second plan using four visual worlds and wide, medium, and detail compositions. No images, voice, music, or video were generated.
+
+### Files changed
+
+* `app.py` — universal scene variety, framing, layer feasibility, grounding, and validation contracts.
+* `docs/PROJECT_MEMORY.md` — durable Reel visual-variety and layer rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Large furniture and architecture create the fixed set and are never moved as extracted layers.
+* A truthful sparse scene is preferable to a busy scene filled with unrelated props.
+* Contextual backgrounds may provide production variety but cannot prove an editorial claim.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed locally and on the VPS.
+* Restarted `blog-yas-core`; health returned `ok`.
+* Stage two passed with five scenes, four visual worlds, and three shot-scale classes.
+* Stage three passed for all five scenes at 30.0 seconds.
+* Saved the replacement `director_plan_ready` checkpoint with `mediaGenerated: false`.
+
+### Risks / TODO
+
+* The new plan remains text-only and requires explicit approval before paid media generation.
+
+## 2026-08-14 — Completed Reel scene concepts and technical direction
+
+### Summary
+
+* Ran stage two and stage three against a real published SoloCruz article using the production Gemini model and production validators.
+* Fixed cross-stage loss of the central physical problem, unsupported environment selection, non-extractable human compositions, generic CTA substitution, and punctuation-sensitive final camera focus matching.
+* Produced and saved an accepted five-scene, 30-second text-only director checkpoint for social post 33. No images, speech, music, or video were generated.
+
+### Files changed
+
+* `app.py` — universal stage-two evidence/environment contract, extraction validation, social-payoff validation, and stage-three camera identity validation.
+* `docs/PROJECT_MEMORY.md` — durable cross-stage Reel planning rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* Environment phrases are closed-book copies from the current beat, not free-form descriptions from `domainContext` or the wider article.
+* A model-valid camera plan must cover every direct-evidence layer by exact technical identity; punctuation differences cannot create false validation failures.
+* Accepted text stages remain operator-gated. Media production starts only after explicit approval.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed after deployment.
+* Restarted `blog-yas-core`; local health endpoint returned `ok`.
+* Stage two passed for all five scenes.
+* Stage three passed for all five scenes with a total duration of 30.0 seconds.
+* Saved `director_plan_ready` with `mediaGenerated: false` in SoloCruz social post 33.
+
+### Risks / TODO
+
+* No visual assets were generated in this task, so the accepted text plan still requires explicit review before starting paid media production.
+
 ## 2026-08-13 — Clean Reel cutouts, persistent scene text, and verified final logo
 
 ### Summary
@@ -4824,3 +4889,113 @@ This file is updated by Codex after every task.
 
 ### Risks / TODO
 * CPU ViTMatte is intentionally slower than the deprecated quantized SAM path.
+
+## 2026-08-13 — Made the Gemini Reel director source-grounded and causally coherent
+
+### Summary
+
+* Reworked the shared three-stage Instagram Reel planning contract so the hook, every solution beat, and the resolution form one truthful answer to the article's central problem.
+* Removed the empty retention-bridge scene; the unresolved promise now stays inside the hook and scene handoffs.
+* Required each scene to preserve recognizable source-grounded domain context, protect its text zone through all entrances and camera framings, and keep the resolution in the payoff's visual world.
+* Made camera motion continuous and explicitly synchronized to named evidence-layer entrances instead of starting as an unrelated zoom sequence after all motion.
+* Replaced duplicated timing ownership with one authoritative visual-beat timeline and passed the full scene count into checkpointed per-scene director calls.
+* Added fail-fast source contracts for physical settings and movable layers so an abstract idea cannot be materialized as an invented location, sign, document, confirmation, transaction, or filler prop.
+
+### Files changed
+
+* `app.py` — universal editorial brief, scene-concept, director-plan prompts, schemas, normalization, validation, and checkpoint orchestration.
+* `docs/PROJECT_MEMORY.md` — durable universal Reel planning contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Decisions
+
+* The article used for verification is test data only. Production prompts contain no site-, industry-, or object-specific exception.
+* Text planning must fail before image, voice, or video generation when Gemini invents unsupported physical evidence or a setting.
+* Semantic source grounding is owned by Gemini's explicit evidence inventory plus exact article quotes; brittle word-overlap heuristics must not cause paid retries for otherwise valid plans.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed locally and on the VPS after each deployed revision.
+* Restarted `blog-yas-core`; `http://127.0.0.1:3299/health` returned `ok` after deployment.
+* Completed a text-only six-scene, 30-second director plan with protected text zones and camera triggers linked to approved layers; generated no images, voice, or video.
+* Verified the stricter scene-concept pass rejects an unsupported new physical setting before media generation.
+
+### Risks / TODO
+
+* Current real-article verification intentionally ends at text planning when Gemini proposes a setting not grounded in the current beat. Media production must remain blocked until a complete strict plan passes.
+
+## 2026-08-13 — Made Reel solutions answer one auditable stake
+
+### Summary
+
+* Replaced vague activity-based Reel advice with an auditable causal contract: provider/counterparty, changed or shared resource, mechanism, and concrete outcome.
+* Added one `primaryStakeMetric` per Reel brief. Every accepted solution must directly change that same metric and repeat it in both its causal explanation and outcome.
+* Excluded parallel benefits from the ranked answer. Communication, meetings, community, and comfort can support a real mechanism but cannot masquerade as solutions to a financial hook.
+* Restored the agreed Gemini key priority so text generation uses the working shared Gemini billing key before the depleted legacy text-only key.
+
+### Files changed
+
+* `app.py` — editorial schema, prompt, validation, and Gemini text-key priority.
+* `docs/PROJECT_MEMORY.md` — durable single-stake Reel rule.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed locally and on the VPS.
+* Restarted `blog-yas-core`; health returned `ok`.
+* Ran text-only step one against a real published article. The accepted result contains only three direct cost mechanisms: waived/reduced supplements, purpose-built solo cabins, and compatible cabin sharing.
+* Generated no images, voice, or video.
+
+### Risks / TODO
+
+* This task validates the editorial brief only. Scene and director stages remain gated until this brief is accepted as the intended story.
+
+## 2026-08-13 — Made social retention a cross-stage Reel contract
+
+### Summary
+
+* Made the first Reel step explicitly social-first rather than an article summary: immediate scroll stop, early promise, midpoint escalation, withheld answer, and payoff delivery.
+* Passed each beat's social attention role unchanged into scene concepts and technical direction, where it now governs layer order, camera emphasis, persistent copy, and handoffs.
+* Added source grounding and claim-strength checks so retention can intensify presentation but cannot invent guarantees, percentages, scarcity, safety, or stronger outcomes.
+
+### Files changed
+
+* `app.py` — social narrative schema, prompts, cross-stage data, normalization, and source/claim validation.
+* `docs/PROJECT_MEMORY.md` — durable social-first Reel contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed locally and on the VPS.
+* Restarted `blog-yas-core`; health returned `ok`.
+* Ran and production-validated a text-only editorial brief from a real published article. No images, voice, or video were generated.
+
+### Risks / TODO
+
+* Existing stored Reel checkpoints predate this contract and must be regenerated from step one before media production.
+## 2026-08-14 — Restored three physical events per Reel scene
+
+### Summary
+
+* Found that the active Reel contract had incorrectly redefined three events as one layer entrance plus text plus camera.
+* Restored a minimum of three distinct physical layer events per scene; text and camera are now explicitly additional.
+* Added situation-mechanism-result event roles, layer necessity proofs, object ownership state, and exact one-event-per-layer validation.
+* Blocked the previous one-layer SoloCruz plan and rejected new filler-heavy candidates rather than replacing the saved plan with decorative motion.
+
+### Files changed
+
+* `app.py` — step-two schema/prompt/validation and step-three physical-event enforcement.
+* `docs/PROJECT_MEMORY.md` — durable three-physical-event Reel contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed locally and on the VPS.
+* Restarted `blog-yas-core`; `/health` returned `ok`.
+* Verified the previous saved step two and step three are rejected because each scene contains only one physical layer event.
+* Ran text-only planning against the real SoloCruz article; no images, voice, music, or video were generated.
+
+### Risks / TODO
+
+* The saved one-layer plan remains available for comparison but is invalid under the restored contract.
+* A candidate with three layers per scene was not accepted because some layers were decorative accessories or violated object ownership. The pipeline now blocks those candidates; a new plan must satisfy both event count and semantic necessity before media production.
