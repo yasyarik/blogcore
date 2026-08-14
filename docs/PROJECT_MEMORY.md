@@ -1006,3 +1006,10 @@ It must be updated after every meaningful task.
 * Each intermediate scene delivers a useful mini-payoff while making the remaining question more specific or consequential. It cannot reset the story, repeat the hook, or disclose the final mechanism early.
 * Social attention roles are immutable cross-stage data. Step two translates them into visual evidence and handoffs; step three must use them to control layer order, camera emphasis, copy hierarchy, timing, and the payoff landing.
 * Social energy may strengthen presentation, ordering, specificity, and curiosity, but never factual certainty or outcome strength. Retention and payoff claims require exact source phrases; never infer guarantees, percentages, equal splits, scarcity, safety, verification, or eliminated costs from weaker source verbs.
+## 2026-08-14 — Reel scenes require three physical events in addition to text and camera
+
+* Every Reel scene must contain three or four distinct physical layer events. The persistent overlay, camera path, focus, lighting, and static-set reveals are additional direction and never count toward this minimum.
+* Step two must create three or four independently extractable layers and at least one meaningful non-human object. Step three creates exactly one timed rigid entrance for every approved layer and cannot omit or duplicate one.
+* The first three layer events form one causal evidence chain: situation, mechanism, and visible result. An optional fourth event may preserve continuity. Every layer must explain what becomes impossible to understand if it is removed; location dressing, generic accessories, atmosphere, and visual padding are not events.
+* A person layer owns every item worn, carried, held, touched, or overlapped by that person. An independent object layer must be physically separate from people and other movable layers, freestanding, detachable, and unobstructed.
+* Replaced/deprecated: the same-day rule that counted one layer entrance plus overlay text plus camera motion as a valid three-event scene.

@@ -4973,3 +4973,29 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * Existing stored Reel checkpoints predate this contract and must be regenerated from step one before media production.
+## 2026-08-14 — Restored three physical events per Reel scene
+
+### Summary
+
+* Found that the active Reel contract had incorrectly redefined three events as one layer entrance plus text plus camera.
+* Restored a minimum of three distinct physical layer events per scene; text and camera are now explicitly additional.
+* Added situation-mechanism-result event roles, layer necessity proofs, object ownership state, and exact one-event-per-layer validation.
+* Blocked the previous one-layer SoloCruz plan and rejected new filler-heavy candidates rather than replacing the saved plan with decorative motion.
+
+### Files changed
+
+* `app.py` — step-two schema/prompt/validation and step-three physical-event enforcement.
+* `docs/PROJECT_MEMORY.md` — durable three-physical-event Reel contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed locally and on the VPS.
+* Restarted `blog-yas-core`; `/health` returned `ok`.
+* Verified the previous saved step two and step three are rejected because each scene contains only one physical layer event.
+* Ran text-only planning against the real SoloCruz article; no images, voice, music, or video were generated.
+
+### Risks / TODO
+
+* The saved one-layer plan remains available for comparison but is invalid under the restored contract.
+* A candidate with three layers per scene was not accepted because some layers were decorative accessories or violated object ownership. The pipeline now blocks those candidates; a new plan must satisfy both event count and semantic necessity before media production.
