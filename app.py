@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 import wave
 import xml.etree.ElementTree as ET
+from array import array
 from datetime import datetime, timedelta, timezone
 from base64 import b64decode, b64encode
 from io import BytesIO
@@ -7616,6 +7617,85 @@ def _write_reel_wav(path, pcm):
         output.writeframes(pcm)
 
 
+def _reel_narration_pause_boundaries(path, scene_count, minimum_pause=0.35):
+    """Find the explicit paragraph pauses in one generated narration WAV."""
+    with wave.open(str(path), "rb") as source:
+        if source.getnchannels() != 1 or source.getsampwidth() != 2:
+            raise ValueError("Reel narration alignment requires mono 16-bit PCM")
+        sample_rate = source.getframerate()
+        samples = array("h")
+        samples.frombytes(source.readframes(source.getnframes()))
+    if sys.byteorder != "little":
+        samples.byteswap()
+    if scene_count < 1:
+        raise ValueError("Reel narration needs at least one scene")
+    if scene_count == 1:
+        return [0, len(samples)]
+
+    window = max(1, round(sample_rate * 0.02))
+    peaks = [max((abs(value) for value in samples[offset:offset + window]), default=0) for offset in range(0, len(samples), window)]
+    active_peaks = sorted(value for value in peaks if value > 0)
+    reference = active_peaks[max(0, round(len(active_peaks) * 0.70) - 1)] if active_peaks else 0
+    silence_threshold = max(96, round(reference * 0.035))
+    minimum_windows = max(1, round(minimum_pause / 0.02))
+    runs = []
+    start = None
+    for index, peak in enumerate(peaks):
+        if peak <= silence_threshold:
+            start = index if start is None else start
+        elif start is not None:
+            if index - start >= minimum_windows:
+                runs.append((start, index))
+            start = None
+    if start is not None and len(peaks) - start >= minimum_windows:
+        runs.append((start, len(peaks)))
+
+    total_seconds = len(samples) / float(sample_rate)
+    internal = []
+    for start_window, end_window in runs:
+        midpoint = ((start_window + end_window) * window) // 2
+        seconds = midpoint / float(sample_rate)
+        if 0.8 < seconds < total_seconds - 0.8:
+            internal.append((end_window - start_window, midpoint))
+    selected = sorted(midpoint for _, midpoint in sorted(internal, reverse=True)[:scene_count - 1])
+    if len(selected) != scene_count - 1:
+        raise ValueError(
+            f"Reel narration contains {len(selected)} usable paragraph pauses; {scene_count - 1} are required for scene alignment"
+        )
+    boundaries = [0, *selected, len(samples)]
+    if any((right - left) / float(sample_rate) < 1.0 for left, right in zip(boundaries, boundaries[1:])):
+        raise ValueError("Reel narration paragraph alignment produced an implausibly short scene segment")
+    return boundaries
+
+
+def _align_reel_narration_to_scenes(source_path, target_path, planned_durations):
+    """Place each spoken paragraph inside its owning scene without rewriting audio."""
+    source_path = Path(source_path)
+    target_path = Path(target_path)
+    boundaries = _reel_narration_pause_boundaries(source_path, len(planned_durations))
+    with wave.open(str(source_path), "rb") as source:
+        channels = source.getnchannels()
+        sample_width = source.getsampwidth()
+        sample_rate = source.getframerate()
+        frames = source.readframes(source.getnframes())
+    frame_width = channels * sample_width
+    resolved_durations = []
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(target_path), "wb") as output:
+        output.setnchannels(channels)
+        output.setsampwidth(sample_width)
+        output.setframerate(sample_rate)
+        for planned, start_frame, end_frame in zip(planned_durations, boundaries, boundaries[1:]):
+            segment_frames = end_frame - start_frame
+            segment_duration = segment_frames / float(sample_rate)
+            scene_duration = max(float(planned or 0), segment_duration + 0.8)
+            scene_frames = round(scene_duration * sample_rate)
+            output.writeframes(frames[start_frame * frame_width:end_frame * frame_width])
+            output.writeframes(b"\x00" * max(0, scene_frames - segment_frames) * frame_width)
+            resolved_durations.append(scene_frames / float(sample_rate))
+    return resolved_durations
+
+
 def _remove_reel_background(source_path, target_path, preserve_canvas=False):
     try:
         from rembg import remove
@@ -8771,6 +8851,7 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
         voice_enabled = bool(reel.get("voiceEnabled"))
         settings = get_podcast_settings(site_id) if voice_enabled else None
         voice_name = settings["voice_name"] if settings and settings["voice_name"] in PODCAST_VOICES else "Kore"
+        narration_path = None
         for scene, visual_pack in accepted_visual_scenes:
             index = int(scene["index"])
             render_scene = {
@@ -8779,25 +8860,31 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
                 "foregroundPaths": visual_pack["foregroundPaths"],
                 "fullCanvasLayers": True,
             }
-            if voice_enabled:
-                progress("voice", scene=index, message=f"All visual scenes are valid; synthesizing narration for scene {index}")
-                voice_path = asset_dir / f"scene-{index:02d}-voice.wav"
-                if not voice_path.is_file():
-                    narration = str(scene.get("narration") or scene.get("overlayText") or "").strip()
-                    if not narration:
-                        raise ValueError(f"Reel scene {index} needs narration before voice synthesis")
-                    pcm = _gemini_tts_pcm(
-                        "Deliver the following Reel narration naturally and exactly once. "
-                        "The spoken meaning must remain identical to this scene's on-screen message. "
-                        "Do not add a preamble, commentary, or unrelated wording. "
-                        "Do not read these instructions aloud.\n\n"
-                        + narration,
-                        voice_name,
-                    )
-                    _write_reel_wav(voice_path, pcm)
-                scene["assets"]["voiceUrl"] = social_asset_url(site_id, asset_key, "instagram", voice_path.name)
-                render_scene["voicePath"] = str(voice_path)
             render_scenes.append(render_scene)
+        if voice_enabled:
+            progress("voice", scene=0, message="All visual scenes are valid; synthesizing and aligning one continuous narration track")
+            narration_source = asset_dir / "reel-narration-source.wav"
+            narration_path = asset_dir / "reel-narration.wav"
+            narration_lines = [
+                str(scene.get("narration") or scene.get("overlayText") or "").strip()
+                for scene, _ in accepted_visual_scenes
+            ]
+            if not all(narration_lines):
+                raise ValueError("Every voiced Reel scene needs narration before full-track synthesis")
+            if not narration_source.is_file():
+                pcm = _gemini_tts_pcm(
+                    "Read only the following Reel narration. Each paragraph belongs to one visual scene. "
+                    "Speak every paragraph exactly once, preserve its wording and order, and leave a clear natural pause of at least one second between paragraphs.\n\n"
+                    + "\n\n".join(narration_lines),
+                    voice_name,
+                )
+                _write_reel_wav(narration_source, pcm)
+            planned_durations = [float(scene.get("durationSeconds") or 0) for scene in render_scenes]
+            resolved_durations = _align_reel_narration_to_scenes(narration_source, narration_path, planned_durations)
+            for render_scene, scene_duration in zip(render_scenes, resolved_durations):
+                render_scene["durationSeconds"] = scene_duration
+                render_scene["textDirection"] = {**(render_scene.get("textDirection") or {}), "endSeconds": scene_duration}
+                render_scene["assets"]["voiceUrl"] = social_asset_url(site_id, asset_key, "instagram", narration_path.name)
         total_scenes = len(storyboard["scenes"])
         progress("render", scene=total_scenes, message="Rendering vertical H.264 video with layered movement and camera work")
         from reel_renderer import render_vertical_reel
@@ -8809,6 +8896,7 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
             asset_dir / "render-work",
             accent_hex=_reel_accent(site_id),
             music_path=music_path,
+            narration_path=narration_path,
         )
         cover_filename = Path(rendered["thumbnailPath"]).name
         reel.update({

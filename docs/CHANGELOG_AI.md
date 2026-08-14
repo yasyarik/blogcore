@@ -5194,3 +5194,36 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The corrected SoloCruz Reel remains a draft for operator review and was not published.
+
+## 2026-08-14 — Recovered the correct original narration by content
+
+### Summary
+
+* Audited every existing SoloCruz Reel WAV with local speech-to-text instead of relying on filenames, hashes, or durations.
+* Confirmed that the five earlier scene WAVs spoke the TTS delivery instruction rather than scene copy; marked that per-scene TTS approach as replaced.
+* Located and reused the already generated correct full narration source whose five sentences match the five visual scenes.
+* Split only at measured natural paragraph pauses, padded each unchanged sentence into its six-second owning scene, and rendered one 30-second continuous track without any new TTS or image generation.
+* Kept the separate existing scene-five lounge visual instead of duplicating scene four.
+
+### Files changed
+
+* `app.py` — single-source narration synthesis, measured pause detection, strict boundary validation, and scene-aligned WAV assembly.
+* `docs/PROJECT_MEMORY.md` — replaced the unsafe per-scene TTS rule with the verified full-source/pause-alignment contract.
+* `docs/CHANGELOG_AI.md` — recorded the content-level audio audit and corrected render.
+
+### Decisions
+
+* Audio validity requires content verification. Different files, hashes, or durations are not evidence that spoken copy differs.
+* Scene timing comes from measured pauses and approved visual durations, never paragraph word-count estimates.
+
+### Checks run
+
+* Transcribed all five natural scene WAVs, all five accelerated copies, and the complete source narration locally with `faster-whisper`.
+* Verified each six-second segment extracted from the final MP4 speaks the correct scene-specific sentence.
+* Verified the final MP4 is exactly 30 seconds, 1080x1920 H.264, contains one AAC stream, and returns HTTP 200.
+* Inspected one frame from every scene and confirmed scene five remains visually distinct from scene four.
+* Tested automatic pause detection against the real source track; it found boundaries at approximately 4.90, 9.63, 14.21, and 18.76 seconds and produced five six-second aligned scenes.
+
+### Risks / TODO
+
+* The corrected Reel remains a draft for operator review and was not published.
