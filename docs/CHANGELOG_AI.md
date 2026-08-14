@@ -5078,3 +5078,32 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The focused production script remains an operator aid; the reusable card layout itself is implemented in the shared application code.
+
+## 2026-08-14 — Restored natural Reel narration and content-driven timing
+
+### Summary
+
+* Removed narration speed normalization. Reel scenes now expand to the actual natural voice duration plus a reading pause; the complete Reel has no fixed maximum duration.
+* Made overlay text persist for the complete expanded scene instead of disappearing at the original planned timestamp.
+* Centered the complete evidence-card content group horizontally and vertically, including the logo, title, detail, and accent marker.
+* Replaced template camera motion with scene-specific paths that focus only on photographic subjects and the source environment, never on screen-space evidence cards.
+* Reused the existing backgrounds, people, extracted layers, voice recordings, logo, and music. No image or voice generation was performed for the corrected render.
+
+### Files changed
+
+* `app.py` — fully centered, untruncated evidence-card content layout; removed audio speed normalization.
+* `reel_renderer.py` — content-driven scene duration and full-scene text persistence.
+* `docs/PROJECT_MEMORY.md` — natural-duration and scene-specific camera rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py reel_renderer.py` passed locally and on the VPS.
+* Verified the five reused source narration files retain their natural 7.76-11.12 second durations.
+* Verified that the render uses the same existing photo and object assets.
+* Verified the final MP4 is 52.54 seconds, 1080x1920 H.264 with one mixed AAC stream, and returns HTTP 200.
+* Inspected three checkpoints per scene. The persistent text and evidence cards remain clear of faces, while the camera uses a deck reveal, terminal push/pull, corridor close/reveal, two-person focus transfer, and final brand pull-out.
+
+### Risks / TODO
+
+* No remaining blocker was found in the final visual, timing, or audio checks.

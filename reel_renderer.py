@@ -313,7 +313,11 @@ def _director_camera_values(scene: dict, progress: float, targets: dict):
         target = _target_camera(target_record, state)
         target_kind = str((target_record or {}).get("kind") or "")
         framing = str(beat.get("toFraming") or "").lower()
-        if movement == "pull_out":
+        if movement == "environment_pan_left":
+            destination = (1.10, 0.42, -0.01)
+        elif movement == "environment_pan_right":
+            destination = (1.10, 0.58, -0.01)
+        elif movement == "pull_out":
             destination = (1.035, 0.5, 0.0)
         elif movement in {"pan_left", "pan_right", "track_left", "track_right", "follow_left", "follow_right"}:
             # A lateral move ends on a close frame, not another wide crop.
@@ -323,10 +327,12 @@ def _director_camera_values(scene: dict, progress: float, targets: dict):
         elif movement in {"push_in", "rack_focus", "focus_transfer"}:
             if "close-up" in framing or "close up" in framing or "tight" in framing:
                 zoom = 2.30 if target_kind == "person" else 2.12
-            elif movement in {"rack_focus", "focus_transfer"}:
-                zoom = 2.30 if target_kind == "person" else 2.12
             elif "medium close" in framing or "waist" in framing:
                 zoom = 2.24 if beat_index and target_kind == "person" else 1.82
+            elif "medium" in framing or "wide" in framing:
+                zoom = 1.52 if beat_index else 1.46
+            elif movement in {"rack_focus", "focus_transfer"}:
+                zoom = 2.30 if target_kind == "person" else 2.12
             else:
                 zoom = 1.52 if beat_index else 1.46
             destination = (zoom, target[1], target[2])
@@ -694,8 +700,14 @@ def render_vertical_reel(
         voice_path = Path(str(scene.get("voicePath") or ""))
         voice_duration = _wav_duration(voice_path) if voice_path.is_file() else 0.0
         planned_duration = float(scene.get("durationSeconds") or 4.0)
-        # Scene timing follows its own voice, so one Gemini TTS segment cannot overlap the next one.
-        duration = max(3.5, planned_duration, voice_duration + 0.55)
+        overlay_word_count = len(str(scene.get("overlayText") or scene.get("title") or "").split())
+        natural_reading_duration = 1.8 + overlay_word_count * 0.55
+        # Duration expands to the actual content. Narration is never truncated or
+        # accelerated to satisfy an arbitrary total Reel duration.
+        duration = max(3.5, planned_duration, natural_reading_duration, voice_duration + 0.9)
+        scene["durationSeconds"] = duration
+        text_direction = scene.get("textDirection") if isinstance(scene.get("textDirection"), dict) else {}
+        scene["textDirection"] = {**text_direction, "endSeconds": duration}
         frame_count = max(1, round(duration * fps))
         background = Image.open(background_path).convert("RGBA")
         foregrounds = [

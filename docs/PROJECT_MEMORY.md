@@ -1039,3 +1039,14 @@ It must be updated after every meaningful task.
 * Reason: Fixed text offsets clipped the final evidence detail, while unexpectedly slow TTS delivery exceeded six-second scenes and would have produced overlapping narration.
 * Files/areas affected: `app.py`, Instagram Reel evidence graphics and audio production for every connected site.
 * Replaced/deprecated: unmeasured evidence-card typography and trusting requested TTS speaking duration without inspecting the generated file.
+
+## 2026-08-14 — Reel duration follows comprehension, not a fixed runtime
+
+* Decision: Never accelerate, truncate, paraphrase, or shorten approved narration merely to fit a target Reel duration. Measure the natural generated voice and expand each scene to the full narration duration plus a calm reading pause. The total Reel duration has no fixed upper limit.
+* Decision: Overlay text remains visible until the expanded scene ends. A scene cut, text change, voice transition, and camera-plan boundary share the same content-driven timeline.
+* Decision: Camera direction is authored per scene from that scene's subjects, environment, evidence order, and intended reveal. Camera focus targets only photographic subjects or the physical environment; programmatic evidence graphics remain fixed in screen space and are never camera targets.
+* Decision: Every camera keyframe must preserve the persistent overlay and evidence-card safe zones. A face or essential object may not enter those zones during a push, pan, focus transfer, or pull-out; use a wider environmental move when a close-up has no safe destination.
+* Decision: Evidence-card content is one centered layout group. Accent marker, logo, title, and detail copy are centered horizontally, and the measured group is centered vertically inside safe padding. Text wraps and typography adapts without hard line-count truncation.
+* Reason: Speed-normalized narration became unnaturally fast; keeping six-second scene metadata made text and camera timing diverge from longer audio; left-aligned fixed card layouts produced inconsistent empty space.
+* Files/areas affected: `app.py`, `reel_renderer.py`, all Instagram Reel production.
+* Replaced/deprecated: the earlier same-day rule that normalized overlong narration into a fixed scene window. Scene duration now expands instead.
