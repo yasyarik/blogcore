@@ -8771,7 +8771,6 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
         voice_enabled = bool(reel.get("voiceEnabled"))
         settings = get_podcast_settings(site_id) if voice_enabled else None
         voice_name = settings["voice_name"] if settings and settings["voice_name"] in PODCAST_VOICES else "Kore"
-        narration_path = None
         for scene, visual_pack in accepted_visual_scenes:
             index = int(scene["index"])
             render_scene = {
@@ -8780,39 +8779,25 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
                 "foregroundPaths": visual_pack["foregroundPaths"],
                 "fullCanvasLayers": True,
             }
+            if voice_enabled:
+                progress("voice", scene=index, message=f"All visual scenes are valid; synthesizing narration for scene {index}")
+                voice_path = asset_dir / f"scene-{index:02d}-voice.wav"
+                if not voice_path.is_file():
+                    narration = str(scene.get("narration") or scene.get("overlayText") or "").strip()
+                    if not narration:
+                        raise ValueError(f"Reel scene {index} needs narration before voice synthesis")
+                    pcm = _gemini_tts_pcm(
+                        "Deliver the following Reel narration naturally and exactly once. "
+                        "The spoken meaning must remain identical to this scene's on-screen message. "
+                        "Do not add a preamble, commentary, or unrelated wording. "
+                        "Do not read these instructions aloud.\n\n"
+                        + narration,
+                        voice_name,
+                    )
+                    _write_reel_wav(voice_path, pcm)
+                scene["assets"]["voiceUrl"] = social_asset_url(site_id, asset_key, "instagram", voice_path.name)
+                render_scene["voicePath"] = str(voice_path)
             render_scenes.append(render_scene)
-        if voice_enabled:
-            progress("voice", scene=0, message="All visual scenes are valid; synthesizing one continuous narration track")
-            narration_path = asset_dir / "reel-narration-full.wav"
-            narration_lines = [
-                str(scene.get("narration") or scene.get("overlayText") or "").strip()
-                for scene, _ in accepted_visual_scenes
-            ]
-            if not all(narration_lines):
-                raise ValueError("Every voiced Reel scene needs narration before full-track synthesis")
-            if not narration_path.is_file():
-                narration_script = "\n\n".join(narration_lines)
-                pcm = _gemini_tts_pcm(
-                    "Create one continuous, warm, confident Instagram Reel narration. "
-                    "Read every paragraph below exactly once, in the given order. "
-                    "Use a brief natural pause between paragraphs. Do not repeat a paragraph, "
-                    "do not restart at scene boundaries, and do not read these instructions aloud.\n\n"
-                    + narration_script,
-                    voice_name,
-                )
-                _write_reel_wav(narration_path, pcm)
-            with wave.open(str(narration_path), "rb") as source:
-                narration_duration = source.getnframes() / float(source.getframerate())
-            weights = [max(1, len(line.split())) for line in narration_lines]
-            total_weight = sum(weights) or len(render_scenes)
-            total_timeline = max(narration_duration + 1.2, len(render_scenes) * 3.5)
-            assigned = [max(3.5, total_timeline * weight / total_weight) for weight in weights]
-            scale = total_timeline / sum(assigned)
-            assigned = [duration * scale for duration in assigned]
-            for render_scene, scene_duration in zip(render_scenes, assigned):
-                render_scene["durationSeconds"] = scene_duration
-                render_scene["textDirection"] = {**(render_scene.get("textDirection") or {}), "endSeconds": scene_duration}
-                render_scene["assets"]["voiceUrl"] = social_asset_url(site_id, asset_key, "instagram", narration_path.name)
         total_scenes = len(storyboard["scenes"])
         progress("render", scene=total_scenes, message="Rendering vertical H.264 video with layered movement and camera work")
         from reel_renderer import render_vertical_reel
@@ -8824,7 +8809,6 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
             asset_dir / "render-work",
             accent_hex=_reel_accent(site_id),
             music_path=music_path,
-            narration_path=narration_path,
         )
         cover_filename = Path(rendered["thumbnailPath"]).name
         reel.update({

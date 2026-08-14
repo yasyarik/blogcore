@@ -5163,3 +5163,34 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The post remains a draft for operator review and was not published.
+
+## 2026-08-14 — Restored scene-aligned narration and the distinct final scene
+
+### Summary
+
+* Replaced the faulty full-script TTS and word-weight timing path with the established scene-owned narration pipeline, which assembles one continuous timeline-aligned WAV before the final audio mix.
+* Reused the previously approved 52.541667-second SoloCruz narration byte-for-byte; no voice or image generation was performed.
+* Replaced the accidental duplicate of scene four with the already existing separate scene-five lounge background and traveler layers.
+* Re-rendered Reel post 33 as a draft with its previous natural duration and one continuous audio stream.
+
+### Files changed
+
+* `app.py` — restored scene-owned TTS assets and renderer-side continuous narration assembly for all sites.
+* `docs/PROJECT_MEMORY.md` — replaced the incorrect full-script/word-weight rule with the durable scene-aligned narration and visual-pack contracts.
+* `docs/CHANGELOG_AI.md` — recorded the correction and production verification.
+
+### Decisions
+
+* Spoken copy belongs to the same scene as its locked overlay meaning. One final audio file is an assembly artifact, not permission to estimate paragraph boundaries or rewrite narration.
+* A visual-only correction must reuse approved audio. A distinct accepted scene cannot be silently substituted with the preceding scene.
+
+### Checks run
+
+* `python3 -m py_compile app.py reel_renderer.py` and `git diff --check` passed.
+* Verified the reused source and rendered narration WAV files have the same SHA-256 hash.
+* Verified the corrected MP4 is 52.541667 seconds, 1080x1920 H.264, contains one AAC stream, and returns HTTP 200.
+* Inspected one frame from every scene and confirmed scene five uses a distinct lounge background and distinct travelers instead of repeating scene four.
+
+### Risks / TODO
+
+* The corrected SoloCruz Reel remains a draft for operator review and was not published.
