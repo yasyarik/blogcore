@@ -5107,3 +5107,31 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * No remaining blocker was found in the final visual, timing, or audio checks.
+
+## 2026-08-14 — Unified Reel narration and removed logo mattes
+
+### Summary
+
+* Replaced delayed per-scene voice mixing with one timeline-aligned narration WAV assembled before FFmpeg audio mixing.
+* Preserved the five existing natural SoloCruz voice recordings and all existing photo/layer assets; no media generation calls were made.
+* Removed flattened white/checkerboard backgrounds from real logo references used in evidence cards and added restrained shadow/glow separation.
+* Re-rendered the current SoloCruz Reel as a 52.54-second draft with one narration input and continuous ducked music.
+
+### Files changed
+
+* `reel_renderer.py` — continuous narration assembly and single-input audio mix.
+* `app.py` — transparent logo normalization plus evidence-card logo shadow/glow.
+* `docs/PROJECT_MEMORY.md` — durable narration and logo compositing contracts.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py reel_renderer.py` passed locally and on the VPS.
+* Verified the generated `reel-narration.wav` is 52.541667 seconds and contains the five distinct source WAVs byte-for-byte at their correct timeline offsets.
+* Verified the final MP4 is 52.54 seconds, 1080x1920 H.264 with one AAC stream, and returns HTTP 200.
+* Inspected the final brand frame and confirmed the SoloCruz logo has no white or checkerboard background.
+* Restarted `blog-yas-core`; `/health` returned `ok`.
+
+### Risks / TODO
+
+* None for this correction. The post remains a reviewable draft and was not published.

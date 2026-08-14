@@ -1050,3 +1050,10 @@ It must be updated after every meaningful task.
 * Reason: Speed-normalized narration became unnaturally fast; keeping six-second scene metadata made text and camera timing diverge from longer audio; left-aligned fixed card layouts produced inconsistent empty space.
 * Files/areas affected: `app.py`, `reel_renderer.py`, all Instagram Reel production.
 * Replaced/deprecated: the earlier same-day rule that normalized overlong narration into a fixed scene window. Scene duration now expands instead.
+
+## 2026-08-14 — Reel narration is one continuous track and logos stay transparent
+
+* Per-scene narration WAV files are intermediate timing segments only. Before FFmpeg mixes voice with continuous music, the renderer must concatenate those segments and their scene-aligned pauses into one `reel-narration.wav`; the final render receives one narration input, never one delayed voice input per scene.
+* The concatenation step validates that all source WAV segments use the same channel count, sample width, sample rate, and compression type. Scene order and natural durations are preserved byte-for-byte.
+* Programmatic evidence cards use the connected site's real logo reference, but must remove a flattened white or checkerboard transparency matte before compositing. The cleaned mark may receive a restrained shadow and brand-color glow for separation; a white square, checkerboard square, or invented logo is forbidden.
+* Files/areas affected: `reel_renderer.py`, `app.py`, Instagram Reel production for all connected sites.

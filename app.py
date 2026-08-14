@@ -4091,6 +4091,40 @@ def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6
     if layer.get("useLogo") and logo_reference and logo_reference.get("data"):
         try:
             logo = Image.open(BytesIO(b64decode(logo_reference["data"]))).convert("RGBA")
+            # Some source-owned logo files acquire an opaque white canvas or a
+            # flattened checkerboard during raster conversion. Clear the edge
+            # matte, and clear neutral light cells only when they dominate the
+            # image enough to prove that the transparency was flattened.
+            rgb = logo.convert("RGB")
+            matte = rgb.copy()
+            marker = (255, 0, 255)
+            for seed in ((0, 0), (max(0, matte.width - 1), 0), (0, max(0, matte.height - 1)), (max(0, matte.width - 1), max(0, matte.height - 1))):
+                pixel = matte.getpixel(seed)
+                if min(pixel) >= 225 and max(pixel) - min(pixel) <= 24:
+                    ImageDraw.floodfill(matte, seed, marker, thresh=34)
+            matte_pixels = matte.load()
+            alpha = logo.getchannel("A")
+            alpha_pixels = alpha.load()
+            neutral_light = 0
+            opaque_pixels = 0
+            for y in range(logo.height):
+                for x in range(logo.width):
+                    red, green, blue, source_alpha = logo.getpixel((x, y))
+                    if source_alpha:
+                        opaque_pixels += 1
+                        if min(red, green, blue) >= 220 and max(red, green, blue) - min(red, green, blue) <= 18:
+                            neutral_light += 1
+            flattened_light_matte = bool(opaque_pixels and neutral_light / opaque_pixels >= 0.20)
+            for y in range(logo.height):
+                for x in range(logo.width):
+                    red, green, blue, source_alpha = logo.getpixel((x, y))
+                    is_neutral_light = min(red, green, blue) >= 220 and max(red, green, blue) - min(red, green, blue) <= 18
+                    if matte_pixels[x, y] == marker or (flattened_light_matte and is_neutral_light):
+                        alpha_pixels[x, y] = 0
+            logo.putalpha(alpha)
+            bbox = logo.getchannel("A").getbbox()
+            if bbox:
+                logo = logo.crop(bbox)
             logo.thumbnail((content_width, 82), Image.Resampling.LANCZOS)
             logo_used = True
         except Exception:
@@ -4117,7 +4151,21 @@ def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6
 
     cursor_y = content_top + max(0, (available_height - required_height) // 2)
     if logo:
-        canvas.alpha_composite(logo, (left + (right - left - logo.width) // 2, cursor_y))
+        logo_x = left + (right - left - logo.width) // 2
+        glow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        glow_alpha = Image.new("L", canvas.size, 0)
+        glow_alpha.paste(logo.getchannel("A"), (logo_x, cursor_y))
+        glow_alpha = glow_alpha.filter(ImageFilter.GaussianBlur(15))
+        glow.putalpha(glow_alpha.point(lambda value: round(value * 0.42)))
+        glow.paste((*accent, 255), (0, 0, canvas.width, canvas.height))
+        glow.putalpha(glow_alpha.point(lambda value: round(value * 0.42)))
+        canvas.alpha_composite(glow)
+        logo_shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        shadow_alpha = Image.new("L", canvas.size, 0)
+        shadow_alpha.paste(logo.getchannel("A"), (logo_x + 4, cursor_y + 7))
+        logo_shadow.putalpha(shadow_alpha.filter(ImageFilter.GaussianBlur(7)).point(lambda value: round(value * 0.65)))
+        canvas.alpha_composite(logo_shadow)
+        canvas.alpha_composite(logo, (logo_x, cursor_y))
         cursor_y += logo.height + 22
     for line, line_height in zip(title_lines, title_heights):
         bbox = draw.textbbox((0, 0), line, font=title_font)

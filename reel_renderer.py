@@ -664,6 +664,56 @@ def _wav_duration(path: Path) -> float:
         return 0.0
 
 
+def _build_continuous_narration(loaded_scenes: list[dict], target_path: Path, fps: int) -> tuple[Path | None, list[tuple[float, float]]]:
+    """Join scene narration into one timeline-aligned WAV before FFmpeg mixing."""
+    voice_sources = [scene["voice_path"] for scene in loaded_scenes if scene.get("voice_path")]
+    if not voice_sources:
+        return None, []
+
+    with wave.open(str(voice_sources[0]), "rb") as first_source:
+        audio_format = (
+            first_source.getnchannels(),
+            first_source.getsampwidth(),
+            first_source.getframerate(),
+            first_source.getcomptype(),
+        )
+    intervals = []
+    offset_seconds = 0.0
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(target_path), "wb") as output:
+        output.setnchannels(audio_format[0])
+        output.setsampwidth(audio_format[1])
+        output.setframerate(audio_format[2])
+        output.setcomptype(audio_format[3], "not compressed")
+        for loaded_scene in loaded_scenes:
+            scene_duration = loaded_scene["frame_count"] / fps
+            voice_path = loaded_scene.get("voice_path")
+            voice_frames = b""
+            voice_duration = 0.0
+            if voice_path:
+                with wave.open(str(voice_path), "rb") as source:
+                    current_format = (
+                        source.getnchannels(),
+                        source.getsampwidth(),
+                        source.getframerate(),
+                        source.getcomptype(),
+                    )
+                    if current_format != audio_format:
+                        raise ValueError("All Reel narration clips must use the same WAV format")
+                    voice_frames = source.readframes(source.getnframes())
+                    voice_duration = source.getnframes() / float(source.getframerate())
+                intervals.append((offset_seconds, min(offset_seconds + voice_duration, offset_seconds + scene_duration)))
+
+            output.writeframes(voice_frames)
+            written_duration = min(scene_duration, voice_duration)
+            silence_duration = max(0.0, scene_duration - written_duration)
+            silence_frames = round(silence_duration * audio_format[2])
+            output.writeframes(b"\x00" * silence_frames * audio_format[0] * audio_format[1])
+            offset_seconds += scene_duration
+
+    return target_path, intervals
+
+
 def _music_volume_expression(voice_intervals: list[tuple[float, float]]) -> str:
     """Keep the brand bed continuous while ducking it gently during spoken narration."""
     speaking = "+".join(f"between(t\\,{start:.3f}\\,{end:.3f})" for start, end in voice_intervals)
@@ -792,31 +842,24 @@ def render_vertical_reel(
         raise RuntimeError(f"ffmpeg video render failed: {stderr[:1000]}")
 
     duration_seconds = round(total_frames / fps, 2)
-    audio_inputs = []
-    offset_seconds = 0.0
-    for loaded_scene in loaded:
-        voice_path = loaded_scene["voice_path"]
-        if voice_path and loaded_scene["voice_duration"] > 0:
-            audio_inputs.append((voice_path, round(offset_seconds * 1000), loaded_scene["voice_duration"]))
-        offset_seconds += loaded_scene["frame_count"] / fps
+    narration_file, voice_intervals = _build_continuous_narration(loaded, work_dir / "reel-narration.wav", fps)
     music_file = Path(music_path) if music_path else None
     if music_file and not music_file.is_file():
         music_file = None
-    voice_intervals = [(delay_ms / 1000.0, min(duration_seconds, delay_ms / 1000.0 + clip_duration)) for _, delay_ms, clip_duration in audio_inputs]
-    if audio_inputs or music_file:
+    if narration_file or music_file:
         command = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(silent_path)]
-        for path, _, _ in audio_inputs:
-            command.extend(["-i", str(path)])
+        if narration_file:
+            command.extend(["-i", str(narration_file)])
         if music_file:
             command.extend(["-stream_loop", "-1", "-i", str(music_file)])
         filters = [f"anullsrc=r=48000:cl=stereo:d={duration_seconds}[base]"]
         labels = ["[base]"]
-        for index, (_, delay_ms, clip_duration) in enumerate(audio_inputs, start=1):
-            filters.append(f"[{index}:a]atrim=0:{clip_duration:.3f},adelay={delay_ms}:all=1,aresample=48000,aformat=channel_layouts=stereo[a{index}]")
-            labels.append(f"[a{index}]")
+        if narration_file:
+            filters.append(f"[1:a]atrim=0:{duration_seconds:.3f},aresample=48000,aformat=channel_layouts=stereo[narration]")
+            labels.append("[narration]")
         filters.append("".join(labels) + f"amix=inputs={len(labels)}:duration=first:normalize=0[voicebed]")
         if music_file:
-            music_index = len(audio_inputs) + 1
+            music_index = 2 if narration_file else 1
             fade_start = max(0.0, duration_seconds - 0.8)
             filters.append(
                 f"[{music_index}:a]atrim=0:{duration_seconds},aresample=48000,aformat=channel_layouts=stereo,"
