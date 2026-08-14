@@ -5135,3 +5135,31 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * None for this correction. The post remains a reviewable draft and was not published.
+
+## 2026-08-14 — Generated one full Reel voice and strengthened the brand block
+
+### Summary
+
+* Replaced per-scene TTS generation with one Gemini TTS request containing the complete ordered narration.
+* Added an explicit full-track input to the renderer so scene changes cannot restart or repeat narration.
+* Enlarged the transparent SoloCruz mark, added a stronger light cyan glow, included `solocruz.com`, and expanded the brand card to preserve large title typography.
+* Re-rendered the same accepted photos and extracted layers; no image generation was performed.
+
+### Files changed
+
+* `app.py` — one-request full narration production and larger domain-aware evidence brand blocks.
+* `reel_renderer.py` — explicit single full-narration input.
+* `docs/PROJECT_MEMORY.md` — replaced the intermediate per-scene narration rule with the full-script TTS contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py reel_renderer.py` passed locally and on the VPS.
+* Generated one 23.48-second `reel-narration-full.wav` from the complete five-paragraph script.
+* Verified the final MP4 is 25.125 seconds, contains one AAC stream, and returns HTTP 200.
+* Inspected the final brand frame: transparent enlarged logo, visible light glow, `solocruz.com`, large title, and no white/checkerboard background.
+* Restarted `blog-yas-core`; `/health` returned `ok`.
+
+### Risks / TODO
+
+* The post remains a draft for operator review and was not published.

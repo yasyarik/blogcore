@@ -4030,7 +4030,7 @@ def _reel_layer_has_invalid_movable_geometry(value):
     ))
 
 
-def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6c6", logo_reference=None):
+def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6c6", logo_reference=None, brand_label=""):
     """Render an abstract fact as honest programmatic motion graphics, not a fake photographed prop."""
     width, height = 1080, 1920
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -4053,6 +4053,8 @@ def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6
         "center": (170, 650, 910, 1050),
     }
     left, top, right, bottom = boxes.get(placement, boxes["middle_right"])
+    if layer.get("useLogo"):
+        bottom = min(height - 80, bottom + 140)
     shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     shadow_draw = ImageDraw.Draw(shadow)
     shadow_draw.rounded_rectangle((left + 14, top + 20, right + 14, bottom + 20), radius=38, fill=(0, 0, 0, 105))
@@ -4125,7 +4127,7 @@ def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6
             bbox = logo.getchannel("A").getbbox()
             if bbox:
                 logo = logo.crop(bbox)
-            logo.thumbnail((content_width, 82), Image.Resampling.LANCZOS)
+            logo.thumbnail((content_width, 142), Image.Resampling.LANCZOS)
             logo_used = True
         except Exception:
             logo = None
@@ -4141,7 +4143,10 @@ def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6
         detail_lines = wrapped_lines(detail, detail_font, content_width) if detail else []
         title_heights = [draw.textbbox((0, 0), line, font=title_font)[3] - draw.textbbox((0, 0), line, font=title_font)[1] for line in title_lines]
         detail_heights = [draw.textbbox((0, 0), line, font=detail_font)[3] - draw.textbbox((0, 0), line, font=detail_font)[1] for line in detail_lines]
-        required_height = (logo.height + 22 if logo else 0)
+        brand_font = ImageFont.truetype(font_path, 28) if Path(font_path).is_file() else ImageFont.load_default()
+        brand_text = str(brand_label or "").strip() if logo else ""
+        brand_height = (draw.textbbox((0, 0), brand_text, font=brand_font)[3] - draw.textbbox((0, 0), brand_text, font=brand_font)[1]) if brand_text else 0
+        required_height = (logo.height + (12 + brand_height if brand_text else 0) + 24 if logo else 0)
         required_height += sum(title_heights) + max(0, len(title_heights) - 1) * 8
         required_height += (16 + sum(detail_heights) + max(0, len(detail_heights) - 1) * 6) if detail_heights else 0
         if required_height <= available_height or (title_size <= 20 and detail_size <= 16):
@@ -4155,10 +4160,9 @@ def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6
         glow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         glow_alpha = Image.new("L", canvas.size, 0)
         glow_alpha.paste(logo.getchannel("A"), (logo_x, cursor_y))
-        glow_alpha = glow_alpha.filter(ImageFilter.GaussianBlur(15))
-        glow.putalpha(glow_alpha.point(lambda value: round(value * 0.42)))
-        glow.paste((*accent, 255), (0, 0, canvas.width, canvas.height))
-        glow.putalpha(glow_alpha.point(lambda value: round(value * 0.42)))
+        glow_alpha = glow_alpha.filter(ImageFilter.MaxFilter(31)).filter(ImageFilter.GaussianBlur(18))
+        glow.paste((190, 255, 250, 255), (0, 0, canvas.width, canvas.height))
+        glow.putalpha(glow_alpha.point(lambda value: round(value * 0.82)))
         canvas.alpha_composite(glow)
         logo_shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         shadow_alpha = Image.new("L", canvas.size, 0)
@@ -4166,7 +4170,19 @@ def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6
         logo_shadow.putalpha(shadow_alpha.filter(ImageFilter.GaussianBlur(7)).point(lambda value: round(value * 0.65)))
         canvas.alpha_composite(logo_shadow)
         canvas.alpha_composite(logo, (logo_x, cursor_y))
-        cursor_y += logo.height + 22
+        cursor_y += logo.height
+        if brand_text:
+            cursor_y += 12
+            bbox = draw.textbbox((0, 0), brand_text, font=brand_font)
+            brand_width = bbox[2] - bbox[0]
+            draw.text(
+                (left + (right - left - brand_width) // 2 - bbox[0], cursor_y - bbox[1]),
+                brand_text,
+                font=brand_font,
+                fill=(216, 255, 252, 255),
+            )
+            cursor_y += brand_height
+        cursor_y += 24
     for line, line_height in zip(title_lines, title_heights):
         bbox = draw.textbbox((0, 0), line, font=title_font)
         line_width = bbox[2] - bbox[0]
@@ -4320,6 +4336,7 @@ def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, refere
                     target,
                     accent_hex=_reel_accent(int(site["id"])),
                     logo_reference=reference_logo,
+                    brand_label=str(site["domain"] or ""),
                 )
                 layer_assets[str(layer.get("id") or "")] = (str(target), filename)
             ordered_assets = [layer_assets[str(layer.get("id") or "")] for layer in all_layers if str(layer.get("id") or "") in layer_assets]
@@ -8754,6 +8771,7 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
         voice_enabled = bool(reel.get("voiceEnabled"))
         settings = get_podcast_settings(site_id) if voice_enabled else None
         voice_name = settings["voice_name"] if settings and settings["voice_name"] in PODCAST_VOICES else "Kore"
+        narration_path = None
         for scene, visual_pack in accepted_visual_scenes:
             index = int(scene["index"])
             render_scene = {
@@ -8762,15 +8780,39 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
                 "foregroundPaths": visual_pack["foregroundPaths"],
                 "fullCanvasLayers": True,
             }
-            if voice_enabled:
-                progress("voice", scene=index, message=f"All visual scenes are valid; synthesizing narration for scene {index}")
-                voice_path = asset_dir / f"scene-{index:02d}-voice.wav"
-                if not voice_path.is_file():
-                    pcm = _gemini_tts_pcm(f"Deliver this as one warm, brisk two-to-three second Reel thought. No preamble, no extra words, no slow pauses. Do not read this instruction aloud.\n\n{scene['narration']}", voice_name)
-                    _write_reel_wav(voice_path, pcm)
-                scene["assets"]["voiceUrl"] = social_asset_url(site_id, asset_key, "instagram", voice_path.name)
-                render_scene["voicePath"] = str(voice_path)
             render_scenes.append(render_scene)
+        if voice_enabled:
+            progress("voice", scene=0, message="All visual scenes are valid; synthesizing one continuous narration track")
+            narration_path = asset_dir / "reel-narration-full.wav"
+            narration_lines = [
+                str(scene.get("narration") or scene.get("overlayText") or "").strip()
+                for scene, _ in accepted_visual_scenes
+            ]
+            if not all(narration_lines):
+                raise ValueError("Every voiced Reel scene needs narration before full-track synthesis")
+            if not narration_path.is_file():
+                narration_script = "\n\n".join(narration_lines)
+                pcm = _gemini_tts_pcm(
+                    "Create one continuous, warm, confident Instagram Reel narration. "
+                    "Read every paragraph below exactly once, in the given order. "
+                    "Use a brief natural pause between paragraphs. Do not repeat a paragraph, "
+                    "do not restart at scene boundaries, and do not read these instructions aloud.\n\n"
+                    + narration_script,
+                    voice_name,
+                )
+                _write_reel_wav(narration_path, pcm)
+            with wave.open(str(narration_path), "rb") as source:
+                narration_duration = source.getnframes() / float(source.getframerate())
+            weights = [max(1, len(line.split())) for line in narration_lines]
+            total_weight = sum(weights) or len(render_scenes)
+            total_timeline = max(narration_duration + 1.2, len(render_scenes) * 3.5)
+            assigned = [max(3.5, total_timeline * weight / total_weight) for weight in weights]
+            scale = total_timeline / sum(assigned)
+            assigned = [duration * scale for duration in assigned]
+            for render_scene, scene_duration in zip(render_scenes, assigned):
+                render_scene["durationSeconds"] = scene_duration
+                render_scene["textDirection"] = {**(render_scene.get("textDirection") or {}), "endSeconds": scene_duration}
+                render_scene["assets"]["voiceUrl"] = social_asset_url(site_id, asset_key, "instagram", narration_path.name)
         total_scenes = len(storyboard["scenes"])
         progress("render", scene=total_scenes, message="Rendering vertical H.264 video with layered movement and camera work")
         from reel_renderer import render_vertical_reel
@@ -8782,6 +8824,7 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
             asset_dir / "render-work",
             accent_hex=_reel_accent(site_id),
             music_path=music_path,
+            narration_path=narration_path,
         )
         cover_filename = Path(rendered["thumbnailPath"]).name
         reel.update({

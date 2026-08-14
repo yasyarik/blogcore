@@ -727,6 +727,7 @@ def render_vertical_reel(
     fps: int = FPS,
     accent_hex: str = "#36d6c6",
     music_path: str | Path | None = None,
+    narration_path: str | Path | None = None,
 ) -> dict:
     if not scenes:
         raise ValueError("A reel needs at least one scene")
@@ -842,7 +843,12 @@ def render_vertical_reel(
         raise RuntimeError(f"ffmpeg video render failed: {stderr[:1000]}")
 
     duration_seconds = round(total_frames / fps, 2)
-    narration_file, voice_intervals = _build_continuous_narration(loaded, work_dir / "reel-narration.wav", fps)
+    narration_file = Path(narration_path) if narration_path else None
+    if narration_file and narration_file.is_file():
+        narration_duration = _wav_duration(narration_file)
+        voice_intervals = [(0.0, min(duration_seconds, narration_duration))]
+    else:
+        narration_file, voice_intervals = _build_continuous_narration(loaded, work_dir / "reel-narration.wav", fps)
     music_file = Path(music_path) if music_path else None
     if music_file and not music_file.is_file():
         music_file = None
