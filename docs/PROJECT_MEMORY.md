@@ -1011,5 +1011,11 @@ It must be updated after every meaningful task.
 * Every Reel scene must contain three or four distinct physical layer events. The persistent overlay, camera path, focus, lighting, and static-set reveals are additional direction and never count toward this minimum.
 * Step two must create three or four independently extractable layers and at least one meaningful non-human object. Step three creates exactly one timed rigid entrance for every approved layer and cannot omit or duplicate one.
 * The first three layer events form one causal evidence chain: situation, mechanism, and visible result. An optional fourth event may preserve continuity. Every layer must explain what becomes impossible to understand if it is removed; location dressing, generic accessories, atmosphere, and visual padding are not events.
+
+## 2026-08-14 — Abstract Reel claims need honest evidence layers
+
+* Pricing, discounts, cost splits, matching results, and similar abstract mechanisms must not be converted into invented gifts, luggage, keycards, tickets, wristbands, receipts, or other photographic proxies that do not prove the claim.
+* When people and physical relationships cannot communicate the mechanism honestly, use a restrained programmatic evidence layer with only the minimum fact needed for comprehension. It is not an AI-generated photographed prop and must remain subordinate to the main scene copy.
+* This production capability is still pending full renderer integration. Until then, plans using evidence layers remain text-only review artifacts and must not start image, voice, or video generation.
 * A person layer owns every item worn, carried, held, touched, or overlapped by that person. An independent object layer must be physically separate from people and other movable layers, freestanding, detachable, and unobstructed.
 * Replaced/deprecated: the same-day rule that counted one layer entrance plus overlay text plus camera motion as a valid three-event scene.

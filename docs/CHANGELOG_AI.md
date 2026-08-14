@@ -4999,3 +4999,27 @@ This file is updated by Codex after every task.
 
 * The saved one-layer plan remains available for comparison but is invalid under the restored contract.
 * A candidate with three layers per scene was not accepted because some layers were decorative accessories or violated object ownership. The pipeline now blocks those candidates; a new plan must satisfy both event count and semantic necessity before media production.
+
+## 2026-08-14 — Generated corrected Reel steps two and three
+
+### Summary
+
+* Re-ran Gemini text-only planning for the SoloCruz article after rejecting symbolic physical props that did not prove pricing or savings.
+* Produced a corrected five-scene construction with three causal events per scene and a separate six-second motion plan for every scene.
+* Used explicit programmatic evidence graphics for abstract pricing, discount, cost-split, and matching facts instead of inventing gifts, keycards, tickets, or other misleading photo props.
+
+### Files changed
+
+* `docs/CHANGELOG_AI.md` — recorded the corrected text-only planning run.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule for honest visual evidence of abstract mechanisms.
+
+### Checks run
+
+* Gemini returned complete JSON for both corrected planning stages.
+* Verified every scene has exactly three layer events, continuous camera direction, and persistent scene text.
+* No images, voice, music, or video were generated.
+
+### Risks / TODO
+
+* The corrected plans are review artifacts and are not yet approved for media generation.
+* Full production support for programmatic evidence layers must be completed before rendering this plan through the standard pipeline.
