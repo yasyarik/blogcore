@@ -3850,7 +3850,7 @@ EXTRACTION-SAFE COMPOSITION:
 - The listed movable groups are the authoritative physical inventory. Every listed group is separate and has visible background space around its outer silhouette. A separately listed suitcase, bag, chair, table, lamp, planter, sculpture, credenza, or other object is not held, worn, touched, sat on, leaned against, or overlapped by a person or another listed group. If the scene prose implies such contact, keep the meaning but place the complete groups close to one another without contact.
 - LOCATION AND VISUAL WORLD describes the empty environment only. Any mention there of removed people or objects means those pixels belong to the clean plate; it never overrides the separate-group inventory above and never authorizes physical contact between groups.
 - Show exactly the listed movable groups as the only people and prominent objects anywhere in the photograph. Do not add background people, distant people, silhouettes, crowds, waiters, staff, passengers, reflections of people, luggage, furniture, or unlisted objects near their silhouettes.
-- Every listed person and group must be large enough for mobile viewing and completely visible inside the frame. Each standing person's head-to-feet silhouette must occupy roughly 40% to 60% of the total image height. Preserve complete heads, hair, shoulders, arms, elbows, hands, fingers, clothing edges, legs, feet, and carried or worn items. Keep the complete outer silhouette of every listed group inside an inner safe frame with clear photographic background visible between every outermost part and all four canvas edges. Light every face and body naturally from the camera side so facial features, eyes, skin tone, clothing, hands, and feet remain clearly visible; never render a person as a dark silhouette against a brighter wall or window.
+- Every listed person and group must be large enough for mobile viewing and completely visible inside the frame. Each standing person's head-to-feet silhouette must occupy roughly 40% to 60% of the total image height. Preserve complete heads, hair, shoulders, arms, elbows, hands, fingers, clothing edges, legs, and feet. Give every person clean fitted clothing and empty hands. Do not add a backpack, shoulder bag, handbag, luggage, loose strap, dangling accessory, scarf tail, or carried object; those thin overlapping details damage extraction and are not part of the approved scene. Keep the complete outer silhouette of every listed group inside an inner safe frame with clear photographic background visible between every outermost part and all four canvas edges. Light every face and body naturally from the camera side so facial features, eyes, skin tone, clothing, hands, and feet remain clearly visible; never render a person as a dark silhouette against a brighter wall or window.
 - For an assembly such as a table with chairs or a furniture group, the complete assembly means every tabletop edge, chair back, seat, leg, base, accessory, and contact shadow. Frame the camera wide enough that its outermost component remains inside the inner safe frame.
 - Compose for the narrow vertical canvas before choosing camera proximity. Place large multi-part assemblies in the middle ground, never as oversized foreground crops. Give every independent listed group its own non-overlapping visual zone, with visible floor, wall, or open background separating it from every other listed group. A fixed wall-side object must not sit behind a person or another group. Pull the camera farther back or choose a larger room until the entire listed inventory fits naturally and remains readable.
 - People who touch, shake hands, embrace, carry one shared item, or overlap belong to one listed cohesive group. Different listed groups must have clear visible background space between their silhouettes and must not touch, overlap, cover, or pass behind one another.
@@ -4030,11 +4030,97 @@ def _reel_layer_has_invalid_movable_geometry(value):
     ))
 
 
+def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6c6", logo_reference=None):
+    """Render an abstract fact as honest programmatic motion graphics, not a fake photographed prop."""
+    width, height = 1080, 1920
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    try:
+        accent = tuple(int(accent_hex[index:index + 2], 16) for index in (0, 2, 4))
+    except Exception:
+        accent = (54, 214, 198)
+    placement = str(layer.get("graphicPlacement") or "middle_right")
+    boxes = {
+        "top_left": (70, 330, 720, 650),
+        "top_right": (360, 330, 1010, 650),
+        "top_center": (170, 90, 910, 430),
+        "middle_left": (70, 660, 720, 1010),
+        "middle_right": (360, 660, 1010, 1010),
+        "middle_far_right": (590, 620, 1030, 950),
+        "lower_left": (70, 1050, 720, 1400),
+        "lower_right": (360, 1050, 1010, 1400),
+        "lower_far_right": (590, 1040, 1030, 1370),
+        "center": (170, 650, 910, 1050),
+    }
+    left, top, right, bottom = boxes.get(placement, boxes["middle_right"])
+    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.rounded_rectangle((left + 14, top + 20, right + 14, bottom + 20), radius=38, fill=(0, 0, 0, 105))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(22))
+    canvas.alpha_composite(shadow)
+    draw = ImageDraw.Draw(canvas)
+    draw.rounded_rectangle((left, top, right, bottom), radius=38, fill=(8, 25, 40, 226), outline=(*accent, 235), width=4)
+    draw.rounded_rectangle((left + 28, top + 28, left + 116, top + 38), radius=5, fill=(*accent, 255))
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    title_font = ImageFont.truetype(font_path, int(layer.get("graphicFontSize") or 66)) if Path(font_path).is_file() else ImageFont.load_default()
+    detail_font = ImageFont.truetype(font_path, 31) if Path(font_path).is_file() else ImageFont.load_default()
+    title = str(layer.get("graphicText") or layer.get("id") or "").strip()
+    detail = str(layer.get("graphicDetail") or "").strip()
+
+    def wrapped_lines(value, font, max_width):
+        words = value.split()
+        lines, current = [], ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if not current or draw.textbbox((0, 0), candidate, font=font)[2] <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines
+
+    cursor_y = top + 78
+    logo_used = False
+    if layer.get("useLogo") and logo_reference and logo_reference.get("data"):
+        try:
+            logo = Image.open(BytesIO(b64decode(logo_reference["data"]))).convert("RGBA")
+            logo.thumbnail((right - left - 96, 120), Image.Resampling.LANCZOS)
+            canvas.alpha_composite(logo, (left + 48, cursor_y))
+            cursor_y += logo.height + 30
+            logo_used = True
+        except Exception:
+            logo_used = False
+    for line in wrapped_lines(title, title_font, right - left - 96)[:3]:
+        draw.text((left + 48, cursor_y), line, font=title_font, fill=(244, 250, 252, 255), stroke_width=0)
+        cursor_y += title_font.size + 10
+    if detail:
+        cursor_y += 12
+        for line in wrapped_lines(detail, detail_font, right - left - 96)[:2]:
+            draw.text((left + 48, cursor_y), line, font=detail_font, fill=(*accent, 255))
+            cursor_y += detail_font.size + 8
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(target_path, format="PNG")
+    layer["assetValidation"] = {
+        "generationMode": "programmatic_evidence_graphic",
+        "logoReferenceUsed": logo_used,
+        "graphicText": title,
+    }
+    return target_path
+
+
 def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, reference_logo=None):
     index = int(scene["index"])
     failures = []
-    validate_instagram_reel_source_grounding([scene], job)
-    for layer in scene.get("layers") or []:
+    all_layers = [layer for layer in scene.get("layers") or [] if isinstance(layer, dict)]
+    evidence_layers = [layer for layer in all_layers if str(layer.get("role") or "") == "evidence_graphic"]
+    photo_layers = [layer for layer in all_layers if str(layer.get("role") or "") != "evidence_graphic"]
+    if not photo_layers:
+        raise ValueError(f"Reel scene {index} needs at least one photographed subject")
+    photo_scene = {**scene, "layers": photo_layers}
+    validate_instagram_reel_source_grounding([photo_scene], job)
+    for layer in photo_layers:
         geometry_text = " ".join(
             str(layer.get(field) or "")
             for field in ("prompt", "action", "relationship", "initialState", "finalState")
@@ -4072,9 +4158,9 @@ def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, refere
                     build_instagram_reel_master_prompt(
                         site,
                         job,
-                        scene,
+                        photo_scene,
                         retry_reason=failures[-1] if failures else "",
-                        has_logo_reference=bool(reference_logo and scene.get("usesLogoReference")),
+                        has_logo_reference=bool(reference_logo and photo_scene.get("usesLogoReference")),
                     ),
                     aspect_ratio="9:16",
                     reference_image=reference_logo if reference_logo and scene.get("usesLogoReference") else None,
@@ -4083,14 +4169,15 @@ def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, refere
                 raise RuntimeError("Gemini did not return a JPEG master frame")
             if not master_path.is_file():
                 master_path.write_bytes(master_bytes)
-            master_review = normalize_instagram_reel_master_review(review_instagram_reel_master(master_bytes, scene), scene)
+            master_review = normalize_instagram_reel_master_review(review_instagram_reel_master(master_bytes, photo_scene), photo_scene)
             specs = master_review["specs"]
             dropped_layer_ids = set(master_review.get("droppedLayerIds") or [])
             if dropped_layer_ids:
-                scene["layers"] = [
-                    layer for layer in scene.get("layers") or []
+                photo_layers = [
+                    layer for layer in photo_layers
                     if str(layer.get("id") or "") not in dropped_layer_ids
                 ]
+                photo_scene["layers"] = photo_layers
             clean_path = attempt_dir / "clean.jpg"
             clean_bytes = clean_path.read_bytes() if clean_path.is_file() else _gemini_image_jpeg(
                     build_instagram_reel_clean_plate_prompt(specs),
@@ -4131,10 +4218,9 @@ def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, refere
             background_filename = f"scene-{index:02d}-background.png"
             background_path = asset_dir / background_filename
             shutil.copy2(base_source_path, background_path)
-            foreground_paths = []
-            foreground_urls = []
-            for layer_index, (layer, manifest_layer, source_path) in enumerate(zip(scene.get("layers") or [], manifest["layers"], source_layer_paths), start=1):
-                filename = f"scene-{index:02d}-layer-{layer_index:02d}.png"
+            layer_assets = {}
+            for layer_index, (layer, manifest_layer, source_path) in enumerate(zip(photo_layers, manifest["layers"], source_layer_paths), start=1):
+                filename = f"scene-{index:02d}-photo-layer-{layer_index:02d}.png"
                 target = asset_dir / filename
                 shutil.copy2(source_path, target)
                 bbox = manifest_layer.get("pixelBox") or []
@@ -4146,8 +4232,20 @@ def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, refere
                     "pixelBox": bbox,
                     "visualReview": pack_review,
                 }
-                foreground_paths.append(str(target))
-                foreground_urls.append(filename)
+                layer_assets[str(layer.get("id") or "")] = (str(target), filename)
+            for graphic_index, layer in enumerate(evidence_layers, start=1):
+                filename = f"scene-{index:02d}-evidence-layer-{graphic_index:02d}.png"
+                target = asset_dir / filename
+                generate_instagram_reel_evidence_layer(
+                    layer,
+                    target,
+                    accent_hex=_reel_accent(int(site["id"])),
+                    logo_reference=reference_logo,
+                )
+                layer_assets[str(layer.get("id") or "")] = (str(target), filename)
+            ordered_assets = [layer_assets[str(layer.get("id") or "")] for layer in all_layers if str(layer.get("id") or "") in layer_assets]
+            foreground_paths = [item[0] for item in ordered_assets]
+            foreground_urls = [item[1] for item in ordered_assets]
             scene["composition"] = {**(scene.get("composition") or {}), "textPlacement": master_review["quietTextZone"]}
             scene["masterFrameValidation"] = {
                 "attempt": attempt,
@@ -8158,15 +8256,17 @@ def build_instagram_reel_production_storyboard(reel, job):
                 continue
             group_id = str(group.get("name") or f"element-{len(groups) + 1:02d}")
             visual_beat = beats_by_subject.get(group_id, {})
-            is_person = str(group.get("layerType") or "") == "person_group"
+            layer_type = str(group.get("layerType") or "")
+            is_person = layer_type == "person_group"
+            is_evidence_graphic = layer_type == "evidence_graphic"
             if is_person:
                 person_number += 1
-            role = ("protagonist" if person_number == 1 else "supporting_character") if is_person else "story_object"
+            role = (("protagonist" if person_number == 1 else "supporting_character") if is_person else "evidence_graphic" if is_evidence_graphic else "story_object")
             source_anchor = str(visual_beat.get("sourceAnchor") or group.get("finalPosition") or group_id)
             if is_person:
                 source_anchor = (
                     "One complete adult traveler standing in the near-to-middle foreground, fully visible from head to feet and occupying 40% to 60% of image height. "
-                    "The person has relaxed empty hands, natural front lighting, free outer contours, and visible background space around the entire silhouette. "
+                    "The person has relaxed empty hands, no backpack, shoulder bag, handbag, luggage, loose strap, dangling accessory, or carried object, natural front lighting, free outer contours, and visible background space around the entire silhouette. "
                     "The person does not touch any separately listed person, object, furniture, or architecture."
                 )
             groups.append({
@@ -8180,6 +8280,12 @@ def build_instagram_reel_production_storyboard(reel, job):
                 "initialState": str(visual_beat.get("fromState") or "Outside its final registered state."),
                 "finalState": str(visual_beat.get("finalState") or group.get("finalPosition") or "Holds at final registration."),
                 "sourceEvidence": str(group.get("sourceGroundingQuote") or ""),
+                "layerType": layer_type,
+                "graphicText": str(group.get("graphicText") or visual_beat.get("graphicText") or ""),
+                "graphicDetail": str(group.get("graphicDetail") or visual_beat.get("graphicDetail") or ""),
+                "graphicPlacement": str(group.get("graphicPlacement") or visual_beat.get("graphicPlacement") or "middle_right"),
+                "graphicFontSize": int(group.get("graphicFontSize") or visual_beat.get("graphicFontSize") or 66),
+                "useLogo": bool(group.get("useLogo") or visual_beat.get("useLogo")),
                 "manifestReveal": str(group.get("transformMode") or visual_beat.get("revealMethod") or "settle"),
                 "manifestMotion": "hold",
                 "manifestStartSeconds": float(group.get("startSeconds") or visual_beat.get("startSeconds") or 0),
@@ -8246,6 +8352,12 @@ def build_instagram_reel_production_storyboard(reel, job):
         camera = planned.get("cameraPlan") if isinstance(planned.get("cameraPlan"), dict) else {}
         clean_plate_source = str(planned.get("cleanPlate") or concept.get("cleanPlate") or "")
         clean_environment = re.split(r",?\s+(?:with the camera|but with)\b", clean_plate_source, maxsplit=1, flags=re.I)[0].strip(" ,.")
+        visible_people = sum(1 for group in groups if group.get("role") in {"protagonist", "supporting_character"})
+        shot_framing = (
+            "Premium vertical medium-wide editorial photograph with exactly two standing people; each complete head-to-feet figure occupies 42% to 55% of image height, both are mobile-readable and separated by clear background"
+            if visible_people >= 2 else
+            "Premium vertical medium editorial photograph with the complete standing person occupying 48% to 62% of image height and clear background around the silhouette"
+        )
         scenes.append({
             "index": index,
             "stageId": beat_id,
@@ -8256,7 +8368,7 @@ def build_instagram_reel_production_storyboard(reel, job):
                 + (clean_environment or "a premium uncrowded shipboard interior")
             ),
             "stageBackgroundPrompt": str(planned.get("cleanPlate") or concept.get("cleanPlate") or ""),
-            "shotFraming": "Premium vertical wide editorial photograph with every listed group completely visible and mutually separated",
+            "shotFraming": shot_framing,
             "overlayText": str(text.get("copy") or concept.get("overlayText") or ""),
             "supportingText": "",
             "narration": "",

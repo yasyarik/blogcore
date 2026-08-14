@@ -5023,3 +5023,31 @@ This file is updated by Codex after every task.
 
 * The corrected plans are review artifacts and are not yet approved for media generation.
 * Full production support for programmatic evidence layers must be completed before rendering this plan through the standard pipeline.
+
+## 2026-08-14 — Produced the SoloCruz Reel without voice
+
+### Summary
+
+* Added production rendering for honest programmatic evidence graphics so prices, supplements, cost splits, and match results are not represented by invented photographed props.
+* Kept evidence graphics in screen space while the camera moves through the photographic scene, and aligned camera phases with each scene's real event start times.
+* Strengthened reusable photo-layer prompts and two-person framing so extractable people are large enough for a mobile Reel and do not carry straps, bags, or dangling accessories that damage mattes.
+* Produced and visually checked a 30-second SoloCruz Reel with continuous brand music and no generated voice.
+
+### Files changed
+
+* `app.py` — programmatic evidence-layer generation and reusable registered-scene production rules.
+* `reel_renderer.py` — event-aligned camera timing and screen-space evidence compositing.
+* `docs/PROJECT_MEMORY.md` — durable Reel production and resume rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py reel_renderer.py` passed locally and on the VPS.
+* Restarted `blog-yas-core`; `/health` returned `ok`.
+* Verified the final MP4 is 1080x1920, H.264 with AAC music, exactly 30 seconds, and publicly returns HTTP 200.
+* Inspected a five-frame contact sheet covering the middle of every scene.
+
+### Risks / TODO
+
+* Voice remains intentionally disabled until the visual Reel workflow is accepted.
+* The production run used a focused operator script to exercise the generic renderer; scheduled generation should use the same generic app and renderer contracts.

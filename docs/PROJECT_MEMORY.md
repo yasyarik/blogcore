@@ -1019,3 +1019,14 @@ It must be updated after every meaningful task.
 * This production capability is still pending full renderer integration. Until then, plans using evidence layers remain text-only review artifacts and must not start image, voice, or video generation.
 * A person layer owns every item worn, carried, held, touched, or overlapped by that person. An independent object layer must be physically separate from people and other movable layers, freestanding, detachable, and unobstructed.
 * Replaced/deprecated: the same-day rule that counted one layer entrance plus overlay text plus camera motion as a valid three-event scene.
+
+## 2026-08-14 — Programmatic Reel evidence is independent of the photographic camera
+
+* Decision: Abstract facts such as prices, discounts, supplements, cost splits, and matching results are rendered as transparent programmatic RGBA evidence layers. They are composited in screen coordinates and are not zoomed or panned with the photographic camera.
+* Decision: Camera phases start from the approved event timestamps, not equal subdivisions of scene duration. Physical photo layers follow the camera; evidence graphics retain their readable screen placement.
+* Decision: Resume production reuses costly completed photo assets but regenerates cheap programmatic graphics from the current approved plan so placement and copy fixes take effect.
+* Decision: Extractable person masters must avoid bags, backpacks, straps, luggage, dangling accessories, and other ownership-crossing details. Two-person mobile scenes use medium-wide framing with each person large enough for reliable matting and phone viewing.
+* Decision: Voice generation remains disabled until the visual result is approved. A visual-only production run may use the site's existing brand music continuously.
+* Reason: Camera-transforming evidence made it overlap people and become unreadable; stale resumed graphics ignored corrected placements; straps and undersized people caused avoidable matting failures.
+* Files/areas affected: `app.py`, `reel_renderer.py`, Instagram Reel generation for every connected site.
+* Replaced/deprecated: photographed proxy props for abstract claims, camera-transforming UI/evidence cards, and blind reuse of stale programmatic layers during resume.
