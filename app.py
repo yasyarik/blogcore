@@ -4062,8 +4062,6 @@ def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6
     draw.rounded_rectangle((left, top, right, bottom), radius=38, fill=(8, 25, 40, 226), outline=(*accent, 235), width=4)
     draw.rounded_rectangle((left + 28, top + 28, left + 116, top + 38), radius=5, fill=(*accent, 255))
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    title_font = ImageFont.truetype(font_path, int(layer.get("graphicFontSize") or 66)) if Path(font_path).is_file() else ImageFont.load_default()
-    detail_font = ImageFont.truetype(font_path, 31) if Path(font_path).is_file() else ImageFont.load_default()
     title = str(layer.get("graphicText") or layer.get("id") or "").strip()
     detail = str(layer.get("graphicDetail") or "").strip()
 
@@ -4081,25 +4079,55 @@ def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6
             lines.append(current)
         return lines
 
-    cursor_y = top + 78
+    content_left = left + 48
+    content_right = right - 48
+    content_top = top + 64
+    content_bottom = bottom - 42
+    content_width = content_right - content_left
+    available_height = content_bottom - content_top
     logo_used = False
+    logo = None
     if layer.get("useLogo") and logo_reference and logo_reference.get("data"):
         try:
             logo = Image.open(BytesIO(b64decode(logo_reference["data"]))).convert("RGBA")
-            logo.thumbnail((right - left - 96, 120), Image.Resampling.LANCZOS)
-            canvas.alpha_composite(logo, (left + 48, cursor_y))
-            cursor_y += logo.height + 30
+            logo.thumbnail((content_width, 82), Image.Resampling.LANCZOS)
             logo_used = True
         except Exception:
+            logo = None
             logo_used = False
-    for line in wrapped_lines(title, title_font, right - left - 96)[:3]:
-        draw.text((left + 48, cursor_y), line, font=title_font, fill=(244, 250, 252, 255), stroke_width=0)
-        cursor_y += title_font.size + 10
+
+    requested_title_size = int(layer.get("graphicFontSize") or 66)
+    title_size = max(36, requested_title_size)
+    detail_size = 31
+    while True:
+        title_font = ImageFont.truetype(font_path, title_size) if Path(font_path).is_file() else ImageFont.load_default()
+        detail_font = ImageFont.truetype(font_path, detail_size) if Path(font_path).is_file() else ImageFont.load_default()
+        title_lines = wrapped_lines(title, title_font, content_width)[:3]
+        detail_lines = wrapped_lines(detail, detail_font, content_width)[:2] if detail else []
+        title_heights = [draw.textbbox((0, 0), line, font=title_font)[3] - draw.textbbox((0, 0), line, font=title_font)[1] for line in title_lines]
+        detail_heights = [draw.textbbox((0, 0), line, font=detail_font)[3] - draw.textbbox((0, 0), line, font=detail_font)[1] for line in detail_lines]
+        required_height = (logo.height + 22 if logo else 0)
+        required_height += sum(title_heights) + max(0, len(title_heights) - 1) * 8
+        required_height += (16 + sum(detail_heights) + max(0, len(detail_heights) - 1) * 6) if detail_heights else 0
+        if required_height <= available_height or (title_size <= 36 and detail_size <= 25):
+            break
+        title_size = max(36, title_size - 2)
+        detail_size = max(25, detail_size - 1)
+
+    cursor_y = content_top
+    if logo:
+        canvas.alpha_composite(logo, (content_left, cursor_y))
+        cursor_y += logo.height + 22
+    for line, line_height in zip(title_lines, title_heights):
+        bbox = draw.textbbox((0, 0), line, font=title_font)
+        draw.text((content_left, cursor_y - bbox[1]), line, font=title_font, fill=(244, 250, 252, 255), stroke_width=0)
+        cursor_y += line_height + 8
     if detail:
-        cursor_y += 12
-        for line in wrapped_lines(detail, detail_font, right - left - 96)[:2]:
-            draw.text((left + 48, cursor_y), line, font=detail_font, fill=(*accent, 255))
-            cursor_y += detail_font.size + 8
+        cursor_y += 8
+        for line, line_height in zip(detail_lines, detail_heights):
+            bbox = draw.textbbox((0, 0), line, font=detail_font)
+            draw.text((content_left, cursor_y - bbox[1]), line, font=detail_font, fill=(*accent, 255))
+            cursor_y += line_height + 6
     target_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(target_path, format="PNG")
     layer["assetValidation"] = {
@@ -7520,6 +7548,29 @@ def _write_reel_wav(path, pcm):
         output.writeframes(pcm)
 
 
+def _normalize_reel_voice_duration(path, max_duration_seconds):
+    """Keep one scene's narration inside its scene so adjacent voices cannot overlap."""
+    path = Path(path)
+    with wave.open(str(path), "rb") as source:
+        duration = source.getnframes() / float(source.getframerate())
+    max_duration = max(1.0, float(max_duration_seconds))
+    if duration <= max_duration:
+        return duration
+    speed = duration / max_duration
+    filters = []
+    while speed > 2.0:
+        filters.append("atempo=2.0")
+        speed /= 2.0
+    filters.append(f"atempo={speed:.6f}")
+    normalized_path = path.with_name(path.stem + "-normalized.wav")
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(path), "-filter:a", ",".join(filters), str(normalized_path)],
+        check=True,
+    )
+    normalized_path.replace(path)
+    return max_duration
+
+
 def _remove_reel_background(source_path, target_path, preserve_canvas=False):
     try:
         from rembg import remove
@@ -8689,6 +8740,7 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
                 if not voice_path.is_file():
                     pcm = _gemini_tts_pcm(f"Deliver this as one warm, brisk two-to-three second Reel thought. No preamble, no extra words, no slow pauses. Do not read this instruction aloud.\n\n{scene['narration']}", voice_name)
                     _write_reel_wav(voice_path, pcm)
+                _normalize_reel_voice_duration(voice_path, max(1.0, float(scene.get("durationSeconds") or 6.0) - 1.0))
                 scene["assets"]["voiceUrl"] = social_asset_url(site_id, asset_key, "instagram", voice_path.name)
                 render_scene["voicePath"] = str(voice_path)
             render_scenes.append(render_scene)

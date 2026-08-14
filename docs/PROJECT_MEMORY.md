@@ -1030,3 +1030,12 @@ It must be updated after every meaningful task.
 * Reason: Camera-transforming evidence made it overlap people and become unreadable; stale resumed graphics ignored corrected placements; straps and undersized people caused avoidable matting failures.
 * Files/areas affected: `app.py`, `reel_renderer.py`, Instagram Reel generation for every connected site.
 * Replaced/deprecated: photographed proxy props for abstract claims, camera-transforming UI/evidence cards, and blind reuse of stale programmatic layers during resume.
+
+## 2026-08-14 — Reel cards and narration must fit their time and frame
+
+* Decision: Programmatic evidence cards use measured content layout with explicit left, right, top, and bottom safe padding. Logo, title, and detail lines are measured together; typography may reduce within a bounded range when required, but content must never cross the card edge.
+* Decision: Scene narration must finish before its scene boundary. Measure generated audio before rendering and normalize an overlong delivery to the approved narration window so sequential scene voices cannot overlap.
+* Decision: A Reel has one narrative voice sequence. Per-scene WAV segments are timeline parts of that sequence, not concurrent speakers. Brand music remains continuous and is ducked beneath speech.
+* Reason: Fixed text offsets clipped the final evidence detail, while unexpectedly slow TTS delivery exceeded six-second scenes and would have produced overlapping narration.
+* Files/areas affected: `app.py`, Instagram Reel evidence graphics and audio production for every connected site.
+* Replaced/deprecated: unmeasured evidence-card typography and trusting requested TTS speaking duration without inspecting the generated file.

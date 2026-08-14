@@ -5051,3 +5051,30 @@ This file is updated by Codex after every task.
 
 * Voice remains intentionally disabled until the visual Reel workflow is accepted.
 * The production run used a focused operator script to exercise the generic renderer; scheduled generation should use the same generic app and renderer contracts.
+
+## 2026-08-14 — Added safe evidence-card layout and synchronized Reel voice
+
+### Summary
+
+* Replaced fixed evidence-card text offsets with a measured layout that preserves explicit inner padding around logos, titles, and detail copy.
+* Added automatic title/detail font fitting for unusually dense evidence cards without allowing content to cross the card boundary.
+* Added one synchronized Gemini TTS narration sequence to the approved SoloCruz Reel while retaining continuous background music.
+* Normalized every scene narration to fit inside its six-second scene and prevent adjacent voice segments from overlapping.
+
+### Files changed
+
+* `app.py` — reusable measured evidence-card layout and safe padding.
+* `docs/PROJECT_MEMORY.md` — durable evidence-card and voice-timing rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py reel_renderer.py` passed.
+* Inspected the regenerated transparent final evidence layer at full resolution.
+* Verified all five narration WAV files are 4.78-4.80 seconds for six-second scenes.
+* Verified the final 1080x1920 MP4 is exactly 30 seconds, contains one mixed AAC audio stream, and returns HTTP 200 publicly.
+* Inspected a five-scene contact sheet and confirmed the final card content remains inside its border.
+
+### Risks / TODO
+
+* The focused production script remains an operator aid; the reusable card layout itself is implemented in the shared application code.
