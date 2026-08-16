@@ -12931,7 +12931,14 @@ def validate_structured_article_draft(draft, job=None, language="en"):
         sources = content_job_sources(job)
         brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
         approved_links = set()
-        for item in brief.get("approvedInternalLinks") if isinstance(brief.get("approvedInternalLinks"), list) else []:
+        approved_brief_links = (
+            brief.get("approvedInternalLinks")
+            if isinstance(brief.get("approvedInternalLinks"), list)
+            else brief.get("internalLinks")
+            if isinstance(brief.get("internalLinks"), list)
+            else []
+        )
+        for item in approved_brief_links:
             url = str(item.get("url") or "").strip() if isinstance(item, dict) else str(item or "").strip()
             if url:
                 approved_links.add(url)
@@ -13132,7 +13139,13 @@ def build_universal_article_prompt(site, job):
     except Exception:
         source_context = job["sources_json"] or ""
     brief = source_payload.get("pageBrief") if isinstance(source_payload.get("pageBrief"), dict) else {}
-    approved_links = brief.get("approvedInternalLinks") if isinstance(brief.get("approvedInternalLinks"), list) else []
+    approved_links = (
+        brief.get("approvedInternalLinks")
+        if isinstance(brief.get("approvedInternalLinks"), list)
+        else brief.get("internalLinks")
+        if isinstance(brief.get("internalLinks"), list)
+        else []
+    )
     approved_sources = brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []
     content_type = native_content_type(job)
     target_path = content_job_target_path(job)
@@ -13222,7 +13235,11 @@ QUALITY RULES:
   the site's relevant capability only where it genuinely helps a reader move
   from understanding to action; never add a generic sales CTA to an editorial
   answer merely because the site sells a service.
-- Answer the page's primary question directly in the first 50-80 words.
+- Answer the page's primary question directly in the first 55-70 words. This safety
+  margin must satisfy the 50-80 word validation range without clipping or truncation.
+- Do not use `always`, `guarantee`, `guaranteed`, `seamless`, `seamlessly`,
+  `best practices`, `production-grade`, or `performance benchmarks` as positive
+  service claims unless the factual contract explicitly verifies that exact claim.
 - Include a standalone section whose heading is exactly `{limitation_outline}`. Put
   the page-specific limitations, suitability boundaries, and verification duties
   in that section. Do not bury these points in another section.
@@ -13410,7 +13427,14 @@ def ensure_typed_navigation_contract(draft, job):
     sources = content_job_sources(job)
     brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
     approved = []
-    for item in brief.get("approvedInternalLinks") if isinstance(brief.get("approvedInternalLinks"), list) else []:
+    approved_brief_links = (
+        brief.get("approvedInternalLinks")
+        if isinstance(brief.get("approvedInternalLinks"), list)
+        else brief.get("internalLinks")
+        if isinstance(brief.get("internalLinks"), list)
+        else []
+    )
+    for item in approved_brief_links:
         url = str(item.get("url") or "").strip() if isinstance(item, dict) else str(item or "").strip()
         if re.match(r"^/(?:[a-z0-9][a-z0-9/_-]*)?$", url) and url not in approved:
             approved.append(url)
@@ -13501,6 +13525,9 @@ NON-NEGOTIABLE EDIT:
 - Do not claim that a visualization proves or shows a legal/property boundary.
 - Do not claim conversion, engagement, qualification, time, cost, compliance, or
   performance improvement unless the factual contract explicitly provides it.
+- Remove or rewrite positive claims containing `always`, `guarantee`,
+  `guaranteed`, `seamless`, `seamlessly`, `best practices`, `production-grade`,
+  or `performance benchmarks` unless that exact claim is explicitly verified.
 - Keep 1400-2200 words. Use cautious, useful explanation instead of unsupported
   specificity.
 - Output JSON only. This is factual editing, not JSON repair.
@@ -13521,6 +13548,8 @@ RULES:
 - Do not summarize, shorten, add claims, or change the editorial intent.
 - Write fluent native editorial copy, not literal machine translation.
 - Keep the same article depth and approximately the same amount of information.
+- Keep the localized title complete and descriptive, with at least 18 characters.
+  Do not shorten it to an acronym or clipped service label.
 - Translate title, description, category, lead, headings, paragraphs, bullets, table text, ordered-list text, quote, image alt/caption, and FAQ.
 - Keep `heroImage` and every image `src` filename exactly unchanged.
 - Keep the slug unchanged; locale routing is handled separately.
@@ -14378,10 +14407,11 @@ def validate_native_publish_contract(site, job):
         (site["access_type"] or "").strip().lower() == "native_content_store"
         and re.fullmatch(r"/[a-z0-9][a-z0-9-]*/", target_path)
     )
-    if canonical_root_page and content_type != "use_case":
-        errors.append("canonicalRootPage is allowed only for SEO money/use-case pages")
-    elif canonical_root_page and target_path != expected_root_path:
-        errors.append(f"canonical root targetPath must equal {expected_root_path}")
+    if canonical_root_page:
+        if content_type != "use_case":
+            errors.append("canonicalRootPage is allowed only for SEO money/use-case pages")
+        elif target_path != expected_root_path:
+            errors.append(f"canonical root targetPath must equal {expected_root_path}")
     elif not target_path.startswith(expected_prefix) and not native_root_route:
         errors.append(f"targetPath must start with {expected_prefix}")
     if not str(job["hero_image"] or "").strip():
