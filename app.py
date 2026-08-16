@@ -12849,6 +12849,9 @@ def validate_structured_article_draft(draft, job=None, language="en"):
     if artifact:
         errors.append(f"model control artifact leaked into article copy: {artifact.group(0)[:80]}")
     content_type = native_content_type(job) if job is not None else "blog"
+    linking = content_job_sources(job).get("linkingRequirements") if job is not None else {}
+    linking = linking if isinstance(linking, dict) else {}
+    requires_navigation = content_type != "blog" or linking.get("mandatory") is True
     if content_type != "blog":
         if language == "en" and not 50 <= lead_word_count <= 80:
             errors.append(f"direct answer must be 50-80 words, got {lead_word_count}")
@@ -12918,7 +12921,7 @@ def validate_structured_article_draft(draft, job=None, language="en"):
                 ):
                     errors.append("image copy must not claim exact spatial precision")
                     break
-    if content_type != "blog":
+    if requires_navigation:
         if len(internal_links) < 4:
             errors.append("draft must include at least 4 contextual internal links")
         if len(recommended) != 3:
@@ -12928,20 +12931,7 @@ def validate_structured_article_draft(draft, job=None, language="en"):
         if len({str(item.get("url") or "").strip() for item in recommended}) != len(recommended):
             errors.append("Recommended next links must not repeat")
     if job is not None:
-        sources = content_job_sources(job)
-        brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
-        approved_links = set()
-        approved_brief_links = (
-            brief.get("approvedInternalLinks")
-            if isinstance(brief.get("approvedInternalLinks"), list)
-            else brief.get("internalLinks")
-            if isinstance(brief.get("internalLinks"), list)
-            else []
-        )
-        for item in approved_brief_links:
-            url = str(item.get("url") or "").strip() if isinstance(item, dict) else str(item or "").strip()
-            if url:
-                approved_links.add(url)
+        approved_links = set(approved_job_internal_links(job))
         generated_urls = {
             str(item.get("url") or "").strip()
             for item in internal_links + recommended
@@ -13139,13 +13129,9 @@ def build_universal_article_prompt(site, job):
     except Exception:
         source_context = job["sources_json"] or ""
     brief = source_payload.get("pageBrief") if isinstance(source_payload.get("pageBrief"), dict) else {}
-    approved_links = (
-        brief.get("approvedInternalLinks")
-        if isinstance(brief.get("approvedInternalLinks"), list)
-        else brief.get("internalLinks")
-        if isinstance(brief.get("internalLinks"), list)
-        else []
-    )
+    # Accept navigation supplied either in the page brief or in the canonical
+    # queue-level linking contract. All site factories use the same contract.
+    approved_links = approved_job_internal_links(job)
     approved_sources = brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []
     content_type = native_content_type(job)
     target_path = content_job_target_path(job)
@@ -13251,6 +13237,9 @@ QUALITY RULES:
   boundary, current imagery, current road condition, or guaranteed availability.
 - Treat the canonical target path and content type as fixed publication intent. Do not turn a guide, template, example, integration guide, or use case into a generic blog post.
 - For a non-blog typed page, return 4-6 `internalLinks` and exactly 3 `recommendedNext` entries.
+- For a blog page with at least 4 approved internal URLs, also return 4-6
+  `internalLinks` and exactly 3 `recommendedNext` entries. Mandatory linking is
+  part of the first generation pass, not a post-publication repair.
 - Use only URLs from `approved internal links`. Never invent a route, external source, customer, metric, address, product feature, platform UI label, or embed code.
 - Each `internalLinks.context` must be a useful sentence explaining why the linked page answers the reader's natural next question. `label` is a descriptive anchor, never "click here".
 - `recommendedNext` must contain three distinct roles: foundational, decision, and practical or example.
@@ -13369,7 +13358,7 @@ def apply_typed_safety_section(draft, job, language="en"):
 
 def apply_approved_page_brief(draft, job, language="en"):
     if native_content_type(job) == "blog":
-        return draft
+        return ensure_typed_navigation_contract(draft, job)
     sources = content_job_sources(job)
     brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
     fixed = dict(draft)
@@ -13421,23 +13410,37 @@ def approved_link_label(url):
     return re.sub(r"\s+", " ", slug.replace("-", " ")).strip().title()
 
 
-def ensure_typed_navigation_contract(draft, job):
-    if native_content_type(job) == "blog":
-        return draft
+def approved_job_internal_links(job):
     sources = content_job_sources(job)
     brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    linking = sources.get("linkingRequirements") if isinstance(sources.get("linkingRequirements"), dict) else {}
+    candidates = []
+    for value in (
+        brief.get("approvedInternalLinks"),
+        brief.get("internalLinks"),
+        sources.get("internalLinks"),
+        linking.get("crossLinkTargets"),
+        linking.get("caseStudyHubs"),
+        linking.get("requireInboundLinksFrom"),
+    ):
+        if isinstance(value, list):
+            candidates.extend(value)
+    if linking.get("parentPage"):
+        candidates.append(linking.get("parentPage"))
     approved = []
-    approved_brief_links = (
-        brief.get("approvedInternalLinks")
-        if isinstance(brief.get("approvedInternalLinks"), list)
-        else brief.get("internalLinks")
-        if isinstance(brief.get("internalLinks"), list)
-        else []
-    )
-    for item in approved_brief_links:
+    for item in candidates:
         url = str(item.get("url") or "").strip() if isinstance(item, dict) else str(item or "").strip()
         if re.match(r"^/(?:[a-z0-9][a-z0-9/_-]*)?$", url) and url not in approved:
             approved.append(url)
+    return approved
+
+
+def ensure_typed_navigation_contract(draft, job):
+    sources = content_job_sources(job)
+    linking = sources.get("linkingRequirements") if isinstance(sources.get("linkingRequirements"), dict) else {}
+    if native_content_type(job) == "blog" and linking.get("mandatory") is not True:
+        return draft
+    approved = approved_job_internal_links(job)
     page_links = [url for url in approved if url != "/#create"]
 
     internal = []
