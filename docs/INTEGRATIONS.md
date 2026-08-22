@@ -1,5 +1,13 @@
 # INTEGRATIONS.md
 
+## SEO Agent reporting and topic discovery
+
+* The `/agent` dashboard reads Blog Core-owned state and does not probe external providers while rendering.
+* Scheduled audits run from `scheduler.py` no more than once per 30 minutes. Routine audits inspect queues, failures, and channel gaps; demand discovery is invoked explicitly or through enabled per-site autonomy.
+* `POST /api/agent/sites/{site_id}/discover-topics` runs demand discovery for one site and returns source-backed, duplicate-checked recommendations. It does not publish content.
+* Optional Telegram summaries use protected `AGENT_TELEGRAM_BOT_TOKEN` and `AGENT_TELEGRAM_CHAT_ID` environment values. Never store or render them; no inbound command handler exists.
+* Auto-created content remains a normal `content_jobs.status=QUEUED` record and must pass normal generate, preview, validate, and publish gates.
+
 ## Native content-store typed route contract
 
 Native JSON records preserve `contentType` and `targetPath`.

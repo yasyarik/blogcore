@@ -1061,3 +1061,14 @@ It must be updated after every meaningful task.
 * A separately planned final scene must use its own accepted visual pack. Reusing the preceding scene's background and people is allowed only when the approved storyboard explicitly defines one continuous composition; asset reuse must never silently replace an already existing distinct scene.
 * Programmatic evidence cards use the connected site's real logo reference, but must remove a flattened white or checkerboard transparency matte before compositing. The cleaned mark is large enough for mobile review, receives a clearly visible light brand-color glow/shadow when needed, and is accompanied by the connected site domain inside the same brand block. A white square, checkerboard square, tiny low-contrast mark, or invented logo is forbidden.
 * Files/areas affected: `reel_renderer.py`, `app.py`, Instagram Reel production for all connected sites.
+## 2026-08-22 — SEO Agent is the cross-site operational control plane
+
+* `/agent` shows global portfolio KPIs, a searchable attention-sorted site selector, one active site workspace, all publication channels/formats, selected-site recommendations/activity, and portfolio-wide actions.
+* The left site selector exposes error (`E`) and open-recommendation (`R`) counts beside each domain. KPI cards are drill-down controls: Errors opens root-cause decisions, Recommendations opens the full cross-site plan, and Sites/Queued/Scheduled/Published open site-level breakdowns.
+* `Must do` is the default portfolio workbench. It combines the most important executable actions from every site and exposes the first concrete step and direct action without site-by-site navigation.
+* Agent state is durable in `agent_site_settings`, `agent_runs`, `agent_recommendations`, and `agent_action_logs`. Monitoring defaults on; task auto-creation defaults off until explicitly enabled per site.
+* Recommendations are executable decisions, not alerts. Each states root-cause diagnosis, impact, ordered next steps, expected result, confidence, affected evidence, and one primary action. Deterministic failures must be fixed before retrying.
+* Error classification distinguishes retired models, quota/outage, endpoint 404, bad payload, validator/prompt mismatch, localization purity, timeout, and unknown failures.
+* Topic selection reuses the established Discovery demand sources and duplicate checks. It creates recommendations or ordinary `QUEUED` tasks only; generation, preview, validation, and publication remain separate gates.
+* Distribution analysis recommends at most one first channel per site with a bounded 14-day test and measurable review criteria. Telegram is outbound reporting only, not a management surface.
+* Any change to scheduler-imported functions in `app.py` requires restarting both `blog-yas-core` and `blog-yas-core-scheduler` so stale worker logic cannot overwrite newer recommendation contracts.

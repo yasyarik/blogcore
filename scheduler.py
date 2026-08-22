@@ -3,7 +3,7 @@
 
 import time
 
-from app import init_db, run_scheduled_content_publications
+from app import init_db, run_scheduled_agent_audits, run_scheduled_content_publications
 
 
 def main():
@@ -13,6 +13,9 @@ def main():
             result = run_scheduled_content_publications()
             if result["due"]:
                 print(f"scheduled-publications {result}", flush=True)
+            agent_result = run_scheduled_agent_audits()
+            if agent_result["due"]:
+                print(f"seo-agent-audit {agent_result}", flush=True)
         except Exception as error:
             print(f"scheduled-publications worker error: {error}", flush=True)
         time.sleep(60)

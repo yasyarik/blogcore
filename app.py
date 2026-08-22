@@ -407,6 +407,54 @@ def init_db():
             );
             create index if not exists podcast_episodes_site_created_idx on podcast_episodes(site_id,created_at desc);
             create index if not exists podcast_episodes_site_job_idx on podcast_episodes(site_id,job_id);
+            create table if not exists agent_site_settings (
+                site_id integer primary key,
+                monitoring_enabled integer not null default 1,
+                minimum_queue integer not null default 3,
+                replenish_to integer not null default 6,
+                auto_create_tasks integer not null default 0,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create table if not exists agent_runs (
+                id integer primary key autoincrement,
+                started_at text not null,
+                finished_at text,
+                trigger text not null,
+                status text not null,
+                summary_json text
+            );
+            create index if not exists agent_runs_started_idx on agent_runs(started_at desc);
+            create table if not exists agent_recommendations (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                fingerprint text not null,
+                priority text not null default 'medium',
+                category text not null,
+                publication_type text,
+                title text not null,
+                rationale text not null,
+                evidence_json text not null default '{}',
+                action_json text not null default '{}',
+                status text not null default 'OPEN',
+                created_at text not null,
+                updated_at text not null,
+                resolved_at text,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create unique index if not exists agent_recommendations_open_idx
+                on agent_recommendations(site_id,fingerprint) where status='OPEN';
+            create table if not exists agent_action_logs (
+                id integer primary key autoincrement,
+                site_id integer,
+                ts text not null,
+                level text not null,
+                action text not null,
+                message text not null,
+                details_json text not null default '{}',
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists agent_action_logs_ts_idx on agent_action_logs(ts desc);
             create table if not exists site_factory_bindings (
                 site_id integer primary key,
                 factory_name text not null,
@@ -478,6 +526,11 @@ def init_db():
                 """insert into podcast_settings(site_id, host_name, updated_at) values(?,?,?)
                    on conflict(site_id) do nothing""",
                 (sid, "", now_iso()),
+            )
+            conn.execute(
+                """insert into agent_site_settings(site_id, updated_at) values(?,?)
+                   on conflict(site_id) do nothing""",
+                (sid, now_iso()),
             )
 
 
@@ -15117,6 +15170,678 @@ def render_hosted_blog_response(site, public_path):
     abort(404)
 
 
+AGENT_PUBLICATION_TYPES = (
+    ("website_pages", "Website pages"),
+    ("blog_articles", "Blog articles"),
+    ("linkedin_articles", "LinkedIn articles"),
+    ("telegram_posts", "Telegram posts"),
+    ("x_posts", "X posts"),
+    ("tumblr_posts", "Tumblr posts"),
+    ("pinterest_pins", "Pinterest pins"),
+    ("instagram_posts", "Instagram posts"),
+    ("instagram_carousels", "Instagram carousels"),
+    ("instagram_reels", "Instagram Reels"),
+    ("tiktok_carousels", "TikTok carousels"),
+    ("tiktok_videos", "TikTok videos"),
+    ("threads_posts", "Threads posts"),
+    ("reddit_posts", "Reddit posts"),
+    ("podcast_episodes", "Podcast episodes"),
+)
+
+AGENT_PENDING_STATUSES = {"QUEUED", "DRAFT", "GENERATING", "READY", "APPROVED"}
+AGENT_PUBLISHED_STATUSES = {"PUBLISHED", "SENT", "SUBMITTED", "IMPORTED"}
+
+
+def empty_agent_metric(connected=False, note=""):
+    return {"connected": bool(connected), "queued": 0, "scheduled": 0, "published": 0, "errors": 0, "note": note}
+
+
+def agent_metric_add(metric, status, scheduled=False):
+    clean = str(status or "").upper()
+    if clean == "ERROR":
+        metric["errors"] += 1
+    elif clean in AGENT_PUBLISHED_STATUSES:
+        metric["published"] += 1
+    elif scheduled or clean == "SCHEDULED":
+        metric["scheduled"] += 1
+    elif clean in AGENT_PENDING_STATUSES:
+        metric["queued"] += 1
+
+
+def agent_channel_connected(site_id, channel, connections):
+    state, note = social_channel_connection_state(site_id, channel, connections)
+    return state in {"configured", "connected"}, note
+
+
+def build_agent_site_snapshot(site):
+    site_id = int(site["id"])
+    metrics = {key: empty_agent_metric() for key, _ in AGENT_PUBLICATION_TYPES}
+    metrics["website_pages"].update(connected=True, note="Native site publishing")
+    metrics["blog_articles"].update(connected=True, note="Blog Core")
+    connections = get_social_connections(site_id)
+    channel_map = {
+        "linkedin_articles": "linkedin", "telegram_posts": "telegram", "x_posts": "twitter",
+        "tumblr_posts": "tumblr", "pinterest_pins": "pinterest", "instagram_posts": "instagram",
+        "instagram_carousels": "instagram", "instagram_reels": "instagram", "tiktok_carousels": "tiktok",
+        "tiktok_videos": "tiktok", "threads_posts": "threads", "reddit_posts": "reddit",
+    }
+    for publication_type, channel in channel_map.items():
+        connected, note = agent_channel_connected(site_id, channel, connections)
+        metrics[publication_type].update(connected=connected, note=note)
+    with db() as conn:
+        podcast = conn.execute("select enabled from podcast_settings where site_id=?", (site_id,)).fetchone()
+        metrics["podcast_episodes"].update(connected=bool(podcast and podcast["enabled"]), note="Enabled" if podcast and podcast["enabled"] else "Disabled in site settings")
+        jobs = conn.execute("select * from content_jobs where site_id=?", (site_id,)).fetchall()
+        social_rows = conn.execute("select * from social_posts where site_id=?", (site_id,)).fetchall()
+        pins = conn.execute("select status from visual_pins where site_id=?", (site_id,)).fetchall()
+        episodes = conn.execute("select status from podcast_episodes where site_id=?", (site_id,)).fetchall()
+        settings = conn.execute("select * from agent_site_settings where site_id=?", (site_id,)).fetchone()
+    for job in jobs:
+        publication_type = "blog_articles" if content_job_page_type(job) == "blog" else "website_pages"
+        agent_metric_add(metrics[publication_type], job["status"], bool(job["scheduled_for"] if "scheduled_for" in job.keys() else False))
+    for row in social_rows:
+        channel = str(row["channel"] or "").lower()
+        asset_type = str(row["asset_type"] or "post").lower()
+        content = parse_json_object(row["content_json"])
+        if channel == "instagram" and asset_type == INSTAGRAM_REEL_ASSET_TYPE:
+            publication_type = "instagram_reels"
+        elif channel == "instagram" and content.get("instagramCarousel"):
+            publication_type = "instagram_carousels"
+        elif channel == "instagram":
+            publication_type = "instagram_posts"
+        elif channel == "tiktok" and asset_type == TIKTOK_CAROUSEL_ASSET_TYPE:
+            publication_type = "tiktok_carousels"
+        elif channel == "tiktok":
+            publication_type = "tiktok_videos"
+        else:
+            publication_type = {
+                "linkedin": "linkedin_articles", "telegram": "telegram_posts", "twitter": "x_posts",
+                "tumblr": "tumblr_posts", "pinterest": "pinterest_pins", "threads": "threads_posts",
+                "reddit": "reddit_posts",
+            }.get(channel)
+        if publication_type:
+            agent_metric_add(metrics[publication_type], row["status"])
+    for row in pins:
+        agent_metric_add(metrics["pinterest_pins"], row["status"])
+    for row in episodes:
+        agent_metric_add(metrics["podcast_episodes"], row["status"])
+    settings_dict = dict(settings) if settings else {"monitoring_enabled": 1, "minimum_queue": 3, "replenish_to": 6, "auto_create_tasks": 0}
+    totals = {name: sum(metric[name] for metric in metrics.values()) for name in ("queued", "scheduled", "published", "errors")}
+    return {"site": dict(site), "metrics": metrics, "settings": settings_dict, "totals": totals}
+
+
+def build_agent_snapshot():
+    with db() as conn:
+        sites = conn.execute("select * from sites order by domain").fetchall()
+        open_recommendations = conn.execute("select count(*) as n from agent_recommendations where status='OPEN'").fetchone()["n"]
+        last_run = conn.execute("select * from agent_runs order by id desc limit 1").fetchone()
+    rows = [build_agent_site_snapshot(site) for site in sites]
+    totals = {name: sum(row["totals"][name] for row in rows) for name in ("queued", "scheduled", "published", "errors")}
+    totals["recommendations"] = int(open_recommendations or 0)
+    totals["sites"] = len(rows)
+    return {"rows": rows, "totals": totals, "lastRun": dict(last_run) if last_run else None}
+
+
+def agent_log(site_id, level, action, message, details=None):
+    with db() as conn:
+        conn.execute(
+            "insert into agent_action_logs(site_id,ts,level,action,message,details_json) values(?,?,?,?,?,?)",
+            (site_id, now_iso(), level, action, message, json.dumps(details or {}, ensure_ascii=False)),
+        )
+
+
+def upsert_agent_recommendation(site_id, fingerprint, priority, category, publication_type, title, rationale, evidence=None, action=None):
+    with db() as conn:
+        existing = conn.execute(
+            "select id from agent_recommendations where site_id=? and fingerprint=? and status='OPEN'",
+            (site_id, fingerprint),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """update agent_recommendations set priority=?,category=?,publication_type=?,title=?,rationale=?,
+                   evidence_json=?,action_json=?,updated_at=? where id=?""",
+                (priority, category, publication_type, title, rationale, json.dumps(evidence or {}, ensure_ascii=False), json.dumps(action or {}, ensure_ascii=False), now_iso(), existing["id"]),
+            )
+            return existing["id"], False
+        cursor = conn.execute(
+            """insert into agent_recommendations(site_id,fingerprint,priority,category,publication_type,title,rationale,
+               evidence_json,action_json,status,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,'OPEN',?,?)""",
+            (site_id, fingerprint, priority, category, publication_type, title, rationale, json.dumps(evidence or {}, ensure_ascii=False), json.dumps(action or {}, ensure_ascii=False), now_iso(), now_iso()),
+        )
+        return cursor.lastrowid, True
+
+
+def create_agent_content_task(site_id, idea, recommendation_id=None):
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
+    title = re.sub(r"\s+", " ", str(idea.get("title") or "")).strip()
+    if not title:
+        raise ValueError("recommendation has no topic title")
+    similar = find_similar_existing_topic({"title": title}, existing_topic_index(site_id))
+    if similar:
+        raise ValueError(f"topic overlaps existing content: {similar['title']}")
+    job_id = secrets.token_hex(12)
+    slug = simple_slug(title)
+    target_path = f"/blog/{slug}/"
+    sources = {
+        **idea,
+        "source": idea.get("source") or "seo-agent",
+        "contentType": "blog",
+        "pageType": "blog",
+        "targetPath": target_path,
+        "canonicalGroup": target_path,
+        "agentRecommendationId": recommendation_id,
+    }
+    now = now_iso()
+    with db() as conn:
+        conn.execute(
+            """insert into content_jobs(id,site_id,topic,slug,status,title,description,category,sources_json,visibility,created_at,updated_at)
+               values(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (job_id, site_id, title, slug, "QUEUED", title, idea.get("angle") or idea.get("rationale") or "", "SEO Agent", json.dumps(sources, ensure_ascii=False), "public", now, now),
+        )
+        conn.execute(
+            "insert into content_job_logs(site_id,job_id,ts,level,step,message) values(?,?,?,?,?,?)",
+            (site_id, job_id, now, "INFO", "agent-queue", "Created from approved SEO Agent recommendation"),
+        )
+        if recommendation_id:
+            conn.execute("update agent_recommendations set status='IMPLEMENTED',resolved_at=?,updated_at=? where id=?", (now, now, recommendation_id))
+    agent_log(site_id, "INFO", "create-content-task", f"Created queued article task: {title}", {"jobId": job_id, "recommendationId": recommendation_id})
+    return {"id": job_id, "title": title, "slug": slug}
+
+
+def send_agent_telegram_report(message):
+    token = (os.environ.get("AGENT_TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (os.environ.get("AGENT_TELEGRAM_CHAT_ID") or "").strip()
+    if not token or not chat_id:
+        return {"sent": False, "reason": "not configured"}
+    payload = urllib.parse.urlencode({"chat_id": chat_id, "text": message, "disable_web_page_preview": "true"}).encode("utf-8")
+    request_obj = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=payload, method="POST")
+    with urllib.request.urlopen(request_obj, timeout=20) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    return {"sent": bool(data.get("ok"))}
+
+
+def agent_error_cause(error_text):
+    text = str(error_text or "").lower()
+    if "no longer available" in text or ("gemini-2.5" in text and "404" in text):
+        return "retired_model"
+    if "429" in text or "too many requests" in text:
+        return "rate_limit"
+    if "503" in text or "service unavailable" in text:
+        return "provider_outage"
+    if "stale generating" in text or "timeout" in text:
+        return "timeout"
+    if "locale purity" in text or "localization" in text:
+        return "localization"
+    if "404" in text or "not found" in text:
+        return "endpoint_404"
+    if "validation failed" in text or "guardrail" in text or "expected " in text or "need at least" in text:
+        return "content_validation"
+    if "400" in text or "bad request" in text:
+        return "bad_request"
+    return "unknown"
+
+
+def agent_error_analysis(site_id, publication_type):
+    items = []
+    with db() as conn:
+        if publication_type in {"website_pages", "blog_articles"}:
+            rows = conn.execute(
+                """select * from content_jobs
+                   where site_id=? and upper(status)='ERROR' order by updated_at desc""",
+                (site_id,),
+            ).fetchall()
+            for row in rows:
+                page_type = content_job_page_type(row)
+                target_type = "blog_articles" if page_type == "blog" else "website_pages"
+                if target_type == publication_type:
+                    items.append({"id": row["id"], "title": row["topic"], "error": row["error"] or "Unknown generation error", "updatedAt": row["updated_at"]})
+        else:
+            channel_asset = {
+                "linkedin_articles": ("linkedin", "post"), "telegram_posts": ("telegram", "post"),
+                "x_posts": ("twitter", "post"), "tumblr_posts": ("tumblr", "post"),
+                "pinterest_pins": ("pinterest", None), "instagram_posts": ("instagram", "post"),
+                "instagram_reels": ("instagram", INSTAGRAM_REEL_ASSET_TYPE),
+                "tiktok_carousels": ("tiktok", TIKTOK_CAROUSEL_ASSET_TYPE), "tiktok_videos": ("tiktok", "post"),
+                "threads_posts": ("threads", "post"), "reddit_posts": ("reddit", "post"),
+            }.get(publication_type)
+            if channel_asset:
+                channel, asset_type = channel_asset
+                rows = conn.execute(
+                    "select id,job_id,content_text,validation_json,updated_at,asset_type from social_posts where site_id=? and channel=? and upper(status)='ERROR' order by updated_at desc",
+                    (site_id, channel),
+                ).fetchall()
+                for row in rows:
+                    if asset_type and str(row["asset_type"] or "post") != asset_type:
+                        continue
+                    validation = parse_json_object(row["validation_json"])
+                    items.append({"id": str(row["id"]), "title": (row["content_text"] or row["job_id"] or f"{channel} publication")[:180], "error": validation.get("error") or "Publication adapter returned an error", "updatedAt": row["updated_at"]})
+    cause_counts = {}
+    for item in items:
+        item["cause"] = agent_error_cause(item["error"])
+        cause_counts[item["cause"]] = cause_counts.get(item["cause"], 0) + 1
+    primary = max(cause_counts, key=lambda key: cause_counts[key]) if cause_counts else "unknown"
+    cause_contracts = {
+        "retired_model": {
+            "diagnosis": "The source factory is still calling a retired Gemini model. Retrying before changing the model will fail again.",
+            "nextSteps": ["Change the source factory text model to the currently configured supported Gemini model.", "Run one affected job as a canary and verify that generation reaches DRAFT.", "Retry the remaining affected jobs only after the canary passes."],
+            "expectedResult": "Generation resumes without repeating the model-not-found failure.",
+            "actionLabel": "Open affected jobs",
+        },
+        "rate_limit": {
+            "diagnosis": "The provider rejected generation because the request quota was temporarily exhausted.",
+            "nextSteps": ["Retry one affected task now that the rate-limit window has passed.", "If 429 repeats, reduce concurrent generation or add provider backoff before retrying the rest."],
+            "expectedResult": "Transient failures return to DRAFT without changing the content brief.",
+            "actionLabel": "Open retry queue",
+        },
+        "provider_outage": {
+            "diagnosis": "Generation reached the provider but failed during a temporary service outage.",
+            "nextSteps": ["Retry the newest failed task as a health check.", "Retry older tasks only after the canary succeeds; do not rewrite their briefs."],
+            "expectedResult": "The existing approved briefs generate normally once provider service is healthy.",
+            "actionLabel": "Open retry queue",
+        },
+        "endpoint_404": {
+            "diagnosis": "The source factory or publication adapter is calling an endpoint that returns 404. Repeating the same request is not a fix.",
+            "nextSteps": ["Check the bound factory base URL and generation route for this site.", "Verify one request directly against the configured endpoint.", "After the route responds successfully, retry one affected task and then the remainder."],
+            "expectedResult": "The factory accepts generation requests and failed tasks can be retried safely.",
+            "actionLabel": "Open site setup",
+        },
+        "content_validation": {
+            "diagnosis": "Drafts were generated, but they violate the site's current editorial or SEO validator contract.",
+            "nextSteps": ["Compare the failed rules across the listed tasks and correct the shared generation prompt, not each article manually.", "Regenerate one task and confirm every validator passes.", "Regenerate the remaining tasks with the corrected shared contract."],
+            "expectedResult": "New drafts satisfy the approved template and SEO rules on the first generation pass.",
+            "actionLabel": "Review failed drafts",
+        },
+        "localization": {
+            "diagnosis": "The localized output failed language-purity validation; the source page itself is not the problem.",
+            "nextSteps": ["Inspect the failing locale and remove untranslated or cross-language template fragments in the shared localization prompt.", "Regenerate that locale only, then verify purity before retrying other localized pages."],
+            "expectedResult": "Localized pages pass the configured language-purity threshold without changing canonical content.",
+            "actionLabel": "Review localization jobs",
+        },
+        "bad_request": {
+            "diagnosis": "The provider rejected the request payload with HTTP 400, so retries with the same payload will repeat the failure.",
+            "nextSteps": ["Inspect the newest failed request for unsupported model, schema, or payload fields.", "Correct the shared adapter and validate one canary request before retrying the batch."],
+            "expectedResult": "The corrected adapter sends provider-valid requests for all affected pages.",
+            "actionLabel": "Open affected jobs",
+        },
+        "timeout": {
+            "diagnosis": "A generation remained active beyond the allowed execution window and was stopped as stale.",
+            "nextSteps": ["Confirm that no source-factory process is still working on the task.", "Retry one task and inspect its step log for the slow stage before retrying the rest."],
+            "expectedResult": "The task either completes or exposes the exact stage that needs a timeout/performance correction.",
+            "actionLabel": "Inspect task log",
+        },
+        "unknown": {
+            "diagnosis": "The failed records do not share a recognized root cause yet.",
+            "nextSteps": ["Open the newest failed record and inspect its task log.", "Classify the shared failure before retrying the batch."],
+            "expectedResult": "The failure has one named owner and a reproducible correction path.",
+            "actionLabel": "Inspect newest failure",
+        },
+    }
+    contract = cause_contracts[primary]
+    return {**contract, "primaryCause": primary, "causeCounts": cause_counts, "objects": items[:8], "totalObjects": len(items), "confidence": "high" if items and primary != "unknown" else "medium"}
+
+
+def run_agent_topic_discovery_for_site(site_id, needed=3, auto_create=False):
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
+    search_signals, search_warnings, search_meta = fetch_popular_search_signals(site, "month")
+    reddit_signals, reddit_warnings, reddit_meta = fetch_reddit_signals(site, "month")
+    ideas, rejected, idea_stats = generate_article_ideas(site, search_signals + reddit_signals)
+    created = []
+    for idea in ideas[:max(1, min(12, int(needed or 3)))]:
+        fingerprint = "topic:" + simple_slug(idea["title"])
+        rec_id, is_new = upsert_agent_recommendation(
+            site_id, fingerprint, "medium", "topic-opportunity", "blog_articles", idea["title"],
+            idea.get("seo_rationale") or idea.get("angle") or "Demand-backed topic not covered by current content.",
+            {
+                "diagnosis": "Discovery found an audience-demand cluster that is not covered by published or planned site content.",
+                "impact": "Adding the topic closes a verified coverage gap without creating a near-duplicate page.",
+                "nextSteps": ["Create the queued task from this approved topic.", "Generate it through the site's existing template and validation contract.", "Review and publish only after the normal quality gates pass."],
+                "expectedResult": "One new non-duplicative content task enters the normal production workflow.",
+                "source": idea.get("source"), "sourceTitle": idea.get("source_title"), "sourceUrl": idea.get("source_url"),
+                "search": search_meta, "reddit": reddit_meta, "confidence": "medium",
+            },
+            {"type": "create-content-task", "idea": idea, "label": "Create this task"},
+        )
+        if is_new:
+            created.append(rec_id)
+            if auto_create:
+                create_agent_content_task(site_id, idea, rec_id)
+    agent_log(site_id, "INFO", "topic-discovery", f"Discovery produced {len(created)} new actionable topic recommendation(s)", {"warnings": search_warnings + reddit_warnings, "rejected": len(rejected), "stats": idea_stats})
+    return {"created": len(created), "ideas": len(ideas), "warnings": search_warnings + reddit_warnings, "rejected": len(rejected)}
+
+
+def run_agent_audit(trigger="manual", discover_topics=False):
+    started = now_iso()
+    with db() as conn:
+        run_id = conn.execute("insert into agent_runs(started_at,trigger,status) values(?,?,'RUNNING')", (started, trigger)).lastrowid
+        sites = conn.execute("select * from sites order by domain").fetchall()
+    created = 0
+    topic_recommendations = 0
+    errors = []
+    for site in sites:
+        snapshot = build_agent_site_snapshot(site)
+        settings = snapshot["settings"]
+        if not int(settings.get("monitoring_enabled", 1)):
+            continue
+        site_id = int(site["id"])
+        for publication_type, metric in snapshot["metrics"].items():
+            if metric["errors"]:
+                analysis = agent_error_analysis(site_id, publication_type)
+                newest_age = iso_age_seconds((analysis.get("objects") or [{}])[0].get("updatedAt")) if analysis.get("objects") else 0
+                priority = "high" if newest_age < 30 * 86400 or analysis["primaryCause"] in {"retired_model", "endpoint_404"} else "medium"
+                cause_label = analysis["primaryCause"].replace("_", " ")
+                analysis["impact"] = f"{analysis['totalObjects']} task(s) are blocked; the publication queue cannot be treated as healthy until this root cause is removed."
+                _, is_new = upsert_agent_recommendation(
+                    site_id, f"errors:{publication_type}", priority, "publication-error", publication_type,
+                    f"Fix {cause_label}: {analysis['totalObjects']} blocked {publication_type.replace('_', ' ')} task(s)",
+                    analysis["diagnosis"], analysis,
+                    {"type": "open-site", "label": analysis["actionLabel"], "url": f"/sites/{site_id}"},
+                )
+                created += int(is_new)
+        queue_count = snapshot["metrics"]["blog_articles"]["queued"] + snapshot["metrics"]["blog_articles"]["scheduled"]
+        minimum = max(1, int(settings.get("minimum_queue") or 3))
+        target = max(minimum, int(settings.get("replenish_to") or 6))
+        if queue_count < minimum:
+            _, is_new = upsert_agent_recommendation(
+                site_id, "queue:blog_articles", "high" if queue_count == 0 else "medium", "queue-health", "blog_articles",
+                f"Find and approve {target - queue_count} new article topic(s)",
+                f"The active article runway is {queue_count} task(s), below the configured minimum of {minimum} and target of {target}.",
+                {
+                    "diagnosis": f"The site has only {queue_count} queued or scheduled article task(s). At the current threshold, editorial production will stop before a replacement topic set is ready.",
+                    "impact": "A depleted queue creates publishing gaps and forces last-minute topic choices without adequate duplicate or demand checks.",
+                    "nextSteps": [f"Run Discovery now and produce {target - queue_count} non-duplicate candidates.", "Review the demand evidence and approve only topics aligned with the site's commercial/editorial scope.", "Queue approved topics; generation and publication remain behind their normal quality gates."],
+                    "expectedResult": f"The article queue returns to {target} tasks with demand evidence and duplicate checks recorded.",
+                    "current": queue_count, "minimum": minimum, "target": target, "confidence": "high",
+                },
+                {"type": "discover-topics", "label": f"Find {target - queue_count} topics now", "siteId": site_id, "needed": target - queue_count},
+            )
+            created += int(is_new)
+            discovery = get_topic_discovery_settings(site_id)
+            if discover_topics and (int(discovery["enabled"] or 0) or int(settings.get("auto_create_tasks") or 0)):
+                try:
+                    needed = max(1, target - queue_count)
+                    result = run_agent_topic_discovery_for_site(site_id, needed, auto_create=bool(settings.get("auto_create_tasks")))
+                    created += int(result["created"])
+                    topic_recommendations += int(result["created"])
+                except Exception as error:
+                    errors.append({"siteId": site_id, "error": str(error)})
+                    agent_log(site_id, "ERROR", "topic-discovery", f"Topic discovery failed: {error}")
+        published_articles = snapshot["metrics"]["blog_articles"]["published"] + snapshot["metrics"]["website_pages"]["published"]
+        context = " ".join([site["domain"] or "", site["brand_name"] or "", site["content_context"] or "", site["topic_strategy"] or ""]).lower()
+        visual_context = any(term in context for term in ("wine", "travel", "cruise", "ugc", "visual", "ecommerce", "fashion", "photo"))
+        preferred_type = "instagram_posts" if visual_context else "linkedin_articles"
+        preferred_label = "Instagram" if visual_context else "LinkedIn"
+        preferred_metric = snapshot["metrics"][preferred_type]
+        if published_articles >= 10 and not preferred_metric["connected"]:
+            cadence = "3 posts per week" if visual_context else "2 expert posts per week"
+            _, is_new = upsert_agent_recommendation(
+                site_id, f"distribution-gap:{preferred_type}", "medium", "distribution-gap", preferred_type,
+                f"Connect {preferred_label} and run a 14-day distribution test",
+                f"The site has {published_articles} published content asset(s), but its most relevant distribution channel is not connected.",
+                {
+                    "diagnosis": f"{preferred_label} is the strongest first distribution fit for this site's current content profile, yet no connected account is available.",
+                    "impact": f"Existing content has no repeatable {preferred_label} distribution path, so publication value stops at the website.",
+                    "nextSteps": [f"Connect the correct {preferred_label} account in the site's Setup tab.", "Adapt three recent high-value articles into complete channel-native posts using their existing hero images where appropriate.", f"Schedule {cadence} for 14 days, then compare impressions, engagement, and referral clicks before expanding cadence."],
+                    "expectedResult": f"A measured {preferred_label} baseline exists for deciding whether the channel deserves ongoing production capacity.",
+                    "publishedAssetsAvailable": published_articles, "confidence": "medium",
+                },
+                {"type": "open-site", "label": f"Connect {preferred_label}", "url": f"/sites/{site_id}"},
+            )
+            created += int(is_new)
+    summary = {"sites": len(sites), "newRecommendations": created, "newTopicRecommendations": topic_recommendations, "errors": errors}
+    with db() as conn:
+        conn.execute("update agent_runs set finished_at=?,status=?,summary_json=? where id=?", (now_iso(), "COMPLETED" if not errors else "COMPLETED_WITH_ERRORS", json.dumps(summary, ensure_ascii=False), run_id))
+    agent_log(None, "INFO" if not errors else "WARN", "agent-audit", f"Agent audit completed: {created} new recommendation(s)", summary)
+    if created or errors:
+        try:
+            send_agent_telegram_report(f"Blog Core SEO Agent\nSites checked: {len(sites)}\nNew recommendations: {created}\nDiscovery issues: {len(errors)}")
+        except Exception as error:
+            agent_log(None, "WARN", "telegram-report", f"Telegram report failed: {error}")
+    return summary
+
+
+def run_scheduled_agent_audits():
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat(timespec="seconds")
+    with db() as conn:
+        recent = conn.execute("select id from agent_runs where trigger='scheduled' and started_at>=? order by id desc limit 1", (cutoff,)).fetchone()
+    if recent:
+        return {"due": 0}
+    return {"due": 1, **run_agent_audit(trigger="scheduled", discover_topics=False)}
+
+
+def agent_metric_html(metric):
+    state = "connected" if metric["connected"] else "not connected"
+    tone = "ok" if metric["connected"] and not metric["errors"] else ("bad" if metric["errors"] else "off")
+    return f"""<div class='metric {tone}' title='{escape(metric.get('note') or '', quote=True)}'>
+      <strong>{escape(state)}</strong><span>Q {metric['queued']} · S {metric['scheduled']}</span><span>P {metric['published']} · E {metric['errors']}</span>
+    </div>"""
+
+
+def render_agent_dashboard():
+    snapshot = build_agent_snapshot()
+    with db() as conn:
+        recommendations = conn.execute("""select ar.*,s.domain from agent_recommendations ar join sites s on s.id=ar.site_id
+            where ar.status='OPEN' order by case ar.priority when 'high' then 0 when 'medium' then 1 else 2 end, ar.updated_at desc limit 100""").fetchall()
+        logs = conn.execute("""select al.*,s.domain from agent_action_logs al left join sites s on s.id=al.site_id order by al.id desc limit 80""").fetchall()
+    rec_counts = {}
+    for recommendation in recommendations:
+        rec_counts[recommendation["site_id"]] = rec_counts.get(recommendation["site_id"], 0) + 1
+    ordered_rows = sorted(snapshot["rows"], key=lambda row: (-row["totals"]["errors"], row["site"]["domain"]))
+    selected_id = int(ordered_rows[0]["site"]["id"]) if ordered_rows else 0
+
+    def compact_recommendation_html(recommendation):
+        evidence = parse_json_object(recommendation["evidence_json"])
+        action = parse_json_object(recommendation["action_json"])
+        steps = evidence.get("nextSteps") if isinstance(evidence.get("nextSteps"), list) else []
+        next_step = str(steps[0] if steps else recommendation["rationale"])
+        if action.get("type") == "create-content-task":
+            button = f"<button onclick='createTask({recommendation['id']})'>{escape(action.get('label') or 'Create task')}</button>"
+        elif action.get("type") == "discover-topics":
+            button = f"<button onclick='discoverTopics({recommendation['site_id']},{int(action.get('needed') or 3)})'>{escape(action.get('label') or 'Find topics')}</button>"
+        elif action.get("type") == "open-site" and str(action.get("url") or "").startswith("/sites/"):
+            button = f"<a class='btn' href='{escape(action['url'], quote=True)}'>{escape(action.get('label') or 'Open site')}</a>"
+        else:
+            button = f"<button class='secondary' onclick='focusSiteRecommendation({recommendation['site_id']})'>View decision</button>"
+        return f"""<article class='portfolio-task {escape(recommendation['priority'])}'>
+          <span class='task-priority'>{escape(recommendation['priority'])}</span><div class='task-copy'><div><b>{escape(recommendation['domain'])}</b><span>{escape((recommendation['category'] or '').replace('-', ' '))}</span></div>
+          <h3>{escape(recommendation['title'])}</h3><p><strong>Next:</strong> {escape(next_step)}</p></div><div class='task-action'>{button}</div>
+        </article>"""
+
+    site_buttons = []
+    site_panels = []
+    groups = (
+        ("Website", (("website_pages", "Website pages"), ("blog_articles", "Blog articles"))),
+        ("Distribution", (("linkedin_articles", "LinkedIn"), ("telegram_posts", "Telegram"), ("x_posts", "X"), ("tumblr_posts", "Tumblr"), ("pinterest_pins", "Pinterest"), ("threads_posts", "Threads"), ("reddit_posts", "Reddit"))),
+        ("Visual social", (("instagram_posts", "Instagram posts"), ("instagram_carousels", "Instagram carousels"), ("instagram_reels", "Instagram Reels"), ("tiktok_carousels", "TikTok carousels"), ("tiktok_videos", "TikTok videos"))),
+        ("Audio", (("podcast_episodes", "Podcast episodes"),)),
+    )
+    for index, row in enumerate(ordered_rows):
+        site = row["site"]
+        site_id = int(site["id"])
+        settings = row["settings"]
+        errors = row["totals"]["errors"]
+        health_label = "Needs attention" if errors else ("Queue low" if row["metrics"]["blog_articles"]["queued"] < int(settings.get("minimum_queue") or 3) else "Healthy")
+        health_tone = "danger" if errors else ("warning" if health_label == "Queue low" else "healthy")
+        error_badge = f"<span class='nav-badge error' title='{errors} error(s)'>{errors}E</span>" if errors else ""
+        recommendation_badge = f"<span class='nav-badge recommendation' title='{rec_counts.get(site_id,0)} recommendation(s)'>{rec_counts.get(site_id,0)}R</span>" if rec_counts.get(site_id, 0) else ""
+        site_buttons.append(f"""<button class='site-nav-item {health_tone} {'active' if index == 0 else ''}' data-site='{site_id}' onclick='selectSite({site_id})'>
+          <span class='health-mark' aria-hidden='true'></span><span class='site-nav-copy'><strong><span class='domain-name'>{escape(site['domain'])}</span><span class='nav-badges'>{error_badge}{recommendation_badge}</span></strong><small>{escape(health_label)}</small></span>
+          <span class='site-nav-stats'><b>{row['totals']['queued']}</b> queued <b>{errors}</b> errors</span>
+        </button>""")
+        group_html = []
+        for group_label, publication_types in groups:
+            cards = []
+            for key, label in publication_types:
+                metric = row["metrics"][key]
+                connection_label = "Connected" if metric["connected"] else "Not connected"
+                tone = "channel-error" if metric["errors"] else ("channel-live" if metric["connected"] else "channel-off")
+                cards.append(f"""<article class='channel-card {tone}'>
+                  <div class='channel-head'><h4>{escape(label)}</h4><span>{escape(connection_label)}</span></div>
+                  <div class='channel-counts'><div><b>{metric['queued']}</b><small>Queued</small></div><div><b>{metric['scheduled']}</b><small>Scheduled</small></div><div><b>{metric['published']}</b><small>Published</small></div><div><b>{metric['errors']}</b><small>Errors</small></div></div>
+                </article>""")
+            group_html.append(f"<section class='channel-group'><h3>{escape(group_label)}</h3><div class='channel-grid'>{''.join(cards)}</div></section>")
+        discovery = get_topic_discovery_settings(site_id)
+        site_panels.append(f"""<section class='site-workspace {'active' if index == 0 else ''}' data-site-panel='{site_id}'>
+          <header class='workspace-head'><div><span class='section-label'>Selected site</span><h2>{escape(site['domain'])}</h2><p>{escape(health_label)} · {rec_counts.get(site_id,0)} open recommendation(s)</p></div><a class='btn secondary' href='/sites/{site_id}'>Manage site</a></header>
+          <div class='site-summary'><div><span>Queue</span><b>{row['totals']['queued']}</b></div><div><span>Scheduled</span><b>{row['totals']['scheduled']}</b></div><div><span>Published</span><b>{row['totals']['published']}</b></div><div class='summary-error'><span>Errors</span><b>{errors}</b></div></div>
+          <div class='channels'>{''.join(group_html)}</div>
+          <details class='autonomy'><summary><span><b>Agent autonomy</b><small>Discovery {'enabled' if discovery['enabled'] else 'manual'} · {'Auto-create enabled' if settings.get('auto_create_tasks') else 'Recommendations only'}</small></span><span>Configure</span></summary>
+            <form class='agent-settings' onsubmit='saveAgentSettings(event,{site_id})'>
+              <label>Minimum queue<input name='minimumQueue' type='number' min='1' max='50' value='{int(settings.get('minimum_queue') or 3)}'></label>
+              <label>Replenish to<input name='replenishTo' type='number' min='1' max='100' value='{int(settings.get('replenish_to') or 6)}'></label>
+              <label class='check'><input name='monitoringEnabled' type='checkbox' {'checked' if settings.get('monitoring_enabled') else ''}> Monitor this site</label>
+              <label class='check'><input name='autoCreateTasks' type='checkbox' {'checked' if settings.get('auto_create_tasks') else ''}> Auto-create reviewed tasks</label>
+              <button type='submit'>Save settings</button>
+            </form>
+          </details>
+        </section>""")
+    recommendation_cards = []
+    for r in recommendations:
+        evidence = parse_json_object(r["evidence_json"])
+        action = parse_json_object(r["action_json"])
+        diagnosis = evidence.get("diagnosis") or r["rationale"]
+        impact = evidence.get("impact") or "This item needs an explicit operator decision before the site plan can be considered healthy."
+        next_steps = evidence.get("nextSteps") if isinstance(evidence.get("nextSteps"), list) else []
+        expected = evidence.get("expectedResult") or "The recommendation is implemented and its result is visible in the next audit."
+        steps_html = "".join(f"<li>{escape(str(step))}</li>" for step in next_steps) or "<li>Open the affected site and complete the named correction.</li>"
+        objects = evidence.get("objects") if isinstance(evidence.get("objects"), list) else []
+        objects_html = ""
+        if objects:
+            object_rows = "".join(
+                f"<li><b>{escape(str(item.get('title') or item.get('id') or 'Affected item'))}</b><span>{escape(str(item.get('error') or ''))[:360]}</span></li>"
+                for item in objects[:8]
+            )
+            remaining = max(0, int(evidence.get("totalObjects") or len(objects)) - len(objects[:8]))
+            objects_html = f"<details class='affected'><summary>Affected tasks: {int(evidence.get('totalObjects') or len(objects))}</summary><ul>{object_rows}</ul>{f'<p>Plus {remaining} more affected task(s).</p>' if remaining else ''}</details>"
+        if action.get("type") == "create-content-task":
+            primary_action = f"<button onclick='createTask({r['id']})'>{escape(action.get('label') or 'Create this task')}</button>"
+        elif action.get("type") == "discover-topics":
+            primary_action = f"<button onclick='discoverTopics({r['site_id']},{int(action.get('needed') or 3)})'>{escape(action.get('label') or 'Find topics now')}</button>"
+        elif action.get("type") == "open-site" and str(action.get("url") or "").startswith("/sites/"):
+            primary_action = f"<a class='btn' href='{escape(action['url'], quote=True)}'>{escape(action.get('label') or 'Open site')}</a>"
+        else:
+            primary_action = ""
+        recommendation_cards.append(f"""<article class='recommendation {escape(r['priority'])}' data-rec-site='{r['site_id']}'>
+          <header class='recommendation-head'><div><span class='pill'>{escape(r['priority'])} priority</span><span class='site-tag'>{escape(r['domain'])}</span>
+          <h3>{escape(r['title'])}</h3></div><span class='confidence'>Confidence: {escape(evidence.get('confidence') or 'medium')}</span></header>
+          <div class='decision-grid'><section><h4>Diagnosis</h4><p>{escape(diagnosis)}</p><h4>Why it matters</h4><p>{escape(impact)}</p></section>
+          <section class='next-action'><h4>Do this next</h4><ol>{steps_html}</ol><div class='expected'><b>Expected result</b><span>{escape(expected)}</span></div></section></div>
+          {objects_html}<footer class='recommendation-actions'>{primary_action}<button class='ghost' onclick='dismissRecommendation({r['id']})'>Dismiss</button></footer>
+        </article>""")
+    rec_html = "".join(recommendation_cards) or "<div class='empty'>No open recommendations. Run the audit to refresh the view.</div>"
+    must_do = "".join(compact_recommendation_html(r) for r in recommendations[:8]) or "<div class='empty'>No critical actions are open.</div>"
+    error_recommendations = [r for r in recommendations if r["category"] == "publication-error"]
+    all_errors = "".join(compact_recommendation_html(r) for r in error_recommendations) or "<div class='empty'>No publication errors require action.</div>"
+    all_recommendations = "".join(compact_recommendation_html(r) for r in recommendations) or "<div class='empty'>No open recommendations.</div>"
+
+    metric_views = []
+    metric_labels = {"queued": "Queued work", "scheduled": "Scheduled work", "published": "Published output", "errors": "Errors"}
+    for metric_key, metric_label in metric_labels.items():
+        metric_rows = sorted(ordered_rows, key=lambda row: (-row["totals"][metric_key], row["site"]["domain"]))
+        rows_html = "".join(
+            f"""<button class='portfolio-site-row' onclick='focusSiteRecommendation({row['site']['id']})'><span><b>{escape(row['site']['domain'])}</b><small>Open site dashboard</small></span><strong>{row['totals'][metric_key]}</strong></button>"""
+            for row in metric_rows
+        )
+        metric_views.append(f"<div class='portfolio-view' data-portfolio-view='{metric_key}'><div class='portfolio-site-table'>{rows_html}</div></div>")
+    site_overview = "".join(
+        f"""<button class='portfolio-site-row' onclick='focusSiteRecommendation({row['site']['id']})'><span><b>{escape(row['site']['domain'])}</b><small>{row['totals']['queued']} queued · {row['totals']['errors']} errors · {rec_counts.get(row['site']['id'],0)} recommendations</small></span><strong>{'Action' if row['totals']['errors'] or rec_counts.get(row['site']['id'],0) else 'Healthy'}</strong></button>"""
+        for row in ordered_rows
+    )
+    portfolio_views = f"""
+      <div class='portfolio-view active' data-portfolio-view='must-do'>{must_do}</div>
+      <div class='portfolio-view' data-portfolio-view='sites'><div class='portfolio-site-table'>{site_overview}</div></div>
+      {''.join(metric_views)}
+      <div class='portfolio-view' data-portfolio-view='error-decisions'>{all_errors}</div>
+      <div class='portfolio-view' data-portfolio-view='recommendations'>{all_recommendations}</div>
+    """
+    log_html = "".join(f"<div class='log' data-log-site='{r['site_id'] or 0}'><span>{escape(r['ts'])}</span><b>{escape(r['domain'] or 'All sites')}</b><em>{escape(r['level'])}</em><p>{escape(r['message'])}</p></div>" for r in logs) or "<div class='empty'>No agent actions recorded yet.</div>"
+    last_run = snapshot.get("lastRun")
+    last_run_text = escape(last_run["finished_at"] or last_run["started_at"]) if last_run else "Never"
+    telegram_state = "configured" if os.environ.get("AGENT_TELEGRAM_BOT_TOKEN") and os.environ.get("AGENT_TELEGRAM_CHAT_ID") else "not configured"
+    html = AGENT_DASHBOARD_HTML
+    replacements = {
+        "__SITE_COUNT__": snapshot["totals"]["sites"], "__QUEUE_COUNT__": snapshot["totals"]["queued"],
+        "__SCHEDULED_COUNT__": snapshot["totals"]["scheduled"], "__PUBLISHED_COUNT__": snapshot["totals"]["published"],
+        "__ERROR_COUNT__": snapshot["totals"]["errors"], "__RECOMMENDATION_COUNT__": snapshot["totals"]["recommendations"],
+        "__SITE_NAV__": "".join(site_buttons), "__SITE_PANELS__": "".join(site_panels), "__RECOMMENDATIONS__": rec_html, "__LOGS__": log_html,
+        "__PORTFOLIO_VIEWS__": portfolio_views,
+        "__LAST_RUN__": last_run_text, "__TELEGRAM_STATE__": telegram_state, "__SELECTED_SITE_ID__": selected_id,
+    }
+    for key, value in replacements.items():
+        html = html.replace(key, str(value))
+    return html
+
+
+@app.get("/agent")
+def agent_dashboard():
+    if not is_admin_host(request_host()):
+        abort(404)
+    return Response(render_agent_dashboard(), mimetype="text/html")
+
+
+@app.post("/api/agent/run")
+def run_agent_now():
+    payload = request.get_json(silent=True) or {}
+    return jsonify({"ok": True, **run_agent_audit(trigger="manual", discover_topics=bool(payload.get("discoverTopics", True)))})
+
+
+@app.post("/api/agent/sites/<int:site_id>/discover-topics")
+def agent_discover_topics(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    try:
+        return jsonify({"ok": True, **run_agent_topic_discovery_for_site(site_id, payload.get("needed") or 3, auto_create=False)})
+    except Exception as error:
+        agent_log(site_id, "ERROR", "topic-discovery", f"On-demand topic analysis failed: {error}")
+        return jsonify({"error": str(error)}), 500
+
+
+@app.put("/api/agent/sites/<int:site_id>/settings")
+def update_agent_site_settings(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    minimum = max(1, min(50, int(payload.get("minimumQueue") or 3)))
+    target = max(minimum, min(100, int(payload.get("replenishTo") or 6)))
+    with db() as conn:
+        conn.execute("""insert into agent_site_settings(site_id,monitoring_enabled,minimum_queue,replenish_to,auto_create_tasks,updated_at)
+            values(?,?,?,?,?,?) on conflict(site_id) do update set monitoring_enabled=excluded.monitoring_enabled,
+            minimum_queue=excluded.minimum_queue,replenish_to=excluded.replenish_to,auto_create_tasks=excluded.auto_create_tasks,updated_at=excluded.updated_at""",
+            (site_id, int(bool(payload.get("monitoringEnabled", True))), minimum, target, int(bool(payload.get("autoCreateTasks", False))), now_iso()))
+    agent_log(site_id, "INFO", "settings", "SEO Agent site settings updated", {"minimum": minimum, "target": target, "autoCreateTasks": bool(payload.get("autoCreateTasks", False))})
+    return jsonify({"ok": True})
+
+
+@app.post("/api/agent/recommendations/<int:recommendation_id>/create-task")
+def agent_create_task(recommendation_id):
+    with db() as conn:
+        row = conn.execute("select * from agent_recommendations where id=? and status='OPEN'", (recommendation_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "open recommendation not found"}), 404
+    action = parse_json_object(row["action_json"])
+    if action.get("type") != "create-content-task" or not isinstance(action.get("idea"), dict):
+        return jsonify({"error": "this recommendation cannot create a content task"}), 400
+    try:
+        return jsonify({"ok": True, "job": create_agent_content_task(row["site_id"], action["idea"], recommendation_id)})
+    except Exception as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.post("/api/agent/recommendations/<int:recommendation_id>/dismiss")
+def agent_dismiss_recommendation(recommendation_id):
+    with db() as conn:
+        row = conn.execute("select site_id,title from agent_recommendations where id=? and status='OPEN'", (recommendation_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "open recommendation not found"}), 404
+        conn.execute("update agent_recommendations set status='DISMISSED',resolved_at=?,updated_at=? where id=?", (now_iso(), now_iso(), recommendation_id))
+    agent_log(row["site_id"], "INFO", "dismiss-recommendation", f"Dismissed recommendation: {row['title']}")
+    return jsonify({"ok": True})
+
+
 @app.get("/health")
 def health():
     return jsonify({"ok": True, "service": "blog-core", "time": now_iso()})
@@ -17189,6 +17914,40 @@ initReelPollers();
 </body>
 </html>"""
 
+AGENT_DASHBOARD_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SEO Agent · Blog Core</title>
+<style>
+:root{--bg:#090d18;--surface:#111827;--surface2:#172033;--surface3:#1d2940;--line:#2a3850;--text:#f8fafc;--muted:#93a4ba;--violet:#8b5cf6;--green:#34d399;--red:#fb7185;--amber:#fbbf24;--radius:16px}
+*{box-sizing:border-box}html{background:var(--bg)}body{margin:0;min-height:100vh;background:linear-gradient(145deg,#0b1020,#090d18 55%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px}button,input{font:inherit}button,.btn{min-height:44px;border:0;border-radius:12px;padding:0 15px;background:var(--violet);color:white;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;transition:background .18s,transform .18s}.btn:hover,button:hover{transform:translateY(-1px)}button:focus-visible,.btn:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid rgba(139,92,246,.55);outline-offset:2px}.btn.secondary,.ghost{background:transparent;border:1px solid var(--line);color:#d9e2ee}.app{max-width:1540px;margin:auto;padding:24px}.appbar{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:4px 0 22px}.brand{display:flex;align-items:center;gap:12px}.brand-mark{width:42px;height:42px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(145deg,var(--violet),#4f46e5);font-size:17px;font-weight:950}.brand h1{font-size:21px;margin:0;letter-spacing:-.02em}.brand p{margin:3px 0 0;color:var(--muted);font-size:12px}.app-actions{display:flex;align-items:center;gap:10px}.audit-meta{text-align:right;color:var(--muted);font-size:11px;line-height:1.5}.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px}.kpi{min-height:94px;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}.kpi span{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}.kpi strong{display:block;margin-top:9px;font-size:28px;line-height:1;font-variant-numeric:tabular-nums}.kpi.alert strong{color:#fecdd3}.dashboard{display:grid;grid-template-columns:310px minmax(0,1fr);gap:14px;align-items:start}.panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}.sites-panel{position:sticky;top:16px}.panel-title{padding:16px;border-bottom:1px solid var(--line)}.panel-title h2{font-size:15px;margin:0}.panel-title p{font-size:12px;color:var(--muted);margin:4px 0 0}.site-search{padding:12px;border-bottom:1px solid var(--line)}.site-search input{width:100%;height:42px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--bg);color:var(--text);font-size:16px}.site-list{padding:7px;max-height:calc(100vh - 235px);overflow:auto}.site-nav-item{width:100%;display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:10px;align-items:center;text-align:left;padding:11px;border:1px solid transparent;border-radius:12px;background:transparent;min-height:64px}.site-nav-item:hover{background:var(--surface2);transform:none}.site-nav-item.active{background:var(--surface3);border-color:#465574}.health-mark{width:8px;height:8px;border-radius:50%;background:var(--green)}.site-nav-item.warning .health-mark{background:var(--amber)}.site-nav-item.danger .health-mark{background:var(--red)}.site-nav-copy{min-width:0}.site-nav-copy strong,.site-nav-copy small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.site-nav-copy strong{font-size:13px}.site-nav-copy small{color:var(--muted);margin-top:4px;font-weight:500}.site-nav-stats{color:var(--muted);font-size:10px;line-height:1.5;text-align:right}.site-nav-stats b{color:#e5edf7;font-variant-numeric:tabular-nums}.workspace-panel{min-width:0}.site-workspace{display:none}.site-workspace.active{display:block}.workspace-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px;border-bottom:1px solid var(--line)}.section-label{display:block;color:#a78bfa;text-transform:uppercase;letter-spacing:.08em;font-size:10px;font-weight:900}.workspace-head h2{font-size:24px;letter-spacing:-.035em;margin:4px 0}.workspace-head p{margin:0;color:var(--muted)}.site-summary{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--line)}.site-summary div{padding:15px 20px;border-right:1px solid var(--line)}.site-summary div:last-child{border:0}.site-summary span,.site-summary b{display:block}.site-summary span{font-size:11px;color:var(--muted)}.site-summary b{font-size:22px;margin-top:5px;font-variant-numeric:tabular-nums}.summary-error b{color:#fecdd3}.channels{padding:18px 20px 4px}.channel-group{margin-bottom:20px}.channel-group h3{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin:0 0 9px}.channel-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.channel-card{border:1px solid var(--line);border-radius:13px;background:var(--surface2);padding:13px;min-width:0}.channel-card.channel-error{border-color:rgba(251,113,133,.5)}.channel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}.channel-head h4{font-size:13px;margin:0}.channel-head span{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);white-space:nowrap}.channel-live .channel-head span{color:#a7f3d0}.channel-error .channel-head span{color:#fecdd3}.channel-counts{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:14px}.channel-counts div{min-width:0}.channel-counts b,.channel-counts small{display:block}.channel-counts b{font-size:16px;font-variant-numeric:tabular-nums}.channel-counts small{font-size:9px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis}.autonomy{border-top:1px solid var(--line);margin-top:4px}.autonomy summary{list-style:none;padding:17px 20px;display:flex;justify-content:space-between;align-items:center;cursor:pointer}.autonomy summary::-webkit-details-marker{display:none}.autonomy summary b,.autonomy summary small{display:block}.autonomy summary small{font-weight:500;color:var(--muted);margin-top:3px}.autonomy summary>span:last-child{color:#c4b5fd;font-weight:800}.agent-settings{display:grid;grid-template-columns:130px 130px 1fr 1fr auto;gap:12px;align-items:end;padding:0 20px 20px}.agent-settings label{font-size:11px;color:var(--muted)}.agent-settings input[type=number]{display:block;width:100%;height:42px;margin-top:6px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:white}.agent-settings .check{display:flex;align-items:center;gap:8px;min-height:42px;color:#dbe6f3}.agent-settings .check input{accent-color:var(--violet)}.operations{margin-top:14px}.ops-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}.ops-tabs{display:flex;gap:5px}.ops-tab{min-height:38px;background:transparent;border:1px solid transparent;color:var(--muted)}.ops-tab.active{background:var(--surface3);border-color:var(--line);color:white}.scope{font-size:11px;color:var(--muted)}.ops-view{display:none;padding:8px 16px 16px}.ops-view.active{display:block}.recommendation{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:14px 2px;border-bottom:1px solid var(--line)}.recommendation[hidden],.log[hidden]{display:none}.recommendation h3{font-size:14px;margin:7px 0 4px}.recommendation p{font-size:12px;line-height:1.5;color:#bdcad9;margin:0}.recommendation small{color:var(--muted)}.pill,.site-tag{display:inline-flex;border-radius:999px;padding:3px 7px;font-size:9px;font-weight:900;text-transform:uppercase}.pill{background:rgba(139,92,246,.2);color:#ddd6fe}.recommendation.high .pill{background:rgba(251,113,133,.16);color:#fecdd3}.site-tag{margin-left:4px;background:rgba(52,211,153,.12);color:#a7f3d0}.rec-actions{display:flex;gap:7px}.rec-actions button{min-height:38px}.log{display:grid;grid-template-columns:155px 140px 58px 1fr;gap:10px;padding:12px 2px;border-bottom:1px solid var(--line);font-size:11px}.log span,.log em{color:var(--muted);font-style:normal}.log p{margin:0;color:#d6e0ec}.empty{padding:28px;text-align:center;color:var(--muted)}.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:50;display:none;max-width:min(620px,calc(100vw - 28px));padding:13px 17px;border:1px solid var(--line);border-radius:12px;background:#1e293b;box-shadow:0 18px 60px #000}.toast.show{display:block}
+.recommendation{display:block;padding:18px 2px}.recommendation-head{display:flex;justify-content:space-between;gap:15px;align-items:flex-start}.recommendation h3{font-size:17px;line-height:1.35;margin:9px 0 0}.confidence{font-size:10px;color:var(--muted);white-space:nowrap}.decision-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:22px;margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:13px;background:var(--surface2)}.decision-grid h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#a7b5c8;margin:0 0 6px}.decision-grid h4:not(:first-child){margin-top:15px}.next-action{border-left:1px solid var(--line);padding-left:22px}.next-action ol{padding-left:19px;margin:0}.next-action li{padding-left:4px;margin-bottom:8px;color:#e5edf7;font-size:12px;line-height:1.5}.expected{display:grid;grid-template-columns:105px 1fr;gap:10px;margin-top:13px;padding-top:13px;border-top:1px solid var(--line);font-size:11px}.expected b{color:#a7f3d0}.expected span{color:#bdcad9}.affected{margin-top:10px;border:1px solid var(--line);border-radius:11px;background:rgba(9,13,24,.55)}.affected summary{cursor:pointer;padding:11px 13px;color:#dce6f2;font-size:11px;font-weight:800}.affected ul{list-style:none;padding:0 13px 10px;margin:0}.affected li{padding:8px 0;border-top:1px solid var(--line)}.affected li b,.affected li span{display:block}.affected li b{font-size:11px}.affected li span{margin-top:4px;color:var(--muted);font-size:10px;line-height:1.45}.affected>p{padding:0 13px 10px;color:var(--muted);font-size:10px}.recommendation-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}.recommendation-actions button,.recommendation-actions .btn{min-height:40px}.kpi{width:100%;text-align:left;display:block;color:var(--text);cursor:pointer}.kpi:hover{background:var(--surface2);border-color:#4c5e7b;transform:translateY(-2px)}.kpi.active{border-color:#8b5cf6;box-shadow:0 0 0 2px rgba(139,92,246,.18)}.site-nav-copy strong{display:flex;align-items:center;gap:6px}.domain-name{min-width:0;overflow:hidden;text-overflow:ellipsis}.nav-badges{display:inline-flex;gap:3px;flex:0 0 auto}.nav-badge{display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:18px;padding:0 5px;border-radius:999px;font-size:8px;font-weight:900;line-height:1}.nav-badge.error{background:rgba(251,113,133,.18);color:#fecdd3}.nav-badge.recommendation{background:rgba(139,92,246,.22);color:#ddd6fe}.portfolio{margin-bottom:14px}.portfolio-head{display:flex;justify-content:space-between;align-items:center;gap:15px;padding:16px 18px;border-bottom:1px solid var(--line)}.portfolio-head h2{font-size:16px;margin:0}.portfolio-head p{font-size:11px;color:var(--muted);margin:4px 0 0}.portfolio-shortcuts{display:flex;gap:6px}.portfolio-shortcuts button{min-height:36px;background:transparent;border:1px solid var(--line);color:#d6e0ec}.portfolio-view{display:none;padding:4px 16px 12px}.portfolio-view.active{display:block}.portfolio-task{display:grid;grid-template-columns:65px minmax(0,1fr) auto;gap:13px;align-items:center;padding:13px 2px;border-bottom:1px solid var(--line)}.task-priority{justify-self:start;padding:4px 7px;border-radius:999px;background:rgba(139,92,246,.2);color:#ddd6fe;text-transform:uppercase;font-size:8px;font-weight:900}.portfolio-task.high .task-priority{background:rgba(251,113,133,.17);color:#fecdd3}.task-copy>div{display:flex;gap:7px;align-items:center}.task-copy>div b{font-size:11px;color:#a7f3d0}.task-copy>div span{font-size:9px;color:var(--muted);text-transform:uppercase}.task-copy h3{font-size:13px;margin:5px 0 3px}.task-copy p{font-size:11px;color:#b9c6d6;margin:0;line-height:1.45}.task-copy p strong{color:#e5edf7}.task-action .btn,.task-action button{min-height:38px;white-space:nowrap}.portfolio-site-table{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding-top:10px}.portfolio-site-row{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:58px;padding:10px 12px;background:var(--surface2);border:1px solid var(--line);text-align:left}.portfolio-site-row:hover{background:var(--surface3);transform:none}.portfolio-site-row span b,.portfolio-site-row span small{display:block}.portfolio-site-row span small{margin-top:4px;color:var(--muted);font-size:10px}.portfolio-site-row>strong{font-size:18px;font-variant-numeric:tabular-nums}
+@media(max-width:1180px){.channel-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.agent-settings{grid-template-columns:1fr 1fr}.agent-settings button{justify-self:start}}
+@media(max-width:900px){.app{padding:14px}.appbar{align-items:flex-start}.audit-meta{display:none}.kpis{grid-template-columns:repeat(3,1fr)}.portfolio-task{grid-template-columns:55px minmax(0,1fr)}.task-action{grid-column:2}.dashboard{grid-template-columns:1fr}.sites-panel{position:static}.site-list{display:flex;max-height:none;overflow:auto;gap:7px}.site-nav-item{min-width:250px}.workspace-head{padding:17px}.channel-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.operations{margin-top:10px}}
+@media(max-width:600px){body{font-size:13px}.appbar{display:block}.app-actions{margin-top:14px}.kpis{grid-template-columns:repeat(2,1fr)}.kpi{min-height:82px}.kpi strong{font-size:24px}.portfolio-head{align-items:flex-start;flex-direction:column}.portfolio-task{grid-template-columns:1fr}.task-action{grid-column:1}.portfolio-site-table{grid-template-columns:1fr}.site-summary{grid-template-columns:repeat(2,1fr)}.site-summary div:nth-child(2){border-right:0}.site-summary div:nth-child(-n+2){border-bottom:1px solid var(--line)}.workspace-head{align-items:flex-start}.channel-grid{grid-template-columns:1fr}.channels{padding:15px}.channel-counts small{font-size:10px}.agent-settings{grid-template-columns:1fr}.recommendation-head{display:block}.confidence{display:block;margin-top:7px}.decision-grid{grid-template-columns:1fr;gap:16px}.next-action{border-left:0;border-top:1px solid var(--line);padding:16px 0 0}.expected{grid-template-columns:1fr}.recommendation-actions{justify-content:flex-start;flex-wrap:wrap}.log{grid-template-columns:1fr 1fr}.log p{grid-column:1/-1}.ops-head{align-items:flex-start;flex-direction:column}.scope{display:none}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style></head><body><main class="app">
+<header class="appbar"><div class="brand"><div class="brand-mark">BC</div><div><h1>SEO Agent</h1><p>Multi-site publishing operations</p></div></div><div class="app-actions"><div class="audit-meta">Last audit: __LAST_RUN__<br>Telegram reports: __TELEGRAM_STATE__</div><a class="btn secondary" href="/">Sites</a><button id="auditButton" onclick="runAudit()">Run smart audit</button></div></header>
+<section class="kpis" aria-label="Portfolio summary"><button class="kpi" data-kpi="sites" onclick="openPortfolioView('sites','All sites','Queue, errors and open recommendations for every connected site.')"><span>Sites monitored</span><strong>__SITE_COUNT__</strong></button><button class="kpi" data-kpi="queued" onclick="openPortfolioView('queued','Queued work','Current queued work across every site.')"><span>Queued</span><strong>__QUEUE_COUNT__</strong></button><button class="kpi" data-kpi="scheduled" onclick="openPortfolioView('scheduled','Scheduled work','Items with a future publication slot, grouped by site.')"><span>Scheduled</span><strong>__SCHEDULED_COUNT__</strong></button><button class="kpi" data-kpi="published" onclick="openPortfolioView('published','Published output','All recorded published output, grouped by site.')"><span>Published</span><strong>__PUBLISHED_COUNT__</strong></button><button class="kpi alert" data-kpi="errors" onclick="openPortfolioView('error-decisions','Errors requiring action','Root-cause decisions for failed work across every site.','errors')"><span>Errors</span><strong>__ERROR_COUNT__</strong></button><button class="kpi" data-kpi="recommendations" onclick="openPortfolioView('recommendations','All recommendations','The complete open recommendation plan across every site.','recommendations')"><span>Recommendations</span><strong>__RECOMMENDATION_COUNT__</strong></button></section>
+<section class="panel portfolio" id="portfolioPanel"><header class="portfolio-head"><div><span class="section-label">Portfolio workbench</span><h2 id="portfolioTitle">Must do</h2><p id="portfolioSubtitle">The most important actions across all sites, already sorted by priority.</p></div><div class="portfolio-shortcuts"><button onclick="openPortfolioView('must-do','Must do','The most important actions across all sites, already sorted by priority.')">Must do</button><button onclick="openPortfolioView('error-decisions','Errors requiring action','Root-cause decisions for failed work across every site.','errors')">Errors</button><button onclick="openPortfolioView('recommendations','All recommendations','The complete open recommendation plan across every site.','recommendations')">All recommendations</button></div></header>__PORTFOLIO_VIEWS__</section>
+<section class="dashboard"><aside class="panel sites-panel"><div class="panel-title"><h2>Sites</h2><p>Sorted by attention required</p></div><div class="site-search"><input id="siteSearch" type="search" placeholder="Search sites" aria-label="Search sites" oninput="filterSites(this.value)"></div><nav class="site-list" aria-label="Connected sites">__SITE_NAV__</nav></aside><div class="panel workspace-panel">__SITE_PANELS__</div></section>
+<section class="panel operations"><header class="ops-head"><div class="ops-tabs"><button class="ops-tab active" data-view="recommendations" onclick="showOps('recommendations')">Recommendations</button><button class="ops-tab" data-view="activity" onclick="showOps('activity')">Activity</button></div><div class="scope">Showing selected site · <button class="ghost" onclick="toggleAllSites()" id="scopeButton">Show all sites</button></div></header><div class="ops-view active" data-ops-view="recommendations">__RECOMMENDATIONS__</div><div class="ops-view" data-ops-view="activity">__LOGS__</div></section>
+</main><div id="toast" class="toast" aria-live="polite"></div><script>
+let selectedSite=__SELECTED_SITE_ID__,showAll=false;const toast=document.getElementById('toast');function showToast(message){toast.textContent=message;toast.className='toast show';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>toast.className='toast',4500)}
+function applyScope(){document.querySelectorAll('[data-rec-site]').forEach(el=>el.hidden=!showAll&&Number(el.dataset.recSite)!==selectedSite);document.querySelectorAll('[data-log-site]').forEach(el=>el.hidden=!showAll&&Number(el.dataset.logSite)!==selectedSite&&Number(el.dataset.logSite)!==0);const button=document.getElementById('scopeButton');button.textContent=showAll?'Show selected site':'Show all sites'}
+function selectSite(id){selectedSite=Number(id);showAll=false;document.querySelectorAll('.site-nav-item').forEach(el=>el.classList.toggle('active',Number(el.dataset.site)===selectedSite));document.querySelectorAll('.site-workspace').forEach(el=>el.classList.toggle('active',Number(el.dataset.sitePanel)===selectedSite));applyScope();if(innerWidth<901)document.querySelector('.workspace-panel').scrollIntoView({behavior:'smooth',block:'start'})}
+function filterSites(value){const query=String(value||'').trim().toLowerCase();document.querySelectorAll('.site-nav-item').forEach(el=>el.hidden=query&&!el.textContent.toLowerCase().includes(query))}
+function toggleAllSites(){showAll=!showAll;applyScope()}
+function showOps(view){document.querySelectorAll('.ops-tab').forEach(el=>el.classList.toggle('active',el.dataset.view===view));document.querySelectorAll('.ops-view').forEach(el=>el.classList.toggle('active',el.dataset.opsView===view))}
+function openPortfolioView(view,title,subtitle,kpi){document.querySelectorAll('.portfolio-view').forEach(el=>el.classList.toggle('active',el.dataset.portfolioView===view));document.getElementById('portfolioTitle').textContent=title;document.getElementById('portfolioSubtitle').textContent=subtitle;document.querySelectorAll('.kpi').forEach(el=>el.classList.toggle('active',el.dataset.kpi===kpi));document.getElementById('portfolioPanel').scrollIntoView({behavior:'smooth',block:'start'})}
+function focusSiteRecommendation(siteId){selectSite(siteId);document.querySelector('.workspace-panel').scrollIntoView({behavior:'smooth',block:'start'})}
+async function runAudit(){const button=document.getElementById('auditButton');button.disabled=true;button.textContent='Auditing…';showToast('Auditing queues, channels and topic opportunities…');try{const res=await fetch('/api/agent/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({discoverTopics:true})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Audit complete: '+data.newRecommendations+' new recommendation(s)');setTimeout(()=>location.reload(),800)}catch(error){button.disabled=false;button.textContent='Run smart audit';showToast('Audit failed: '+error.message)}}
+async function createTask(id){showToast('Creating queued content task…');try{const res=await fetch('/api/agent/recommendations/'+id+'/create-task',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Task created: '+data.job.title);setTimeout(()=>location.reload(),700)}catch(error){showToast('Task creation failed: '+error.message)}}
+async function discoverTopics(siteId,needed){showToast('Analyzing demand and duplicate coverage for this site…');try{const res=await fetch('/api/agent/sites/'+siteId+'/discover-topics',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({needed})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Analysis complete: '+data.created+' actionable topic recommendation(s) created');setTimeout(()=>location.reload(),900)}catch(error){showToast('Topic analysis failed: '+error.message)}}
+async function dismissRecommendation(id){if(!confirm('Dismiss this recommendation?'))return;const res=await fetch('/api/agent/recommendations/'+id+'/dismiss',{method:'POST'});const data=await res.json();if(!res.ok){showToast(data.error||res.statusText);return}location.reload()}
+async function saveAgentSettings(event,siteId){event.preventDefault();const form=event.currentTarget,fd=new FormData(form),button=form.querySelector('button[type=submit]');button.disabled=true;button.textContent='Saving…';try{const res=await fetch('/api/agent/sites/'+siteId+'/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({minimumQueue:Number(fd.get('minimumQueue')),replenishTo:Number(fd.get('replenishTo')),monitoringEnabled:fd.has('monitoringEnabled'),autoCreateTasks:fd.has('autoCreateTasks')})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Agent settings saved');setTimeout(()=>location.reload(),500)}catch(error){button.disabled=false;button.textContent='Save settings';showToast('Settings failed: '+error.message)}}
+applyScope();
+</script></body></html>"""
+
+
 DASHBOARD_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -17204,7 +17963,7 @@ DASHBOARD_HTML = """<!doctype html>
 <main class="shell">
   <section class="top">
     <div><h1 class="title">Universal Blog Core</h1><p class="sub">Connect any site, scan its public design, generate a matching blog shell, then either install into a local root or host it through a CNAME custom blog domain. This is the base for the future multi-site article factory dashboard.</p></div>
-    <div class="badge">blog.yas.ooo · MVP</div>
+    <div class="actions"><a class="btn ghost" href="/agent">SEO Agent</a><div class="badge">blog.yas.ooo · control point</div></div>
   </section>
   <section class="panel">
     <form class="form" method="post" action="/api/sites">

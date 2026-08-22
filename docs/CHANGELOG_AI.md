@@ -5227,3 +5227,20 @@ This file is updated by Codex after every task.
 ### Risks / TODO
 
 * The corrected Reel remains a draft for operator review and was not published.
+## 2026-08-22 — Add the multi-site SEO Agent control plane
+
+### Summary
+* Added `/agent` as a production multi-site publishing dashboard with portfolio KPIs, attention-sorted site navigation, explicit error/recommendation badges, and format-specific channel cards for website, blog, social, visual, TikTok, and podcast output.
+* Added durable per-site agent settings, audit runs, recommendations, and action logs in SQLite plus scheduled 30-minute audits.
+* Added root-cause recommendation analysis with business impact, ordered next steps, expected result, confidence, affected task evidence, and one primary action.
+* Added demand-backed per-site Discovery actions with duplicate protection, optional queued-task autonomy, first-channel distribution tests, outbound-only Telegram summaries, and a portfolio-wide `Must do` workbench.
+* Made all portfolio KPI cards drill down into cross-site Sites, Queued, Scheduled, Published, Errors, and Recommendations views.
+
+### Files changed
+* `app.py` — schema, audit/analysis engine, recommendation actions, Telegram adapter, `/agent` APIs, and responsive dashboard.
+* `scheduler.py` — periodic SEO Agent audits.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — durable product and integration contracts.
+
+### Verification
+* Compiled `app.py` and `scheduler.py`, rendered all live site workspaces, and verified the Blog Core health endpoint.
+* Visually verified desktop/mobile layouts, site switching, recommendation filtering, KPI drill-downs, `Must do`, badges, and zero page-level horizontal overflow.
