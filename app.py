@@ -29,6 +29,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, Response, abort, jsonify, redirect, request, send_from_directory
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
 from native_site_chrome import LiveSiteChrome
+from gemini_failover import call_with_gemini_failover, gemini_keys
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -3499,24 +3500,22 @@ def _extract_gemini_music_response(data):
 
 
 def _gemini_music_mp3(prompt, timeout=240):
-    api_key = (
-        os.environ.get("GEMINI_MUSIC_API_KEY")
-        or os.environ.get("GEMINI_API_KEY")
-        or os.environ.get("GOOGLE_API_KEY")
-        or os.environ.get("GEMINI_TEXT_API_KEY")
-    )
+    api_key, _, _ = gemini_keys(prompt)
     if not api_key:
         raise RuntimeError("A Gemini API key is required for Lyria music generation")
     model = os.environ.get("GEMINI_MUSIC_MODEL") or REEL_MUSIC_MODEL
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
     payload = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
-    req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            return _extract_gemini_music_response(json.loads(response.read().decode("utf-8")))
-    except urllib.error.HTTPError as error:
-        detail = error.read(1600).decode("utf-8", errors="replace") if hasattr(error, "read") else str(error)
-        raise RuntimeError(f"Gemini Lyria HTTP {error.code}: {detail[:1300]}")
+    def _request(key):
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(key, safe='')}"
+        req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return _extract_gemini_music_response(json.loads(response.read().decode("utf-8")))
+        except urllib.error.HTTPError as error:
+            detail = error.read(1600).decode("utf-8", errors="replace") if hasattr(error, "read") else str(error)
+            raise RuntimeError(f"Gemini Lyria HTTP {error.code}: {detail[:1300]}") from error
+
+    return call_with_gemini_failover("generate music", prompt, _request)
 
 
 def media_duration_seconds(path):
@@ -12356,7 +12355,7 @@ def _parse_json_text(text):
 def _gemini_generate_text(prompt, temperature=0.55, timeout=180, response_schema=None):
     # The shared Gemini project is the primary billing source for both text and
     # images. A dedicated text key remains an explicit compatibility fallback.
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_TEXT_API_KEY")
+    api_key, _, _ = gemini_keys(prompt)
     if not api_key:
         raise RuntimeError("GEMINI_TEXT_API_KEY is not configured")
     primary_model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"
@@ -12370,23 +12369,27 @@ def _gemini_generate_text(prompt, temperature=0.55, timeout=180, response_schema
         "generationConfig": generation_config,
     }
     request_data = json.dumps(payload).encode("utf-8")
-    data = None
-    last_error = ""
-    for model in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
-        req = urllib.request.Request(url, data=request_data, headers={"content-type": "application/json"}, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            break
-        except urllib.error.HTTPError as error:
-            detail = error.read(1600).decode("utf-8", errors="replace") if hasattr(error, "read") else str(error)
-            last_error = f"Gemini text HTTP {error.code} ({model}): {detail[:1400]}"
-            if error.code in {404, 429} and model != models[-1]:
-                continue
-            raise RuntimeError(last_error) from error
-    if data is None:
-        raise RuntimeError(last_error or "Gemini text request did not return a response")
+    def _request(key):
+        data = None
+        last_error = ""
+        for model in models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(key, safe='')}"
+            req = urllib.request.Request(url, data=request_data, headers={"content-type": "application/json"}, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as error:
+                detail = error.read(1600).decode("utf-8", errors="replace") if hasattr(error, "read") else str(error)
+                last_error = f"Gemini text HTTP {error.code} ({model}): {detail[:1400]}"
+                if error.code in {404, 429} and model != models[-1]:
+                    continue
+                raise RuntimeError(last_error) from error
+        if data is None:
+            raise RuntimeError(last_error or "Gemini text request did not return a response")
+        return data
+
+    data = call_with_gemini_failover("generate text", prompt, _request)
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"]
     except Exception:
@@ -12394,7 +12397,7 @@ def _gemini_generate_text(prompt, temperature=0.55, timeout=180, response_schema
 
 
 def _gemini_text_json_with_image(prompt, image_bytes, mime_type, response_schema, temperature=0.1, timeout=180):
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_TEXT_API_KEY")
+    api_key, _, _ = gemini_keys(prompt)
     if not api_key:
         raise RuntimeError("GEMINI_TEXT_API_KEY is not configured")
     primary_model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"
@@ -12416,27 +12419,31 @@ def _gemini_text_json_with_image(prompt, image_bytes, mime_type, response_schema
         "generationConfig": generation_config,
     }
     request_data = json.dumps(payload).encode("utf-8")
-    data = None
-    last_error = ""
-    for model in models:
-        req = urllib.request.Request(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(api_key, safe='')}",
-            data=request_data,
-            headers={"content-type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            break
-        except urllib.error.HTTPError as error:
-            detail = error.read(1600).decode("utf-8", errors="replace") if hasattr(error, "read") else str(error)
-            last_error = f"Gemini image-layout HTTP {error.code} ({model}): {detail[:1400]}"
-            if error.code in {404, 429} and model != models[-1]:
-                continue
-            raise RuntimeError(last_error) from error
-    if data is None:
-        raise RuntimeError(last_error or "Gemini image-layout request did not return a response")
+    def _request(key):
+        data = None
+        last_error = ""
+        for model in models:
+            req = urllib.request.Request(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(key, safe='')}",
+                data=request_data,
+                headers={"content-type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as error:
+                detail = error.read(1600).decode("utf-8", errors="replace") if hasattr(error, "read") else str(error)
+                last_error = f"Gemini image-layout HTTP {error.code} ({model}): {detail[:1400]}"
+                if error.code in {404, 429} and model != models[-1]:
+                    continue
+                raise RuntimeError(last_error) from error
+        if data is None:
+            raise RuntimeError(last_error or "Gemini image-layout request did not return a response")
+        return data
+
+    data = call_with_gemini_failover("review image layout", prompt, _request)
     try:
         return _parse_json_text(data["candidates"][0]["content"]["parts"][0]["text"])
     except Exception as error:
@@ -12492,7 +12499,7 @@ def _extract_interaction_image_b64(data):
 
 
 def _gemini_image_jpeg(prompt, aspect_ratio="4:5", reference_image=None):
-    api_key = os.environ.get("GEMINI_IMAGE_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    api_key, _, _ = gemini_keys(prompt)
     if not api_key:
         raise RuntimeError("GEMINI_IMAGE_API_KEY is not configured")
     model = os.environ.get("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-image"
@@ -12515,25 +12522,33 @@ def _gemini_image_jpeg(prompt, aspect_ratio="4:5", reference_image=None):
             "contents": [{"role": "user", "parts": [{"text": prompt}, *inline_references]}],
             "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": aspect_ratio}},
         }
-        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
-        headers = {"content-type": "application/json"}
+        endpoint_kind = "generateContent"
     else:
         payload = {"model": model, "input": [{"type": "text", "text": prompt}], "response_format": response_format}
-        endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
-        headers = {"content-type": "application/json", "x-goog-api-key": api_key}
-    req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=240) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        detail = e.read(1000).decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
-        raise RuntimeError(f"Gemini image HTTP {e.code}: {detail[:900]}")
+        endpoint_kind = "interactions"
+
+    def _request(key):
+        if endpoint_kind == "generateContent":
+            endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(key, safe='')}"
+            headers = {"content-type": "application/json"}
+        else:
+            endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
+            headers = {"content-type": "application/json", "x-goog-api-key": key}
+        req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=240) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            detail = error.read(1000).decode("utf-8", errors="replace") if hasattr(error, "read") else str(error)
+            raise RuntimeError(f"Gemini image HTTP {error.code}: {detail[:900]}") from error
+
+    data = call_with_gemini_failover("generate image", prompt, _request)
     return b64decode(_extract_interaction_image_b64(data))
 
 
 def _gemini_tts_pcm(transcript, voice_name, timeout=240):
     """Generate mono 24 kHz PCM through Gemini TTS and return raw frames."""
-    api_key = os.environ.get("GEMINI_TTS_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    api_key, _, _ = gemini_keys(transcript)
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
     model = os.environ.get("GEMINI_TTS_MODEL") or "gemini-3.1-flash-tts-preview"
@@ -12544,23 +12559,29 @@ def _gemini_tts_pcm(transcript, voice_name, timeout=240):
             "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice_name}}},
         },
     }
-    req = urllib.request.Request(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(api_key, safe='')}",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"content-type": "application/json"},
-        method="POST",
-    )
+    def _request(key):
+        req = urllib.request.Request(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(key, safe='')}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"content-type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            detail = error.read(1200).decode("utf-8", errors="replace") if hasattr(error, "read") else str(error)
+            raise RuntimeError(f"Gemini TTS HTTP {error.code}: {detail[:1000]}") from error
+
+    data = call_with_gemini_failover("generate speech", transcript, _request)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
         inline = data["candidates"][0]["content"]["parts"][0].get("inlineData") or {}
         raw = inline.get("data")
         if not raw:
             raise RuntimeError(f"Gemini TTS response did not include audio: {str(data)[:500]}")
         return b64decode(raw)
-    except urllib.error.HTTPError as e:
-        detail = e.read(1200).decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
-        raise RuntimeError(f"Gemini TTS HTTP {e.code}: {detail[:1000]}")
+    except (KeyError, IndexError, TypeError) as error:
+        raise RuntimeError(f"Unexpected Gemini TTS response: {str(data)[:1000]}") from error
 
 
 PODCAST_SCRIPT_SCHEMA = {
