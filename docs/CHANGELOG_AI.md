@@ -1,3 +1,11 @@
+## 2026-09-13 — Make media-plan pages automatic for every Blog Core site
+
+* Generalized the polished client calendar from the two seeded personal brands to every connected site. Each site now has an immediate managed route at `/sites/{siteId}/media-plan`, linked from both the dashboard and its management page; site-host `/media-plan` continues to use the same renderer.
+* Removed the `planMonth`-only read restriction. Every site-scoped agent media-plan task now appears automatically: explicitly dated tasks retain their schedule, while undated tasks appear in their creation-month batch under `Без даты` until the start-date control assigns dates from their planned weeks.
+* Made integration chrome live and data-driven. Newly connected direct channels and newly mapped Zernio accounts add their own filter, logo and `completed/total` counter automatically, including a visible `0/0` state before tasks are assigned.
+* Added distinct rendering for LinkedIn, Facebook, X, Pinterest, Reddit and Tumblr, retained Instagram/TikTok format splits, and generalized cross-platform rows into one destination card per publication.
+* Generic calendars now derive their palette and logo URL from the scanned site theme. Existing Karp and Veronika brand presentation remains unchanged.
+
 ## 2026-09-13 — Link completed factory cards to their live social posts
 
 * Completed, faded factory-owned social cards now open the real published post in a new tab when a verified public HTTP(S) URL is available. Personal Reels and unpublished/unresolved cards retain their existing detail dialogs.

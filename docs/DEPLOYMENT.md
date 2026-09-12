@@ -23,6 +23,8 @@ curl -fsS http://127.0.0.1:3299/health
 
 ## Personal-brand media-plan routes
 
+* Every Blog Core site has a server-owned fallback at `https://blog.yas.ooo/sites/{siteId}/media-plan`; it requires no per-site Nginx change and is linked from the Blog Core dashboard immediately after onboarding.
+* To expose the same live page at `https://client-domain/media-plan`, the native site integration must proxy both `/media-plan` and `/media-plan/` to Blog Core while preserving the original Host. The renderer and data are universal; this small route handoff is still required when the client domain is served by another application.
 * `https://karpaleksei.com/media-plan` and `https://veselovaveronika.com/media-plan`, together with their `/media-plan/...` form actions, proxy to Blog Core port `3299` while preserving the original Host header.
 * The reusable location template is `deploy/nginx-personal-brand-media-plan.conf`. Add both its exact page location and action-prefix location to the HTTP and HTTPS server blocks; test Nginx before reloading. Proxying only the exact page route breaks rescheduling and one-way Reel completion with an upstream-site 404.
 * Seed or replace the reviewed October 2026 calendars with `deploy/seed_personal_brand_media_plans.py --db data/blog_core.sqlite3 --replace`. Always create a SQLite backup first.

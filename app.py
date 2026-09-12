@@ -13582,7 +13582,7 @@ def render_manage_site_page(site):
     social_credentials_setup = render_social_credentials_setup(site["id"])
     gsc_setup = render_gsc_setup(site["id"])
     podcast_panel = render_podcast_panel(site["id"])
-    preview = render_primary_site_link(site)
+    preview = render_primary_site_link(site) + f"<a class='btn ghost' target='_blank' href='/sites/{int(site['id'])}/media-plan'>Open media plan</a>"
     colors = []
     fonts = []
     css_count = 0
@@ -19731,6 +19731,72 @@ def get_media_plan_site_by_host(host):
         ).fetchone()
 
 
+def _media_plan_effective_month(row, details):
+    explicit = str(details.get("planMonth") or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}", explicit):
+        return explicit
+    for field in ("publishAt", "scheduledFor", "recordingDueAt", "productionDueAt"):
+        value = _media_plan_datetime(details.get(field))
+        if value:
+            return value.astimezone(ZoneInfo("Europe/Warsaw")).strftime("%Y-%m")
+    created = _media_plan_datetime(row["created_at"])
+    return (created or datetime.now(ZoneInfo("Europe/Warsaw"))).astimezone(ZoneInfo("Europe/Warsaw")).strftime("%Y-%m")
+
+
+def _media_plan_connected_channels(site_id):
+    """Return connected publishing destinations without exposing credentials."""
+    connected = set()
+    with db() as conn:
+        rows = conn.execute(
+            "select * from social_connections where site_id=? and status in ('configured','connected')",
+            (int(site_id),),
+        ).fetchall()
+    for row in rows:
+        provider = str(row["provider"] or "").strip().lower()
+        if provider == "zernio":
+            credentials = get_social_credentials(row)
+            connected.update(
+                channel for channel in ZERNIO_SOCIAL_CHANNELS
+                if str(credentials.get(f"{channel}_account_id") or "").strip()
+            )
+        elif provider:
+            connected.add(provider)
+    return connected
+
+
+def _media_plan_brand_presentation(site):
+    """Use scanned site identity, retaining verified overrides for the two original calendars."""
+    domain = str(site["domain"] or "").lower()
+    if "veselovaveronika" in domain:
+        return "veronika", "#6b1730", "#d7a1ad", "/veronika-brand/logo.svg"
+    if "karpaleksei" in domain:
+        return "karp", "#141414", "#c28563", "/karp-brand/logo.webp"
+    profile = get_profile(int(site["id"]))
+    colors = []
+    if profile:
+        try:
+            colors = [str(value) for value in json.loads(profile["colors_json"] or "[]")]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            colors = []
+    valid_colors = [value for value in colors if re.fullmatch(r"#[0-9a-fA-F]{6}", value)]
+
+    def luminance(value):
+        red, green, blue = (int(value[index:index + 2], 16) / 255 for index in (1, 3, 5))
+        return .2126 * red + .7152 * green + .0722 * blue
+
+    dark = next((value for value in valid_colors if luminance(value) < .38), "#171717")
+    accent = next((value for value in valid_colors if value != dark and .22 < luminance(value) < .82), "#c28563")
+    logo_url = ""
+    if profile:
+        candidates = re.findall(r"<img\b[^>]*\bsrc=[\"']([^\"']+)", str(profile["header_html"] or ""), flags=re.I)
+        candidates.sort(key=lambda value: 0 if re.search(r"(?:logo|brand|wordmark)", value, re.I) else 1)
+        if candidates:
+            logo_url = absolutize(str(site["homepage_url"] or "") + "/", candidates[0])
+    if not logo_url:
+        logo_url = urllib.parse.urljoin(str(site["homepage_url"] or "") + "/", "favicon.ico")
+    return "generic", dark, accent, logo_url
+
+
 MEDIA_PLAN_STATUS_LABELS = {
     "PLANNED": "В плане",
     "FACTORY_PREPARING": "В плане",
@@ -19798,6 +19864,20 @@ def _media_plan_channel_key(value):
         return "telegram"
     if "thread" in channel:
         return "threads"
+    if "linkedin" in channel:
+        return "linkedin"
+    if "facebook" in channel:
+        return "facebook"
+    if "twitter" in channel or re.search(r"(?:^|\W)x(?:\W|$)", channel):
+        return "twitter"
+    if "pinterest" in channel or "pin" in channel:
+        return "pinterest"
+    if "reddit" in channel:
+        return "reddit"
+    if "tumblr" in channel:
+        return "tumblr"
+    if "youtube" in channel:
+        return "youtube"
     if "blog" in channel or "website" in channel or "блог" in channel or "стать" in channel:
         return "article"
     return "other"
@@ -19811,6 +19891,12 @@ def _media_plan_channel_logo(channel_key):
         "instagram": "<svg viewBox='0 0 24 24'><rect x='3' y='3' width='18' height='18' rx='5'/><circle cx='12' cy='12' r='4'/><circle cx='17.4' cy='6.7' r='.8'/></svg>",
         "tiktok": "<svg viewBox='0 0 24 24'><path d='M14 4v10.1a4.2 4.2 0 1 1-3.5-4.1'/><path d='M14 4c.7 2.7 2.3 4.1 5 4.4'/></svg>",
         "youtube": "<svg viewBox='0 0 24 24'><path d='M21 8.1a3 3 0 0 0-2.1-2.2C17 5.4 12 5.4 12 5.4s-5 0-6.9.5A3 3 0 0 0 3 8.1a31 31 0 0 0-.5 3.9A31 31 0 0 0 3 15.9a3 3 0 0 0 2.1 2.2c1.9.5 6.9.5 6.9.5s5 0 6.9-.5a3 3 0 0 0 2.1-2.2 31 31 0 0 0 .5-3.9 31 31 0 0 0-.5-3.9Z'/><path d='m10 9 5 3-5 3Z'/></svg>",
+        "linkedin": "<svg viewBox='0 0 24 24'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='M8 10v7M8 7v.1M12 17v-7M12 13.2c.8-2.4 5-2.3 5 1V17'/></svg>",
+        "facebook": "<svg viewBox='0 0 24 24'><path d='M14 21v-8h3l.5-3H14V8.5C14 7.6 14.3 7 15.7 7H18V4.3c-.7-.1-1.5-.2-2.4-.2-2.4 0-4.1 1.5-4.1 4.2V10H9v3h2.5v8'/></svg>",
+        "twitter": "<svg viewBox='0 0 24 24'><path d='M5 4 19 20M19 4 5 20'/></svg>",
+        "pinterest": "<svg viewBox='0 0 24 24'><circle cx='12' cy='12' r='9'/><path d='M10 19c1-3 2-6 2.5-9 .4-2 3.5-1.7 3.5.5 0 2.5-3 3.7-4.2 1.7-1.2-2.1.2-5.2 2.6-5.2'/></svg>",
+        "reddit": "<svg viewBox='0 0 24 24'><circle cx='12' cy='13' r='7'/><path d='M9 14h.1M15 14h.1M9.5 17c1.5 1 3.5 1 5 0M12 6l1-3 3 1'/></svg>",
+        "tumblr": "<svg viewBox='0 0 24 24'><path d='M10 4v12c0 3 2 4 4 4 1 0 2-.3 3-.8v-3c-.7.3-1.2.4-1.8.4-1 0-1.7-.5-1.7-1.7V10H17V7h-3.5V4z'/></svg>",
         "carousel": "<span class='dual-logo'><svg viewBox='0 0 24 24'><rect x='3' y='3' width='18' height='18' rx='5'/><circle cx='12' cy='12' r='4'/><circle cx='17.4' cy='6.7' r='.8'/></svg><svg viewBox='0 0 24 24'><path d='M14 4v10.1a4.2 4.2 0 1 1-3.5-4.1'/><path d='M14 4c.7 2.7 2.3 4.1 5 4.4'/></svg></span>",
         "reels": "<span class='dual-logo'><svg viewBox='0 0 24 24'><rect x='3' y='4' width='18' height='16' rx='4'/><path d='m8 4 3 5m2-5 3 5M4 9h16'/><path d='m10 12 5 3-5 3z'/></svg><svg viewBox='0 0 24 24'><path d='M14 4v10.1a4.2 4.2 0 1 1-3.5-4.1'/><path d='M14 4c.7 2.7 2.3 4.1 5 4.4'/></svg></span>",
         "other": "<svg viewBox='0 0 24 24'><circle cx='12' cy='12' r='8'/><path d='M4 12h16M12 4a13 13 0 0 1 0 16M12 4a13 13 0 0 0 0 16'/></svg>",
@@ -19896,21 +19982,22 @@ def _media_plan_destination_url(details, destination_key, format_kind, jobs_by_i
     return ""
 
 
-def render_public_media_plan(site):
+def render_public_media_plan(site, route_prefix="/media-plan"):
     site_id = int(site["id"])
     requested_month = str(request.args.get("month") or "").strip()
     with db() as conn:
         rows = conn.execute(
             """select * from agent_media_plan_items
-               where site_id=? and json_extract(details_json,'$.planMonth') is not null
-               order by json_extract(details_json,'$.publishAt'),id""",
+               where site_id=?
+               order by coalesce(json_extract(details_json,'$.publishAt'),created_at),week,id""",
             (site_id,),
         ).fetchall()
     parsed_rows = []
     available_months = []
     for row in rows:
         details = parse_json_object(row["details_json"])
-        month_key = str(details.get("planMonth") or "").strip()
+        month_key = _media_plan_effective_month(row, details)
+        details["_mediaPlanMonth"] = month_key
         if month_key and month_key not in available_months:
             available_months.append(month_key)
         parsed_rows.append((row, details))
@@ -19958,7 +20045,7 @@ def render_public_media_plan(site):
     if requested_month not in available_months:
         current_key = datetime.now(ZoneInfo("Europe/Warsaw")).strftime("%Y-%m")
         requested_month = next((value for value in available_months if value >= current_key), available_months[-1] if available_months else current_key)
-    plan_rows = [(row, details) for row, details in parsed_rows if details.get("planMonth") == requested_month]
+    plan_rows = [(row, details) for row, details in parsed_rows if details.get("_mediaPlanMonth") == requested_month]
     original_dates = []
     for _, details in plan_rows:
         value = _media_plan_datetime(details.get("publishAt"))
@@ -19968,20 +20055,23 @@ def render_public_media_plan(site):
     selected_start = original_start
     schedule_shift = 0
     brand = str(site["brand_name"] or site["domain"])
-    brand_key = "veronika" if "veronika" in str(site["domain"]).lower() else "karp"
-    brand_color = "#6b1730" if brand_key == "veronika" else "#141414"
-    brand_logo_url = "/veronika-brand/logo.svg" if brand_key == "veronika" else "/karp-brand/logo.webp"
+    brand_key, brand_color, brand_accent, brand_logo_url = _media_plan_brand_presentation(site)
+    if brand_key == "generic":
+        brand_logo_url = f"{route_prefix}/brand-logo"
+    connected_channels = _media_plan_connected_channels(site_id)
     counts = {"article": 0, "carousel": 0, "telegram": 0, "threads": 0, "reels": 0, "stories": 0, "instagram": 0, "tiktok": 0, "other": 0}
     publication_counts = {}
     publication_completed_counts = {}
     publication_total = 0
     publication_completed = 0
+    destination_channels = set()
     calendar_days = {}
     date_groups = {}
     dialogs = []
     weekday_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
     for row, details in plan_rows:
-        channel_key = _media_plan_channel_key(f"{row['channel']} {row['format']}")
+        format_channel_key = _media_plan_channel_key(row["format"])
+        channel_key = format_channel_key if format_channel_key in {"reels", "stories", "carousel", "article"} else _media_plan_channel_key(row["channel"])
         counts[channel_key] = counts.get(channel_key, 0) + 1
         status = str(row["status"] or "PLANNED").upper()
         publish_at = _media_plan_datetime(details.get("publishAt"))
@@ -19991,9 +20081,18 @@ def render_public_media_plan(site):
         due_at = _media_plan_datetime(details.get("recordingDueAt") or details.get("productionDueAt"))
         due_label = (due_at.astimezone(ZoneInfo("Europe/Warsaw")) + timedelta(days=schedule_shift)).strftime("%d.%m · %H:%M") if due_at else ""
         execution = str(row["execution_mode"] or "factory-now")
-        is_owner = execution in {"human-owner", "manual-owner"}
+        is_owner = execution not in {"factory-now", "factory", "automatic", "automated", "auto"}
         mode_key = "owner" if is_owner else "factory"
-        owner_label = "Снять лично" if is_owner else "Готовит фабрика"
+        if not is_owner:
+            owner_label = "Готовит фабрика"
+        elif execution == "connect-first":
+            owner_label = "Нужно подключить"
+        elif execution == "data-required":
+            owner_label = "Нужны данные"
+        elif channel_key == "reels":
+            owner_label = "Снять лично"
+        else:
+            owner_label = "Сделать лично"
         brief = str(details.get("brief") or row["objective"] or "").strip()
         content_summary = str(details.get("contentSummary") or brief).strip()
         content_points = details.get("contentPoints") if isinstance(details.get("contentPoints"), list) else []
@@ -20043,19 +20142,35 @@ def render_public_media_plan(site):
             destinations = destinations or [("instagram", "Instagram · карусель")]
             format_kind = "carousel"
         else:
-            if channel_key in {"instagram", "tiktok", "stories"}:
-                destination_key = "tiktok" if "tiktok" in channel_text else "instagram"
-                if "stor" in channel_text or "стор" in channel_text or "stor" in format_text or "стор" in format_text:
-                    format_kind = "story"
-                    destination_label = f"{'TikTok' if destination_key == 'tiktok' else 'Instagram'} Stories"
-                else:
-                    format_kind = "post"
-                    destination_label = f"{'TikTok' if destination_key == 'tiktok' else 'Instagram'} · пост"
-                destinations = [(destination_key, destination_label)]
+            if "stor" in channel_text or "стор" in channel_text or "stor" in format_text or "стор" in format_text:
+                format_kind = "story"
+            elif "short" in channel_text or "short" in format_text:
+                format_kind = "short"
             else:
-                format_kind = "short" if channel_key == "youtube" else "post"
+                format_kind = "post"
+            platform_names = {
+                "instagram": "Instagram", "tiktok": "TikTok", "youtube": "YouTube",
+                "telegram": "Telegram", "threads": "Threads", "linkedin": "LinkedIn",
+                "facebook": "Facebook", "twitter": "X / Twitter", "pinterest": "Pinterest",
+                "reddit": "Reddit", "tumblr": "Tumblr",
+            }
+            mentioned = []
+            for key in platform_names:
+                present = key in channel_text
+                if key == "twitter":
+                    present = present or bool(re.search(r"(?:^|\W)x(?:\W|$)", channel_text))
+                if present:
+                    mentioned.append(key)
+            if len(mentioned) > 1:
+                suffix = {"story": "Stories", "short": "Shorts", "post": "· пост"}[format_kind]
+                destinations = [(key, f"{platform_names[key]} {suffix}") for key in mentioned]
+            elif channel_key in platform_names:
+                suffix = {"story": "Stories", "short": "Shorts", "post": "· пост"}[format_kind]
+                destinations = [(channel_key, f"{platform_names[channel_key]} {suffix}")]
+            else:
                 destinations = [(channel_key, str(row["channel"]))]
         for destination_key, destination_label in destinations:
+            destination_channels.add(destination_key)
             publication_total += 1
             if display_status == "READY":
                 publication_completed += 1
@@ -20066,6 +20181,12 @@ def render_public_media_plan(site):
                 "instagram": "--channel:#e1306c;--surface:linear-gradient(145deg,#833ab4,#fd1d1d 58%,#fcb045)",
                 "tiktok": "--channel:#00f2ea;--surface:linear-gradient(145deg,#242424,#050505)",
                 "youtube": "--channel:#ff0033;--surface:linear-gradient(145deg,#ff0033,#a60021)",
+                "linkedin": "--channel:#0a66c2;--surface:linear-gradient(145deg,#1677d2,#084b91)",
+                "facebook": "--channel:#1877f2;--surface:linear-gradient(145deg,#2f87f6,#0b4ea8)",
+                "twitter": "--channel:#111111;--surface:linear-gradient(145deg,#292929,#050505)",
+                "pinterest": "--channel:#e60023;--surface:linear-gradient(145deg,#ef2342,#a9001a)",
+                "reddit": "--channel:#ff4500;--surface:linear-gradient(145deg,#ff6b35,#bf2800)",
+                "tumblr": "--channel:#35465c;--surface:linear-gradient(145deg,#52677f,#263343)",
             }
             if destination_key in {"instagram", "tiktok"}:
                 calendar_key = f"{destination_key}-{format_kind}"
@@ -20084,7 +20205,7 @@ def render_public_media_plan(site):
                 )
             card_body = f"""
               <span class="card-top"><span class="platform">{destination_logo}{destination_copy}</span><span class="status status-{escape(display_status.lower())}">{status_label}</span></span>
-              <span class="card-time">{escape(publish_local.strftime('%H:%M') if publish_local else 'Время уточняется')}</span>
+              <span class="card-time">{escape(publish_local.strftime('%H:%M') if publish_local else 'Без даты')}</span>
               <strong>{escape(str(row['title']))}</strong><span class="content-label">{'Что нужно сделать' if is_owner else 'Содержание'}</span><span class="card-copy">{escape(preview_text)}</span>
               <span class="card-footer"><span>{owner_label}</span><span>{'Открыть публикацию ↗' if live_url else 'Подробнее →'}</span></span>"""
             if live_url:
@@ -20094,7 +20215,7 @@ def render_public_media_plan(site):
             date_groups.setdefault(date_key, []).append(card_html)
             ready_action = ""
             if channel_key == "reels" and is_owner and display_status not in {"READY", "ERROR"}:
-                ready_action = f"""<form method="post" action="/media-plan/items/{int(row['id'])}/ready" class="ready-form"><input type="hidden" name="month" value="{escape(requested_month, quote=True)}"><input type="hidden" name="start" value="{selected_start.isoformat()}"><input type="hidden" name="date" value="{escape(date_key, quote=True)}"><button type="submit">Отметить готово</button><small>Отменить отметку нельзя</small></form>"""
+                ready_action = f"""<form method="post" action="{escape(route_prefix, quote=True)}/items/{int(row['id'])}/ready" class="ready-form"><input type="hidden" name="month" value="{escape(requested_month, quote=True)}"><input type="hidden" name="start" value="{selected_start.isoformat()}"><input type="hidden" name="date" value="{escape(date_key, quote=True)}"><button type="submit">Отметить готово</button><small>Отменить отметку нельзя</small></form>"""
             if not live_url:
                 dialogs.append(f"""<dialog class="plan-dialog {destination_key}" style="{destination_styles.get(destination_key, '')}" id="{dialog_id}" aria-labelledby="{dialog_id}-title">
               <div class="dialog-shell"><div class="dialog-accent"></div><div class="dialog-head"><div class="platform">{destination_logo}{destination_copy}</div><button type="button" class="dialog-close" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
@@ -20125,6 +20246,9 @@ def render_public_media_plan(site):
             "instagram-reel": "#833ab4", "tiktok-reel": "#111111", "youtube-short": "#ff0033",
             "instagram-story": "#c13584", "instagram-post": "#f77737",
             "tiktok-story": "#fe2c55", "tiktok-post": "#111111",
+            "linkedin": "#0a66c2", "facebook": "#1877f2", "twitter": "#111111",
+            "pinterest": "#e60023", "reddit": "#ff4500", "tumblr": "#35465c",
+            "telegram": "#229ed9", "threads": "#111111", "article": brand_color,
         }
         while cursor <= last_month:
             next_month = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
@@ -20142,23 +20266,36 @@ def render_public_media_plan(site):
             cursor = next_month
     calendar_html = "".join(calendar_blocks)
     month_links = "".join(
-        f"<a class='month-link {'active' if value == requested_month else ''}' href='/media-plan?month={escape(value, quote=True)}'>{escape(_media_plan_month_name(value))}</a>"
+        f"<a class='month-link {'active' if value == requested_month else ''}' href='{escape(route_prefix, quote=True)}?month={escape(value, quote=True)}'>{escape(_media_plan_month_name(value))}</a>"
         for value in available_months
     )
     month_navigation = f'<nav class="month-nav">{month_links}</nav>' if len(available_months) > 1 else ""
     selected_end = max(dated_calendar_keys) if dated_calendar_keys else selected_start
-    if selected_start.year == selected_end.year and selected_start.month == selected_end.month:
+    if not dated_calendar_keys:
+        period_label = f"План · {_media_plan_month_name(requested_month)}"
+    elif selected_start.year == selected_end.year and selected_start.month == selected_end.month:
         period_label = f"{selected_start.day}–{selected_end.day} {month_names_genitive[selected_start.month]} {selected_start.year}"
     elif selected_start.year == selected_end.year:
         period_label = f"{selected_start.day} {month_names_genitive[selected_start.month]} — {selected_end.day} {month_names_genitive[selected_end.month]} {selected_start.year}"
     else:
         period_label = f"{selected_start.day} {month_names_genitive[selected_start.month]} {selected_start.year} — {selected_end.day} {month_names_genitive[selected_end.month]} {selected_end.year}"
-    start_control = f"""<form method="post" action="/media-plan/reschedule" class="start-control"><input type="hidden" name="month" value="{escape(requested_month, quote=True)}"><label><span>Стартовая дата</span><input type="date" name="start" value="{selected_start.isoformat()}" onchange="this.form.submit()"></label></form>"""
+    start_control = f"""<form method="post" action="{escape(route_prefix, quote=True)}/reschedule" class="start-control"><input type="hidden" name="month" value="{escape(requested_month, quote=True)}"><label><span>Стартовая дата</span><input type="date" name="start" value="{selected_start.isoformat()}" onchange="this.form.submit()"></label></form>"""
     empty = "<div class='empty'><h2>Медиаплан ещё готовится</h2><p>Здесь появятся даты публикаций и задания на съёмку.</p></div>" if not sections else ""
+    platform_specs = {
+        "article": ("Сайт", brand_color), "instagram": ("Instagram", "#e1306c"),
+        "tiktok": ("TikTok", "#111111"), "youtube": ("YouTube", "#ff0033"),
+        "telegram": ("Telegram", "#229ed9"), "threads": ("Threads", "#111111"),
+        "linkedin": ("LinkedIn", "#0a66c2"), "facebook": ("Facebook", "#1877f2"),
+        "twitter": ("X / Twitter", "#111111"), "pinterest": ("Pinterest", "#e60023"),
+        "reddit": ("Reddit", "#ff4500"), "tumblr": ("Tumblr", "#35465c"),
+        "other": ("Другое", brand_color),
+    }
+    visible_channels = destination_channels | connected_channels
+    if publication_counts.get("article"):
+        visible_channels.add("article")
     channel_filter_specs = [
-        ("article", "Сайт", brand_color), ("instagram", "Instagram", "#e1306c"),
-        ("tiktok", "TikTok", "#111111"), ("youtube", "YouTube", "#ff0033"),
-        ("telegram", "Telegram", "#229ed9"), ("threads", "Threads", "#111111"),
+        (key, *platform_specs.get(key, (SOCIAL_CHANNEL_LABELS.get(key, key.title()), brand_color)))
+        for key in platform_specs if key in visible_channels
     ]
     channel_filter_parts = []
     for key, label, color in channel_filter_specs:
@@ -20178,11 +20315,22 @@ def render_public_media_plan(site):
         ("youtube-short", "youtube", "YouTube Shorts", "#ff0033"),
         ("telegram", "telegram", "Telegram", "#229ed9"),
         ("threads", "threads", "Threads", "#111111"),
+        ("linkedin", "linkedin", "LinkedIn", "#0a66c2"),
+        ("facebook", "facebook", "Facebook", "#1877f2"),
+        ("twitter", "twitter", "X / Twitter", "#111111"),
+        ("pinterest", "pinterest", "Pinterest", "#e60023"),
+        ("reddit", "reddit", "Reddit", "#ff4500"),
+        ("tumblr", "tumblr", "Tumblr", "#35465c"),
+        ("other", "other", "Другие задачи", brand_color),
     ]
     summary_specs = [
         (*spec, publication_completed_counts.get(spec[0], 0), publication_counts.get(spec[0], 0))
         for spec in summary_catalog if publication_counts.get(spec[0], 0)
     ]
+    represented_channels = {spec[1] for spec in summary_specs}
+    for channel in sorted(connected_channels - represented_channels):
+        label, color = platform_specs.get(channel, (SOCIAL_CHANNEL_LABELS.get(channel, channel.title()), brand_color))
+        summary_specs.append((channel, channel, label, color, 0, 0))
     summary_parts = []
     legend_parts = []
     for key, logo_key, label, color, completed_value, total_value in summary_specs:
@@ -20192,17 +20340,17 @@ def render_public_media_plan(site):
     summary_html = "".join(summary_parts)
     legend_html = "".join(legend_parts)
     progress = round(publication_completed * 100 / publication_total) if publication_total else 0
-    html = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>Медиаплан · {escape(brand)}</title><style>
+    html = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><link rel="icon" href="data:,"><title>Медиаплан · {escape(brand)}</title><style>
 :root{{--ink:#11100e;--muted:#6d6a63;--paper:#f5f1e8;--card:#fffdf8;--line:rgba(17,16,14,.13);--accent:#141414;--accent2:#c28563;--article:#176b52;--carousel:#d62b70;--telegram:#229ed9;--threads:#111;--reels:#ef3d63}}body.veronika{{--ink:#3b1220;--muted:#765e66;--paper:#f8f1f3;--card:#fffafb;--line:rgba(107,23,48,.16);--accent:#6b1730;--accent2:#d7a1ad}}html{{scroll-behavior:smooth}}*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 Inter,Arial,sans-serif}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 85% 0,rgba(255,255,255,.9),transparent 34%),linear-gradient(120deg,transparent 0 47%,rgba(255,255,255,.32) 47% 48%,transparent 48%);z-index:-1}}button,a{{font:inherit}}main{{max-width:1320px;margin:auto;padding:42px 24px 90px}}.hero{{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(320px,.8fr);gap:28px;padding:42px;border-radius:30px;background:var(--accent);color:white;box-shadow:0 24px 60px rgba(38,25,18,.18);overflow:hidden;position:relative}}.hero:after{{content:"";position:absolute;width:360px;height:360px;border:1px solid rgba(255,255,255,.18);border-radius:50%;right:-120px;top:-190px}}.eyebrow{{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--accent2)}}h1{{font-family:Georgia,serif;font-size:clamp(42px,6vw,84px);line-height:.95;letter-spacing:-.045em;margin:14px 0 20px;font-weight:500}}.hero p{{max-width:700px;color:rgba(255,255,255,.76);font-size:16px}}.month-nav{{display:flex;flex-wrap:wrap;gap:8px;margin-top:25px}}.month-link{{color:white;text-decoration:none;border:1px solid rgba(255,255,255,.28);padding:9px 13px;border-radius:999px;font-size:12px;font-weight:800}}.month-link.active{{background:white;color:var(--accent)}}.progress{{align-self:end;border:1px solid rgba(255,255,255,.2);border-radius:22px;padding:22px;background:rgba(255,255,255,.07);backdrop-filter:blur(10px)}}.progress strong{{display:block;font:500 58px/1 Georgia,serif}}.progress span{{color:rgba(255,255,255,.72)}}.progress-bar{{height:7px;background:rgba(255,255,255,.16);border-radius:99px;margin-top:18px;overflow:hidden}}.progress-bar i{{display:block;width:{progress}%;height:100%;background:var(--accent2)}}.summary{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:18px 0 34px}}.summary div{{padding:18px;border:1px solid var(--line);background:rgba(255,253,248,.72);border-radius:18px}}.summary b{{display:block;font:500 34px/1 Georgia,serif}}.summary span{{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}}.workspace{{display:grid;grid-template-columns:330px minmax(0,1fr);gap:34px;align-items:start}}.calendar{{position:sticky;top:20px;border:1px solid var(--line);border-radius:24px;padding:22px;background:color-mix(in srgb,var(--card) 92%,transparent);box-shadow:0 14px 35px rgba(50,38,27,.08);backdrop-filter:blur(14px)}}.calendar h2,.feed-head h2{{font:500 31px/1.05 Georgia,serif;margin:4px 0 18px}}.weekdays,.calendar-grid{{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}}.weekdays span{{text-align:center;font-size:10px;color:var(--muted);font-weight:800;padding:6px 0}}.calendar-cell{{display:block;min-height:43px;padding:7px;border-radius:11px;background:rgba(0,0,0,.025);color:var(--ink);text-decoration:none}}.calendar-cell.active{{background:white;box-shadow:inset 0 0 0 1px var(--line);transition:transform .2s,box-shadow .2s}}.calendar-cell.active:hover{{transform:translateY(-2px);box-shadow:inset 0 0 0 2px var(--accent),0 6px 14px rgba(20,16,10,.1)}}.calendar-cell b{{font-size:11px}}.calendar-cell.blank{{background:transparent}}.dots{{display:flex;flex-wrap:wrap;gap:3px;margin-top:5px}}.dots i{{width:5px;height:5px;border-radius:50%}}.article{{--channel:var(--article);--surface:linear-gradient(145deg,var(--accent2),var(--accent))}}.telegram{{--channel:var(--telegram);--surface:linear-gradient(145deg,#229ed9,#1676a5)}}.threads{{--channel:var(--threads);--surface:linear-gradient(145deg,#262626,#050505)}}.other{{--channel:var(--accent);--surface:linear-gradient(145deg,var(--accent),#111)}}.dots .article{{background:var(--article)}}.dots .telegram{{background:var(--telegram)}}.dots .threads{{background:var(--threads)}}.legend{{display:grid;gap:9px;margin-top:20px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}}.legend span:before{{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:var(--c)}}.filters{{display:grid;gap:9px;margin-bottom:28px}}.filters button{{min-height:44px;border:1px solid var(--line);background:transparent;border-radius:999px;padding:8px 13px;font-size:12px;font-weight:800;cursor:pointer}}.filters button.active{{background:var(--accent);color:white}}.date-section{{scroll-margin-top:22px;margin:0 0 45px;padding:2px;border-radius:28px}}.date-section:target{{animation:datePulse 1.1s ease-out}}.date-heading{{display:flex;align-items:center;gap:15px;margin-bottom:16px}}.day-number{{display:grid;place-items:center;width:66px;height:66px;border-radius:19px;background:var(--accent);color:white;font:500 34px/1 Georgia,serif;box-shadow:0 10px 22px color-mix(in srgb,var(--accent) 24%,transparent)}}.date-heading h2{{font:500 32px/1 Georgia,serif;margin:0}}.date-heading p{{margin:6px 0 0;color:var(--muted);text-transform:capitalize}}.date-card-grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}}.plan-card{{position:relative;display:flex;flex-direction:column;aspect-ratio:1/1;min-width:0;width:100%;padding:18px;border:0;border-radius:23px;background:var(--surface);color:#fff;text-align:left;cursor:pointer;overflow:hidden;box-shadow:0 13px 28px color-mix(in srgb,var(--channel) 22%,transparent);transition:transform .2s,box-shadow .2s}}.plan-card:after{{content:"";position:absolute;width:180px;height:180px;border:1px solid rgba(255,255,255,.15);border-radius:50%;right:-75px;bottom:-100px}}.plan-card:hover{{transform:translateY(-4px);box-shadow:0 20px 38px color-mix(in srgb,var(--channel) 31%,transparent)}}.plan-card.owner{{outline:2px solid rgba(255,255,255,.72);outline-offset:-6px}}.card-top,.platform,.card-footer{{display:flex;align-items:center}}.card-top{{justify-content:space-between;gap:9px}}.platform{{gap:8px;min-width:0;font-size:11px;font-weight:850;letter-spacing:.04em;text-transform:uppercase}}.platform>span:last-child{{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.channel-logo{{display:grid;place-items:center;flex:0 0 29px;width:29px;height:29px;border-radius:9px;background:rgba(255,255,255,.16)}}.channel-logo svg{{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}}.telegram .channel-logo svg path:first-child{{fill:currentColor;stroke:none}}.status{{flex:none;max-width:96px;padding:5px 8px;border-radius:999px;background:rgba(255,255,255,.16);font-size:9px;font-weight:850;text-transform:uppercase;white-space:nowrap}}.status-overdue,.status-error{{background:#fff;color:#9d112c}}.status-ready{{background:#fff;color:#176b52}}.card-time{{font:500 31px/1 Georgia,serif;margin-top:18px}}.plan-card strong{{display:-webkit-box;margin-top:12px;font:600 20px/1.12 Georgia,serif;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}}.content-label{{margin-top:auto;padding-top:11px;border-top:1px solid rgba(255,255,255,.2);font-size:9px;font-weight:850;text-transform:uppercase;letter-spacing:.1em;opacity:.68}}.card-copy{{display:-webkit-box;margin-top:4px;font-size:11px;line-height:1.35;opacity:.86;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}}.card-footer{{justify-content:space-between;gap:8px;margin-top:11px;font-size:9px;font-weight:850;text-transform:uppercase;letter-spacing:.04em}}.card-footer span:last-child{{opacity:.72}}.plan-dialog{{width:min(760px,calc(100% - 28px));max-height:calc(100dvh - 28px);padding:0;border:0;border-radius:28px;background:var(--card);color:var(--ink);box-shadow:0 28px 90px rgba(0,0,0,.3)}}.plan-dialog::backdrop{{background:rgba(12,10,8,.62);backdrop-filter:blur(6px)}}.dialog-shell{{overflow:hidden}}.dialog-accent{{height:9px;background:var(--surface)}}.dialog-head{{display:flex;align-items:center;justify-content:space-between;padding:18px 22px 0}}.dialog-head .platform{{color:var(--channel)}}.dialog-head .channel-logo{{background:color-mix(in srgb,var(--channel) 12%,white)}}.dialog-close{{display:grid;place-items:center;width:44px;height:44px;padding:0;border:1px solid var(--line);border-radius:50%;background:white;cursor:pointer}}.dialog-close svg{{width:21px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}}.dialog-body{{padding:12px 28px 30px;overflow:auto}}.dialog-body h2{{font:600 clamp(28px,5vw,44px)/1.05 Georgia,serif;margin:19px 0 24px}}.dialog-meta{{display:flex;gap:7px;flex-wrap:wrap}}.dialog-meta span{{padding:6px 9px;border-radius:999px;background:#eee9df;font-size:10px;font-weight:850;text-transform:uppercase}}.dialog-meta .due{{background:#fff0c9;color:#74520b}}.detail-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}}.detail-block{{padding:17px;border-radius:16px;background:color-mix(in srgb,var(--card) 82%,#d8cfc2)}}.detail-block.wide{{grid-column:1/-1}}.detail-block>span{{color:var(--channel);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em}}.detail-block p,.detail-block ol,.detail-block ul{{margin:8px 0 0;padding-left:18px}}.detail-block p{{padding-left:0}}.ready-form{{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}}.ready-form button{{min-height:46px;border:0;border-radius:999px;padding:11px 18px;background:var(--accent);color:white;font-weight:850;cursor:pointer}}.ready-form small{{color:var(--muted)}}.empty{{padding:60px;text-align:center;border:1px dashed var(--line);border-radius:20px}}.notice{{font-size:12px;color:var(--muted);margin-top:18px}}button:focus-visible,a:focus-visible{{outline:3px solid var(--accent2);outline-offset:3px}}[hidden]{{display:none!important}}@keyframes datePulse{{0%{{background:color-mix(in srgb,var(--accent) 18%,transparent)}}100%{{background:transparent}}}}@media(max-width:1050px){{.date-card-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}@media(max-width:900px){{main{{padding:18px 14px 60px}}.hero{{grid-template-columns:1fr;padding:28px 22px;border-radius:23px}}.summary{{grid-template-columns:repeat(2,1fr)}}.workspace{{grid-template-columns:1fr}}.calendar{{position:static}}}}@media(max-width:560px){{.summary{{grid-template-columns:repeat(2,1fr)}}.summary div:last-child{{grid-column:1/-1}}.date-card-grid{{grid-template-columns:1fr}}.plan-card{{aspect-ratio:1/1;max-width:420px;margin:auto;padding:20px}}.date-heading h2{{font-size:28px}}.day-number{{width:58px;height:58px}}.detail-grid{{grid-template-columns:1fr}}.detail-block.wide{{grid-column:auto}}.dialog-body{{padding:10px 20px 24px}}}}@media(prefers-reduced-motion:reduce){{html{{scroll-behavior:auto}}*,*:before,*:after{{animation-duration:.01ms!important;transition-duration:.01ms!important}}}}
-.hero-summary{{position:relative;z-index:1;grid-column:1/-1;grid-template-columns:repeat(auto-fit,minmax(95px,1fr))!important;margin:2px 0 0}}.hero-summary div{{grid-template-columns:34px 1fr!important;gap:9px!important;padding:12px!important;border-color:rgba(255,255,255,.18)!important;background:rgba(255,255,255,.075)!important}}.hero-summary .channel-logo{{width:34px;height:34px;flex-basis:34px}}.hero-summary .channel-logo svg{{width:19px;height:19px}}.hero-summary b{{display:block;font-size:30px;color:#fff}}.hero-summary small{{display:block;margin-top:5px;font-size:8px;font-weight:850;line-height:1.15;text-transform:uppercase;letter-spacing:.035em;color:rgba(255,255,255,.68)!important}}@media(max-width:560px){{.hero-summary{{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px}}.hero-summary div{{grid-template-columns:1fr!important;gap:5px!important;padding:10px!important}}.hero-summary .channel-logo{{width:30px;height:30px}}.hero-summary b{{font-size:27px}}}}
+.hero-summary{{position:relative;z-index:1;grid-column:1/-1;grid-template-columns:repeat(auto-fit,minmax(125px,1fr))!important;margin:2px 0 0}}.hero-summary div{{grid-template-columns:34px 1fr!important;gap:9px!important;padding:12px!important;border-color:rgba(255,255,255,.18)!important;background:rgba(255,255,255,.075)!important}}.hero-summary .channel-logo{{width:34px;height:34px;flex-basis:34px}}.hero-summary .channel-logo svg{{width:19px;height:19px}}.hero-summary b{{display:block;font-size:30px;color:#fff}}.hero-summary small{{display:block;margin-top:5px;font-size:8px;font-weight:850;line-height:1.15;text-transform:uppercase;letter-spacing:.035em;color:rgba(255,255,255,.68)!important}}@media(max-width:560px){{.hero-summary{{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px}}.hero-summary div{{grid-template-columns:1fr!important;gap:5px!important;padding:10px!important}}.hero-summary .channel-logo{{width:30px;height:30px}}.hero-summary b{{font-size:27px}}}}
 body.karp{{--ink:#141414;--muted:#716b65;--paper:#f5f3ef;--card:#fffdf9;--line:rgba(20,20,20,.16);--accent:#141414;--accent2:#c28563;--article:#141414}}body.veronika{{--ink:#3b1220;--muted:#765e66;--paper:#f8f1f3;--card:#fffafb;--line:rgba(107,23,48,.16);--accent:#6b1730;--accent2:#d7a1ad;--article:#6b1730}}
-.hero-copy{{position:relative;z-index:1}}.hero-brand{{display:flex;align-items:center;gap:15px;min-height:38px}}.hero-brand img{{display:block;width:180px;height:auto;max-height:42px;object-fit:contain;object-position:left center}}body.karp .hero-brand img{{filter:brightness(0) invert(1);opacity:.96}}body.veronika .hero-brand img{{width:42px;height:42px}}.hero-side{{position:relative;z-index:1;display:grid;align-content:start;gap:12px}}.start-control{{display:flex;justify-content:flex-end}}.start-control label{{display:grid;gap:5px}}.start-control label>span{{font-size:9px;font-weight:850;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.64)}}.start-control input{{width:190px;min-height:42px;border:1px solid rgba(255,255,255,.28);border-radius:12px;background:rgba(255,255,255,.1);color:#fff;padding:7px 11px;font:750 13px Inter,Arial,sans-serif;color-scheme:dark}}@media(min-width:901px){{.hero{{gap:18px 28px;padding:28px 32px 24px}}.hero h1{{font-size:clamp(44px,4.1vw,60px);line-height:1;margin:9px 0 12px;letter-spacing:-.035em}}.hero p{{margin:0;font-size:14px}}.month-nav{{margin-top:15px}}.progress{{align-self:start;padding:14px 17px;border-radius:18px}}.progress strong{{font-size:42px}}.progress-bar{{margin-top:9px;height:5px}}.hero-summary{{gap:8px!important;margin:0!important}}.hero-summary div{{min-height:62px;padding:9px 11px!important}}.hero-summary b{{font-size:27px}}}}
+.hero-copy{{position:relative;z-index:1}}.hero-brand{{display:flex;align-items:center;gap:15px;min-height:38px}}.hero-brand img{{display:block;width:180px;height:auto;max-height:42px;object-fit:contain;object-position:left center}}body.generic .hero-brand img{{width:auto;max-width:180px;min-width:42px;min-height:42px;padding:5px 8px;border-radius:11px;background:rgba(255,255,255,.94)}}body.karp .hero-brand img{{filter:brightness(0) invert(1);opacity:.96}}body.veronika .hero-brand img{{width:42px;height:42px}}.hero-side{{position:relative;z-index:1;display:grid;align-content:start;gap:12px}}.start-control{{display:flex;justify-content:flex-end}}.start-control label{{display:grid;gap:5px}}.start-control label>span{{font-size:9px;font-weight:850;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.64)}}.start-control input{{width:190px;min-height:42px;border:1px solid rgba(255,255,255,.28);border-radius:12px;background:rgba(255,255,255,.1);color:#fff;padding:7px 11px;font:750 13px Inter,Arial,sans-serif;color-scheme:dark}}@media(min-width:901px){{.hero{{gap:18px 28px;padding:28px 32px 24px}}.hero h1{{font-size:clamp(44px,4.1vw,60px);line-height:1;margin:9px 0 12px;letter-spacing:-.035em}}.hero p{{margin:0;font-size:14px}}.month-nav{{margin-top:15px}}.progress{{align-self:start;padding:14px 17px;border-radius:18px}}.progress strong{{font-size:42px}}.progress-bar{{margin-top:9px;height:5px}}.hero-summary{{gap:8px!important;margin:0!important}}.hero-summary div{{min-height:62px;padding:9px 11px!important}}.hero-summary b{{font-size:27px}}}}
 @media(max-width:900px){{.hero-side{{gap:10px}}.start-control{{justify-content:flex-start}}}}
 @media(max-width:560px){{main{{padding:8px 8px 48px}}.hero{{gap:13px;padding:19px 15px 16px;border-radius:20px}}.hero-brand{{gap:9px}}.hero-brand img{{width:108px;max-height:34px}}body.veronika .hero-brand img{{width:34px;height:34px}}.hero-brand .eyebrow{{font-size:8px;letter-spacing:.1em}}.hero h1{{font-size:34px;line-height:1.02;margin:8px 0 11px;letter-spacing:-.03em}}.hero p{{font-size:13px;line-height:1.4;margin:0}}.month-nav{{margin-top:12px}}.month-link{{padding:6px 10px;font-size:10px}}.start-control input{{width:155px;min-height:38px;padding:5px 9px;font-size:12px}}.start-control label>span{{font-size:8px}}.progress{{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:4px 12px;padding:12px 14px;border-radius:16px}}.progress strong{{font-size:39px}}.progress span{{font-size:11px}}.progress-bar{{grid-column:1/-1;margin-top:5px;height:5px}}.hero-summary{{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:5px!important}}.hero-summary div,.hero-summary div:last-child{{min-height:68px;grid-column:auto!important;grid-template-columns:20px 1fr!important;gap:4px!important;padding:6px!important;border-radius:12px!important}}.hero-summary .channel-logo{{width:20px!important;height:20px!important;flex-basis:20px!important;border-radius:6px}}.hero-summary .channel-logo svg{{width:13px;height:13px}}.hero-summary b{{font-size:19px}}.hero-summary small{{font-size:6.5px!important;line-height:1.12;letter-spacing:0!important}}}}
 .plan-card.owner{{outline:0;isolation:isolate}}.plan-card.owner:before{{display:none}}.card-footer>span:first-child{{display:inline-flex;align-items:center;min-height:27px;padding:5px 9px;border:1px solid rgba(255,255,255,.86);border-radius:999px;background:rgba(255,255,255,.06)}}.plan-card.owner .card-footer>span:first-child{{border:2px solid #fff;background:rgba(255,255,255,.14);box-shadow:0 0 12px rgba(255,255,255,.7),inset 0 0 8px rgba(255,255,255,.18);animation:ownerBadgePulse 1.65s ease-in-out infinite}}@keyframes ownerBadgePulse{{0%,100%{{transform:scale(1);box-shadow:0 0 8px rgba(255,255,255,.48),inset 0 0 7px rgba(255,255,255,.14)}}50%{{transform:scale(1.045);box-shadow:0 0 19px rgba(255,255,255,.96),inset 0 0 11px rgba(255,255,255,.3)}}}}
 .plan-card.status-ready{{opacity:.48;filter:grayscale(.35) saturate(.45);animation:none;box-shadow:none}}.plan-card.status-ready:before{{display:none}}.plan-card.status-error{{animation:none;box-shadow:0 0 0 4px #ff203f,0 18px 44px rgba(255,32,63,.62)}}.plan-card.status-error:before{{display:block;border-color:#ff3852;box-shadow:inset 0 0 18px rgba(255,32,63,.42),0 0 22px rgba(255,32,63,.88)}}.plan-card.status-overdue{{animation:overdueCardBlink 1.35s ease-in-out infinite}}.plan-card.status-overdue:before{{display:block;border-color:#ff9f1c;box-shadow:inset 0 0 16px rgba(255,159,28,.35),0 0 20px rgba(255,159,28,.72)}}@keyframes overdueCardBlink{{0%,100%{{box-shadow:0 0 0 2px rgba(255,159,28,.68),0 15px 34px rgba(255,121,0,.34)}}50%{{box-shadow:0 0 0 5px #ff9f1c,0 22px 48px rgba(255,121,0,.78)}}}}
 .plan-card.live-card{{text-decoration:none}}
-</style></head><body class="{brand_key}"><main><section class="hero"><div class="hero-copy"><div class="hero-brand"><img src="{escape(brand_logo_url, quote=True)}" alt="{escape(brand, quote=True)}"><span class="eyebrow">Персональный контент-календарь</span></div><h1>{escape(period_label)}</h1><p>{escape(brand)} · точное расписание фабрики и отдельные съёмки, которые нужно подготовить лично.</p>{month_navigation}</div><div class="hero-side">{start_control}</div><section class="summary hero-summary">{summary_html}</section></section>
+</style></head><body class="{brand_key}" style="--accent:{escape(brand_color, quote=True)};--accent2:{escape(brand_accent, quote=True)};--article:{escape(brand_color, quote=True)}"><main><section class="hero"><div class="hero-copy"><div class="hero-brand"><img src="{escape(brand_logo_url, quote=True)}" alt="{escape(brand, quote=True)}" onerror="this.hidden=true"><span class="eyebrow">Персональный контент-календарь</span></div><h1>{escape(period_label)}</h1><p>{escape(brand)} · точное расписание фабрики и отдельные задачи, которые нужно выполнить лично.</p>{month_navigation}</div><div class="hero-side">{start_control}</div><section class="summary hero-summary">{summary_html}</section></section>
 <div class="workspace"><aside class="calendar"><span class="eyebrow">Нажмите на дату</span><h2>Даты публикаций</h2>{calendar_html}<div class="legend">{legend_html}</div><p class="notice">Время указано по Варшаве. Каждая точка — отдельная площадка и тип публикации.</p></aside>
 <section><div class="feed-head"><span class="eyebrow">План по датам</span><h2>Что и когда выходит</h2><div class="filters"><div class="filter-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="width:82px;color:var(--muted);font-size:10px;font-weight:850;text-transform:uppercase">Исполнитель</span><button class="active" data-mode-filter="all">Все</button><button data-mode-filter="owner">Лично</button><button data-mode-filter="factory">Фабрика</button></div><div class="filter-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="width:82px;color:var(--muted);font-size:10px;font-weight:850;text-transform:uppercase">Площадка</span><button class="active" data-channel-filter="all">Все</button>{channel_filters}</div></div></div><div class="plan-list">{''.join(sections)}</div>{empty}</section></div></main>{''.join(dialogs)}<script>
 (function(){{var lastTrigger=null,modeFilter='all',channelFilter='all';function applyFilters(){{document.querySelectorAll('.plan-card').forEach(function(card){{card.hidden=(modeFilter!=='all'&&card.dataset.mode!==modeFilter)||(channelFilter!=='all'&&card.dataset.channel!==channelFilter)}});document.querySelectorAll('[data-date-group]').forEach(function(group){{group.hidden=!group.querySelector('.plan-card:not([hidden])')}})}}document.querySelectorAll('[data-mode-filter]').forEach(function(button){{button.addEventListener('click',function(){{document.querySelectorAll('[data-mode-filter]').forEach(function(item){{item.classList.remove('active')}});button.classList.add('active');modeFilter=button.dataset.modeFilter;applyFilters()}})}});document.querySelectorAll('[data-channel-filter]').forEach(function(button){{button.addEventListener('click',function(){{document.querySelectorAll('[data-channel-filter]').forEach(function(item){{item.classList.remove('active')}});button.classList.add('active');channelFilter=button.dataset.channelFilter;applyFilters()}})}});document.querySelectorAll('[data-dialog]').forEach(function(card){{card.addEventListener('click',function(){{var dialog=document.getElementById(card.dataset.dialog);if(dialog){{lastTrigger=card;dialog.showModal()}}}})}});document.querySelectorAll('.plan-dialog').forEach(function(dialog){{dialog.querySelector('[data-close]').addEventListener('click',function(){{dialog.close()}});dialog.addEventListener('click',function(event){{if(event.target===dialog)dialog.close()}});dialog.addEventListener('close',function(){{if(lastTrigger)lastTrigger.focus()}})}})}})();
@@ -20210,6 +20358,20 @@ body.karp{{--ink:#141414;--muted:#716b65;--paper:#f5f3ef;--card:#fffdf9;--line:r
     response = Response(html, mimetype="text/html")
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
     response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    return response
+
+
+def _media_plan_brand_logo_response(site):
+    reference = site_logo_reference(int(site["id"]))
+    if not reference or not reference.get("data"):
+        abort(404)
+    try:
+        payload = b64decode(reference["data"])
+    except Exception:
+        abort(404)
+    response = Response(payload, mimetype=str(reference.get("mime_type") or "image/png"))
+    response.headers["Cache-Control"] = "private, max-age=3600"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
     return response
 
 
@@ -20221,12 +20383,32 @@ def public_media_plan_page():
     return render_public_media_plan(site)
 
 
-@app.post("/media-plan/reschedule")
-def reschedule_public_media_plan():
-    """Persistently shift one complete media-plan batch to a chosen start date."""
+@app.get("/media-plan/brand-logo")
+def public_media_plan_brand_logo():
     site = get_media_plan_site_by_host(request_host())
     if not site:
         abort(404)
+    return _media_plan_brand_logo_response(site)
+
+
+@app.get("/sites/<int:site_id>/media-plan")
+def managed_site_media_plan_page(site_id):
+    site = get_site(site_id)
+    if not site:
+        abort(404)
+    return render_public_media_plan(site, route_prefix=f"/sites/{int(site_id)}/media-plan")
+
+
+@app.get("/sites/<int:site_id>/media-plan/brand-logo")
+def managed_site_media_plan_brand_logo(site_id):
+    site = get_site(site_id)
+    if not site:
+        abort(404)
+    return _media_plan_brand_logo_response(site)
+
+
+def _reschedule_media_plan(site, route_prefix):
+    """Shift dated tasks and materialize dates for newly assigned undated tasks."""
     referer = str(request.headers.get("Referer") or "")
     if referer and clean_host(urllib.parse.urlparse(referer).netloc) != request_host():
         abort(403)
@@ -20239,27 +20421,42 @@ def reschedule_public_media_plan():
     except ValueError:
         abort(400)
     with db() as conn:
-        rows = conn.execute(
-            """select * from agent_media_plan_items
-               where site_id=? and json_extract(details_json,'$.planMonth')=?""",
-            (int(site["id"]), month),
+        candidates = conn.execute(
+            "select * from agent_media_plan_items where site_id=? order by week,id",
+            (int(site["id"]),),
         ).fetchall()
+        rows = [row for row in candidates if _media_plan_effective_month(row, parse_json_object(row["details_json"])) == month]
+        if not rows:
+            abort(404)
         starts = []
         for row in rows:
             details = parse_json_object(row["details_json"])
             publish_at = _media_plan_datetime(details.get("publishAt"))
             if publish_at:
                 starts.append(publish_at.astimezone(ZoneInfo("Europe/Warsaw")).date())
-        if not starts:
-            abort(404)
-        delta = new_start - min(starts)
+        delta = new_start - min(starts) if starts else timedelta(0)
         now = now_iso()
+        week_positions = {}
         for row in rows:
             details = parse_json_object(row["details_json"])
-            for key in ("publishAt", "recordingDueAt", "productionDueAt", "scheduledFor"):
-                value = _media_plan_datetime(details.get(key))
-                if value:
-                    details[key] = (value + timedelta(days=delta.days)).isoformat(timespec="seconds")
+            publish_at = _media_plan_datetime(details.get("publishAt"))
+            if publish_at:
+                for key in ("publishAt", "recordingDueAt", "productionDueAt", "scheduledFor"):
+                    value = _media_plan_datetime(details.get(key))
+                    if value:
+                        details[key] = (value + timedelta(days=delta.days)).isoformat(timespec="seconds")
+            else:
+                week = max(1, int(row["week"] or 1))
+                position = week_positions.get(week, 0)
+                week_positions[week] = position + 1
+                publish_date = new_start + timedelta(days=(week - 1) * 7 + (position % 7))
+                assigned = datetime.combine(publish_date, datetime.min.time()).replace(
+                    tzinfo=ZoneInfo("Europe/Warsaw"), hour=18,
+                )
+                details["publishAt"] = assigned.isoformat(timespec="seconds")
+                if str(row["execution_mode"] or "") in {"human-owner", "manual-owner"} and not details.get("recordingDueAt"):
+                    details["recordingDueAt"] = (assigned - timedelta(days=1)).isoformat(timespec="seconds")
+            details["planMonth"] = month
             conn.execute(
                 "update agent_media_plan_items set details_json=?,updated_at=? where id=? and site_id=?",
                 (json.dumps(details, ensure_ascii=False), now, int(row["id"]), int(site["id"])),
@@ -20268,15 +20465,26 @@ def reschedule_public_media_plan():
                 "delete from agent_media_plan_reminder_events where media_plan_item_id=? and status!='SENT'",
                 (int(row["id"]),),
             )
-    return redirect(f"/media-plan?month={urllib.parse.quote(month)}", code=303)
+    return redirect(f"{route_prefix}?month={urllib.parse.quote(month)}", code=303)
 
 
-@app.post("/media-plan/items/<int:item_id>/ready")
-def mark_public_media_plan_reel_ready(item_id):
-    """Advance a personal Reel to READY; this public workflow is intentionally one-way."""
+@app.post("/media-plan/reschedule")
+def reschedule_public_media_plan():
     site = get_media_plan_site_by_host(request_host())
     if not site:
         abort(404)
+    return _reschedule_media_plan(site, "/media-plan")
+
+
+@app.post("/sites/<int:site_id>/media-plan/reschedule")
+def reschedule_managed_site_media_plan(site_id):
+    site = get_site(site_id)
+    if not site:
+        abort(404)
+    return _reschedule_media_plan(site, f"/sites/{int(site_id)}/media-plan")
+
+
+def _mark_media_plan_reel_ready(site, item_id, route_prefix):
     referer = str(request.headers.get("Referer") or "")
     if referer and clean_host(urllib.parse.urlparse(referer).netloc) != request_host():
         abort(403)
@@ -20285,7 +20493,7 @@ def mark_public_media_plan_reel_ready(item_id):
             "select * from agent_media_plan_items where id=? and site_id=?",
             (item_id, int(site["id"])),
         ).fetchone()
-        if not row or _media_plan_channel_key(row["channel"]) != "reels" or str(row["execution_mode"] or "") not in {"human-owner", "manual-owner"}:
+        if not row or _media_plan_channel_key(f"{row['channel']} {row['format']}") != "reels" or str(row["execution_mode"] or "") not in {"human-owner", "manual-owner", "manual", "manual-partnership"}:
             abort(404)
         status = str(row["status"] or "PLANNED").upper()
         if status not in {"READY", "RECORDED", "PUBLISHED", "SUBMITTED", "DONE", "ERROR", "FAILED", "BLOCKED"}:
@@ -20296,10 +20504,26 @@ def mark_public_media_plan_reel_ready(item_id):
     month = str(request.form.get("month") or "").strip()
     date_key = str(request.form.get("date") or "").strip()
     query = urllib.parse.urlencode({"month": month}) if month else ""
-    target = f"/media-plan{'?' + query if query else ''}"
+    target = f"{route_prefix}{'?' + query if query else ''}"
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_key):
         target += f"#date-{date_key}"
     return redirect(target, code=303)
+
+
+@app.post("/media-plan/items/<int:item_id>/ready")
+def mark_public_media_plan_reel_ready(item_id):
+    site = get_media_plan_site_by_host(request_host())
+    if not site:
+        abort(404)
+    return _mark_media_plan_reel_ready(site, item_id, "/media-plan")
+
+
+@app.post("/sites/<int:site_id>/media-plan/items/<int:item_id>/ready")
+def mark_managed_site_media_plan_reel_ready(site_id, item_id):
+    site = get_site(site_id)
+    if not site:
+        abort(404)
+    return _mark_media_plan_reel_ready(site, item_id, f"/sites/{int(site_id)}/media-plan")
 
 
 def public_base_url():
@@ -23677,6 +23901,7 @@ def render_site_row(s):
   </div>
   <div class="actions">
     <a class="btn ghost" href="/sites/{s['id']}">Manage</a>
+    <a class="btn ghost" target="_blank" href="/sites/{s['id']}/media-plan">Media plan</a>
     {technical_actions}
     {preview}
     <button class="danger" onclick="deleteSite({s['id']}, '{escape(s['domain'], quote=True)}')">Delete</button>
@@ -25732,7 +25957,12 @@ def create_site():
                 now,
             ),
         )
-    return redirect("/") if request.form else jsonify({"ok": True})
+        site_id = int(conn.execute("select id from sites where domain=?", (domain,)).fetchone()["id"])
+    return redirect("/") if request.form else jsonify({
+        "ok": True,
+        "siteId": site_id,
+        "mediaPlanUrl": f"/sites/{site_id}/media-plan",
+    })
 
 
 def source_scanner_request_authorized():
