@@ -5,7 +5,7 @@
 * Removed the redundant aggregate percentage/progress panel; completion is represented only by the more useful per-format `completed/total` counters.
 * Fixed source-format classification so the shared `Instagram + TikTok` carousel rows expand to two correctly labelled cards and contribute all 30 destination publications; future Stories and ordinary posts remain distinct format types.
 * Kept card headings explicit (`Instagram Reels`, `TikTok Reels`, `Instagram · карусель`, `TikTok · карусель`) and preserved separate calendar-dot identities for every destination and format.
-* Made every owner-recorded `Снять лично` card immediately recognizable with a restrained animated light contour and stronger platform-coloured shadow; reduced-motion preferences still suppress the animation.
+* Put the execution labels themselves into visible white contours: `Готовит фабрика` remains static, while `Снять лично` uses a luminous shadow and pulse animation. The whole owner card no longer pulses; reduced-motion preferences suppress the badge animation.
 * Added card-level status treatments: completed publications fade to a disabled-like state, errors receive a bright red contour and shadow, and overdue publications pulse with an orange contour and shadow. Detail dialogs remain accessible in every state.
 * Kept every hero metric in the requested hierarchy: the large `completed/total` count remains above, while the smaller platform/format label sits below it with clear vertical separation.
 
