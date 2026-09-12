@@ -1,8 +1,21 @@
+## 2026-09-13 — Finalize media-plan header and per-format metrics
+
+* Added each site's real logo to its media-plan hero, retained the compact natural-language date range and placed the persistent start-date selector in the upper-right desktop column.
+* Split Instagram and TikTok totals into distinct Reels and carousel counters and labels. Counter values now show completed versus total publications, for example `0/30`, instead of totals alone.
+* Removed the redundant aggregate percentage/progress panel; completion is represented only by the more useful per-format `completed/total` counters.
+* Fixed source-format classification so the shared `Instagram + TikTok` carousel rows expand to two correctly labelled cards and contribute all 30 destination publications; future Stories and ordinary posts remain distinct format types.
+* Kept card headings explicit (`Instagram Reels`, `TikTok Reels`, `Instagram · карусель`, `TikTok · карусель`) and preserved separate calendar-dot identities for every destination and format.
+* Made every owner-recorded `Снять лично` card immediately recognizable with a restrained animated light contour and stronger platform-coloured shadow; reduced-motion preferences still suppress the animation.
+
 ## 2026-09-12 — Add destination cards, persistent rescheduling and one-way Reel completion
 
 * Expanded each 90-record personal plan into 165 visible destination cards: 15 site, 45 Instagram, 45 TikTok, 30 YouTube Shorts, 15 Telegram and 15 Threads. Cross-posted carousels and Reels now have one card per destination, and the 30 days alternate evenly between five and six cards.
 * Moved logo/count summaries into the hero, added logo platform filters and gave every calendar date one distinct dot per destination and content type. Karp now uses the verified black/ivory/bronze site palette instead of green; Veronika uses her maroon/cream/rose palette. Social cards keep native platform colours.
 * Compressed the complete hero without hiding information: smaller desktop typography and spacing, a compact control row, a horizontal mobile progress row and a dense two-row mobile platform summary. The month chip is suppressed when only one plan month exists, because the adjacent start-date control already identifies the period.
+* Replaced the technical numeric range with a natural-language period heading such as `1–30 октября 2026`. Moved the persistent start-date control to the hero's upper-right control column, with progress directly below it.
+* Split the Instagram and TikTok hero totals by format: 30 Reels and 15 carousels for each platform. The eight resulting counters use a compact four-by-two mobile grid.
+* Made every Instagram and TikTok card label format-explicit: `Instagram Reels`, `TikTok Reels`, `Instagram · карусель` or `TikTok · карусель`; no ambiguous platform-only label remains on publication cards.
+* Made the hero summary and calendar legend data-driven by destination format, so future Instagram/TikTok Stories and ordinary posts receive their own non-zero counters, labels and dot colours automatically. Added each site's existing native logo asset to the hero; no substitute mark was created.
 * Added a persistent start-date selector. Changing it shifts the selected batch's publication, production and recording timestamps, clears only future unsent reminder events for recalculation, and renders additional calendar months when the resulting 30-day span crosses a boundary.
 * Replaced long schedule badges with `В плане`, `Готово`, `Ошибка` and automatically derived `Просрочено`. Added a one-way `Отметить готово` action to personal Reels; the shared source row becomes `READY`, so its Instagram, TikTok and YouTube Shorts cards change together. No client cancellation or reverse transition exists.
 * Production recovery snapshot: `/var/backups/blog-core/pre-20260912-media-plan-controls`.
