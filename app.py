@@ -20111,16 +20111,31 @@ def render_public_media_plan(site, route_prefix="/media-plan"):
         if hook:
             detail_parts.append(f"<div class='detail-block'><span>Хук</span><p>{escape(hook)}</p></div>")
         if beats:
-            detail_parts.append("<div class='detail-block'><span>Что сказать</span><ol>" + "".join(f"<li>{escape(str(value))}</li>" for value in beats) + "</ol></div>")
+            script_label = "Сценарий по секундам" if details.get("scriptRevision") else "Что сказать"
+            detail_parts.append(f"<div class='detail-block wide'><span>{script_label}</span><ol>" + "".join(f"<li>{escape(str(value))}</li>" for value in beats) + "</ol></div>")
         if shots:
             detail_parts.append("<div class='detail-block'><span>Что снять</span><ol>" + "".join(f"<li>{escape(str(value))}</li>" for value in shots) + "</ol></div>")
+        if is_owner and details.get("scriptRevision"):
+            detail_parts.append(f"<div class='detail-block'><span>Призыв в конце</span><p>{escape(str(details.get('cta') or row['cta'] or ''))}</p></div>")
+            if details.get("recordingNote"):
+                detail_parts.append(f"<div class='detail-block wide'><span>Как подготовить съёмку</span><p>{escape(str(details['recordingNote']))}</p></div>")
+            material = details.get("leadMagnet")
+            if isinstance(material, dict) and material.get("replyText"):
+                detail_parts.append(
+                    "<div class='detail-block wide'><details><summary style='cursor:pointer;font-weight:750'>"
+                    f"Материал за комментарий «{escape(str(material.get('keyword') or ''))}»</summary>"
+                    f"<p>{escape(str(material.get('title') or ''))}</p>"
+                    f"<p>{escape(str(material.get('delivery') or ''))}</p>"
+                    f"<textarea readonly aria-label='Готовый ответ с материалом' style='width:100%;min-height:260px;padding:12px;border:1px solid var(--line);border-radius:12px;background:white;color:var(--ink);font:inherit;line-height:1.5'>{escape(str(material['replyText']))}</textarea>"
+                    "</details></div>"
+                )
         if deliverable:
             detail_parts.append(f"<div class='detail-block'><span>{'Что передать' if is_owner else 'Формат результата'}</span><p>{escape(deliverable)}</p></div>")
         display_status, display_status_label = _media_plan_display_status(status, publish_local)
         status_label = escape(display_status_label)
         preview_text = brief if is_owner else content_summary
         if channel_key == "reels":
-            preview_text = f"Живой вертикальный ролик 25–40 секунд. Рубрика: {details.get('reelCategory') or 'экспертный выпуск'}."
+            preview_text = brief if details.get("scriptRevision") else f"Живой вертикальный ролик 25–40 секунд. Рубрика: {details.get('reelCategory') or 'экспертный выпуск'}."
         due_html = f"<span class='due'>Подготовить до {escape(due_label)}</span>" if due_label else ""
         channel_text = str(row["channel"] or "").lower()
         if channel_key == "reels":

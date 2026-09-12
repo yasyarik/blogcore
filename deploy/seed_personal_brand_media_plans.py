@@ -8,6 +8,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+try:
+    from .personal_brand_reels import build_owner_reels
+except ImportError:
+    from personal_brand_reels import build_owner_reels
+
 
 WARSAW = ZoneInfo("Europe/Warsaw")
 PLAN_MONTH = "2026-10"
@@ -349,73 +354,6 @@ def details(month, publish_at, brief, campaign, **extra):
     }
 
 
-def reel_concept(campaign, sequence):
-    variants = [
-        {
-            "category": "Лайфстайл",
-            "hook": f"Покажу, где этот выбор встречается в обычном дне: {campaign['question'].lower()}",
-            "points": ["Начать с реального бытового действия, а не с объяснения.", campaign["decision"], "Закончить коротким вопросом о привычках зрителя."],
-            "shots": ["Первый кадр в движении: вход, дорога или начало рабочего дня.", "Одно связанное бытовое действие без постановочных перебивок.", "Лицо в кадре в той же локации, финальный вопрос."],
-        },
-        {
-            "category": "Обзор объекта",
-            "hook": f"На просмотре я сразу ищу ответ на один вопрос: {campaign['question'].lower()}",
-            "points": ["Показать одну конкретную зону объекта.", campaign["mistake"], campaign["decision"]],
-            "shots": ["Общий план выбранной зоны объекта.", "Камера подходит к одной проверяемой детали.", "Эксперт остаётся рядом с деталью и формулирует вывод."],
-        },
-        {
-            "category": "Лайфхак",
-            "hook": f"Эта проверка занимает меньше минуты: {campaign['question'].lower()}",
-            "points": [campaign["question"], "Показать проверку одним простым действием.", campaign["decision"]],
-            "shots": ["Таймер на телефоне запускается одним касанием.", "Одна проверка выполняется от начала до конца без склеек внутри действия.", "Таймер останавливается, затем короткий вывод в кадре."],
-        },
-        {
-            "category": "Совет эксперта",
-            "hook": f"Перед решением я советую сделать сначала вот это: {campaign['decision'].lower()}",
-            "points": [campaign["mistake"], "Объяснить причину одной фразой.", "Дать одно действие, которое зритель может повторить."],
-            "shots": ["Эксперт сразу обращается в камеру.", "Крупный план одного листа или предмета, подтверждающего совет.", "Возврат к лицу и просьба сохранить ролик."],
-        },
-        {
-            "category": "Миф или правда",
-            "hook": f"Вы уверены, что {campaign['question'].lower()}",
-            "points": ["Дать прямой ответ без паузы.", campaign["mistake"], campaign["decision"]],
-            "shots": ["Эксперт держит две карточки: миф и правда.", "Ненужная карточка физически убирается из кадра.", "На оставшейся карточке показывается одно практическое действие."],
-        },
-        {
-            "category": "Выбор A или B",
-            "hook": f"Выберите A или B до ответа на вопрос: {campaign['question'].lower()}",
-            "points": [campaign["question"], "Сравнить варианты по одному критерию.", campaign["decision"]],
-            "shots": ["Два варианта одновременно видны слева и справа.", "Эксперт указывает на одно различие, не меняя расположение вариантов.", "Финал снова держит оба варианта для ответа в комментариях."],
-        },
-        {
-            "category": "За кадром работы",
-            "hook": f"Вот что остаётся за кадром, когда нужно {campaign['decision'].lower()}",
-            "points": [campaign["question"], "Показать один этап подготовки без данных клиентов.", campaign["decision"]],
-            "shots": ["Рабочий стол или выезд на объект начинается с общего плана.", "Одно реальное действие: сравнение, маршрут или заметка.", "Эксперт закрывает рабочий материал и формулирует результат."],
-        },
-        {
-            "category": "Одна важная деталь",
-            "hook": f"Весь этот выбор может изменить одна деталь: {campaign['question'].lower()}",
-            "points": ["Сначала показать деталь без объяснения.", campaign["mistake"], campaign["decision"]],
-            "shots": ["Макрокадр одной детали объекта или документа.", "Камера плавно отходит и показывает контекст.", "Эксперт входит в кадр и даёт короткий вывод."],
-        },
-        {
-            "category": "Частый вопрос",
-            "hook": f"Отвечаю прямо: {campaign['question'].lower()}",
-            "points": ["Ответить первым же предложением.", "Назвать условие, от которого зависит ответ.", campaign["decision"]],
-            "shots": ["Вопрос крупно написан на одной карточке.", "Карточка опускается, эксперт отвечает прямо в камеру.", "Финал без смены ракурса с вопросом аудитории."],
-        },
-        {
-            "category": "Личное правило",
-            "hook": f"Моё правило перед таким решением: {campaign['decision'].lower()}",
-            "points": ["Объяснить, когда правило стало полезным без выдуманной истории клиента.", campaign["mistake"], "Предложить зрителю проверить правило на своём варианте."],
-            "shots": ["Эксперт идёт к объекту или садится за стол.", "Правило записывается одной строкой от руки.", "Лист остаётся в кадре рядом с лицом эксперта."],
-        },
-    ]
-    concept = dict(variants[sequence % len(variants)])
-    if sequence % len(variants) == 3:
-        concept["hook"] = campaign["hook"]
-    return concept
 
 
 def build_items(config):
@@ -425,7 +363,6 @@ def build_items(config):
     carousel_days = list(range(2, 31, 2))
     telegram_days = list(range(1, 30, 2))
     thread_days = list(range(2, 31, 2))
-    reel_days = list(range(1, 31))
 
     for index, day in enumerate(article_days):
         campaign = campaigns[index]
@@ -510,26 +447,7 @@ def build_items(config):
             ),
         })
 
-    for index, day in enumerate(reel_days):
-        campaign_index = index % len(campaigns)
-        campaign = campaigns[campaign_index]
-        concept = reel_concept(campaign, index)
-        publish_at = at(day, 19)
-        recording_due = publish_at - timedelta(days=3)
-        brief = f"Снять живой вертикальный ролик 25–40 секунд в рубрике «{concept['category']}» и самостоятельно одновременно опубликовать его в Instagram Reels, TikTok и YouTube Shorts."
-        item_details = details(
-            PLAN_MONTH, publish_at, brief, campaign["article"],
-            recordingDueAt=recording_due.isoformat(timespec="minutes"),
-            reelCategory=concept["category"], hook=concept["hook"], talkingPoints=concept["points"], shotList=concept["shots"],
-            deliverable="Вертикаль 9:16, чистый голос, естественный свет, без фоновой музыки во время речи; оставить по одной секунде до и после фразы. Опубликовать лично одновременно в Instagram Reels, TikTok и YouTube Shorts по расписанию.",
-        )
-        items.append({
-            "week": min(5, ((day - 1) // 7) + 1), "channel": "Instagram Reels + TikTok + YouTube Shorts", "format": "Живой ролик 25–40 секунд",
-            "title": f"{concept['category']}: {concept['hook']}", "objective": brief, "funnel_stage": "Личный контакт и вовлечение",
-            "cta": "Вопрос или просьба сохранить, заданные в сценарии", "generator": f"{config['owner']} снимает и публикует лично",
-            "execution_mode": "human-owner", "repurpose_group": f"oct-{campaign_index + 1}", "rationale": f"Живой формат: {concept['category'].lower()}",
-            "status": "AWAITING_RECORDING", "details": item_details,
-        })
+    items.extend(build_owner_reels(config["owner"], campaigns, PLAN_MONTH))
     return sorted(items, key=lambda item: (item["details"]["publishAt"], item["channel"]))
 
 

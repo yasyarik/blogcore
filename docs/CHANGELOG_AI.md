@@ -6419,3 +6419,11 @@ This file is updated by Codex after every task.
 * `docs/PROJECT_MEMORY.md` — durable direct-bot architecture and queue contract.
 * `docs/INTEGRATIONS.md` — current transport and platform-limit documentation.
 * `docs/CHANGELOG_AI.md` — implementation record.
+## 2026-09-13 — Replace generic personal Reels with 120 authored shooting scripts
+
+* Replaced the ten-template/article-question Reel generator with individually written Karp and Veronika libraries: 60 per owner, split into 30 complete main stories and 30 short companion stories. Preserved the evening schedule and added one 12:30 Warsaw short per day.
+* Every task now carries exact timed dialogue, concrete physical shots, an in-video payoff, a single specific CTA and a retention rationale. Added Veronika's commercial-property scenarios alongside houses/villas; both plans include warm lifestyle, relatable humour and practical demonstrations.
+* Prepared 14 complete text materials and manual reply payloads for keyword-comment requests. Calendar dialogs expose the full scripts and expandable material blocks; actual duration and story now appear in card previews.
+* Added a targeted, backed-up updater: preserves existing source IDs, dates/statuses, skips completed rows, leaves factory records byte-for-byte unchanged, checks concurrent changes and is idempotent. Seed generation now uses the same reviewed scripts.
+* Verified on a copy of the live database: 60 personal Reels/site, two/day, 255 destination cards/site; a repeated update creates no duplicates and completed records stay unchanged.
+* Applied to both live calendars with factory fingerprints unchanged. Verified 255 cards and 180 full-script dialogs per site, noindex responses, and desktop/mobile script/material usability; browser console reported no errors.
