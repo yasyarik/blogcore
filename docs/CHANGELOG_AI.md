@@ -1,3 +1,12 @@
+## 2026-09-12 — Redesign and expand the personal media-plan calendars
+
+* Rebuilt both client calendars around explicit daily sections. Every active day in the month grid now scrolls to that date, and all publications for the date are grouped beneath one numbered heading.
+* Replaced long technical rows with square, clickable cards using the relevant platform colour system and inline SVG platform logos. Cards open native accessible dialogs; factory cards show publication content and talking points, while owner Reels show the recording assignment, hook, talking points, physical shot list and delivery deadline.
+* Expanded October 2026 independently for Aleksei and Veronika to 90 records each: 15 articles, 15 Instagram+TikTok carousels, 15 Telegram posts, 15 Threads posts and 30 owner-recorded Reels.
+* Added six new brand-specific editorial campaigns per person and 30 unique Reel concepts per person. Reels are evenly distributed across lifestyle, property review, lifehack, expert advice, myth check, A/B choice, behind-the-scenes, detail, common-question and personal-rule formats.
+* Preserved the existing noindex/no-store/sitemap exclusion and site-scoped data boundaries. Production backup: `/var/backups/blog-core/pre-media-plan-redesign-20260912`.
+* Verification: local and production compilation passed; the production seed returned 90 records and 30 owner Reels for each domain; Playwright confirmed 90 square cards, 30 date sections, 90 dialogs, exact `15/15/15/15/30` totals, working date anchors and filters, correct factory/owner dialog content, responsive desktop/mobile layouts and zero console errors on both domains.
+
 ## 2026-09-12 — Published separate monthly media-plan calendars for Aleksei and Veronika
 
 * Read the supplied Google Sheet as a non-authoritative reference without changing it. Retained only the useful brand split: Aleksei focuses on premium new builds and investment decisions; Veronika focuses on houses, villas, family living and relocation.
