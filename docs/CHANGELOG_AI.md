@@ -1,3 +1,9 @@
+## 2026-09-13 — Link completed factory cards to their live social posts
+
+* Completed, faded factory-owned social cards now open the real published post in a new tab when a verified public HTTP(S) URL is available. Personal Reels and unpublished/unresolved cards retain their existing detail dialogs.
+* Added destination-aware URL resolution from explicit media-plan publication metadata, exact stored social-post IDs and linked content-job publication fields. Bare provider IDs and non-public pseudo-URLs are rejected.
+* The shared Instagram/TikTok carousel contour now persists both destination social-post IDs, plus immediately available public URLs, back into the media-plan item so later reconciliation can make each destination card link to the correct post.
+
 ## 2026-09-13 — Finalize media-plan header and per-format metrics
 
 * Fixed production routing for media-plan actions. Both domains now proxy the `/media-plan/` action prefix to Blog Core in addition to the exact calendar page, so date rescheduling and one-way Reel completion no longer fall through to the native site with a 404. Nginx validation passed; both public pages return 200 and deliberately invalid reschedule POSTs now reach Blog Core and return its expected 400. Recovery snapshot: `/var/backups/blog-core/pre-20260913-media-plan-action-proxy`.

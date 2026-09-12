@@ -19504,7 +19504,42 @@ def run_scheduled_shared_carousel_publications(now=None):
                 raise RuntimeError(json.dumps(tiktok_result, ensure_ascii=False)[:800])
             finished = now_iso()
             with db() as conn:
-                conn.execute("update agent_media_plan_items set status='SUBMITTED',updated_at=? where id=?", (finished, item["id"]))
+                current_item = conn.execute(
+                    "select details_json from agent_media_plan_items where id=? and site_id=?",
+                    (item["id"], site_id),
+                ).fetchone()
+                plan_details = parse_json_object(current_item["details_json"] if current_item else item["details_json"])
+                publication_post_ids = plan_details.get("publicationPostIds")
+                if not isinstance(publication_post_ids, dict):
+                    publication_post_ids = {}
+                publication_post_ids.update({
+                    "instagram-carousel": int(instagram_post["id"]),
+                    "tiktok-carousel": int(tiktok_result["postId"]),
+                })
+                plan_details["publicationPostIds"] = publication_post_ids
+                publication_urls = plan_details.get("publicationUrls")
+                if not isinstance(publication_urls, dict):
+                    publication_urls = {}
+                instagram_public_url = next(
+                    (
+                        _media_plan_public_url(result.get("remoteUrl"))
+                        for result in (instagram_result.get("results") or [])
+                        if isinstance(result, dict) and result.get("channel") == "instagram"
+                        and _media_plan_public_url(result.get("remoteUrl"))
+                    ),
+                    "",
+                )
+                tiktok_public_url = _media_plan_public_url(tiktok_result.get("remoteUrl"))
+                if instagram_public_url:
+                    publication_urls["instagram-carousel"] = instagram_public_url
+                if tiktok_public_url:
+                    publication_urls["tiktok-carousel"] = tiktok_public_url
+                if publication_urls:
+                    plan_details["publicationUrls"] = publication_urls
+                conn.execute(
+                    "update agent_media_plan_items set status='SUBMITTED',details_json=?,updated_at=? where id=?",
+                    (json.dumps(plan_details, ensure_ascii=False), finished, item["id"]),
+                )
                 conn.execute("update autopublish_runs set finished_at=?,status='SUBMITTED',result_json=? where id=?", (finished, json.dumps({"instagram": instagram_result, "tiktok": tiktok_result, "renderedOnce": True}, ensure_ascii=False), run_id))
                 for trigger in (
                     f"social:instagram:{local_now.date().isoformat()}:{slot_minutes:04d}",
@@ -19783,6 +19818,84 @@ def _media_plan_channel_logo(channel_key):
     return f"<span class='channel-logo' aria-hidden='true'>{icons.get(channel_key, icons['other'])}</span>"
 
 
+def _media_plan_public_url(value):
+    """Return only a real public HTTP(S) URL, never a provider-side post id."""
+    candidate = str(value or "").strip()
+    try:
+        parsed = urllib.parse.urlsplit(candidate)
+    except ValueError:
+        return ""
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return candidate
+
+
+def _media_plan_destination_url(details, destination_key, format_kind, jobs_by_id, posts_by_id, posts_by_job_channel):
+    """Resolve the live destination URL stored by the publication contour."""
+    calendar_key = f"{destination_key}-{format_kind}" if destination_key in {"instagram", "tiktok"} else destination_key
+    lookup_keys = (calendar_key, destination_key)
+    for field in ("publicationUrls", "publishedUrls", "socialUrls"):
+        values = details.get(field)
+        if not isinstance(values, dict):
+            continue
+        for key in lookup_keys:
+            public_url = _media_plan_public_url(values.get(key))
+            if public_url:
+                return public_url
+
+    direct_fields = {
+        "instagram": ("instagramPostUrl",),
+        "tiktok": ("tiktokPostUrl",),
+        "youtube": ("youtubePostUrl", "youtubeShortUrl"),
+        "telegram": ("telegramPostUrl",),
+        "threads": ("threadsPostUrl",),
+        "facebook": ("facebookPostUrl",),
+        "linkedin": ("linkedinPostUrl",),
+        "twitter": ("twitterPostUrl", "xPostUrl"),
+        "pinterest": ("pinterestPostUrl",),
+        "reddit": ("redditPostUrl",),
+        "tumblr": ("tumblrPostUrl",),
+    }
+    for field in direct_fields.get(destination_key, ()):
+        public_url = _media_plan_public_url(details.get(field))
+        if public_url:
+            return public_url
+
+    publication_post_ids = details.get("publicationPostIds")
+    if isinstance(publication_post_ids, dict):
+        for key in lookup_keys:
+            try:
+                post = posts_by_id.get(int(publication_post_ids.get(key)))
+            except (TypeError, ValueError):
+                post = None
+            if post and str(post["status"] or "").upper() in {"PUBLISHED", "SENT", "DONE", "SUCCESS"}:
+                public_url = _media_plan_public_url(post["remote_url"])
+                if public_url:
+                    return public_url
+
+    source_job_id = str(details.get("sourceJobId") or details.get("contentJobId") or details.get("jobId") or "").strip()
+    if source_job_id:
+        post = posts_by_job_channel.get((source_job_id, destination_key))
+        if post and str(post["status"] or "").upper() in {"PUBLISHED", "SENT", "DONE", "SUCCESS"}:
+            public_url = _media_plan_public_url(post["remote_url"])
+            if public_url:
+                return public_url
+        job = jobs_by_id.get(source_job_id)
+        job_url_fields = {
+            "instagram": "instagram_post_url", "telegram": "telegram_post_url",
+            "threads": "threads_post_url", "facebook": "facebook_post_url",
+            "linkedin": "linkedin_post_url", "twitter": "twitter_post_url",
+            "pinterest": "pinterest_post_url", "reddit": "reddit_post_url",
+            "tumblr": "tumblr_post_url",
+        }
+        field = job_url_fields.get(destination_key)
+        if job is not None and field:
+            public_url = _media_plan_public_url(job[field])
+            if public_url:
+                return public_url
+    return ""
+
+
 def render_public_media_plan(site):
     site_id = int(site["id"])
     requested_month = str(request.args.get("month") or "").strip()
@@ -19801,6 +19914,46 @@ def render_public_media_plan(site):
         if month_key and month_key not in available_months:
             available_months.append(month_key)
         parsed_rows.append((row, details))
+    source_job_ids = {
+        str(details.get("sourceJobId") or details.get("contentJobId") or details.get("jobId") or "").strip()
+        for _, details in parsed_rows
+        if str(details.get("sourceJobId") or details.get("contentJobId") or details.get("jobId") or "").strip()
+    }
+    publication_post_ids = set()
+    for _, details in parsed_rows:
+        values = details.get("publicationPostIds")
+        if not isinstance(values, dict):
+            continue
+        for value in values.values():
+            try:
+                publication_post_ids.add(int(value))
+            except (TypeError, ValueError):
+                pass
+    jobs_by_id = {}
+    posts_by_id = {}
+    posts_by_job_channel = {}
+    with db() as conn:
+        if source_job_ids:
+            placeholders = ",".join("?" for _ in source_job_ids)
+            job_rows = conn.execute(
+                f"select * from content_jobs where site_id=? and id in ({placeholders})",
+                (site_id, *sorted(source_job_ids)),
+            ).fetchall()
+            jobs_by_id = {str(value["id"]): value for value in job_rows}
+            social_rows = conn.execute(
+                f"""select * from social_posts where site_id=? and job_id in ({placeholders})
+                      and status!='SUPERSEDED' order by id""",
+                (site_id, *sorted(source_job_ids)),
+            ).fetchall()
+            for value in social_rows:
+                posts_by_job_channel[(str(value["job_id"]), str(value["channel"]))] = value
+        if publication_post_ids:
+            placeholders = ",".join("?" for _ in publication_post_ids)
+            social_rows = conn.execute(
+                f"select * from social_posts where site_id=? and id in ({placeholders})",
+                (site_id, *sorted(publication_post_ids)),
+            ).fetchall()
+            posts_by_id = {int(value["id"]): value for value in social_rows}
     available_months.sort()
     if requested_month not in available_months:
         current_key = datetime.now(ZoneInfo("Europe/Warsaw")).strftime("%Y-%m")
@@ -19924,17 +20077,26 @@ def render_public_media_plan(site):
             if display_status == "READY":
                 publication_completed_counts[calendar_key] = publication_completed_counts.get(calendar_key, 0) + 1
             calendar_days.setdefault(date_key, []).append(calendar_key)
-            card_html = f"""<button type="button" class="plan-card {destination_key} {mode_key} status-{escape(display_status.lower())}" style="{destination_styles.get(destination_key, '')}" data-mode="{mode_key}" data-channel="{destination_key}" data-dialog="{dialog_id}" aria-haspopup="dialog">
+            live_url = ""
+            if not is_owner and display_status == "READY" and destination_key != "article":
+                live_url = _media_plan_destination_url(
+                    details, destination_key, format_kind, jobs_by_id, posts_by_id, posts_by_job_channel,
+                )
+            card_body = f"""
               <span class="card-top"><span class="platform">{destination_logo}{destination_copy}</span><span class="status status-{escape(display_status.lower())}">{status_label}</span></span>
               <span class="card-time">{escape(publish_local.strftime('%H:%M') if publish_local else 'Время уточняется')}</span>
               <strong>{escape(str(row['title']))}</strong><span class="content-label">{'Что нужно сделать' if is_owner else 'Содержание'}</span><span class="card-copy">{escape(preview_text)}</span>
-              <span class="card-footer"><span>{owner_label}</span><span>Подробнее →</span></span>
-            </button>"""
+              <span class="card-footer"><span>{owner_label}</span><span>{'Открыть публикацию ↗' if live_url else 'Подробнее →'}</span></span>"""
+            if live_url:
+                card_html = f"""<a class="plan-card live-card {destination_key} {mode_key} status-{escape(display_status.lower())}" style="{destination_styles.get(destination_key, '')}" data-mode="{mode_key}" data-channel="{destination_key}" href="{escape(live_url, quote=True)}" target="_blank" rel="noopener noreferrer" aria-label="Открыть опубликованную запись: {escape(str(row['title']), quote=True)}">{card_body}</a>"""
+            else:
+                card_html = f"""<button type="button" class="plan-card {destination_key} {mode_key} status-{escape(display_status.lower())}" style="{destination_styles.get(destination_key, '')}" data-mode="{mode_key}" data-channel="{destination_key}" data-dialog="{dialog_id}" aria-haspopup="dialog">{card_body}</button>"""
             date_groups.setdefault(date_key, []).append(card_html)
             ready_action = ""
             if channel_key == "reels" and is_owner and display_status not in {"READY", "ERROR"}:
                 ready_action = f"""<form method="post" action="/media-plan/items/{int(row['id'])}/ready" class="ready-form"><input type="hidden" name="month" value="{escape(requested_month, quote=True)}"><input type="hidden" name="start" value="{selected_start.isoformat()}"><input type="hidden" name="date" value="{escape(date_key, quote=True)}"><button type="submit">Отметить готово</button><small>Отменить отметку нельзя</small></form>"""
-            dialogs.append(f"""<dialog class="plan-dialog {destination_key}" style="{destination_styles.get(destination_key, '')}" id="{dialog_id}" aria-labelledby="{dialog_id}-title">
+            if not live_url:
+                dialogs.append(f"""<dialog class="plan-dialog {destination_key}" style="{destination_styles.get(destination_key, '')}" id="{dialog_id}" aria-labelledby="{dialog_id}-title">
               <div class="dialog-shell"><div class="dialog-accent"></div><div class="dialog-head"><div class="platform">{destination_logo}{destination_copy}</div><button type="button" class="dialog-close" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
               <div class="dialog-body"><div class="dialog-meta"><span>{escape(publish_label)}</span><span>{status_label}</span><span>{escape(str(row['format']))}</span>{due_html}</div><h2 id="{dialog_id}-title">{escape(str(row['title']))}</h2><div class="detail-grid">{''.join(detail_parts)}</div>{ready_action}</div></div>
             </dialog>""")
@@ -20039,6 +20201,7 @@ body.karp{{--ink:#141414;--muted:#716b65;--paper:#f5f3ef;--card:#fffdf9;--line:r
 @media(max-width:560px){{main{{padding:8px 8px 48px}}.hero{{gap:13px;padding:19px 15px 16px;border-radius:20px}}.hero-brand{{gap:9px}}.hero-brand img{{width:108px;max-height:34px}}body.veronika .hero-brand img{{width:34px;height:34px}}.hero-brand .eyebrow{{font-size:8px;letter-spacing:.1em}}.hero h1{{font-size:34px;line-height:1.02;margin:8px 0 11px;letter-spacing:-.03em}}.hero p{{font-size:13px;line-height:1.4;margin:0}}.month-nav{{margin-top:12px}}.month-link{{padding:6px 10px;font-size:10px}}.start-control input{{width:155px;min-height:38px;padding:5px 9px;font-size:12px}}.start-control label>span{{font-size:8px}}.progress{{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:4px 12px;padding:12px 14px;border-radius:16px}}.progress strong{{font-size:39px}}.progress span{{font-size:11px}}.progress-bar{{grid-column:1/-1;margin-top:5px;height:5px}}.hero-summary{{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:5px!important}}.hero-summary div,.hero-summary div:last-child{{min-height:68px;grid-column:auto!important;grid-template-columns:20px 1fr!important;gap:4px!important;padding:6px!important;border-radius:12px!important}}.hero-summary .channel-logo{{width:20px!important;height:20px!important;flex-basis:20px!important;border-radius:6px}}.hero-summary .channel-logo svg{{width:13px;height:13px}}.hero-summary b{{font-size:19px}}.hero-summary small{{font-size:6.5px!important;line-height:1.12;letter-spacing:0!important}}}}
 .plan-card.owner{{outline:0;isolation:isolate}}.plan-card.owner:before{{display:none}}.card-footer>span:first-child{{display:inline-flex;align-items:center;min-height:27px;padding:5px 9px;border:1px solid rgba(255,255,255,.86);border-radius:999px;background:rgba(255,255,255,.06)}}.plan-card.owner .card-footer>span:first-child{{border:2px solid #fff;background:rgba(255,255,255,.14);box-shadow:0 0 12px rgba(255,255,255,.7),inset 0 0 8px rgba(255,255,255,.18);animation:ownerBadgePulse 1.65s ease-in-out infinite}}@keyframes ownerBadgePulse{{0%,100%{{transform:scale(1);box-shadow:0 0 8px rgba(255,255,255,.48),inset 0 0 7px rgba(255,255,255,.14)}}50%{{transform:scale(1.045);box-shadow:0 0 19px rgba(255,255,255,.96),inset 0 0 11px rgba(255,255,255,.3)}}}}
 .plan-card.status-ready{{opacity:.48;filter:grayscale(.35) saturate(.45);animation:none;box-shadow:none}}.plan-card.status-ready:before{{display:none}}.plan-card.status-error{{animation:none;box-shadow:0 0 0 4px #ff203f,0 18px 44px rgba(255,32,63,.62)}}.plan-card.status-error:before{{display:block;border-color:#ff3852;box-shadow:inset 0 0 18px rgba(255,32,63,.42),0 0 22px rgba(255,32,63,.88)}}.plan-card.status-overdue{{animation:overdueCardBlink 1.35s ease-in-out infinite}}.plan-card.status-overdue:before{{display:block;border-color:#ff9f1c;box-shadow:inset 0 0 16px rgba(255,159,28,.35),0 0 20px rgba(255,159,28,.72)}}@keyframes overdueCardBlink{{0%,100%{{box-shadow:0 0 0 2px rgba(255,159,28,.68),0 15px 34px rgba(255,121,0,.34)}}50%{{box-shadow:0 0 0 5px #ff9f1c,0 22px 48px rgba(255,121,0,.78)}}}}
+.plan-card.live-card{{text-decoration:none}}
 </style></head><body class="{brand_key}"><main><section class="hero"><div class="hero-copy"><div class="hero-brand"><img src="{escape(brand_logo_url, quote=True)}" alt="{escape(brand, quote=True)}"><span class="eyebrow">Персональный контент-календарь</span></div><h1>{escape(period_label)}</h1><p>{escape(brand)} · точное расписание фабрики и отдельные съёмки, которые нужно подготовить лично.</p>{month_navigation}</div><div class="hero-side">{start_control}</div><section class="summary hero-summary">{summary_html}</section></section>
 <div class="workspace"><aside class="calendar"><span class="eyebrow">Нажмите на дату</span><h2>Даты публикаций</h2>{calendar_html}<div class="legend">{legend_html}</div><p class="notice">Время указано по Варшаве. Каждая точка — отдельная площадка и тип публикации.</p></aside>
 <section><div class="feed-head"><span class="eyebrow">План по датам</span><h2>Что и когда выходит</h2><div class="filters"><div class="filter-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="width:82px;color:var(--muted);font-size:10px;font-weight:850;text-transform:uppercase">Исполнитель</span><button class="active" data-mode-filter="all">Все</button><button data-mode-filter="owner">Лично</button><button data-mode-filter="factory">Фабрика</button></div><div class="filter-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="width:82px;color:var(--muted);font-size:10px;font-weight:850;text-transform:uppercase">Площадка</span><button class="active" data-channel-filter="all">Все</button>{channel_filters}</div></div></div><div class="plan-list">{''.join(sections)}</div>{empty}</section></div></main>{''.join(dialogs)}<script>
