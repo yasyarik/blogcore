@@ -1,3 +1,13 @@
+## 2026-09-12 — Add destination cards, persistent rescheduling and one-way Reel completion
+
+* Expanded each 90-record personal plan into 165 visible destination cards: 15 site, 45 Instagram, 45 TikTok, 30 YouTube Shorts, 15 Telegram and 15 Threads. Cross-posted carousels and Reels now have one card per destination, and the 30 days alternate evenly between five and six cards.
+* Moved logo/count summaries into the hero, added logo platform filters and gave every calendar date one distinct dot per destination and content type. Karp now uses the verified black/ivory/bronze site palette instead of green; Veronika uses her maroon/cream/rose palette. Social cards keep native platform colours.
+* Compressed the complete mobile hero without hiding information: smaller typography and spacing, a horizontal progress row, compact date control and a dense two-row platform summary.
+* Added a persistent start-date selector. Changing it shifts the selected batch's publication, production and recording timestamps, clears only future unsent reminder events for recalculation, and renders additional calendar months when the resulting 30-day span crosses a boundary.
+* Replaced long schedule badges with `В плане`, `Готово`, `Ошибка` and automatically derived `Просрочено`. Added a one-way `Отметить готово` action to personal Reels; the shared source row becomes `READY`, so its Instagram, TikTok and YouTube Shorts cards change together. No client cancellation or reverse transition exists.
+* Production recovery snapshot: `/var/backups/blog-core/pre-20260912-media-plan-controls`.
+* Verification: both production pages return 165 cards, 165 dialogs, 30 date sections, exact platform totals and matching 5/6 calendar dots per day; filters return 15 Threads and 45 Instagram cards; native palette, desktop/mobile layout, noindex and zero browser errors passed. Isolated-database route tests confirmed persisted date shifting and idempotent one-way Reel completion without modifying live statuses.
+
 ## 2026-09-12 — Redesign and expand the personal media-plan calendars
 
 * Rebuilt both client calendars around explicit daily sections. Every active day in the month grid now scrolls to that date, and all publications for the date are grouped beneath one numbered heading.

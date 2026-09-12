@@ -423,8 +423,8 @@ def build_items(config):
     items = []
     article_days = list(range(1, 30, 2))
     carousel_days = list(range(2, 31, 2))
-    telegram_days = list(range(1, 16))
-    thread_days = list(range(16, 31))
+    telegram_days = list(range(1, 30, 2))
+    thread_days = list(range(2, 31, 2))
     reel_days = list(range(1, 31))
 
     for index, day in enumerate(article_days):
@@ -456,7 +456,7 @@ def build_items(config):
                 PLAN_MONTH, publish_at, brief, campaign["article"],
                 contentSummary=f"Семь слайдов покажут, как {campaign['decision'].lower()} Начало строится на вопросе: {campaign['question']}",
                 contentPoints=[campaign["question"], campaign["mistake"], campaign["decision"]],
-                deliverable="7 готовых слайдов и отдельная подпись к публикации.",
+                deliverable="7 готовых слайдов и отдельная подпись. Карусель публикуется одновременно в Instagram и TikTok.",
             ),
         })
 
@@ -516,15 +516,15 @@ def build_items(config):
         concept = reel_concept(campaign, index)
         publish_at = at(day, 19)
         recording_due = publish_at - timedelta(days=3)
-        brief = f"Снять живой вертикальный ролик 25–40 секунд в рубрике «{concept['category']}» и самостоятельно опубликовать в Instagram Reels и TikTok."
+        brief = f"Снять живой вертикальный ролик 25–40 секунд в рубрике «{concept['category']}» и самостоятельно одновременно опубликовать его в Instagram Reels, TikTok и YouTube Shorts."
         item_details = details(
             PLAN_MONTH, publish_at, brief, campaign["article"],
             recordingDueAt=recording_due.isoformat(timespec="minutes"),
             reelCategory=concept["category"], hook=concept["hook"], talkingPoints=concept["points"], shotList=concept["shots"],
-            deliverable="Вертикаль 9:16, чистый голос, естественный свет, без фоновой музыки во время речи; оставить по одной секунде до и после фразы. Опубликовать лично по расписанию.",
+            deliverable="Вертикаль 9:16, чистый голос, естественный свет, без фоновой музыки во время речи; оставить по одной секунде до и после фразы. Опубликовать лично одновременно в Instagram Reels, TikTok и YouTube Shorts по расписанию.",
         )
         items.append({
-            "week": min(5, ((day - 1) // 7) + 1), "channel": "Instagram Reels + TikTok", "format": "Живой ролик 25–40 секунд",
+            "week": min(5, ((day - 1) // 7) + 1), "channel": "Instagram Reels + TikTok + YouTube Shorts", "format": "Живой ролик 25–40 секунд",
             "title": f"{concept['category']}: {concept['hook']}", "objective": brief, "funnel_stage": "Личный контакт и вовлечение",
             "cta": "Вопрос или просьба сохранить, заданные в сценарии", "generator": f"{config['owner']} снимает и публикует лично",
             "execution_mode": "human-owner", "repurpose_group": f"oct-{campaign_index + 1}", "rationale": f"Живой формат: {concept['category'].lower()}",
