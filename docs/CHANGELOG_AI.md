@@ -1,5 +1,6 @@
 ## 2026-09-13 — Finalize media-plan header and per-format metrics
 
+* Fixed production routing for media-plan actions. Both domains now proxy the `/media-plan/` action prefix to Blog Core in addition to the exact calendar page, so date rescheduling and one-way Reel completion no longer fall through to the native site with a 404. Nginx validation passed; both public pages return 200 and deliberately invalid reschedule POSTs now reach Blog Core and return its expected 400. Recovery snapshot: `/var/backups/blog-core/pre-20260913-media-plan-action-proxy`.
 * Added each site's real logo to its media-plan hero, retained the compact natural-language date range and placed the persistent start-date selector in the upper-right desktop column.
 * Split Instagram and TikTok totals into distinct Reels and carousel counters and labels. Counter values now show completed versus total publications, for example `0/30`, instead of totals alone.
 * Removed the redundant aggregate percentage/progress panel; completion is represented only by the more useful per-format `completed/total` counters.

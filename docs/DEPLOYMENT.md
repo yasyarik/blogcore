@@ -23,8 +23,8 @@ curl -fsS http://127.0.0.1:3299/health
 
 ## Personal-brand media-plan routes
 
-* `https://karpaleksei.com/media-plan` and `https://veselovaveronika.com/media-plan` proxy exactly to Blog Core port `3299` while preserving the original Host header.
-* The reusable exact-location template is `deploy/nginx-personal-brand-media-plan.conf`. Add it to both HTTP and HTTPS server blocks; test Nginx before reloading.
+* `https://karpaleksei.com/media-plan` and `https://veselovaveronika.com/media-plan`, together with their `/media-plan/...` form actions, proxy to Blog Core port `3299` while preserving the original Host header.
+* The reusable location template is `deploy/nginx-personal-brand-media-plan.conf`. Add both its exact page location and action-prefix location to the HTTP and HTTPS server blocks; test Nginx before reloading. Proxying only the exact page route breaks rescheduling and one-way Reel completion with an upstream-site 404.
 * Seed or replace the reviewed October 2026 calendars with `deploy/seed_personal_brand_media_plans.py --db data/blog_core.sqlite3 --replace`. Always create a SQLite backup first.
 * After application or reminder-worker changes, compile `app.py`, `scheduler.py`, `strategy_agent.py` and the seed script, restart both Blog Core PM2 processes, verify `/health`, then test both public calendar URLs at desktop and mobile widths.
 
