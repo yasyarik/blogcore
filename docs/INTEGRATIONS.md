@@ -1,5 +1,12 @@
 # INTEGRATIONS.md
 
+## Personal media-plan Telegram reminders
+
+* A site's Telegram connection may additionally store `reminder_chat_id`, the numeric private chat of the person responsible for live Reels. The owner must message the bot before the connection test can resolve that private chat.
+* `chat_id` remains the Telegram publication channel and `reminder_chat_id` remains the private reminder recipient. Never fall back from the latter to the former.
+* Only media-plan rows whose execution mode is `human-owner` or `manual-owner` generate reminders. Factory-owned articles, carousels, Telegram posts and Threads posts do not create personal-action alerts.
+* Each live Reel has deduplicated reminders 24 hours before the recording deadline, three hours before publication and at publication time. Sent/error state is persisted in `agent_media_plan_reminder_events`.
+
 ## Publication failure email alerts
 
 * Every failed due publication from the website, generic social, shared carousel, Instagram Reel, TikTok carousel, evidence-X, Threads, and Facebook queues is persisted as an email-alert event. Waiting-for-connection and no-source states are not failures.

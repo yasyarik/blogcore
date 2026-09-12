@@ -14,6 +14,7 @@ from app import (
     run_scheduled_threads_publications,
     run_scheduled_facebook_publications,
     run_scheduled_short_form_publications,
+    run_scheduled_media_plan_reminders,
     run_queued_evidence_draft_generations,
     run_scheduled_social_operation_discovery,
     run_scheduled_agent_telegram_reports,
@@ -85,6 +86,9 @@ def main():
             short_form_result = run_publication_worker("short-form", run_scheduled_short_form_publications)
             if short_form_result["due"]:
                 print(f"short-form-publications {short_form_result}", flush=True)
+            media_plan_reminders = run_scheduled_media_plan_reminders()
+            if media_plan_reminders["due"]:
+                print(f"media-plan-reminders {media_plan_reminders}", flush=True)
             email_alert_result = run_publication_failure_email_notifications()
             if email_alert_result["sent"] or email_alert_result["failed"]:
                 print(f"publication-failure-email {email_alert_result}", flush=True)

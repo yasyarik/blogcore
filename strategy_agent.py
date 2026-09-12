@@ -223,6 +223,23 @@ def ensure_strategy_schema(db_path):
                 foreign key(site_id) references sites(id) on delete cascade
             );
             create index if not exists agent_media_plan_site_version_idx on agent_media_plan_items(site_id, strategy_version, week, id);
+            create table if not exists agent_media_plan_reminder_events (
+                id integer primary key autoincrement,
+                event_key text not null unique,
+                site_id integer not null,
+                media_plan_item_id integer not null,
+                reminder_type text not null,
+                due_at text not null,
+                sent_at text,
+                status text not null default 'PENDING',
+                error text,
+                created_at text not null,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade,
+                foreign key(media_plan_item_id) references agent_media_plan_items(id) on delete cascade
+            );
+            create index if not exists agent_media_plan_reminders_due_idx
+                on agent_media_plan_reminder_events(status,due_at,site_id);
             create table if not exists agent_content_intent_rules (
                 id integer primary key autoincrement,
                 site_id integer not null,

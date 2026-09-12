@@ -1515,8 +1515,16 @@ def test_social_connection(provider, credentials):
             chat, _ = fetch_json_request(f"https://api.telegram.org/bot{urllib.parse.quote(token, safe=':')}/getChat?chat_id={urllib.parse.quote(str(chat_id))}")
             if not chat.get("ok"):
                 return {"ok": False, "status": "failed", "message": chat.get("description") or "Telegram chat is not reachable."}
+            reminder_chat_id = str(credentials.get("reminder_chat_id") or "").strip()
+            if reminder_chat_id:
+                reminder_chat, _ = fetch_json_request(
+                    f"https://api.telegram.org/bot{urllib.parse.quote(token, safe=':')}/getChat?chat_id={urllib.parse.quote(reminder_chat_id)}"
+                )
+                if not reminder_chat.get("ok"):
+                    return {"ok": False, "status": "failed", "message": reminder_chat.get("description") or "Telegram reminder recipient is not reachable."}
             username = bot.get("result", {}).get("username") or bot.get("result", {}).get("first_name") or "Telegram bot"
-            return {"ok": True, "status": "connected", "displayName": username, "message": f"Connected to Telegram as {username}."}
+            reminder_note = " Personal media-plan reminders are enabled." if reminder_chat_id else ""
+            return {"ok": True, "status": "connected", "displayName": username, "message": f"Connected to Telegram as {username}.{reminder_note}"}
 
         if provider == "linkedin":
             data, _ = fetch_json_request("https://api.linkedin.com/v2/me", headers={"Authorization": f"Bearer {credentials['access_token']}"})
@@ -2964,6 +2972,7 @@ SOCIAL_PROVIDER_CONFIG = {
         "fields": [
             ("bot_token", "Bot token", "password", "123456:ABC..."),
             ("chat_id", "Chat ID / channel", "text", "@channelname or numeric chat id"),
+            ("reminder_chat_id", "Personal reminder Chat ID", "text", "Numeric private chat id; message the bot first"),
         ],
     },
     "twitter": {
@@ -19674,6 +19683,178 @@ def get_site_by_custom_host(host):
         ).fetchone()
 
 
+def get_media_plan_site_by_host(host):
+    host = clean_host(host)
+    if not host:
+        return None
+    with db() as conn:
+        return conn.execute(
+            """select * from sites
+               where lower(domain)=? or lower(coalesce(custom_blog_domain,''))=?
+               order by case when lower(domain)=? then 0 else 1 end limit 1""",
+            (host, host, host),
+        ).fetchone()
+
+
+MEDIA_PLAN_STATUS_LABELS = {
+    "PLANNED": "Запланировано",
+    "FACTORY_PREPARING": "Готовит фабрика",
+    "AWAITING_RECORDING": "Нужно снять",
+    "RECORDED": "Снято",
+    "READY": "Готово",
+    "SCHEDULED": "В очереди",
+    "PUBLISHED": "Опубликовано",
+    "DONE": "Выполнено",
+    "BLOCKED": "Нужна помощь",
+}
+
+
+def _media_plan_datetime(value, default_tz="Europe/Warsaw"):
+    try:
+        parsed = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=ZoneInfo(default_tz))
+        return parsed
+    except Exception:
+        return None
+
+
+def _media_plan_month_name(month_key):
+    names = {
+        1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель", 5: "Май", 6: "Июнь",
+        7: "Июль", 8: "Август", 9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
+    }
+    try:
+        year, month = [int(part) for part in month_key.split("-", 1)]
+        return f"{names[month]} {year}"
+    except Exception:
+        return month_key
+
+
+def _media_plan_channel_key(value):
+    channel = str(value or "").lower()
+    if "reel" in channel:
+        return "reels"
+    if "instagram" in channel or "tiktok" in channel or "карус" in channel:
+        return "carousel"
+    if "telegram" in channel:
+        return "telegram"
+    if "thread" in channel:
+        return "threads"
+    if "blog" in channel or "website" in channel or "блог" in channel or "стать" in channel:
+        return "article"
+    return "other"
+
+
+def render_public_media_plan(site):
+    site_id = int(site["id"])
+    requested_month = str(request.args.get("month") or "").strip()
+    with db() as conn:
+        rows = conn.execute(
+            """select * from agent_media_plan_items
+               where site_id=? and json_extract(details_json,'$.planMonth') is not null
+               order by json_extract(details_json,'$.publishAt'),id""",
+            (site_id,),
+        ).fetchall()
+    parsed_rows = []
+    available_months = []
+    for row in rows:
+        details = parse_json_object(row["details_json"])
+        month_key = str(details.get("planMonth") or "").strip()
+        if month_key and month_key not in available_months:
+            available_months.append(month_key)
+        parsed_rows.append((row, details))
+    available_months.sort()
+    if requested_month not in available_months:
+        current_key = datetime.now(ZoneInfo("Europe/Warsaw")).strftime("%Y-%m")
+        requested_month = next((value for value in available_months if value >= current_key), available_months[-1] if available_months else current_key)
+    plan_rows = [(row, details) for row, details in parsed_rows if details.get("planMonth") == requested_month]
+    brand = str(site["brand_name"] or site["domain"])
+    brand_key = "veronika" if "veronika" in str(site["domain"]).lower() else "karp"
+    counts = {"article": 0, "carousel": 0, "telegram": 0, "threads": 0, "reels": 0, "other": 0}
+    completed = 0
+    calendar_days = {}
+    cards = []
+    weekday_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    for row, details in plan_rows:
+        channel_key = _media_plan_channel_key(row["channel"])
+        counts[channel_key] = counts.get(channel_key, 0) + 1
+        status = str(row["status"] or "PLANNED").upper()
+        if status in {"PUBLISHED", "DONE", "SUBMITTED"}:
+            completed += 1
+        publish_at = _media_plan_datetime(details.get("publishAt"))
+        date_key = publish_at.date().isoformat() if publish_at else "Без даты"
+        calendar_days.setdefault(date_key, []).append(channel_key)
+        publish_label = publish_at.astimezone(ZoneInfo("Europe/Warsaw")).strftime("%d.%m · %H:%M") if publish_at else "Время уточняется"
+        due_at = _media_plan_datetime(details.get("recordingDueAt") or details.get("productionDueAt"))
+        due_label = due_at.astimezone(ZoneInfo("Europe/Warsaw")).strftime("%d.%m · %H:%M") if due_at else ""
+        execution = str(row["execution_mode"] or "factory-now")
+        is_owner = execution in {"human-owner", "manual-owner"}
+        owner_label = "Ваше действие" if is_owner else "Автоматически"
+        brief = str(details.get("brief") or row["objective"] or "").strip()
+        deliverable = str(details.get("deliverable") or "").strip()
+        hook = str(details.get("hook") or "").strip()
+        beats = details.get("talkingPoints") if isinstance(details.get("talkingPoints"), list) else []
+        shots = details.get("shotList") if isinstance(details.get("shotList"), list) else []
+        instruction_parts = []
+        if hook:
+            instruction_parts.append(f"<div><span>Хук</span><p>{escape(hook)}</p></div>")
+        if beats:
+            instruction_parts.append("<div><span>Что сказать</span><ol>" + "".join(f"<li>{escape(str(value))}</li>" for value in beats) + "</ol></div>")
+        if shots:
+            instruction_parts.append("<div><span>Что снять</span><ol>" + "".join(f"<li>{escape(str(value))}</li>" for value in shots) + "</ol></div>")
+        if deliverable:
+            instruction_parts.append(f"<div><span>Что передать</span><p>{escape(deliverable)}</p></div>")
+        detail_html = "".join(instruction_parts)
+        due_html = f"<span class='due'>Подготовить до {escape(due_label)}</span>" if due_label else ""
+        cards.append(f"""<article class="plan-card {channel_key} {'owner' if is_owner else 'factory'}" data-mode="{'owner' if is_owner else 'factory'}" data-channel="{channel_key}">
+          <div class="card-rail"><span class="date">{escape(publish_label)}</span><span class="channel">{escape(str(row['channel']))}</span></div>
+          <div class="card-main"><div class="card-top"><span class="mode">{owner_label}</span><span class="status status-{escape(status.lower())}">{escape(MEDIA_PLAN_STATUS_LABELS.get(status, status.replace('_',' ').title()))}</span></div>
+          <h3>{escape(str(row['title']))}</h3><p>{escape(brief)}</p><div class="meta">{due_html}<span>{escape(str(row['format']))}</span></div>
+          {f'<details><summary>Открыть подробное задание</summary><div class="instructions">{detail_html}</div></details>' if detail_html else ''}</div>
+        </article>""")
+
+    try:
+        year, month = [int(part) for part in requested_month.split("-", 1)]
+        first = datetime(year, month, 1).date()
+        next_month = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+        days_in_month = (next_month - first).days
+        blanks = "".join("<div class='calendar-cell blank'></div>" for _ in range(first.weekday()))
+        day_cells = []
+        for day in range(1, days_in_month + 1):
+            date_key = first.replace(day=day).isoformat()
+            dots = "".join(f"<i class='{escape(kind)}'></i>" for kind in calendar_days.get(date_key, []))
+            day_cells.append(f"<div class='calendar-cell {'active' if dots else ''}'><b>{day}</b><div class='dots'>{dots}</div></div>")
+        calendar_html = blanks + "".join(day_cells)
+    except Exception:
+        calendar_html = ""
+    month_links = "".join(
+        f"<a class='month-link {'active' if value == requested_month else ''}' href='/media-plan?month={escape(value, quote=True)}'>{escape(_media_plan_month_name(value))}</a>"
+        for value in available_months
+    )
+    total = len(plan_rows)
+    progress = round(completed * 100 / total) if total else 0
+    empty = "<div class='empty'><h2>Медиаплан ещё готовится</h2><p>Здесь появятся даты публикаций и задания на съёмку.</p></div>" if not cards else ""
+    html = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>Медиаплан · {escape(brand)}</title><style>
+:root{{--ink:#11100e;--muted:#6d6a63;--paper:#f5f1e8;--card:#fffdf8;--line:rgba(17,16,14,.13);--accent:{'#254b3f' if brand_key == 'karp' else '#7b1534'};--accent2:{'#c8a96b' if brand_key == 'karp' else '#d8a1a8'};--article:#246b5b;--carousel:#b4672c;--telegram:#2985b8;--threads:#171717;--reels:#b22858}}*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 Inter,Arial,sans-serif}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 85% 0,rgba(255,255,255,.9),transparent 34%),linear-gradient(120deg,transparent 0 47%,rgba(255,255,255,.32) 47% 48%,transparent 48%);z-index:-1}}main{{max-width:1320px;margin:auto;padding:42px 24px 90px}}.hero{{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(320px,.8fr);gap:28px;padding:42px;border-radius:30px;background:var(--accent);color:white;box-shadow:0 24px 60px rgba(38,25,18,.18);overflow:hidden;position:relative}}.hero:after{{content:"";position:absolute;width:360px;height:360px;border:1px solid rgba(255,255,255,.18);border-radius:50%;right:-120px;top:-190px}}.eyebrow{{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--accent2)}}h1{{font-family:Georgia,serif;font-size:clamp(42px,6vw,84px);line-height:.95;letter-spacing:-.045em;margin:14px 0 20px;font-weight:500}}.hero p{{max-width:700px;color:rgba(255,255,255,.76);font-size:16px}}.month-nav{{display:flex;flex-wrap:wrap;gap:8px;margin-top:25px}}.month-link{{color:white;text-decoration:none;border:1px solid rgba(255,255,255,.28);padding:9px 13px;border-radius:999px;font-size:12px;font-weight:800}}.month-link.active{{background:white;color:var(--accent)}}.progress{{align-self:end;border:1px solid rgba(255,255,255,.2);border-radius:22px;padding:22px;background:rgba(255,255,255,.07);backdrop-filter:blur(10px)}}.progress strong{{display:block;font:500 58px/1 Georgia,serif}}.progress span{{color:rgba(255,255,255,.72)}}.progress-bar{{height:7px;background:rgba(255,255,255,.16);border-radius:99px;margin-top:18px;overflow:hidden}}.progress-bar i{{display:block;width:{progress}%;height:100%;background:var(--accent2)}}.summary{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:18px 0 34px}}.summary div{{padding:18px;border:1px solid var(--line);background:rgba(255,253,248,.72);border-radius:18px}}.summary b{{display:block;font:500 34px/1 Georgia,serif}}.summary span{{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}}.workspace{{display:grid;grid-template-columns:360px minmax(0,1fr);gap:28px;align-items:start}}.calendar{{position:sticky;top:20px;border:1px solid var(--line);border-radius:24px;padding:22px;background:rgba(255,253,248,.84);box-shadow:0 14px 35px rgba(50,38,27,.08);backdrop-filter:blur(14px)}}.calendar h2,.feed-head h2{{font:500 31px/1.05 Georgia,serif;margin:4px 0 18px}}.weekdays,.calendar-grid{{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}}.weekdays span{{text-align:center;font-size:10px;color:var(--muted);font-weight:800;padding:6px 0}}.calendar-cell{{min-height:43px;padding:7px;border-radius:11px;background:rgba(0,0,0,.025)}}.calendar-cell.active{{background:white;box-shadow:inset 0 0 0 1px var(--line)}}.calendar-cell b{{font-size:11px}}.calendar-cell.blank{{background:transparent}}.dots{{display:flex;flex-wrap:wrap;gap:3px;margin-top:5px}}.dots i{{width:5px;height:5px;border-radius:50%}}.article{{--channel:var(--article)}}.carousel{{--channel:var(--carousel)}}.telegram{{--channel:var(--telegram)}}.threads{{--channel:var(--threads)}}.reels{{--channel:var(--reels)}}.other{{--channel:var(--accent)}}.dots .article{{background:var(--article)}}.dots .carousel{{background:var(--carousel)}}.dots .telegram{{background:var(--telegram)}}.dots .threads{{background:var(--threads)}}.dots .reels{{background:var(--reels)}}.legend{{display:grid;gap:9px;margin-top:20px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}}.legend span:before{{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:var(--c)}}.filters{{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}}button{{border:1px solid var(--line);background:transparent;border-radius:999px;padding:10px 14px;font:inherit;font-size:12px;font-weight:800;cursor:pointer}}button.active{{background:var(--ink);color:white}}.plan-list{{display:grid;gap:12px}}.plan-card{{display:grid;grid-template-columns:150px minmax(0,1fr);border:1px solid var(--line);border-radius:22px;background:var(--card);overflow:hidden;box-shadow:0 10px 28px rgba(50,38,27,.055)}}.plan-card.owner{{box-shadow:0 12px 34px color-mix(in srgb,var(--channel) 14%,transparent)}}.card-rail{{padding:21px 17px;border-left:7px solid var(--channel);background:color-mix(in srgb,var(--channel) 7%,white)}}.card-rail span{{display:block}}.date{{font-weight:900}}.channel{{font-size:11px;color:var(--muted);margin-top:8px}}.card-main{{padding:20px 22px}}.card-top,.meta{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}.mode,.status,.meta span{{font-size:10px;font-weight:850;text-transform:uppercase;letter-spacing:.05em;padding:5px 8px;border-radius:999px;background:#eee9df}}.owner .mode{{background:var(--channel);color:white}}.status{{margin-left:auto;background:#e9eee8;color:#31563c}}.status-awaiting_recording,.status-blocked{{background:#ffe3e7;color:#87223a}}.status-published,.status-done{{background:#dff3e7;color:#235b38}}.card-main h3{{font:600 24px/1.15 Georgia,serif;margin:12px 0 8px}}.card-main>p{{color:var(--muted);margin:0 0 14px}}.meta{{border-top:1px solid var(--line);padding-top:13px}}.meta .due{{background:#fff0c9;color:#74520b}}details{{margin-top:14px;border-top:1px dashed var(--line);padding-top:12px}}summary{{cursor:pointer;font-weight:850;color:var(--channel)}}.instructions{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}}.instructions div{{padding:14px;border-radius:14px;background:#f5f1e9}}.instructions span{{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:850}}.instructions p,.instructions ol{{margin:7px 0 0;padding-left:18px}}.empty{{padding:60px;text-align:center;border:1px dashed var(--line);border-radius:20px}}.notice{{font-size:12px;color:var(--muted);margin-top:18px}}@media(max-width:900px){{main{{padding:18px 14px 60px}}.hero{{grid-template-columns:1fr;padding:28px 22px;border-radius:23px}}.summary{{grid-template-columns:repeat(2,1fr)}}.workspace{{grid-template-columns:1fr}}.calendar{{position:static}}}}@media(max-width:580px){{.summary{{grid-template-columns:repeat(2,1fr)}}.summary div:last-child{{grid-column:1/-1}}.plan-card{{grid-template-columns:1fr}}.card-rail{{border-left:0;border-top:6px solid var(--channel);display:flex;justify-content:space-between;gap:10px}}.card-main h3{{font-size:21px}}.instructions{{grid-template-columns:1fr}}}}
+</style></head><body class="{brand_key}"><main><section class="hero"><div><span class="eyebrow">Персональный контент-календарь</span><h1>{escape(_media_plan_month_name(requested_month))}</h1><p>{escape(brand)} · точное расписание фабрики и отдельные задания, которые нужно снять и опубликовать лично.</p><nav class="month-nav">{month_links}</nav></div><div class="progress"><strong>{progress}%</strong><span>выполнено · {completed} из {total}</span><div class="progress-bar"><i></i></div></div></section>
+<section class="summary"><div><b>{counts['article']}</b><span>Статей</span></div><div><b>{counts['carousel']}</b><span>Каруселей</span></div><div><b>{counts['telegram']}</b><span>Telegram</span></div><div><b>{counts['threads']}</b><span>Threads</span></div><div><b>{counts['reels']}</b><span>Живых Reels</span></div></section>
+<div class="workspace"><aside class="calendar"><span class="eyebrow">Обзор месяца</span><h2>{escape(_media_plan_month_name(requested_month))}</h2><div class="weekdays">{''.join(f'<span>{name}</span>' for name in weekday_names)}</div><div class="calendar-grid">{calendar_html}</div><div class="legend"><span style="--c:var(--article)">Статья на сайте</span><span style="--c:var(--carousel)">Instagram + TikTok карусель</span><span style="--c:var(--telegram)">Telegram</span><span style="--c:var(--threads)">Threads</span><span style="--c:var(--reels)">Живой Reels</span></div><p class="notice">Время указано по Варшаве. Личные публикации можно дополнять спонтанным контентом — они не отменяют этот план.</p></aside>
+<section><div class="feed-head"><span class="eyebrow">Все публикации по порядку</span><h2>Что и когда выходит</h2><div class="filters"><button class="active" data-filter="all">Всё</button><button data-filter="owner">Нужно сделать лично</button><button data-filter="factory">Готовит фабрика</button></div></div><div class="plan-list">{''.join(cards)}</div>{empty}</section></div></main><script>document.querySelectorAll('[data-filter]').forEach(function(button){{button.addEventListener('click',function(){{document.querySelectorAll('[data-filter]').forEach(function(item){{item.classList.remove('active')}});button.classList.add('active');var filter=button.dataset.filter;document.querySelectorAll('.plan-card').forEach(function(card){{card.hidden=filter!=='all'&&card.dataset.mode!==filter}})}})}});</script></body></html>"""
+    response = Response(html, mimetype="text/html")
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    return response
+
+
+@app.get("/media-plan")
+def public_media_plan_page():
+    site = get_media_plan_site_by_host(request_host())
+    if not site:
+        abort(404)
+    return render_public_media_plan(site)
+
+
 def public_base_url():
     proto = request.headers.get("X-Forwarded-Proto") or request.scheme or "https"
     return f"{proto}://{request_host()}"
@@ -21977,6 +22158,112 @@ def send_agent_telegram_report(message):
     with urllib.request.urlopen(request_obj, timeout=20) as response:
         data = json.loads(response.read().decode("utf-8"))
     return {"sent": bool(data.get("ok"))}
+
+
+def _send_media_plan_telegram_reminder(bot_token, chat_id, message, plan_url):
+    data, _ = fetch_json_request(
+        f"https://api.telegram.org/bot{urllib.parse.quote(bot_token, safe=':')}/sendMessage",
+        data={
+            "chat_id": chat_id,
+            "text": message,
+            "disable_web_page_preview": True,
+            "reply_markup": {"inline_keyboard": [[{"text": "Открыть медиаплан", "url": plan_url}]]},
+        },
+        method="POST",
+        timeout=20,
+    )
+    if not data.get("ok"):
+        raise RuntimeError(str(data.get("description") or "Telegram reminder delivery failed"))
+    return data
+
+
+def run_scheduled_media_plan_reminders(now=None):
+    """Remind each owner only about their own manual short-form assignments."""
+    current_utc = now or datetime.now(timezone.utc)
+    ensure_strategy_schema(DB_PATH)
+    with db() as conn:
+        rows = conn.execute(
+            """select mpi.*,s.domain,s.brand_name,sc.status connection_status,sc.credentials_json
+               from agent_media_plan_items mpi
+               join sites s on s.id=mpi.site_id
+               left join social_connections sc on sc.site_id=mpi.site_id and sc.provider='telegram'
+               where mpi.execution_mode in ('human-owner','manual-owner')
+                 and mpi.status not in ('PUBLISHED','DONE','SUBMITTED','CANCELLED','SUPERSEDED')
+                 and json_extract(mpi.details_json,'$.publishAt') is not null
+               order by json_extract(mpi.details_json,'$.publishAt'),mpi.id"""
+        ).fetchall()
+    sent, failed, skipped = [], [], []
+    for row in rows:
+        details = parse_json_object(row["details_json"])
+        publish_at = _media_plan_datetime(details.get("publishAt"))
+        recording_due = _media_plan_datetime(details.get("recordingDueAt"))
+        if not publish_at:
+            continue
+        credentials = parse_json_object(row["credentials_json"])
+        token = str(credentials.get("bot_token") or "").strip()
+        reminder_chat_id = str(credentials.get("reminder_chat_id") or "").strip()
+        if row["connection_status"] not in {"configured", "connected"} or not token or not reminder_chat_id:
+            skipped.append({"siteId": int(row["site_id"]), "itemId": int(row["id"]), "reason": "telegram-reminder-not-configured"})
+            continue
+        events = []
+        if recording_due:
+            events.append(("recording-24h", recording_due - timedelta(hours=24), recording_due, "До срока съёмки остались сутки"))
+        events.extend([
+            ("publish-3h", publish_at - timedelta(hours=3), publish_at, "До публикации осталось 3 часа"),
+            ("publish-now", publish_at, publish_at, "Время опубликовать ролик"),
+        ])
+        for reminder_type, send_at, target_at, heading in events:
+            if current_utc < send_at.astimezone(timezone.utc) or current_utc > target_at.astimezone(timezone.utc) + timedelta(hours=12):
+                continue
+            event_key = f"media-plan:{int(row['id'])}:{reminder_type}:{send_at.isoformat()}"
+            now_text = now_iso()
+            with db() as conn:
+                conn.execute(
+                    """insert or ignore into agent_media_plan_reminder_events
+                       (event_key,site_id,media_plan_item_id,reminder_type,due_at,status,created_at,updated_at)
+                       values(?,?,?,?,?,'PENDING',?,?)""",
+                    (event_key, row["site_id"], row["id"], reminder_type, send_at.astimezone(timezone.utc).isoformat(timespec="seconds"), now_text, now_text),
+                )
+                event = conn.execute("select * from agent_media_plan_reminder_events where event_key=?", (event_key,)).fetchone()
+                if not event or event["status"] == "SENT":
+                    continue
+                claimed = conn.execute(
+                    "update agent_media_plan_reminder_events set status='SENDING',updated_at=? where id=? and status in ('PENDING','ERROR')",
+                    (now_text, event["id"]),
+                ).rowcount
+            if not claimed:
+                continue
+            local_target = target_at.astimezone(ZoneInfo("Europe/Warsaw"))
+            brief = str(details.get("brief") or row["objective"] or "").strip()
+            hook = str(details.get("hook") or "").strip()
+            message_lines = [
+                f"{heading}",
+                f"{row['brand_name'] or row['domain']}",
+                "",
+                str(row["title"]),
+                f"Публикация: {local_target.strftime('%d.%m в %H:%M')} по Варшаве",
+                f"Площадки: {row['channel']}",
+            ]
+            if brief:
+                message_lines.extend(["", brief[:700]])
+            if hook:
+                message_lines.extend(["", f"Первая фраза: {hook[:400]}"])
+            try:
+                _send_media_plan_telegram_reminder(token, reminder_chat_id, "\n".join(message_lines), f"https://{row['domain']}/media-plan")
+                with db() as conn:
+                    conn.execute(
+                        "update agent_media_plan_reminder_events set status='SENT',sent_at=?,error=null,updated_at=? where event_key=?",
+                        (now_iso(), now_iso(), event_key),
+                    )
+                sent.append({"siteId": int(row["site_id"]), "itemId": int(row["id"]), "type": reminder_type})
+            except Exception as error:
+                with db() as conn:
+                    conn.execute(
+                        "update agent_media_plan_reminder_events set status='ERROR',error=?,updated_at=? where event_key=?",
+                        (str(error)[:1000], now_iso(), event_key),
+                    )
+                failed.append({"siteId": int(row["site_id"]), "itemId": int(row["id"]), "type": reminder_type, "error": str(error)[:300]})
+    return {"due": len(sent) + len(failed), "sent": sent, "failed": failed, "skipped": skipped}
 
 
 def run_scheduled_agent_telegram_reports(now=None):

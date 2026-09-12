@@ -1,3 +1,12 @@
+## 2026-09-12 — Personal-brand monthly media plans are separate noindex client calendars
+
+* Aleksei Karp and Veronika Veselova each have a separate site-scoped client calendar at `/media-plan` on their own domain. The route is server-rendered by Blog Core through an exact Nginx proxy and must remain excluded from sitemaps, uncached, and protected by both a robots meta tag and `X-Robots-Tag: noindex, nofollow, noarchive`.
+* The Google Sheet `KARP ALEXEI + VERONIKA — план и стоимость` is historical planning context only. It is not the authoritative calendar and must not be edited or treated as a production contract.
+* One calendar row represents exactly one publication or one human assignment. It includes a Warsaw publication timestamp, production/recording deadline, platform, format, status, campaign relationship and an executable brief. Aleksei and Veronika plans and statuses never mix.
+* Factory-owned work covers website articles, one-render Instagram+TikTok carousels, Telegram photo posts and Threads. Live Reels are the only owner-executed format: the named owner records and publishes them personally. Spontaneous owner posts may coexist with the plan and do not cancel planned factory work.
+* Owner Reel reminders use the site-scoped Telegram bot plus a separate private `reminder_chat_id`; the public Telegram channel destination is never used as an implicit personal recipient. Reminder events are uniquely persisted to prevent duplicates.
+* The first materialized month is October 2026: 64 assignments per person, including 9 articles, 9 shared carousels, 16 Telegram posts, 22 Threads posts and 8 live Reels. These are planning records, not proof that disconnected channels are ready to publish.
+
 ## 2026-09-02 — EPR Scan crosslinks must be visible in reading context
 
 * A stored `internalLinks` array is not sufficient by itself. EPR Scan matches those declared targets to their semantic in-body paragraphs and renders each match as a visible contextual reading card beside the relevant section.

@@ -1,3 +1,13 @@
+## 2026-09-12 — Published separate monthly media-plan calendars for Aleksei and Veronika
+
+* Read the supplied Google Sheet as a non-authoritative reference without changing it. Retained only the useful brand split: Aleksei focuses on premium new builds and investment decisions; Veronika focuses on houses, villas, family living and relocation.
+* Added a reusable `/media-plan` renderer with separate host-scoped data, monthly overview, graphic calendar, platform colours, progress/status pills, factory-vs-owner filters, production deadlines and expandable Reels instructions.
+* Materialized October 2026 independently for `karpaleksei.com` and `veselovaveronika.com`: 64 rows each (9 articles, 9 one-render Instagram+TikTok carousels, 16 Telegram posts, 22 Threads posts and 8 owner-recorded Reels). Every Reels row contains a hook, talking points, physical shot list, recording deadline and personal publication time.
+* Added an optional private Telegram reminder recipient to each site Telegram connection. The scheduler sends deduplicated alerts 24 hours before recording, three hours before publication and at publication time; it never substitutes the public channel chat for the private recipient.
+* Added the exact Nginx `/media-plan` proxy on both domains and enforced `noindex, nofollow, noarchive` in both HTML and HTTP headers with private no-store caching. Neither calendar is in a sitemap.
+* Verification: Python compilation passed locally and on production; both Blog Core PM2 processes are online; health returned 200; both calendar URLs returned 200 with 64 rows, 8 owner tasks and the noindex contract; Playwright desktop/mobile review found no console errors, correct responsive layout and an owner filter showing exactly 8 Reels.
+* Production recovery: `/var/backups/blog-core/pre-personal-media-plan-20260912` contains the prior application modules, Nginx files and SQLite database.
+
 ## 2026-09-06 — Replace SoloCruz episode 02 with a visual comedy story
 
 * Rewrote `Episodes 02-24 Detailed!C2:F2` and `H2:J2`; `G2`, `K2` and every other episode remain unchanged.
