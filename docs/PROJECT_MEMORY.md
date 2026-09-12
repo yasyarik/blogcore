@@ -119,6 +119,15 @@
 
 # PROJECT_MEMORY.md
 
+## 2026-09-12 — Telegram article posts publish directly through the site bot
+
+* Telegram does not use Zernio. Each site stores its own bot token and destination channel/chat ID in the protected social connection record, and the connection must be tested before delivery.
+* A Telegram article adaptation consists of channel-native copy plus its own generated 16:9 editorial JPEG. Blog Core publishes both as one Bot API `sendPhoto` message and may attach the article as an inline URL button when link inclusion is enabled.
+* Because the post always carries a photo, the hard text contract is Telegram's 1,024-character photo-caption limit, not the 4,096-character text-message limit.
+* A legacy Telegram draft above 1,024 characters is rewritten from its source article at publish time and revalidated while retaining its existing generated image. It is never silently truncated, skipped or regenerated visually.
+* Telegram participates in the same factory-owned article-to-social cadence as LinkedIn and supported Zernio channels. A due slot uses the oldest Telegram draft first or creates one from the oldest eligible `PUBLISHED` or real live `IMPORTED` article, then sends it directly through the bot. Imported blog-index URLs remain excluded.
+* The existing `yas.wine` and `myugc.studio` legacy-factory Telegram bot/channel connections were migrated into their site-scoped Blog Core connection records and verified through the live Bot API without sending a post. Their Telegram cadences remain disabled until explicitly enabled.
+
 ## 2026-08-14 — Reel scenes require varied worlds, practical layers, and varied shot scales
 
 * A five-scene Reel uses at least three visual worlds and at least three shot scales, including wide/establishing, medium, and close/detail. Adjacent scenes cannot repeat the same scale, and one world cannot occupy three consecutive scenes.

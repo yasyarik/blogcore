@@ -6338,3 +6338,25 @@ This file is updated by Codex after every task.
 * Prepared one full source checkpoint containing all current tracked modifications/deletions plus the accumulated untracked application modules, operational scripts, deployment units and canonical documentation.
 * Kept runtime secrets, environment backups, databases, core dumps, generated media, temporary work directories, historical source snapshots and backup files outside Git; expanded `.gitignore` so those unsafe artifacts do not reappear in future status checks.
 * The checkpoint records repository state only. It does not publish content, modify queues, restart services or push to the remote repository.
+## 2026-09-12 — Add direct Telegram photo-post publishing to Blog Core
+
+### Summary
+* Completed the existing article-to-Telegram draft contour with direct Bot API delivery; Zernio is not involved.
+* Telegram drafts now generate a dedicated 16:9 editorial JPEG and a caption capped to the native 1,024-character photo-caption limit.
+* Added publish-time recovery for legacy overlong Telegram drafts: rewrite and revalidate the caption while retaining the existing generated image.
+* Added factory-owned automatic cadence delivery and a manual `Publish Telegram` action for reviewed drafts.
+* Added Telegram media to the shared social review page and records the returned message ID/public channel URL in the social and content-job status fields.
+* Allowed Telegram to use both `PUBLISHED` and real live `IMPORTED` article sources, which is required for the imported `yas.wine` catalogue; imported blog-index rows remain excluded.
+* Migrated the existing site-scoped bot/channel credentials for `yas.wine` and `myugc.studio` from their legacy factories and verified both connections through Telegram without publishing a post. Automatic Telegram cadence remains off for both sites.
+
+### Checks run
+* Compiled the deployed application and scheduler, restarted both PM2 services, and verified the Blog Core health endpoint.
+* Exercised direct `sendPhoto` request construction against an isolated database with a stubbed Telegram response, including generated image URL, caption, inline article button and persisted public message URL.
+* Exercised a due automatic Telegram slot against an isolated `IMPORTED` article and verified that it generated the Telegram draft and selected the direct bot publisher rather than Zernio.
+* Built the real Telegram prompt for one `yas.wine` imported article and one `myugc.studio` published article; both use the 1,024-character photo-caption contract. Live `getMe` and `getChat` checks passed for both migrated connections.
+
+### Files changed
+* `app.py` — direct `sendPhoto` publisher, scheduling, manual API/UI action, Telegram review image and native caption limit.
+* `docs/PROJECT_MEMORY.md` — durable direct-bot architecture and queue contract.
+* `docs/INTEGRATIONS.md` — current transport and platform-limit documentation.
+* `docs/CHANGELOG_AI.md` — implementation record.

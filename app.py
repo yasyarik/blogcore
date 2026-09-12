@@ -3009,7 +3009,10 @@ SOCIAL_PROVIDER_CONFIG = {
 
 SOCIAL_CHANNEL_LIMITS = {
     "linkedin": 3000,
-    "telegram": 4096,
+    # Every Telegram article adaptation is published as one photo post. Telegram
+    # captions have a 1,024-character limit even though text-only messages allow
+    # 4,096 characters.
+    "telegram": 1024,
     "twitter": 280,
     "tumblr": 4096,
     "pinterest": 500,
@@ -3023,10 +3026,11 @@ INSTAGRAM_REEL_ASSET_TYPE = "instagram_reel"
 TIKTOK_CAROUSEL_ASSET_TYPE = "tiktok_carousel"
 SOCIAL_CADENCE_KEYS = tuple(SOCIAL_CHANNEL_LIMITS) + (INSTAGRAM_REEL_ASSET_TYPE, TIKTOK_CAROUSEL_ASSET_TYPE)
 ZERNIO_SOCIAL_CHANNELS = {"twitter", "pinterest", "instagram", "tiktok", "threads", "facebook", "youtube", "reddit"}
-# X and Reddit need their own editorial/community workflow below.  They must
+# X and Reddit need their own editorial/community workflow below. They must
 # never fall through the article-to-social scheduler, which is designed for
-# broadcast channels and would create generic link promotion.
-AUTOMATIC_SOCIAL_CHANNELS = (ZERNIO_SOCIAL_CHANNELS - {"twitter", "reddit"}) | {"linkedin"}
+# broadcast channels and would create generic link promotion. LinkedIn and
+# Telegram use their direct APIs; Zernio is not involved in either channel.
+AUTOMATIC_SOCIAL_CHANNELS = (ZERNIO_SOCIAL_CHANNELS - {"twitter", "reddit"}) | {"linkedin", "telegram"}
 LINKEDIN_API_VERSION = os.environ.get("LINKEDIN_API_VERSION", "202606").strip() or "202606"
 SOCIAL_CHANNEL_LABELS = {
     "linkedin": "LinkedIn", "telegram": "Telegram", "twitter": "X / Twitter", "tumblr": "Tumblr",
@@ -11814,6 +11818,140 @@ def publish_linkedin_social_drafts(site_id, job_id):
         raise
 
 
+def telegram_message_url(chat_id, message_id):
+    """Return a public t.me URL when the configured destination has a username."""
+    chat_id = str(chat_id or "").strip()
+    if chat_id.startswith("@") and message_id:
+        return f"https://t.me/{chat_id[1:]}/{int(message_id)}"
+    return f"telegram:{chat_id}:{int(message_id)}" if chat_id and message_id else "Telegram post"
+
+
+def publish_telegram_social_drafts(site_id, job_id):
+    """Publish the newest Telegram draft directly through the configured bot."""
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
+    connections = get_social_connections(site_id)
+    telegram = connections.get("telegram")
+    credentials = get_social_credentials(telegram)
+    bot_token = str(credentials.get("bot_token") or "").strip()
+    chat_id = str(credentials.get("chat_id") or "").strip()
+    if not telegram or telegram["status"] != "connected" or not bot_token or not chat_id:
+        raise ValueError("Connect and test the Telegram bot and destination channel in Setup before publishing Telegram drafts.")
+    with db() as conn:
+        job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+        rows = conn.execute(
+            """select * from social_posts
+               where site_id=? and job_id=? and channel='telegram'
+                 and asset_type='post' and status='DRAFT'
+               order by id asc""",
+            (site_id, job_id),
+        ).fetchall()
+    if not job:
+        raise KeyError("content task not found")
+    if not rows:
+        raise ValueError("No unpublished Telegram draft is ready for this content task.")
+    row = rows[-1]
+    superseded_ids = [item["id"] for item in rows[:-1]]
+    if superseded_ids:
+        placeholders = ",".join("?" for _ in superseded_ids)
+        with db() as conn:
+            conn.execute(
+                f"update social_posts set status='SUPERSEDED', updated_at=? where id in ({placeholders})",
+                [now_iso(), *superseded_ids],
+            )
+    caption = social_normalize_text(row["content_text"] or "")
+    validation = validate_social_post_text(caption, SOCIAL_CHANNEL_LIMITS["telegram"])
+    if not caption:
+        raise ValueError("Telegram draft text is empty.")
+    if not validation["ok"]:
+        original_count = validation["charCount"]
+        caption, validation = generate_social_post_text(
+            site,
+            job,
+            "telegram",
+            row["language"] or content_job_language(job, site),
+            SOCIAL_CHANNEL_LIMITS["telegram"],
+            bool(row["include_link"]),
+            social_post_url(job),
+        )
+        if not validation["ok"]:
+            raise ValueError("Telegram overflow rewrite still exceeds the photo-caption limit.")
+        rewritten_payload = parse_json_object(row["content_json"])
+        rewritten_payload["validation"] = validation
+        rewritten_payload["overflowRewrite"] = {
+            "at": now_iso(), "originalCharCount": original_count,
+            "rewrittenCharCount": validation["charCount"], "mediaRegenerated": False,
+        }
+        with db() as conn:
+            conn.execute(
+                """update social_posts set content_text=?, content_json=?, char_count=?,
+                   max_chars=?, validation_json=?, updated_at=? where id=?""",
+                (
+                    caption, json.dumps(rewritten_payload, ensure_ascii=False), validation["charCount"],
+                    SOCIAL_CHANNEL_LIMITS["telegram"], json.dumps(validation, ensure_ascii=False), now_iso(), row["id"],
+                ),
+            )
+        row = dict(row)
+        row["content_json"] = json.dumps(rewritten_payload, ensure_ascii=False)
+        row["content_text"] = caption
+    payload = parse_json_object(row["content_json"])
+    telegram_payload = payload.get("telegram") if isinstance(payload.get("telegram"), dict) else {}
+    media_urls = telegram_payload.get("mediaUrls") if isinstance(telegram_payload.get("mediaUrls"), list) else []
+    image_url = absolute_social_asset_url(media_urls[0] if media_urls else "")
+    if not image_url:
+        raise ValueError("Telegram publication requires its generated editorial image.")
+    fields = {"chat_id": chat_id, "photo": image_url, "caption": caption}
+    button = telegram_payload.get("button") if isinstance(telegram_payload.get("button"), dict) else {}
+    button_url = str(button.get("url") or "").strip()
+    if button_url.startswith(("https://", "http://")):
+        fields["reply_markup"] = json.dumps({
+            "inline_keyboard": [[{
+                "text": str(button.get("label") or "Open article")[:64],
+                "url": button_url,
+            }]],
+        }, ensure_ascii=False)
+    try:
+        response, _ = fetch_form_json_request(
+            f"https://api.telegram.org/bot{urllib.parse.quote(bot_token, safe=':')}/sendPhoto",
+            fields,
+            timeout=90,
+        )
+        if not isinstance(response, dict) or not response.get("ok"):
+            raise RuntimeError(str((response or {}).get("description") or "Telegram sendPhoto failed."))
+        message = response.get("result") if isinstance(response.get("result"), dict) else {}
+        message_id = message.get("message_id")
+        remote_url = telegram_message_url(chat_id, message_id)
+        sent_at = now_iso()
+        with db() as conn:
+            conn.execute("update social_posts set status='SENT', remote_url=?, updated_at=? where id=?", (remote_url, sent_at, row["id"]))
+            conn.execute(
+                """update content_jobs set telegram_status='sent', telegram_post_url=?,
+                   telegram_posted_at=?, telegram_error='', updated_at=? where site_id=? and id=?""",
+                (remote_url, sent_at, sent_at, site_id, job_id),
+            )
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (site_id, job_id, sent_at, "INFO", "telegram-publish", "Published reviewed Telegram photo post directly through the configured bot"),
+            )
+        return {"ok": True, "jobId": job_id, "results": [{
+            "channel": "telegram", "ok": True, "status": "SENT", "remoteUrl": remote_url,
+        }]}
+    except Exception as error:
+        with db() as conn:
+            conn.execute("update social_posts set status='ERROR', updated_at=? where id=?", (now_iso(), row["id"]))
+            conn.execute(
+                """update content_jobs set telegram_status='error', telegram_error=?, updated_at=?
+                   where site_id=? and id=?""",
+                (str(error)[:500], now_iso(), site_id, job_id),
+            )
+            conn.execute(
+                "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
+                (site_id, job_id, now_iso(), "ERROR", "telegram-publish", str(error)[:500]),
+            )
+        raise
+
+
 def publish_zernio_visual_pin(site_id, pin_id, scheduled_for=None):
     pin = get_visual_pin(site_id, pin_id)
     if not pin:
@@ -12660,6 +12798,23 @@ def linkedin_publish_button(site_id, job_id):
     return f"<button class='ghost mini-action publish-action' type='button' onclick=\"publishLinkedInSocial('{escape(job_id, quote=True)}')\" title='Publish ready LinkedIn draft'>Publish LinkedIn</button>"
 
 
+def telegram_publish_button(site_id, job_id):
+    connections = get_social_connections(site_id)
+    telegram = connections.get("telegram")
+    credentials = get_social_credentials(telegram)
+    if not telegram or telegram["status"] != "connected" or not social_credentials_complete("telegram", credentials):
+        return ""
+    with db() as conn:
+        row = conn.execute(
+            """select 1 from social_posts where site_id=? and job_id=? and channel='telegram'
+               and asset_type='post' and status='DRAFT' limit 1""",
+            (site_id, job_id),
+        ).fetchone()
+    if not row:
+        return ""
+    return f"<button class='ghost mini-action publish-action' type='button' onclick=\"publishTelegramSocial('{escape(job_id, quote=True)}')\" title='Publish ready Telegram photo post'>Publish Telegram</button>"
+
+
 def social_review_button(site_id, job_id):
     with db() as conn:
         row = conn.execute(
@@ -12920,7 +13075,7 @@ def render_planned_publications(rows, site_languages=None):
         elif status == "GENERATING":
             action = generating_progress_panel(row["id"])
         elif status == "DRAFT":
-            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + instagram_reel_action(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + linkedin_publish_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"])
+            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + instagram_reel_action(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + linkedin_publish_button(row["site_id"], row["id"]) + telegram_publish_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"])
         items.append(
             f"""
             <div class="planned-row {status_class}" data-group-id="{escape(group['id'], quote=True)}" data-job-id="{escape(row['id'], quote=True)}" data-status="{status_class}">
@@ -12946,7 +13101,7 @@ def render_content_jobs(content_page):
         status_class = escape(status.lower())
         if status == "IMPORTED":
             status_label = "LIVE / IMPORTED"
-            action = instagram_carousel_preview_button(row["site_id"], row["id"]) + instagram_reel_action(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
+            action = instagram_carousel_preview_button(row["site_id"], row["id"]) + instagram_reel_action(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + linkedin_publish_button(row["site_id"], row["id"]) + telegram_publish_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
             descriptor = "Already published on the source site"
         elif status in {"QUEUED", "ERROR"}:
             status_label = status
@@ -12958,11 +13113,11 @@ def render_content_jobs(content_page):
             descriptor = "Generation in progress"
         elif status == "DRAFT":
             status_label = "DRAFT"
-            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + instagram_reel_action(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + linkedin_publish_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"])
+            action = regenerate_draft_button(row["id"]) + draft_preview_button(row["site_id"], row["id"]) + publish_draft_button(row["id"]) + instagram_carousel_preview_button(row["site_id"], row["id"]) + instagram_reel_action(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + linkedin_publish_button(row["site_id"], row["id"]) + telegram_publish_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"])
             descriptor = "Draft ready for review"
         elif status == "PUBLISHED":
             status_label = "PUBLISHED"
-            action = instagram_carousel_preview_button(row["site_id"], row["id"]) + instagram_reel_action(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
+            action = instagram_carousel_preview_button(row["site_id"], row["id"]) + instagram_reel_action(row["site_id"], row["id"]) + threads_post_preview_button(row["site_id"], row["id"]) + social_draft_button(row["site_id"], row["id"]) + social_review_button(row["site_id"], row["id"]) + linkedin_publish_button(row["site_id"], row["id"]) + telegram_publish_button(row["site_id"], row["id"]) + zernio_publish_button(row["site_id"], row["id"]) + live_page_icon(row["published_url"])
             descriptor = "Published by Blog Core"
         else:
             status_label = status or "UNKNOWN"
@@ -19003,8 +19158,8 @@ def run_scheduled_social_publications(now=None):
     A due slot uses an existing social DRAFT first. Otherwise it selects the
     oldest eligible page without an earlier non-error post for that channel,
     generates the native creative, and submits it through the channel. LinkedIn
-    also accepts imported live pages; other channels retain published-only
-    source selection.
+    and Telegram also accept imported live pages; other channels retain
+    published-only source selection.
     """
     current_utc = now or datetime.now(timezone.utc)
     results = []
@@ -19059,7 +19214,7 @@ def run_scheduled_social_publications(now=None):
                        join content_jobs cj on cj.id=sp.job_id and cj.site_id=sp.site_id
                        join sites s on s.id=cj.site_id
                        where sp.site_id=? and sp.channel=? and sp.asset_type='post' and sp.status='DRAFT'
-                         and (cj.status='PUBLISHED' or (sp.channel='linkedin' and cj.status='IMPORTED'
+                         and (cj.status='PUBLISHED' or (sp.channel in ('linkedin','telegram') and cj.status='IMPORTED'
                               and trim(coalesce(cj.published_url, '')) <> ''))
                          and not (cj.status='IMPORTED' and rtrim(cj.published_url, '/') like
                               ('%/' || trim(coalesce(s.blog_path, '/blog/'), '/')))
@@ -19072,7 +19227,7 @@ def run_scheduled_social_publications(now=None):
                         """select cj.id as job_id from content_jobs cj
                            join sites s on s.id=cj.site_id
                            where cj.site_id=?
-                             and (cj.status='PUBLISHED' or (?='linkedin' and cj.status='IMPORTED'
+                             and (cj.status='PUBLISHED' or (? in ('linkedin','telegram') and cj.status='IMPORTED'
                                   and trim(coalesce(cj.published_url, '')) <> ''))
                              and not (cj.status='IMPORTED' and rtrim(cj.published_url, '/') like
                                   ('%/' || trim(coalesce(s.blog_path, '/blog/'), '/')))
@@ -19111,6 +19266,8 @@ def run_scheduled_social_publications(now=None):
                         generate_social_drafts(site_id, candidate["job_id"], channels=[channel])
                     if channel == "linkedin":
                         published = publish_linkedin_social_drafts(site_id, candidate["job_id"])
+                    elif channel == "telegram":
+                        published = publish_telegram_social_drafts(site_id, candidate["job_id"])
                     else:
                         published = publish_zernio_social_drafts(site_id, candidate["job_id"], channels=[channel])
                 status = "SUBMITTED" if published.get("ok") else "ERROR"
@@ -24054,6 +24211,19 @@ def regenerate_instagram_reel_route(site_id, post_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/social-publish/telegram")
+def publish_telegram_social_drafts_route(site_id, job_id):
+    try:
+        result = publish_telegram_social_drafts(site_id, job_id)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
+
+
 @app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/social-publish/zernio")
 def publish_zernio_social_drafts_route(site_id, job_id):
     payload = request.get_json(silent=True) or {}
@@ -24439,12 +24609,14 @@ def social_post_review(site_id, post_id):
         abort(404)
     payload = parse_json_object(post["content_json"])
     pin = payload.get("pin") if isinstance(payload.get("pin"), dict) else {}
+    telegram = payload.get("telegram") if isinstance(payload.get("telegram"), dict) else {}
     reddit = payload.get("reddit") if isinstance(payload.get("reddit"), dict) else {}
     twitter = payload.get("twitter") if isinstance(payload.get("twitter"), dict) else {}
     facebook = payload.get("facebook") if isinstance(payload.get("facebook"), dict) else {}
     twitter_media = twitter.get("mediaUrls") if isinstance(twitter.get("mediaUrls"), list) else []
     facebook_media = facebook.get("mediaUrls") if isinstance(facebook.get("mediaUrls"), list) else []
-    image_url = pin.get("imageUrl") or (twitter_media[0] if twitter_media else "") or (facebook_media[0] if facebook_media else "")
+    telegram_media = telegram.get("mediaUrls") if isinstance(telegram.get("mediaUrls"), list) else []
+    image_url = pin.get("imageUrl") or (telegram_media[0] if telegram_media else "") or (twitter_media[0] if twitter_media else "") or (facebook_media[0] if facebook_media else "")
     image_alt = pin.get("altText") or twitter.get("altText") or facebook.get("coverHeadline") or "Social draft illustration"
     media = f'<img src="{escape(image_url, quote=True)}" alt="{escape(image_alt, quote=True)}">' if image_url else ""
     title = reddit.get("title") or pin.get("pinTitle") or post["title"] or post["topic"] or "Social draft"
@@ -25290,6 +25462,7 @@ async function createVisualPin(){const mode=document.getElementById('visualPinMo
 async function publishVisualPin(pinId){if(!confirm('Publish this reviewed visual Pin to Pinterest now through Zernio?'))return;showToast('Publishing visual Pin through Zernio...');try{const res=await fetch('/api/sites/'+SITE_ID+'/visual-pins/'+encodeURIComponent(pinId)+'/publish',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Visual Pin '+data.status);setTimeout(()=>location.reload(),900);}catch(e){showToast('Visual Pin publication failed: '+e.message);}}
 async function publishZernioSocial(jobId){if(!confirm('Submit ready X, Pinterest, Instagram, Threads, and Reddit drafts to Zernio now?'))return;showToast('Submitting social drafts to Zernio...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-publish/zernio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);const summary=(data.results||[]).map(item=>item.channel+': '+(item.ok?item.status:'failed')).join(' · ');showToast('Zernio accepted: '+summary+'. Verify the destination post before treating it as live.');setTimeout(()=>location.reload(),1200);}catch(e){showToast('Zernio submission failed: '+e.message);}}
 async function publishLinkedInSocial(jobId){if(!confirm('Publish this reviewed LinkedIn draft now?'))return;showToast('Publishing LinkedIn draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-publish/linkedin',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('LinkedIn post sent');setTimeout(()=>location.reload(),1000);}catch(e){showToast('LinkedIn publication failed: '+e.message);}}
+async function publishTelegramSocial(jobId){if(!confirm('Publish this reviewed Telegram post with its generated image now?'))return;showToast('Publishing Telegram photo post...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-publish/telegram',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Telegram photo post sent');setTimeout(()=>location.reload(),1000);}catch(e){showToast('Telegram publication failed: '+e.message);}}
 async function saveContentSchedule(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const cadence=String(fd.get('publishing_cadence')||'manual');const applyToQueue=fd.has('apply_to_queue');const startAt=String(fd.get('start_at')||'');if(applyToQueue&&!startAt){showToast('Choose the first release date and time');return;}if(applyToQueue&&!confirm('Schedule all currently unscheduled queued blog/page tasks using this cadence? Already scheduled tasks will not move.'))return;showToast(applyToQueue?'Placing queued releases...':'Saving blog/page schedule...');try{const timezone=document.querySelector('input[name="timezone"]')?.value||'UTC';const res=await fetch('/api/sites/'+SITE_ID+'/content-schedule',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({cadence,startAt,timezone,applyToQueue})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast(applyToQueue?'Scheduled '+data.scheduledGroups+' publication group(s)':'Blog/page schedule saved');setTimeout(()=>location.reload(),850);}catch(e){showToast('Blog/page schedule failed: '+e.message);}}
 async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const socialCadences={};for(const channel of ['linkedin','telegram','twitter','tumblr','pinterest','instagram','threads','facebook','reddit','instagram_reel','tiktok_carousel']){socialCadences[channel]={enabled:fd.has('cadence_'+channel+'_enabled'),postsPerDay:Number(fd.get('cadence_'+channel+'_posts_per_day')||0)};}const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link'),threadsIncludeLink:fd.has('threads_include_link'),facebookIncludeLink:fd.has('facebook_include_link'),redditIncludeLink:fd.has('reddit_include_link'),socialCadences}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 async function saveGscSettings(event){event.preventDefault();const form=event.currentTarget,fd=new FormData(form);showToast('Saving Search Console settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/gsc',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({propertyUrl:fd.get('property_url')||'',enabled:fd.has('enabled')})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Search Console settings saved. Verify access next.');setTimeout(()=>location.reload(),600);}catch(e){showToast('GSC settings failed: '+e.message);}}
