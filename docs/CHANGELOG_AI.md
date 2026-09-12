@@ -6,6 +6,8 @@
 * Fixed source-format classification so the shared `Instagram + TikTok` carousel rows expand to two correctly labelled cards and contribute all 30 destination publications; future Stories and ordinary posts remain distinct format types.
 * Kept card headings explicit (`Instagram Reels`, `TikTok Reels`, `Instagram · карусель`, `TikTok · карусель`) and preserved separate calendar-dot identities for every destination and format.
 * Made every owner-recorded `Снять лично` card immediately recognizable with a restrained animated light contour and stronger platform-coloured shadow; reduced-motion preferences still suppress the animation.
+* Added card-level status treatments: completed publications fade to a disabled-like state, errors receive a bright red contour and shadow, and overdue publications pulse with an orange contour and shadow. Detail dialogs remain accessible in every state.
+* Reordered every hero metric so its smaller platform/format label sits above the count and the `completed/total` value has clear vertical separation below it.
 
 ## 2026-09-12 — Add destination cards, persistent rescheduling and one-way Reel completion
 
