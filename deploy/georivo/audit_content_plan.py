@@ -206,6 +206,13 @@ def audit(db_path, native_root, public_origin, check_public):
                         errors.append(f"{language} x-default missing")
                     if 'data-event="seo_cta_click"' not in page:
                         errors.append(f"{language} CTA analytics attribute missing")
+                    if 'class="product-bridge"' not in page:
+                        errors.append(f"{language} contextual Georivo product step is missing")
+                    if not re.search(
+                        r'data-product-action="(?:property|neighborhood|arrival|coverage|embed|example)"',
+                        page,
+                    ):
+                        errors.append(f"{language} contextual product action is invalid")
                 except (urllib.error.URLError, TimeoutError) as error:
                     errors.append(f"{language} fetch failed: {error}")
         page_result = {

@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh multi-site Search Console evidence daily
+
+[Timer]
+OnCalendar=*-*-* 05:15:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+Unit=blog-core-search-monitor.service
+
+[Install]
+WantedBy=timers.target

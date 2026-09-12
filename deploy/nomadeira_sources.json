@@ -1,0 +1,62 @@
+[
+  {
+    "owner": "Visit Madeira",
+    "url": "https://visitmadeira.com/sitemap.xml",
+    "sourceClass": "official_operator_or_provider",
+    "knowledgeFamilies": ["geography_geology", "places_attractions", "culture_food_traditions", "activities_bookable_reality"],
+    "retrievalAdapter": "xml_sitemap",
+    "pollCadenceHours": 24,
+    "robotsTermsState": "respect_robots_and_terms",
+    "mediaRightsPolicy": "citation_only",
+    "priority": 100,
+    "config": {"pageLimit": 100, "anchorEntity": "Madeira", "anchorRelationship": "located_in", "scopeAttestation": true}
+  },
+  {
+    "owner": "Regional Government of Madeira",
+    "url": "https://www.madeira.gov.pt/",
+    "sourceClass": "official_government_or_municipality",
+    "knowledgeFamilies": ["tax_law_administration", "economy_ordinary_life"],
+    "retrievalAdapter": "html_change_monitor",
+    "pollCadenceHours": 24,
+    "robotsTermsState": "respect_robots_and_terms",
+    "mediaRightsPolicy": "citation_only",
+    "priority": 95,
+    "config": {"anchorEntity": "Madeira", "anchorRelationship": "connected_to", "scopeAttestation": true}
+  },
+  {
+    "owner": "Institute of Forests and Nature Conservation",
+    "url": "https://ifcn.madeira.gov.pt/",
+    "sourceClass": "official_government_or_municipality",
+    "knowledgeFamilies": ["forest_water_biodiversity", "activities_bookable_reality"],
+    "retrievalAdapter": "html_change_monitor",
+    "pollCadenceHours": 24,
+    "robotsTermsState": "respect_robots_and_terms",
+    "mediaRightsPolicy": "citation_only",
+    "priority": 98,
+    "config": {"anchorEntity": "Madeira", "anchorRelationship": "connected_to", "scopeAttestation": true}
+  },
+  {
+    "owner": "NOMADeira official machine contract",
+    "url": "https://nomadeira.com/api/blog-core/content-engine",
+    "sourceClass": "official_operator_or_provider",
+    "knowledgeFamilies": ["economy_ordinary_life"],
+    "retrievalAdapter": "official_api",
+    "pollCadenceHours": 24,
+    "robotsTermsState": "api_contract",
+    "mediaRightsPolicy": "citation_only",
+    "priority": 20,
+    "config": {"anchorEntity": "Madeira"}
+  },
+  {
+    "owner": "NOMADeira primary-document intake",
+    "url": "manual://nomadeira/primary-document-intake",
+    "sourceClass": "museum_archive_or_academic_primary_source",
+    "knowledgeFamilies": ["history_people_archives"],
+    "retrievalAdapter": "manual_primary_document",
+    "pollCadenceHours": 720,
+    "robotsTermsState": "operator_supplied",
+    "mediaRightsPolicy": "source_defined",
+    "priority": 10,
+    "config": {"anchorEntity": "Madeira", "text": "Manual primary documents are retained privately with their exact citation, date, scope and rights status before the evidence extractor can propose claims."}
+  }
+]

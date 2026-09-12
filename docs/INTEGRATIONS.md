@@ -1,5 +1,30 @@
 # INTEGRATIONS.md
 
+## Publication failure email alerts
+
+* Every failed due publication from the website, generic social, shared carousel, Instagram Reel, TikTok carousel, evidence-X, Threads, and Facebook queues is persisted as an email-alert event. Waiting-for-connection and no-source states are not failures.
+* Blog Core uses the same local `/usr/sbin/sendmail` to Exim delivery path already proven by SoloCruz. It does not add another email provider or store SMTP credentials in SQLite.
+* `PUBLICATION_ALERT_EMAIL_TO` enables delivery. `PUBLICATION_ALERT_EMAIL_FROM` optionally overrides the sender identity. Both belong only in the protected production environment.
+* A stable event fingerprint based on the queue record/slot prevents duplicate messages for the same failed attempt even when a provider later supplies more precise error wording. Failed email delivery remains queued and retries with exponential backoff capped at one hour.
+* The email contains the site, queue/channel, content title and IDs, UTC failure time, provider error, and a link to the site's Blog Core control panel. Zernio failures reported asynchronously during reconciliation enter the same alert path.
+
+## Universal Google Search Console collection
+
+* Per-site GSC configuration uses an exact URL-prefix property such as `https://example.com/` or a domain property such as `sc-domain:example.com`.
+* Blog Core uses the server-managed service account with the read-only Search Console scope. It never stores, renders, logs or commits credentials or their filesystem paths.
+* Setup verifies that the service account can see the selected property and then enables automatic finalized-data collection. Query and page metrics are retained separately; no false complete query/page join is inferred.
+
+## SEO Agent reporting and topic discovery
+
+* The `/agent` control point reads channel connection state and publication records already owned by Blog Core; it does not probe or mutate third-party accounts while rendering the dashboard.
+* Scheduled audits run from `scheduler.py` no more than once per 30 minutes. Demand discovery is intentionally omitted from routine 30-minute runs; manual smart audits or explicitly enabled per-site autonomy may invoke the existing popular-search/Reddit Discovery pipeline.
+* Optional Telegram summaries use protected environment variables `AGENT_TELEGRAM_BOT_TOKEN` and `AGENT_TELEGRAM_CHAT_ID`. Never store or render their values. Telegram is outbound reporting only and has no inbound command handler.
+* Auto-created content remains a normal `content_jobs.status=QUEUED` record and must pass the normal generate, preview, validate, and publish boundaries.
+* `POST /api/agent/sites/{site_id}/discover-topics` runs demand discovery for one site from an explicit recommendation action. It returns topic recommendations with source evidence and duplicate validation; it does not create or publish content jobs.
+* Agent error analysis reads failed Blog Core content/social records and classifies the stored failure text locally. Rendering `/agent` remains read-only and never probes external providers.
+
+* CabinJoin site `15` uses `native_content_store` publication into the shared CabinJoin content root. On 2026-07-27 Blog Core published the new boat-owner/operator page and replaced organiser copy across EN/RU/FR/ES/DE. CabinJoin consumes only explicitly published records at the exact stored target path; no locale or content fallback is permitted.
+
 ## Native content-store typed route contract
 
 Native JSON records preserve `contentType` and `targetPath`.
@@ -98,6 +123,11 @@ If scanned CSS contains `.section`, `.blog-card`, `.blog-carousel`, and `.contai
 * Generation uses the universal Blog Core article schema, four article images, and validation. Draft preview writes `{root_path}/data/blog-core/drafts/{job_id}.json`; explicit publication writes `{root_path}/data/blog-core/published/{slug}.json`.
 * A multilingual native-store record has one base `language`, the configured `languages`, and a `translations` object keyed by locale. Blog Core stores generated variants in `content_job_localizations`; each variant preserves the canonical slug and image filenames while translating the complete validated structured article.
 * The site renderer owns its public header, footer, layout, schema markup, canonical URL, index, and sitemap. Blog Core owns editorial state and generated assets.
+* EPR Scan uses this contract as site `20` for `/blog/{slug}` only. Its language set is exactly `en`, `de`, `fr`, `es`; the site-level `source_audited_multilingual_compliance` contract requires complete variants, a claim-by-claim ledger over 2–5 live official sources, translation number/structure/link parity, SEO checks and browser QA. It does not require or imply a human reviewer. See `docs/EPRSCAN_INTEGRATION.md`.
+* The 2026-09-02 EPR Scan TOR produced 11 source-audited blog jobs and 33 DE/FR/ES localizations. Recommendations remain proposals until explicitly materialized; recommendation creation never authorizes generation or publication.
+* EPR Scan blog indexing is fail-closed on the automated audit record. Russian and Italian are never generated as site languages. Static localized routes retain their separate page-level manifest until migrated to the same evidence contract.
+* EPR Scan runs a weekly read-only production crawl from its own systemd timer. In addition to the fixed release contract, it discovers every sitemap page and internal target, so newly approved Blog Core articles are automatically covered; failures are persisted and visible in the systemd journal but do not trigger publication or mutation.
+* EPR Scan's strict Lighthouse check is a separate three-attempt release gate (median Performance/LCP, minimum Accessibility/SEO, maximum CLS). Do not place it in the low-priority weekly service: synthetic timings were materially distorted there. Real-user LCP/CLS/INP are collected through the protected first-party analytics path.
 * Blog Core-owned renderers use shared `native_site_chrome.py` to read current source header/footer and stylesheet links from `sites.homepage_url` with a short cache. The saved `site_theme_profiles` scan is a fallback, not the ongoing public chrome authority.
 * Relative Blog Core article assets under `/sites/{site_id}/article-assets/` must be resolved against `https://blog.yas.ooo` by the native renderer; they must not be interpreted as source-site paths.
 * Georivo uses this contract as site 14. Its renderer is deployed at `/var/www/georivo-blog`, listens on loopback port `13340`, and serves EN at `/blog/`, DE/ES/FR/RU at `/{language}/blog/`, plus noindex `/content-preview/{job_id}?lang={language}` pages through `georivo.com`.
@@ -132,7 +162,8 @@ Blog Core is being adapted toward feature parity with `/var/www/content-factory-
 * Distribution settings are per site in `autopublish_settings` and `topic_discovery_settings`.
 * Social channel connections and credentials are stored per site in `social_connections`; do not use one global OAuth state for all sites. The Setup tab provides per-provider credential forms and `Test connect` actions. Secrets are never rendered back into the dashboard.
 * Social connection tests use provider API probes for LinkedIn, Telegram, and Tumblr. X/Twitter, Pinterest, Instagram, Threads, and Reddit use the per-site Zernio connection: Blog Core calls `GET /accounts` with the server-default `ZERNIO_API_KEY` or a site override, then requires an explicit account ID mapping for every active channel. Do not document or render API keys.
-* LinkedIn personal profiles use `POST /api/sites/{site_id}/social-connections/linkedin/connect`, which starts OAuth with `openid profile w_member_social` and the configured callback `https://blog.yas.ooo/oauth/linkedin/callback`. The callback exchanges the code server-side, resolves `/v2/userinfo`, and stores the issued access token plus `urn:li:person:<sub>`. Application credentials remain only in ignored server `.env` variables `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, and `LINKEDIN_OAUTH_REDIRECT_URI`.
+* LinkedIn uses `POST /api/sites/{site_id}/social-connections/linkedin/connect`, which starts OAuth with `r_basicprofile w_member_social rw_organization_admin w_organization_social` and the configured callback `https://blog.yas.ooo/oauth/linkedin/callback`. The callback exchanges the code server-side, resolves the member through `/v2/me`, discovers eligible Company Pages through `/rest/organizationAcls`, and stores the issued access token plus both member and selected publishing identity URNs. A short-lived Secure callback cookie keeps OAuth state valid across multiple Gunicorn workers. Application credentials remain site-scoped encrypted values with the legacy ignored server environment as fallback; secrets are never rendered or documented.
+* Automatic LinkedIn source selection accepts `PUBLISHED` jobs and live `IMPORTED` jobs with a non-empty `published_url`. Imported localized blog-index URLs ending at the configured `blog_path` are excluded. This eligibility expansion is LinkedIn-specific and does not broaden other social channels.
 * Social text/creative adaptation is handled before publishing through `social_posts`. The endpoint `POST /api/sites/{site_id}/content-jobs/{job_id}/social-drafts` generates channel-specific drafts only for channels that are both selected in Distribution and configured/connected in Setup. If no active channel exists, the endpoint returns `400` and does not create drafts. When drafts are allowed, it stores `language`, `max_chars`, `char_count`, `include_link`, `validation_json`, and marks the matching `content_jobs.{channel}_status` as `drafted`.
 * Social draft generation must preserve the article language. It reads `content_jobs.sources_json.language` for imported/localized pages and falls back to the first configured site language.
 * Current strict social text limits: LinkedIn 3000 chars, Telegram 4096 chars, X/Twitter 280 chars per post, Tumblr 4096 chars, Pinterest description 500 chars, Instagram caption 2200 chars, Threads post text 500 UTF-8 bytes, and Reddit draft body 8000 chars/title 300 chars. Drafts are normalized and shortened before storage if Gemini returns over-limit text. For Threads, `social_posts.char_count` stores the UTF-8 byte count and validation JSON stores both `charCount` and `byteCount`. Instagram also has a practical generated-caption target of 700 characters, with at most three hashtags.
@@ -156,6 +187,13 @@ Pending parity work after the initial backbone:
 * `POST /api/sites/{site_id}/podcast-episodes` creates a reviewable episode from a selected article. Blog Core first produces a spoken script with the text model, then sends chunked transcript text to Gemini TTS and assembles mono 24 kHz WAV audio under ignored `data/podcast_assets/{site_id}/{episode_id}/`.
 * The default TTS model is `gemini-3.1-flash-tts-preview`; `GEMINI_TTS_MODEL` can override it. Gemini TTS is preview software and can occasionally fail transiently, so chunk-level retry is implemented. Do not store API keys or generated audio in Git.
 * Supported selected voice names are Gemini prebuilt voices. They are site-specific voice profiles combined with direction such as pace/tone; they are not custom voice cloning. Google Cloud Custom Voice is a separate product/access path and requires a dedicated future adapter if enabled.
+
+## Gemini Lyria brand music for Reels
+
+* Blog Core creates per-site reviewable brand soundtracks with the Gemini Developer API model `lyria-3-clip-preview`. It is configured through server-side `GEMINI_MUSIC_API_KEY` when present, otherwise the existing server-side Gemini key resolution; no API key is persisted in SQLite or rendered in the dashboard.
+* `reel_music_tracks` stores direction, vocal hook, model, review status, returned lyric/structure text, duration, and activation state. The ignored MP3 is stored under `data/reel_music/{site_id}/{track_id}/brand-track.mp3` and served only through its controlled Blog Core asset route.
+* The default output is a 30-second Lyria Clip. It must be prompted as an original composition without imitation of a particular existing song, performer, film, or musical. Do not substitute an arbitrary external audio file as a fallback.
+* Only one soundtrack can be `ACTIVE` for a site. It affects future Blog Core Instagram Reel renders only. The compositor loops/trims it across the Reel's complete duration and fades only at its boundaries. It remains audible as a low bed throughout, then ducks beneath every actual Gemini narration interval; sequential scene WAV timing prevents voice clips from overlapping. This continuous-ducked contract replaces/deprecates narrator-exclusive hard muting and never retroactively changes an assembled Reel or source-site page.
 * Audio review is available in the Podcast tab through `/sites/{site_id}/podcasts/{episode_id}/audio/episode.wav`. Explicit publication creates the Blog Core URL `/podcasts/{site_id}/{episode_id}` and includes it in `/podcasts/{site_id}/feed.xml`.
 * Blog Core-hosted podcast publication does not alter an imported source site's design or template. Publishing/embed back into an imported source site needs an explicit native source-factory adapter.
 
@@ -168,3 +206,46 @@ Pending parity work after the initial backbone:
 * Import is non-destructive: it does not delete, overwrite, or publish files into the target site root.
 * For imported existing blogs, target publishing should update/create content in the same original site locations and URL structure. Blog Core should be the dashboard/control plane, not an indexed second copy by default.
 * Hosted Blog Core rendering can currently list imported/generated jobs in `/blog/`, include them in `/sitemap.xml`, and serve `/blog/{slug}/` from saved job HTML. For imported blogs this should be treated as preview/mirror behavior until canonical/noindex or publish-back-in-place rules are implemented; for Blog Core-created blogs it can be the public hosting path.
+# Central search notification and monitoring (2026-08-03)
+
+* Publication validation stays inside Blog Core and runs before the published record is committed. The same transaction queues a search-notification job for configured sites.
+* The scheduler invokes `deploy/search/search_sites.py notify`: GSC sitemap notification is event-driven; CabinJoin also sends the exact published URL to IndexNow using its protected host environment. Failures are explicit and retry at most five times.
+* `deploy/search/search_sites.py monitor` reads GSC performance and representative URL Inspection data for every configured site without submitting sitemaps. Each site has an independent protected status file and one site's error does not prevent the other from running.
+* Secrets remain in protected VPS files. Do not write keys, service-account identities, or raw environment values into Git or memory.
+# Vertex AI image editing for Reel layers
+
+* Service account authentication uses `VERTEX_AI_SERVICE_ACCOUNT_FILE`; never store its JSON contents in Git or project memory.
+* Required project role for native Imagen editing: `roles/aiplatform.user`.
+* Non-secret configuration: `VERTEX_AI_PROJECT`, `VERTEX_AI_LOCATION`, and `VERTEX_IMAGEN_EDIT_MODEL`.
+* The documented `imagen-3.0-capability-001` explicit-mask endpoint may return model-access `404` even with correct IAM. Blog Core treats that as model unavailability and uses scene-referenced isolated matte generation, never unconstrained scene editing.
+* The fallback still uses the real production scene as an image reference; final coordinates, scale, collision handling, and contact treatment are owned by Blog Core.
+
+# Gemini logo references for Reels (2026-08-13)
+
+* Final brand-resolution scenes receive the connected site's verified source-owned logo as an image reference to the Gemini image request.
+* Prefer a local brand SVG when available and rasterize it to a high-resolution transparent PNG before the multimodal request. Do not use screenshots or raster files that contain a baked checkerboard background.
+* The image prompt requires one exact, contextual use on a plausible physical touchpoint. The renderer does not stamp, redraw, or corner-overlay the logo.
+* The final camera trajectory must reveal the full branded context before the cut.
+# NOMADeira content-engine handoff (2026-08-29)
+
+* NOMADeira exposes a versioned machine contract at `https://nomadeira.com/api/blog-core/content-engine`.
+* Consume it together with `https://nomadeira.com/api/blog-core/i18n-manifest` and `https://nomadeira.com/api/blog-core/editorial-plan`.
+* Human implementation and acceptance criteria live in `docs/NOMADEIRA_AUTONOMOUS_CONTENT_ENGINE.md`.
+* Legacy `nomadeira_editorial_plan` blocking flags are authoritative even when a row predates `complianceCluster`. `generationBlockedUntilSourceReview=true` blocks generation; either that flag or `publicationBlocked=true` blocks scheduling/publication. Migration into the current contract never infers sources, verified claims, reviews, approvals or QA from generated prose.
+* The NOMADeira canonical EU registration guide is `/madeira-residence-registration-eu/` with DE, UK and RU variants in the same native record. The unused `/madeira-crue-eu-residence-certificate` candidate was never published and is canceled as superseded.
+* NOMADeira's native renderer receives contextual link sentences inside `draftHtml`; when publishing this record, clear the duplicate native-payload `internalLinks` array after the store write. A production Next.js build and `nomadeira` service restart are required to refresh the statically generated sitemap after a new record is published.
+* The contract contains no credentials. Source collectors, social publishers and media generation continue to use server-side configuration only.
+* Do not create a canonical article for every social candidate. Route a candidate into a new/refreshed page only after canonical-intent and completeness checks pass.
+# EPR Scan draft review handoff (2026-09-02)
+
+* Blog Core writes English approval drafts to EPR Scan's private draft store separately from the strict published store.
+* EPR Scan exposes a native-design review surface at `/content-preview/{jobId}`. It is `noindex`, no-store, excluded from the sitemap and visibly labelled as unpublished.
+* An accepted English draft is the source for one Gemini Batch localization run to German, French and Spanish. Russian and Italian are not target locales. The first wave completed as 11 EN drafts plus exactly 11 DE, 11 FR and 11 ES variants.
+* Watching the draft store may rebuild the native preview, but it does not publish an article. Public `/blog/{slug}` routes still require the full reviewed multilingual publication contract.
+* Localized draft payloads are valid input to the private sync. The current preview intentionally renders the English source only; translations remain stored for later named-language review and do not enter public routes or SEO surfaces.
+
+## Karp and Veselova Veronika native content stores
+
+* Blog Core site `17` writes to `/var/lib/karp-preview/data/blog-core`; site `19` writes to `/var/lib/veronika-preview/data/blog-core`. Their application code roots stay `/var/www/karp-preview` and `/var/www/veronika-preview`.
+* Each isolated Next renderer reads only its own `BUILD_YAS_DATA_DIR/blog-core`. It augments the existing native `/blog` card grid and renders published article routes with the site's existing chrome. Draft review uses `/content-preview/{jobId}` with `noindex,nofollow,noarchive`.
+* After publication Blog Core warms the Karp artifact process on `127.0.0.1:3045` or the Veronika artifact process on `127.0.0.1:3055`; it no longer uses the former shared Build YAS port for these sites.

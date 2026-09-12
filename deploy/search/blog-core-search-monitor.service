@@ -1,0 +1,21 @@
+[Unit]
+Description=Read-only multi-site Search Console monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/var/www/blog.yas.ooo
+ExecStart=/usr/bin/flock -n /run/blog-core-search-monitor.lock /var/www/blog.yas.ooo/.venv/bin/python3 /var/www/blog.yas.ooo/deploy/search/search_sites.py monitor
+TimeoutStartSec=15m
+MemoryMax=384M
+CPUQuota=50%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/var/www/blog.yas.ooo /etc/cabinjoin-staging.env
+ReadWritePaths=/var/lib/blog-core/search /run

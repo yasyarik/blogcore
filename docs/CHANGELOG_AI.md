@@ -1,3 +1,153 @@
+## 2026-09-06 — Replace SoloCruz episode 02 with a visual comedy story
+
+* Rewrote `Episodes 02-24 Detailed!C2:F2` and `H2:J2`; `G2`, `K2` and every other episode remain unchanged.
+* Removed the booking-list, tablet-scrolling, code-comparison and cabin-chain plot. Security now believes Cruz is an unlisted passenger; an event host summons her, and a packed theatre reveals that her cabin is compensation for serving as the ship's invited cruise expert.
+* Reversed the opening power dynamic in the payoff: the security chief who came to remove Cruz is seated in the front row. Two microphone taps echo the opening door knocks and complete the comic loop.
+* All three ten-second prompts retain three timed shots, reference continuity, exact short English dialogue and scene-specific physics. Exact readback matched the requested cells; no media was generated or published.
+
+## 2026-09-06 — Remove repeated boilerplate from SoloCruz production prompts
+
+* Replaced the repeated long-form instruction blocks in all 72 active cells of `Episodes 02-24 Detailed!H2:K24` with a concise generator contract.
+* Preserved every timed three-shot staging block, exact English dialogue, supplied-reference continuity and scene-specific physical constraints. Episode 02 clip 01 retains its special one-door, one-opening choreography.
+* Corrected episode 02 clip 01 after an ambiguous phrase made `pilot` look like the actor performing the knock. The prompt is now self-contained for Gemini: the supplied door reference establishes the closed door and security characters visible through its window, the supplied Cruz reference establishes her design, security knocks twice, and Cruz then opens that one door once. It contains no reference to a pilot, previous episode or information unavailable to the generator.
+* Reduced active prompts from an average of 5,396 characters to 1,721 characters (68.1% reduction; 1,535–2,250 characters). Exact readback matched all 72 prompts and 20 end-of-episode placeholders; every active prompt still contains exactly three staged shots.
+* Left episode metadata, plot, engagement structure, other tabs and all generation/publication state unchanged. The edited tab was visually checked in Google Sheets.
+
+## 2026-09-06 — Remove repeated boilerplate from YAS AI film prompts
+
+* Replaced the repeated long-form instruction blocks in all 75 active cells of `Episodes 01-24 Detailed!H2:K25` with a concise production contract.
+* Preserved every timed three-shot staging block, exact quoted English dialogue, supplied-reference continuity and scene-specific physics; removed duplicated episode-purpose, camera-theory, performance, sound and output prose.
+* Reduced active prompts from an average of 4,853 characters to 1,630 characters (66.4% reduction; 1,449–1,829 characters). Exact readback matched all 75 prompts and 21 end-of-episode placeholders; all prompts retain three staged shots and zero audited known-person trigger terms.
+* Left columns `A:G`, the original `Лист1`, story structure and all publication/generation state unchanged. The updated tab was visually checked in Google Sheets.
+
+## 2026-09-05 — Expand SoloCruz episodes 02–24 into detailed generator prompts
+
+* Added the first-position Google Sheet tab `Episodes 02-24 Detailed` containing only episodes 02–24: 23 episode rows and 72 full ten-second prompts. Episode 01 is not duplicated.
+* Added a distinct hook, retention mechanism and comment/CTA provocation for every episode. Each prompt now includes timed staging, bounded cast, camera execution, explicit prop/contact physics, acting, exact English dialogue, synchronized sound, continuity and output restrictions.
+* Removed the invented transition action involving Cruz recording or holding a phone. Episode 02 starts from the security knock and door opening, with an explicit ban on adding a phone or recording action.
+* Renamed v3 tabs to `SYNOPSIS ONLY` / `OLD` so summaries cannot be mistaken for production prompts. Verified all 24 sheet rows including header match the authored data exactly; no generation, scheduling or publication occurred.
+* Replaced the episode 02 clip 01 prompt after the first generation failed continuity. The corrected prompt binds attached references semantically to exact Cruz appearance/outfit, exact cabin and entrance-door design, and exact Marcus identity; it requires one continuous door opening and forbids a phone, duplicate door, rebuilt cabin, replay or reverse-angle opening.
+* Revised H2 again after Google's known-person safety error: removed identity/face-copy language and framed all character references as original fictional 3D model sheets. The set, clothing, hairstyle and single-door continuity requirements remain, but the prompt no longer uses known-person replication wording.
+* After the same provider error recurred, removed all character names from H2 as a false-positive safeguard (`Cruz` can collide with a known-person surname). The prompt now has zero occurrences of `Cruz`, `Marcus`, `identity`, `real person`, `public figure`, `celebrity`, or `known people`; door/set continuity and physical staging are unchanged.
+* Corrected that speculative diagnosis after the user confirmed all people are invented. Rebuilt H2 without likeness-transfer phrasing or face/skin/eye/body descriptors. The prompt now asks the supplied series artwork only for hair, costume, uniform and set continuity; detailed single-door choreography remains intact.
+* Rebuilt H2 once more with exclusively fictional-character terminology and verified it contains none of the human/known-person trigger vocabulary or character names. The scene still retains the supplied hairstyle, costume, uniform, cabin, door and one-opening motion requirements.
+* Applied the same fictional-character-only reference vocabulary to all 72 active generator prompts in `Episodes 02-24 Detailed!H2:K24`. Preserved the 20 non-generator end-of-episode placeholders and the already-corrected H2 prompt. Exact readback matched all written cells, and the full active range contains zero audited human/portrait/realism/known-person terms.
+* Audited all 23 current episodes against the newly supplied 30-second SoloCruz comedy formula. Estimated exact structural compliance at 52%, with episodes 03, 06, 10, 13, 14 and 24 closest to the target. Recorded the principal gaps: late/mismatched hooks in several rows, few two-attempt escalation patterns, cliffhanger-heavy rather than comic-loop endings, serial context dependence, and only three or four continuous shots instead of 9–13 edited shots. No spreadsheet cells, prompts or generated media were changed.
+
+## 2026-09-06 — Apply the SoloCruz hybrid 30-second episode formula
+
+* Reworked all episodes 02–24 in the authoritative `Episodes 02-24 Detailed` tab without changing the established mystery, passenger and romance arcs. Each episode now closes one recognizable cruise microstory before adding a compact serial tag.
+* Updated `C2:F24` with corrected literal 0–2-second hooks, two-step escalation summaries, comment prompts and a specific share-recipient rationale for every episode.
+* Rebuilt all 72 generator prompts in `H2:K24`: exactly three clean-cut shots per ten-second generation, nine shots per standard episode and twelve in the three 40-second episodes. Removed the former one-continuous-shot instruction, required visual change every 1.5–2 seconds and retained detailed object/door/contact continuity.
+
+## 2026-09-06 — Complete the YAS AI film with the same hybrid episode logic
+
+* Preserved the original `Лист1` outline and added the first-position `Episodes 01-24 Detailed` production tab to spreadsheet `1-Nn5AxeDEXm3MqJ95-0apfIFqWj-mKyqFO-pjPipMrk`.
+* Reworked all 24 episodes around a self-contained operational conflict, literal 0–2-second hook, two worsening attempts, completed result, visual callback and compact serial transition. Kept all twelve original industry problem/solution pairs and the existing YAS travel/mysterious-character arc.
+* Authored 75 production-grade ten-second prompts: exactly three clean-cut shots per prompt, nine shots per standard 30-second episode and twelve in episodes 08, 16 and 24. Added detailed physics, reference continuity, bounded fictional cast, exact English dialogue, sound and output restrictions.
+* Added an explicit comment provocation and specific share-recipient rationale to every episode. Exact readback matched all 25×11 authored cells; the rendered sheet was visually checked, and cramped Season/Duration columns were widened. No media was generated or published.
+* Preserved episode 02's supplied-reference contract: the one cabin door opens once within the first two seconds, never reopens or duplicates, and subsequent shots inherit the already-open state. The remaining prompts continue to describe only original fictional 3D characters and design references.
+* Verified exact post-write equality for both edited ranges, 23/23 literal 0–2 hooks, 23/23 specific share rationales, 72 active prompts, 20 untouched end-of-episode placeholders, 9/12 episode shot counts, 5–31 dialogue words and zero audited human/portrait/known-person terms. No video, image, social draft, schedule or publication was created.
+
+## 2026-09-05 — Restore SoloCruz's original three story lines in v3
+
+* Re-read the source Season 1 and preserved its core episode beats in a mapped rewrite: existing user-made pilot plus 23 follow-up episodes across three seasons, 72 new ten-second scene blocks with dialogue and physical staging.
+* Added `24 Episodes v3` and `Series Bible v3` to the original Google Sheet, placed first for clarity, and verified all saved cells against the authored data. Original script/character tabs remain unchanged.
+* Marked v2 rejected in its tab names and local document: it had replaced the user's premise with an archive/mother plot. Added `docs/SOLOCRUZ_SERIES_V3.md` and updated durable memory to distinguish user requirements from proposed new plot details.
+* Preserved the pilot as a locked existing asset based on the user's description; its duration and last frame are not claimed verified. No generation, scheduling, publication or production-code changes.
+
+## 2026-09-05 — Rewrite all 24 SoloCruz animated serial episodes (v2 subsequently rejected)
+
+* Added `24 Episodes v2` and `Series Bible v2` to the existing user-provided Google Sheet, preserving the original script and character tabs. Added the full local script in `docs/SOLOCRUZ_SERIES_V2.md`.
+* Created three eight-episode arcs with 75 connected ten-second scene prompts, short English dialogue, Russian editorial notes, physical blocking, prop custody, character development and season payoffs. The 30–40-second episode remains the unit of storytelling, not each ten-second generation fragment.
+* Recorded the user's rejection of the iPhone-UGC treatment for this animated serial and the entertainment-first, sparse-branding requirement. Earlier UGC notes are explicitly superseded for this series.
+* Verified saved spreadsheet values against the authored rows; checked browser layout and reduced frozen columns for narrow windows. No media was generated and no publishing settings, queues or public posts were changed.
+
+## 2026-09-03 — Publish first Laycanmatch Facebook post
+
+* Immediately submitted the first queued Laycanmatch Facebook draft through Zernio at the user's request. Zernio reconciliation confirmed it as published; Blog Core now stores the public Facebook permalink. The remaining ten drafts keep their local daily 18:00 `Europe/Warsaw` queue slots.
+
+## 2026-09-03 — Connect and schedule Laycanmatch Facebook batch
+
+* Connected the LaycanMatch Facebook Page through the existing Zernio profile after expanding the prior Facebook OAuth page selection; the old SoloCruz selection remains intact.
+* Bound the new LaycanMatch Zernio account to the Laycanmatch site in Blog Core, generated 11 Facebook-native article adaptations plus 11 covers, and queued them locally one per day at 18:00 `Europe/Warsaw`, 4–14 September. No post was sent during setup.
+* Verified all 11 Facebook covers are exactly 1200×630, all 11 drafts retain local due timestamps, and Blog Core health is `ok`.
+
+## 2026-09-03 — Generate and schedule SoloCruz Facebook batch
+
+* Generated 19 Facebook-native article adaptations and 19 article-specific magazine-cover images through Blog Core's live Gemini runtime, then scheduled all 19 factory-owned drafts daily at 18:00 `Europe/Warsaw`, 4–22 September. Nothing was sent to Facebook during generation or scheduling.
+* Added the native Facebook 1200×630 image derivative after Gemini generation. It crops and resizes the finished image only; it does not place any programmatic text on the cover.
+* Verified all 19 generated Facebook cover files are exactly 1200×630, all 19 records remain `DRAFT` with a local due timestamp, and Blog Core health is `ok`.
+
+## 2026-09-03 — Preserve Blog Core Gemini runtime for manual batches
+
+* Documented that production Blog Core loads its Gemini credentials through its protected runtime environment. Manual `app.py` batch invocations must use the same environment-loading sequence; this avoids false missing-key failures without exposing or duplicating credentials.
+
+## 2026-09-03 — Added universal Facebook Page editorial contour
+
+* Ported the useful SoloCruz Facebook mechanics into Blog Core: separate Facebook-native copy adaptation, one canonical article URL, a dedicated 1200×630 magazine-cover asset and generic review/publish support through the site-scoped Zernio mapping.
+* Added Facebook to setup, Distribution, draft storage, review and delivery status handling. Superseded: the initial note that no Facebook page was configured. SoloCruz's configured Page mapping was subsequently verified and used only to prepare a local factory queue; no external post was sent.
+
+## 2026-09-03 — Activated YAS Threads queue
+
+* Materialized and scheduled all 14 ready YAS Threads work items: one daily post at 18:00 `Europe/Warsaw`, from 3 through 16 September. No post was sent during setup.
+* Added a dedicated factory-owned Threads queue worker. It submits the already-prepared native draft to Zernio only after its local due timestamp; it never asks Zernio to maintain the calendar.
+
+## 2026-09-03 — Cancelled provider-owned YAS Reddit schedule
+
+* Deleted the six future YAS Reddit drafts from Zernio and marked their corresponding Blog Core social-post records `CANCELLED`. The seventh had already been published, so it was left live and its stale local status was corrected to `PUBLISHED`.
+* Added a publish-time guard: Zernio requests containing a Reddit draft cannot include `scheduledFor`. Blog Core now remains the only schedule owner for Reddit; Zernio is called only for immediate delivery when the local queue is due.
+
+## 2026-09-02 — Returned YAS LinkedIn post to draft for cover review
+
+* Returned social post `208` for `Frontline Technical Bug Reproduction and Engineering Handoff: Designing Internal Triage Pipelines` to Blog Core `DRAFT` and generated a new unpublished `1065×795` LinkedIn cover (`Taming Bug Handoffs`). The external post was not deleted because its stored provider record does not contain an editable LinkedIn post identifier.
+* Returned four more YAS LinkedIn posts to `DRAFT` and generated unpublished replacement covers: `Product Development Company vs Software Development Agency`, `Workflow Automation Cost: Scope, Integrations and Maintenance`, `Build the Smallest Working System That Resolves the Constraint`, and `Custom Software Development Services`.
+* Shortened the maximum generated cover headline from 25 to 21 characters and added a no-clipping requirement after the `Smallest Working System` preview rendered beyond the frame edge.
+* Marked the four reviewed YAS LinkedIn drafts as queued for automatic publication while retaining their scheduler-required `DRAFT` social-post state and their current generated covers.
+
+## 2026-09-02 — LinkedIn hero prompt direction corrected
+
+* Removed the broad bans on people, offices, desks, meetings, laptops, dashboards, floating UI, handshakes and generic business imagery from the dedicated LinkedIn hero prompt.
+* Replaced the cinematic wording with a bright, glossy magazine-cover finish and an explicit attention-grabbing wow effect.
+* Generated an unpublished LinkedIn-hero review image with the corrected prompt; no LinkedIn post was sent.
+* Replaced full article-title rendering with a dynamic 2–5-word, 25-character cover headline derived only from the article title. Gemini uses the full title for the photo concept and renders the short cover line as the sole centred 55–60%-wide magazine headline.
+* Corrected the LinkedIn asset contract: the temporary `1200×675` 16:9 crop was wrong. Dedicated LinkedIn heroes now use the established `1065×795` (3× `355×265`) centred crop without letterboxing; the current review asset was converted without regeneration.
+* Added a title-specific photographic-concept gate: one bold, physically real visual premise must express the article's central tension and be visually distinct from generic startup, AI, software or consulting imagery.
+* Removed the business/LinkedIn/startup/AI/software/consulting genre cues from the dedicated LinkedIn hero prompt. The image is now directed as a glossy, authored editorial magazine-cover visual story rather than corporate photography.
+* Removed the stale `16:9` feed cue from the image prompt so Gemini composes for the actual `1065×795` delivery frame rather than a wide asset that would need aggressive side cropping.
+* Strengthened LinkedIn cover typography to a bright, bold magazine headline with a pronounced shadow and a protected calm background field; also removed routine desk-work setting cues from its shared photo direction.
+* Prohibited punctuation around or inside future LinkedIn cover headlines and added matching headline validation after Gemini previously added unwanted quotation marks.
+* Replaced the surprise/scale/transformation/wow direction that caused futuristic abstractions with a present-day, photorealistic magazine-feature scene: a familiar location, natural scale and a tangible consequence of the title's central choice.
+* Unified article-photo and LinkedIn-photo art direction. Article hero images no longer receive LinkedIn headline instructions, and body images are constrained to their exact anchor paragraph rather than the complete article; all article images prohibit readable text.
+
+## 2026-09-02 — Made EPR Scan article crosslinking visible
+
+* Diagnosed that the first draft already contained five valid in-body links, but the native renderer presented their paragraphs as ordinary copy, making the crosslinking effectively invisible.
+* Updated the renderer to match declared `internalLinks` against in-body destinations and apply a distinct native contextual-reading card without replacing localized text. Supported locale prefixes are normalized for EN/DE/FR/ES reuse.
+* Restyled the one-item `Recommended next` block as a compact dark CTA with a lime action card, removing the oversized empty column shown in review.
+* Verified five contextual cards for `/packaging-epr`, `/ppwr`, `/guides/do-small-sellers-need-ppwr`, `/selling-to-eu/from-outside-eu` and `/countries`, plus the `/tools/ppwr-checker` CTA. Every target returned HTTP 200.
+* Production typecheck, scoped ESLint, build, multilingual integration, release, sitemap crawl and localization checks passed. Lighthouse Accessibility remained 100 with contrast and link-name checks passing.
+* The content job remains English-only `DRAFT`, with zero localization rows and no public article route. Recovery snapshot: `/var/www/eprscan-release-backups/pre-crosslink-presentation-20260902-1550`.
+
+## 2026-09-02 — Polished the EPR Scan native article presentation
+
+* Removed `Pending assignment`, `Pending` review date and `Pending` ruleset values from the English draft header. The review surface now shows the real editorial author and calculated reading time, while the compact draft banner communicates unpublished status.
+* Rebuilt the article contents as a numbered navigation panel with clear grouping, readable spacing and mobile reflow.
+* Rebuilt data tables as bordered desktop data cards with aligned columns, zebra rows and tabular dates. On phones, the same semantic table becomes a stack of locale-derived labelled cards instead of clipping or requiring horizontal reading.
+* Rebuilt FAQ output as accessible native accordions with bordered cards, 44px-plus targets, visible focus, plus/minus state and contained answers. Also styled figures, captions, workflows, quotes and recommended-next cards into the same native EPR Scan system.
+* Preserved the English-only `DRAFT` state: no localization records were created, no public article route was added and the preview remains `noindex`, no-store and absent from the sitemap.
+* Verified the candidate at desktop and mobile sizes, including an opened FAQ and the responsive table. Production typecheck, scoped ESLint, build, multilingual integration, release, sitemap crawl and localization checks passed. Lighthouse Accessibility reached 100 with heading order, table headers and color contrast passing.
+* Recovery snapshot: `/var/www/eprscan-release-backups/pre-article-style-polish-20260902-1528`.
+
+## 2026-09-02 — Generated the first EPR Scan English approval draft
+
+* Created one English-only, evidence-led content job for recommendation 41: `When does the PPWR apply to ecommerce sellers?` (`5c9fda97f3ca8c064871e6a6`). The draft contains 1,506 words, seven main sections, five FAQs, one hero and three body images.
+* Kept the job in `DRAFT`: no DE/FR/ES localization rows were created and no article was published. RU and IT remain excluded from the locale contract.
+* Added EPR Scan's native `/content-preview/[id]` renderer, an unpublished-review banner, robots `noindex`, no-store delivery and local Blog Core asset import. The draft is absent from the public sitemap.
+* Extended `eprscan-blog-core-content.path` to watch both draft and published stores. Published payload validation remains strict and unchanged; draft ingestion accepts only EN source with the declared EN/DE/FR/ES target contract, no publication timestamp and no translations.
+* Verified production typecheck, scoped ESLint, multilingual integration (60 public variants, 10 English hubs and 16 private routes), release checks, dynamic sitemap crawl, localization completeness, the preview's single H1/four images/noindex banner and 200 responses for every preview image.
+* Blog Core database recovery snapshot: `backups/blog_core-pre-eprscan-first-en-draft-20260902-1415.sqlite3`. EPR Scan deployment recovery snapshot: `/var/www/eprscan-release-backups/pre-draft-preview-20260902-1448`.
+
 ## 2026-08-13 — Remove Reel outlines and make camera motion continuous
 
 ### Summary
@@ -73,6 +223,44 @@
 * Existing source masters still determine pose and photographic quality. The renderer now preserves and separates their silhouettes but does not regenerate or redesign accepted photography during render-only correction.
 
 # CHANGELOG_AI.md
+
+## 2026-09-08 — Diagnosed the malformed final LinkedIn cover
+
+* Confirmed that YAS LinkedIn post `209`, `Startup Portal vs No-Code Stack: Architecture and Workflow Decisions`, did not invoke the current dedicated LinkedIn hero prompt.
+* The draft was created on 2 September before that draft carried a `linkedin.mediaUrl` and short `coverHeadline`; its saved payload contains neither field.
+* At publication on 8 September, the publisher's fallback selected the 1376×768 article hero. The LinkedIn uploader then applied its normal 1065×795 centered crop, cutting both sides of the full-width article title and preserving the article hero's plain white typography instead of the magazine-cover treatment.
+* Verified there are currently no remaining YAS LinkedIn drafts in `DRAFT` or `QUEUED` state with the same latent condition. No post, image, prompt or queue state was changed during this diagnosis.
+
+## 2026-09-08 — Published the canonical NOMADeira EU registration guide
+
+### Summary
+
+* Consolidated the blocked legacy editorial-plan task with the unpublished Phase-A CRUE research and retained `/madeira-residence-registration-eu/` as the sole canonical route.
+* Rechecked the current AIMA and gov.pt pages, recorded three bounded verified claims and generated a fresh 1,096-word English guide with DE, UK and RU localizations.
+* Replaced three body images after visual QA found generated document and signage text. The reviewed replacements contain no readable text, and their alt text and captions were synchronized across all four locales.
+* Removed duplicate contextual links from the NOMADeira native payload, completed editorial, source, SEO, localization, visual and responsive browser QA, then published immediately at the owner request.
+* Canceled the unpublished overlapping Phase-A CRUE job only after the canonical route published successfully.
+* Rebuilt and restarted NOMADeira so the English, German, Ukrainian and Russian URLs entered the static sitemap.
+
+### Files changed
+
+* `deploy/prepare_nomadeira_crue_canonical.py` — fail-closed canonical consolidation, current source map, verified claims and generation brief.
+* `deploy/regenerate_nomadeira_crue_body_images.py` — targeted replacement of the three rejected body images without regenerating the article or hero.
+* `deploy/finalize_nomadeira_crue_publication.py` — multilingual media-copy synchronization, approval contract, duplicate-link payload correction and safe overlap supersession.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/CHANGELOG_AI.md` — durable canonical, evidence, renderer and sitemap operations.
+
+### Checks run
+
+* Both official sources returned HTTP 200 during the live source audit.
+* Generation validation passed with 1,096 words, seven approved sections, six FAQs, three body images, four contextual internal links and two Recommended next destinations.
+* Visually reviewed the hero and all three replacement body images; all are 1376×768 WebP files and contain no readable generated text.
+* Desktop and 390×844 mobile previews passed with no horizontal page overflow; duplicated contextual links were removed.
+* EN, DE, UK and RU public routes, all four media URLs, Blog Core health and the NOMADeira service returned successfully.
+* The rebuilt sitemap contains all four localized canonical URLs.
+
+### Recovery
+
+* Production database snapshots: `backups/blog_core-pre-crue-publish-20260908-093238.sqlite3` and `backups/blog_core-pre-crue-release-20260908-095409.sqlite3`.
 
 ## 2026-08-14 — Rebuilt Reel direction around visual and framing variety
 
@@ -4999,3 +5187,1154 @@ This file is updated by Codex after every task.
 
 * The saved one-layer plan remains available for comparison but is invalid under the restored contract.
 * A candidate with three layers per scene was not accepted because some layers were decorative accessories or violated object ownership. The pipeline now blocks those candidates; a new plan must satisfy both event count and semantic necessity before media production.
+
+## 2026-08-14 — Generated corrected Reel steps two and three
+
+### Summary
+
+* Re-ran Gemini text-only planning for the SoloCruz article after rejecting symbolic physical props that did not prove pricing or savings.
+* Produced a corrected five-scene construction with three causal events per scene and a separate six-second motion plan for every scene.
+* Used explicit programmatic evidence graphics for abstract pricing, discount, cost-split, and matching facts instead of inventing gifts, keycards, tickets, or other misleading photo props.
+
+### Files changed
+
+* `docs/CHANGELOG_AI.md` — recorded the corrected text-only planning run.
+* `docs/PROJECT_MEMORY.md` — recorded the durable rule for honest visual evidence of abstract mechanisms.
+
+### Checks run
+
+* Gemini returned complete JSON for both corrected planning stages.
+* Verified every scene has exactly three layer events, continuous camera direction, and persistent scene text.
+* No images, voice, music, or video were generated.
+
+### Risks / TODO
+
+* The corrected plans are review artifacts and are not yet approved for media generation.
+* Full production support for programmatic evidence layers must be completed before rendering this plan through the standard pipeline.
+
+## 2026-08-14 — Produced the SoloCruz Reel without voice
+
+### Summary
+
+* Added production rendering for honest programmatic evidence graphics so prices, supplements, cost splits, and match results are not represented by invented photographed props.
+* Kept evidence graphics in screen space while the camera moves through the photographic scene, and aligned camera phases with each scene's real event start times.
+* Strengthened reusable photo-layer prompts and two-person framing so extractable people are large enough for a mobile Reel and do not carry straps, bags, or dangling accessories that damage mattes.
+* Produced and visually checked a 30-second SoloCruz Reel with continuous brand music and no generated voice.
+
+### Files changed
+
+* `app.py` — programmatic evidence-layer generation and reusable registered-scene production rules.
+* `reel_renderer.py` — event-aligned camera timing and screen-space evidence compositing.
+* `docs/PROJECT_MEMORY.md` — durable Reel production and resume rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py reel_renderer.py` passed locally and on the VPS.
+* Restarted `blog-yas-core`; `/health` returned `ok`.
+* Verified the final MP4 is 1080x1920, H.264 with AAC music, exactly 30 seconds, and publicly returns HTTP 200.
+* Inspected a five-frame contact sheet covering the middle of every scene.
+
+### Risks / TODO
+
+* Voice remains intentionally disabled until the visual Reel workflow is accepted.
+* The production run used a focused operator script to exercise the generic renderer; scheduled generation should use the same generic app and renderer contracts.
+
+## 2026-08-14 — Added safe evidence-card layout and synchronized Reel voice
+
+### Summary
+
+* Replaced fixed evidence-card text offsets with a measured layout that preserves explicit inner padding around logos, titles, and detail copy.
+* Added automatic title/detail font fitting for unusually dense evidence cards without allowing content to cross the card boundary.
+* Added one synchronized Gemini TTS narration sequence to the approved SoloCruz Reel while retaining continuous background music.
+* Normalized every scene narration to fit inside its six-second scene and prevent adjacent voice segments from overlapping.
+
+### Files changed
+
+* `app.py` — reusable measured evidence-card layout and safe padding.
+* `docs/PROJECT_MEMORY.md` — durable evidence-card and voice-timing rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py reel_renderer.py` passed.
+* Inspected the regenerated transparent final evidence layer at full resolution.
+* Verified all five narration WAV files are 4.78-4.80 seconds for six-second scenes.
+* Verified the final 1080x1920 MP4 is exactly 30 seconds, contains one mixed AAC audio stream, and returns HTTP 200 publicly.
+* Inspected a five-scene contact sheet and confirmed the final card content remains inside its border.
+
+### Risks / TODO
+
+* The focused production script remains an operator aid; the reusable card layout itself is implemented in the shared application code.
+
+## 2026-08-14 — Restored natural Reel narration and content-driven timing
+
+### Summary
+
+* Removed narration speed normalization. Reel scenes now expand to the actual natural voice duration plus a reading pause; the complete Reel has no fixed maximum duration.
+* Made overlay text persist for the complete expanded scene instead of disappearing at the original planned timestamp.
+* Centered the complete evidence-card content group horizontally and vertically, including the logo, title, detail, and accent marker.
+* Replaced template camera motion with scene-specific paths that focus only on photographic subjects and the source environment, never on screen-space evidence cards.
+* Reused the existing backgrounds, people, extracted layers, voice recordings, logo, and music. No image or voice generation was performed for the corrected render.
+
+### Files changed
+
+* `app.py` — fully centered, untruncated evidence-card content layout; removed audio speed normalization.
+* `reel_renderer.py` — content-driven scene duration and full-scene text persistence.
+* `docs/PROJECT_MEMORY.md` — natural-duration and scene-specific camera rules.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py reel_renderer.py` passed locally and on the VPS.
+* Verified the five reused source narration files retain their natural 7.76-11.12 second durations.
+* Verified that the render uses the same existing photo and object assets.
+* Verified the final MP4 is 52.54 seconds, 1080x1920 H.264 with one mixed AAC stream, and returns HTTP 200.
+* Inspected three checkpoints per scene. The persistent text and evidence cards remain clear of faces, while the camera uses a deck reveal, terminal push/pull, corridor close/reveal, two-person focus transfer, and final brand pull-out.
+
+### Risks / TODO
+
+* No remaining blocker was found in the final visual, timing, or audio checks.
+## 2026-08-14 — Added reusable Reel visual library
+
+### Summary
+
+* Indexed every SoloCruz Reel image on the VPS, not only the previously downloaded scene-prefixed PNG subset.
+* Added non-destructive quality classification, exact and visual duplicate detection, persistent manual overrides, canonical asset symlinks, and a searchable review UI.
+* Connected approved site-specific scene and person references to future Gemini master-frame generation without directly pasting registered layers onto unrelated backgrounds.
+* Added automatic background catalog refresh after every accepted Reel visual production.
+
+### Files changed
+
+* `app.py` — visual-library integration, future-generation references, automatic refresh, panel link, review routes, asset serving, and manual status controls.
+* `reel_asset_library.py` — reusable catalog, quality metrics, deduplication, semantic reference selection, canonical links, and review gallery.
+* `rebuild_reel_asset_library.py` — explicit per-site rebuild command.
+* `docs/PROJECT_MEMORY.md` — durable scene-bundle and reference-reuse contract.
+* `docs/DEPLOYMENT.md` — catalog location, rebuild command, and UI route.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py reel_asset_library.py rebuild_reel_asset_library.py` passed locally and on the VPS.
+* Indexed 918 SoloCruz images: 63 approved canonical assets, 404 duplicate renders, 13 rejected layers, 204 manual-review candidates, and 234 non-reusable archive images.
+* Tightened automatic admission: scene backgrounds, clean plates, and master frames now require an accepted manifest or a completed production record; technically valid legacy references remain in manual review.
+* Verified the library page returns HTTP 200 and a selected approved PNG returns HTTP 200 with the expected image content type.
+* Restarted `blog-yas-core`; `/health` returned `ok` and PM2 reports the process online.
+
+### Risks / TODO
+
+* The 204 conservative review candidates are intentionally excluded from automatic use until approved manually.
+* Scene and person references guide new generation; cross-scene direct layer compositing remains prohibited because registration, perspective, and lighting belong to the original scene bundle.
+
+## 2026-08-14 — Fixed immediate Reel library status filtering
+
+### Summary
+
+* Fixed manual `Approve`, `Review`, and `Reject` actions leaving cards visible under their previous filter while a full catalog rebuild ran in the background.
+* The status, summary counts, and canonical-link removal are now applied atomically before redirecting back to the library; the background rebuild remains responsible for complete reconciliation.
+
+### Files changed
+
+* `app.py` — synchronously updates the visible catalog after a manual status decision.
+* `docs/PROJECT_MEMORY.md` — records the immediate-status contract.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed locally and on the VPS.
+* Restarted `blog-yas-core`; `/health` returned `ok`.
+* Verified a live asset changes from `review` to `rejected` immediately, remains rejected after the asynchronous rebuild, and returns to `review` when restored.
+
+### Risks / TODO
+
+* None found for the status-filter workflow.
+
+## 2026-08-14 — Audited approved Reel assets across production roles
+
+### Summary
+
+* Visually audited every approved SoloCruz scene, source frame, clean plate, master, and registered layer.
+* Extended duplicate detection across file roles while preserving useful production relationships between populated masters, empty scenes, source frames, and extracted transparent objects.
+* Rebuilt the live catalog and removed visually equivalent canonical variants from `Approved` without deleting any source files.
+
+### Files changed
+
+* `reel_asset_library.py` — cross-role exact deduplication, role-aware canonical ranking, safer opaque cross-role comparison, and source-reference near-duplicate coverage.
+* `docs/PROJECT_MEMORY.md` — durable role-aware duplicate policy.
+* `docs/CHANGELOG_AI.md` — this task record.
+
+### Checks run
+
+* Generated and inspected contact sheets for all 81 initially approved assets and the closest visual pairs.
+* Rebuilt all 918 SoloCruz assets. The canonical approved pool now contains 78 assets: 32 registered layers, 23 source references, 8 clean plates, 8 master frames, and 7 scene backgrounds.
+* Re-ran pairwise validation across all 78 approved assets; zero pairs still satisfy the exact, same-role near-duplicate, or encoding-equivalent cross-role duplicate rules.
+* `python3 -m py_compile reel_asset_library.py rebuild_reel_asset_library.py` passed on the VPS.
+
+### Risks / TODO
+
+* Deliberately similar but functionally different production assets remain separate; this includes a populated master beside its clean plate and a source frame beside its extracted transparent layer.
+## 2026-08-31 — Restored SoloCruz Instagram carousel publishing
+
+### Summary
+
+* Traced the stopped SoloCruz carousel schedule to a runtime f-string formatting error in the shared Instagram JSON prompt example. Every scheduled Instagram attempt since August 10 failed before Gemini was called.
+* Escaped the literal `visualSystem` object correctly in the shared prompt builder.
+* Removed an obsolete `run_scheduled_content_engine` import/call from the scheduler after the current app no longer exposed that retired worker.
+* Generated a new seven-slide SoloCruz carousel from the next eligible published article and submitted it successfully through Zernio.
+
+### Files changed
+
+* `app.py` — fixed the shared Instagram carousel prompt's strict-JSON example.
+* `scheduler.py` — removed the obsolete worker import and call so the deployed scheduler starts against the current app.
+* `docs/PROJECT_MEMORY.md` — recorded prompt-builder and scheduler/import release gates.
+* `docs/DEPLOYMENT.md` — added end-to-end social scheduler verification steps.
+* `docs/CHANGELOG_AI.md` — recorded this repair.
+
+### Checks run
+
+* `python3 -m py_compile app.py scheduler.py` passed locally and on the VPS.
+* Restarted `blog-yas-core` and `blog-yas-core-scheduler`; both remain online and Blog Core health returns `ok`.
+* Called the corrected prompt builder with SoloCruz and a real published content job; it produced the complete prompt without a format exception.
+* Generated social post `189` with seven real JPEG slides; its review page returns HTTP 200.
+* Zernio accepted the Instagram submission and returned remote ID `6a94dfc534cf2f14980ee21c`.
+
+### Risks / TODO
+
+* Zernio reports the new post as `SUBMITTED` while its asynchronous provider delivery completes; reconciliation retains that state until Zernio reports the final Instagram result.
+## 2026-08-31 — Resolve scheduled carousels to real articles
+
+### Summary
+* Reworked shared Instagram/TikTok scheduling so a carousel plan resolves its actual article before generation.
+* Legacy synthetic source identifiers are repaired only when the plan has a strong editorial match with a published or imported site article.
+* Plans whose article is not yet published remain visible as waiting for source; they no longer block later valid carousel plans or trigger unrelated content.
+
+### Files changed
+* `app.py` — added generic source resolution, editorial-match safeguards, and due-plan selection that continues past waiting records.
+* `docs/PROJECT_MEMORY.md` — recorded the durable source-resolution contract.
+* `docs/CHANGELOG_AI.md` — recorded this scheduling repair.
+
+### Checks run
+* `python3 -m py_compile app.py` passed locally and on the VPS.
+* Restarted `blog-yas-core` and `blog-yas-core-scheduler`; both are online and `/health` returns `ok`.
+* Resolved SoloCruz plan 152 to its real imported article, and validated all 17 queued shared carousel plans without generating or publishing media.
+
+### Risks / TODO
+* Plans that genuinely have no matching live article intentionally wait until their linked content job is published or a suitable article exists.
+## 2026-08-31 — Restore LaycanMatch native publishing reliability
+
+### Summary
+
+* Diagnosed LaycanMatch scheduled-publication failures as two historical issues in its native factory: a retired Gemini text model and a V3 build crash when an old payload lacked `page_id`.
+* Added a V3 publishing-boundary guard that derives page identity from the target route and completes the minimal structural payload before writing it. This prevents one legacy draft from breaking the build of the whole site.
+
+### Files changed
+
+* `staging/laycanmatch-factory/app.py` — normalize V3 identity and structural defaults immediately before native publish.
+* `/var/www/content-factory-laycanmatch/app.py` — deployed the same native-factory fix.
+* `staging/PROJECT_MEMORY-production.md` — recorded the durable V3 publishing rule.
+* `staging/DEPLOYMENT-production.md` — recorded the LaycanMatch native-factory release check.
+
+### Checks run
+
+* Compiled `/var/www/content-factory-laycanmatch/app.py` in its virtual environment.
+* Restarted `content-factory-laycanmatch`; PM2 reports it online and its OpenAPI endpoint returns HTTP 200.
+* Ran `factory_v3.cli build-preview --site sites/laycanmatch/site.yaml --language en`; QA is `ok` for 38 pages.
+* Confirmed the shared Blog Core scheduler is online. The next LaycanMatch job remains queued for `2026-08-31 10:00 UTC`.
+
+### Risks / TODO
+
+* Failed jobs from 7–22 August remain historical errors caused by the retired `gemini-2.5-flash` configuration; they were not silently retried or overwritten.
+* After the publishing diagnosis, explicitly set the LaycanMatch native factory's `GEMINI_TEXT_MODEL` and compatibility alias `GEMINI_MODEL_TEXT` to `gemini-3.7-flash`, then restarted the PM2 process.
+
+## 2026-08-31 — Batch-regenerate six LaycanMatch articles as drafts
+
+### Summary
+
+* Audited six historical failed jobs. Four had short but real legacy `/blog/` pages; two had no accessible public counterpart.
+* Reset all six for native-factory regeneration and corrected each canonical target to `/blog/<slug>/` before starting the batch. This avoids creating duplicate `/resources/` articles.
+* Started all six through Blog Core's delegated native-factory lifecycle. They are generating and have not been published.
+
+### Files changed
+
+* Runtime `content_jobs` rows for LaycanMatch — canonical targets, route contracts, and generation state.
+* `staging/PROJECT_MEMORY-production.md` — durable route-preservation decision.
+* `staging/CHANGELOG_AI-production.md` — batch record.
+
+### Checks run
+
+* Verified every batch-start API response returned `202` with `GENERATING`.
+* Rechecked all six after launch: all remain `GENERATING` with no recorded error.
+
+### Risks / TODO
+
+* Native generation is asynchronous. Review the synced drafts when the factory completes; do not publish blindly.
+
+## 2026-08-31 — Enforced Reel narrative ledger and in-Reel participation
+
+### Changed
+
+* Extended the separate NOMADeira video-plan schema with `narrativeArc` and `viewerReactionBeat`.
+* The writer prompt now requires progressive, per-clip information release; it may not disclose a multi-clip payoff in the opening beat.
+* The final clip now has to contain exact, story-specific `shareExpression` and `commentExpression` as well as the combined in-Reel expression. Caption or pinned-comment CTAs do not satisfy the contract.
+* Added hostile-critic instructions and deterministic validation for early payoff leakage, repeated/non-escalating beats, non-evidentiary scenery, reaction metadata, and missing share/comment action.
+* Updated the separate video review page to display the narrative ledger and final in-Reel expressions.
+
+### Verification
+
+* `python3 -m py_compile batch_video_engine.py app_video_canary.py`
+* `.venv/bin/python -m unittest -q test_batch_video_engine.py` — 10 tests passed.
+* Blog Core `/health` returned `ok: true`.
+
+## 2026-09-01 — Map all NOMADeira Phase-A sources and protect scheduling
+
+### Summary
+
+* Added dated official-source maps for all 12 Phase-A compliance records. Each remains private `SOURCES_COLLECTED`; no claim was marked verified and no draft, localization, media, schedule or public page was created.
+* Added a universal `complianceCluster` lifecycle gate. Generation needs current VERIFIED claims; publication and scheduling need Tier B approval, all-locale review and visual QA.
+
+### Files changed
+
+* `deploy/collect_nomadeira_compliance_phase_a_source_maps.py` — idempotent full-Phase-A primary-source map importer.
+* `app.py` — generic high-risk generation, publication and scheduling guards; no domain-specific condition.
+* Runtime `content_jobs` for NOMADeira — 12 source maps only; runtime data remains ignored.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — lifecycle and evidence boundary.
+
+### Checks run
+
+* `python3 -m py_compile app.py deploy/collect_nomadeira_compliance_phase_a_source_maps.py` passed on the VPS.
+* First collection updated 12 jobs; immediate repeat updated 0.
+* Verified all 12 are private `SOURCES_COLLECTED`, unscheduled and have no English draft.
+* Restarted only `blog-yas-core`; `/health` returned `ok: true`.
+* Direct gate tests rejected an unreviewed job for both generation and publication.
+* Replaced source-map revision `v1` with `v2`: removed three live-502 legacy `www2.gov.pt` references and confirmed current AIMA endpoints through the verifier's TLS fallback; repeat import again changed zero rows.
+* Added generic source-claim review and Tier B approval API transitions. Empty review/approval requests return HTTP 400 and cannot alter a job.
+* Claim review now derives the closed evidence-led page brief from the reviewed claims, preserving each claim's conditions and exceptions for generation.
+* Added `deploy/plan_nomadeira_compliance_batch.py`: it uses Gemini Batch for evidence-led English drafts and persists a complete four-image prompt set per article before any image batch. The first canary batch is running as a managed one-off worker.
+* Ran one isolated text-only Gemini canary; no image, video, render, queue or publication action was performed. Its first result exposed a comment-only final beat, so the universal contract was strengthened before the next canary.
+* Subsequent isolated canaries were intentionally stopped by the same shared gate for a comment-only reaction, an overlong/duplicated final overlay, and a missing reaction ledger. The final text-only canary passed with a two-clip hook → payoff arc and a single two-line final in-Reel share/comment overlay. No media action was taken.
+
+## 2026-08-31 — Universal GSC finalized-data foundation
+
+### Summary
+* Added a per-site Search Console setup, property-access verification, manual sync and scheduler-driven finalized Web Search collection.
+* Stored page and query aggregates in separate durable tables, with a collection-run history and no credentials in SQLite or UI.
+* Verified the first live property for Georivo: one finalized page row was collected successfully; no content was created or modified.
+
+### Files changed
+* `app.py` — GSC schema, Google API client, collector, Setup controls and JSON endpoints.
+* `scheduler.py` — invokes the collector.
+* `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/DEPLOYMENT.md` — durable operating contract.
+
+### Checks run
+* `python3 -m py_compile app.py scheduler.py` passed on the VPS.
+* Schema migration, route guard, live property verification, and one live finalized-data collection passed.
+
+### Risks / TODO
+* Weekly topic selection and later decision/evaluation stages are not enabled in this first stage.
+
+## 2026-08-31 — Add GSC-backed weekly topic planning
+
+### Summary
+* Added a weekly GSC opportunity planner that identifies real query demand with near-ranking positions, applies the shared content-quality and duplicate checks, and creates only reviewable recommendations.
+* No article is generated, queued or published automatically by this stage.
+
+### Files changed
+* `app.py` — weekly GSC planning data model and planner.
+* `scheduler.py` — invokes the weekly planner.
+* `docs/PROJECT_MEMORY.md` — durable planning contract.
+
+### Checks run
+* `python3 -m py_compile app.py scheduler.py` passed locally and on the VPS.
+* The live scheduler-planner executed for Georivo. Its fresh GSC history has no qualifying query yet, so it correctly created zero artificial recommendations.
+
+### Risks / TODO
+* Other sites need their own GSC property access configured before the planner can use their search data.
+
+## 2026-08-31 — Verify GSC coverage and make empty planning retryable
+
+### Summary
+* Audited every connected Blog Core dashboard and both Blog Core PM2 processes; all site dashboards return HTTP 200 and the core plus scheduler are online.
+* Verified GSC access against every managed domain. Eight exact domain properties are connected and collected their first finalized Web Search day. Four inaccessible properties remain safely disabled.
+* Changed weekly planning so a fresh `NO_CANDIDATES` outcome retries daily as GSC history accumulates instead of preventing another attempt for the week.
+
+### Files changed
+* `app.py` — retry semantics for empty GSC weekly planning.
+* `scheduler.py` — deployed with the existing weekly planner worker.
+* `AGENTS.md` — durable-memory instructions restored at the repository root.
+* `docs/PROJECT_MEMORY.md` — GSC coverage and retry behavior.
+* `docs/CHANGELOG_AI.md` — this record.
+
+### Checks run
+* `python3 -m py_compile app.py scheduler.py` passed locally and on the VPS.
+* Restarted `blog-yas-core` and `blog-yas-core-scheduler`; `/health` returned `ok`.
+* GSC collection succeeded for eight connected properties for `2026-08-28`.
+* The planner ran against the collected data and created no unsupported recommendations.
+
+### Risks / TODO
+* `solocruz.com`, `geo.yas.ooo`, `karpaleksei.com`, and `nomadeira.com` need the service account added to the exact `sc-domain:` Search Console property before collection can begin.
+* One finalized day is not sufficient for 28-day planning. The scheduled collector will accumulate the required history without generating or publishing content automatically.
+
+## 2026-08-31 — Reverify all GSC permissions
+
+### Summary
+* Reverified every configured independent Blog Core property after access was granted. All previously managed-site properties return `siteFullUser` and are enabled for scheduled collection.
+* Confirmed `sc-domain:veselovaveronika.com` has the same access.
+
+### Checks run
+* Verified the Google Search Console property list through the production service account.
+
+## 2026-08-31 — Add Veselova Veronika as an independent managed site
+
+### Summary
+* Added `veselovaveronika.com` as its own Blog Core site (`id 19`), preserving a strict separation from `karpaleksei.com` despite their shared VPS application host.
+* Connected its exact `sc-domain:veselovaveronika.com` GSC property, verified `siteFullUser`, and collected the first finalized-day snapshot: one page row and zero query rows.
+* No scan, generation, publication, template installation, or change to the website's files was performed.
+
+### Checks run
+* Verified the independent dashboard returns HTTP 200.
+* Blog Core `/health` returned `ok` after setup.
+
+## 2026-08-31 — Remove geo.yas.ooo as a separate GSC target
+
+### Summary
+* Removed the separate Search Console connection for `geo.yas.ooo` after confirming it is not an independent site property.
+* Kept its Blog Core site record untouched. SEO collection and planning use the shared `yas.ooo` property instead.
+
+### Files changed
+* Runtime `gsc_site_connections` — removed the independent subdomain configuration.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — corrected the durable GSC inventory.
+
+## 2026-09-01 — Seed NOMADeira compliance Phase A into the native Blog Core queue
+
+### Summary
+
+* Seeded all 12 Phase-A topics from NOMADeira's compliance-cluster specification into the existing Blog Core article queue.
+* Each record is private and `BLOCKED_EVIDENCE`, with generation and publication explicitly blocked pending primary-source evidence and Tier B review. No article, localization, media or public page was generated.
+* The pre-existing `/madeira-nif-bank-account-order` job was adopted as the canonical queue record instead of creating a duplicate. The other 11 slugs were created once.
+
+### Files changed
+
+* `deploy/seed_nomadeira_compliance_phase_a.py` — idempotent Phase-A queue seed, canonical collision adoption, high-risk brief metadata and duplicate technical-log cleanup.
+* Runtime `content_jobs` and `content_job_logs` for NOMADeira — 12 protected Phase-A compliance briefs; runtime data remains ignored.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable queue and operating-rule record.
+
+### Checks run
+
+* `python3 -m py_compile deploy/seed_nomadeira_compliance_phase_a.py` passed.
+* Repeated production seed created no rows and mutated no records; all 12 jobs remain private `BLOCKED_EVIDENCE` records with one seed log each.
+* Blog Core `/health` returned `ok: true`.
+
+## 2026-09-01 — Collect primary-source maps for NOMADeira compliance pilots
+
+### Summary
+
+* Collected private official-source maps for the three first pilots: NIF through representative, remote employee residence route and opening atividade.
+* Each pilot now has three primary official sources and three scope-limited claim proposals. All remain private `SOURCES_COLLECTED`; no claim IDs, drafts, localizations, media, previews or publications were created.
+* The remote-work map uses the current AIMA post-arrival page and the cited Diário da República visa regulation. NIF and atividade maps use current gov.pt and Autoridade Tributária sources; atividade also has the gov.pt/Segurança Social registration source.
+
+### Files changed
+
+* `deploy/collect_nomadeira_compliance_pilot_source_maps.py` — idempotent primary-source-map collector with expiry, source scope and unverified high-risk claim proposals.
+* Runtime `content_jobs` for the three NOMADeira pilots — source maps and proposal metadata only; runtime data remains ignored.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — recorded the source-collection gate.
+
+### Checks run
+
+* `python3 -m py_compile deploy/collect_nomadeira_compliance_pilot_source_maps.py` passed.
+* The first production run updated exactly three records; the immediate repeat updated zero.
+* Verified three sources and three proposals per pilot, zero draft HTML and no public records.
+* Blog Core `/health` returned `ok: true`.
+
+## 2026-09-01 — Approve all Phase-A drafts and submit one NOMADeira image batch
+
+### Summary
+
+* Validated and recorded owner-authorized content approval for all 12 English, source-bounded Phase-A drafts and their 48 unique image prompts.
+* Updated the universal evidence-led contract to avoid invented workflow actions and invented links when the approved ledger does not support them.
+* Submitted one asynchronous `gemini-3.1-flash-image` batch containing all 48 images. No images were generated synchronously, published, scheduled or represented as visually approved.
+
+### Files changed
+
+* `app.py` — source-availability publication guard and universal evidence-led composition rules.
+* `deploy/submit_nomadeira_phase_a_image_batch.py` — complete prompt-ledger batch submitter with provider batch-name persistence.
+* Runtime Phase-A `content_jobs` — source-bounded English drafts, four visual prompts per job, content approval audit entries and one submitted image batch reference.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable operational record.
+
+### Checks run
+
+* `python3 -m py_compile app.py` passed on the VPS.
+* All 12 structured drafts passed generation and draft validation; each has four non-empty, globally unique image prompts (48 total).
+* Batch submission returned `batches/y00e3dypcsaqa0ob0dis03w8u96v6spk2y7t`.
+* The batch completed successfully: 48 selected WebP assets were persisted, four per approved article, and Blog Core health remained `ok`.
+
+## 2026-09-01 — Activate daily YAS article and X schedules
+
+### Summary
+
+* Audited all unpublished `yas.ooo` content instead of treating every `DRAFT` row as a public article. Kept the internal evidence social preview unscheduled, canceled one exact duplicate evidence article, and recovered the stale article generation job.
+* Scheduled 16 unique public articles once per day at 09:00 `Europe/Warsaw`, from 2026-09-02 through 2026-09-17. Updated the site publication cadence from manual to daily.
+* Replaced the inert 48-row legacy X schedule with executable `social_work_items`, one per day at 15:00 `Europe/Warsaw`, from 2026-09-02 through 2026-10-19.
+* Generalized the explicit X scheduled worker to deliver both evidence-derived and article-derived reviewed X work items. Missing Zernio account mapping now preserves the due item for retry instead of failing it.
+* Kept generic topic discovery disabled. The active evidence/vacancy contour and GSC planner remain the upstream sources for new YAS ideas.
+
+### Files changed
+
+* `app.py` — executable X queue coverage and wait-for-connection behavior.
+* Runtime `sites`, `content_jobs`, `content_job_logs`, `social_work_items`, and legacy `social_post_schedule` state for `yas.ooo`; runtime data remains ignored.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable schedule and source-of-truth rules.
+
+### Checks run
+
+* `python3 -m py_compile app.py scheduler.py` passed locally and on the VPS.
+* Missing X account mapping canary returned `waiting_for_connection` and preserved the first item as `SCHEDULED`.
+* Restarted `blog-yas-core` and `blog-yas-core-scheduler`; both are online and `/health` returns `ok`.
+* Verified 16 unique scheduled public article jobs and 48 executable scheduled X work items; all 48 obsolete schedule rows are marked `SUPERSEDED`.
+
+### Remaining external setup
+
+* Completed/superseded on 2026-09-01: the `yas.ooo` connection now maps the `YASflows` account from the dedicated Zernio `YAS` profile.
+
+## 2026-09-01 — Connect the dedicated SoloCruz Pinterest destination
+
+### Summary
+
+* Discovered the new `solocruzcom` Pinterest account inside the dedicated Zernio profile `Solocruz` and verified its public default board `SoloCruz` through the live Zernio API.
+* Saved the profile, account and default-board mapping in Blog Core site `7`, and registered the board in the site-scoped Pinterest strategy.
+* Kept Pinterest generation and automatic delivery disabled (`daily_pin_target=0`). No Pin, image, schedule or publication was created.
+
+### Runtime changes
+
+* Production `social_connections` and `pinterest_strategies` rows for `solocruz.com`; runtime data remains ignored.
+* Recoverable pre-change database copy: `backups/blog_core-before-solocruz-pinterest-20260901.sqlite3` on the VPS.
+
+### Checks run
+
+* Zernio listed five connected accounts; Blog Core's connection test passed and reports Instagram, Pinterest and TikTok mapped for SoloCruz.
+* Pinterest connection state changed from `disconnected` to `connected` via Zernio.
+* The registered board ID matches Zernio's `defaultBoardId`; automatic Pinterest remains inactive and no `visual_pins` or Pinterest `social_posts` were created by this setup.
+
+## 2026-09-01 — Build the 45-Pin SoloCruz ledger and submit one image batch
+
+### Summary
+
+* Authored a complete 45-Pin English ledger from 15 public SoloCruz articles, using three different search/decision angles per source. Every record has its own short hook, native title, description, CTA, alt text, keywords, destination URL and photographic scene.
+* Preserved the four owner-viewed 1000×1500 previews as the first four unpublished Pin drafts. Submitted exactly the remaining 41 unique scene prompts in one asynchronous `gemini-3.1-flash-image` batch; no image was regenerated for the accepted previews.
+* Added deterministic post-processing for batch results: Gemini supplies a text-free background, while Blog Core later adds the exact hook and site-owned SoloCruz logo. No Pin was scheduled or published, and Pinterest automation remains disabled.
+* Expanded the universal Pin review UI to display up to 60 records and show article source, image hook, search intent, CTA and exact destination for article-derived Pins.
+
+### Files changed
+
+* `deploy/pinterest_pin_batch.py` — universal idempotent ledger seed, Gemini batch submit/status/collection and deterministic overlay compositor.
+* `deploy/solocruz_pinterest_45.json` — reviewed site configuration for 45 article-derived SoloCruz Pins.
+* `app.py` — complete article-derived Pin review metadata and 60-item panel coverage.
+* Runtime `visual_pins` for site `7`; runtime data and generated media remain ignored.
+
+### Checks run
+
+* `python3 -m py_compile app.py deploy/pinterest_pin_batch.py` passed locally and on the VPS.
+* Ledger checks passed for 45 rows, 45 unique overlays, 45 unique titles, 45 unique scenes, public SoloCruz destinations and all Pinterest field limits.
+* Repeated seed created zero new rows and preserved 41 `BATCH_SUBMITTED` plus four `DRAFT` rows with one unchanged provider batch name.
+* Batch `batches/ixvtvgfo5cofm4ur65eaa3ravoearq0d316u` completed and supplied the 41 requested backgrounds. Full-contact-sheet QA rejected Pins 6 and 27 because their images did not prove the promised three-option and money-boundary stories; a revised two-image correction batch replaced only those two scenes.
+* Final verification found 45 `DRAFT` rows, 45 unique 1000×1500 JPEGs, valid SoloCruz article destinations and zero remote URLs, schedules or publications.
+* Blog Core restarted successfully and `/health` returned `ok`.
+
+## 2026-09-01 — Lock the SoloCruz Pin finishing direction without regenerating backgrounds
+
+### Summary
+
+* Reused the already-paid Pinterest photographic backgrounds and produced two corrected owner-review previews without another Gemini image request.
+* Locked the requested SoloCruz finish: a top-only navy-to-blue gradient headline panel, edge-to-edge photograph below it, contextual turquoise headline emphasis and the official full logo centered over the bottom of the photo.
+* Removed the rejected footer, direct-on-photo and free-form layout experiments from the accepted direction.
+* Normalized the supplied `logo600.svg` from its embedded checkerboard appearance to a true-alpha colour logo with a white separation edge for compositing.
+
+### Artifacts
+
+* `output/solocruz-pin-salvage/pin-005-gradient-logo600-final.jpg`
+* `output/solocruz-pin-salvage/pin-007-gradient-logo600-final.jpg`
+
+### Safety
+
+* No production Pin row was replaced, scheduled or published.
+* No replacement photographic background was generated.
+
+## 2026-09-01 — Apply the approved SoloCruz finish to all remaining Pin drafts
+
+### Summary
+
+* Recollected and recomposed all 41 batch-backed SoloCruz Pins from their saved Gemini responses; no new image request was submitted and the four owner-approved Pins were not changed.
+* Applied one site-configured frame to every remaining asset: top navy-to-blue gradient panel, exact large hook with one contextual turquoise line, edge-to-edge photograph below it, no footer, and the official full SoloCruz logo centered over the bottom of the photograph.
+* Added deterministic removal of substantial uniform provider edge/spacer bands before crop, preventing accidental white or dark fields in the finished Pin.
+
+### Files changed
+
+* `deploy/pinterest_pin_batch.py` — universal configurable finishing compositor and provider-band cleanup.
+* `deploy/solocruz_pinterest_finish.json` — exact site-scoped line breaks, accent line, colours, dimensions and logo reference for all 45 Pins.
+* Runtime `visual_pins` assets for site `7` and `assets/brand/logo600-pin.png`; generated media and runtime data remain ignored.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable production and safety rules.
+
+### Checks run
+
+* Local and production `py_compile` passed for `deploy/pinterest_pin_batch.py`; Blog Core `/health` returned `ok`.
+* Verified 45 `DRAFT` rows and 45 unique 1000×1500 JPEGs: 41 use the exact configured gradient finish and four approved originals are byte-identical to the recoverable pre-change backup.
+* Verified exact configured hook line joins for all 41 recomposed Pins and zero Pinterest schedules, sends or publications.
+* Full ordered review sheet: `output/solocruz-pinterest-final-review-v4/contact-sheet-45.jpg`.
+
+## 2026-09-01 — Correct SoloCruz Pin headline line spacing
+
+### Summary
+
+* Corrected a mass-composition defect where uppercase headline lines used only 5–8 pixels of spacing and appeared to collide.
+* Replaced it with proportional 20% font spacing, a 20-pixel floor and a hard rendered-glyph assertion requiring at least 18 pixels between every adjacent line.
+* Proved the correction first on three-line and four-line canaries, then recomposed all 41 batch-backed drafts from saved provider responses. No image generation, scheduling or publication occurred.
+
+### Checks run
+
+* All 41 recomposed headlines passed rendered-box collision checks; the minimum measured line gap is 20 pixels.
+* Verified 45 unique 1000×1500 JPEG drafts, four owner-approved originals byte-identical to backup, and zero scheduled or published Pinterest records.
+* Production `py_compile` and Blog Core `/health` passed.
+* Corrected review sheet: `output/solocruz-pinterest-final-review-v5/contact-sheet-45-clean.jpg`.
+
+## 2026-09-01 — Schedule all 45 approved SoloCruz Pins
+
+### Summary
+
+* Submitted all 45 approved SoloCruz Pins to the mapped Zernio Pinterest destination as scheduled posts, three per logical Warsaw day at 15:00, 19:00 and 24:00.
+* Scheduled logical dates 2026-09-02 through 2026-09-16; `24:00` is stored and sent as `00:00` on the next calendar date, making the final execution 2026-09-17 00:00 Warsaw time.
+* Persisted the exact provider timestamp and logical Warsaw slot in each Pin's `publicationSchedule` metadata and exposed the scheduled timestamp in the Blog Core Pin panel.
+* Kept continuous Pinterest automation disabled with a daily target of zero; only these 45 owner-approved Pins were scheduled.
+
+### Files and runtime changed
+
+* `app.py` — persist and display explicit visual-Pin schedule metadata after Zernio accepts a scheduled post.
+* Production `visual_pins` for site `7`; every record is now `SCHEDULED` with its own Zernio schedule identifier.
+* Recoverable pre-schedule database copy: `backups/blog_core-before-solocruz-pinterest-schedule-20260901.sqlite3` on the VPS.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable schedule and finite-queue rule.
+
+### Checks run
+
+* Local and production `py_compile` passed for `app.py`.
+* Verified 45 `SCHEDULED` records, 45 unique non-empty Zernio schedule identifiers, and exactly 15 slots each at 15:00, 19:00 and logical 24:00 `Europe/Warsaw`.
+* Verified continuous Pinterest automation remains disabled, restarted `blog-yas-core`, and confirmed Blog Core `/health` returns `ok`.
+
+## 2026-09-01 — Connect YAS X and move its reviewed queue to 17:00 Warsaw
+
+### Summary
+
+* Disambiguated two Zernio accounts with the same `YASflows` username and mapped Blog Core site `12` specifically to the X account inside the dedicated `YAS` profile, not the account inside `Default`.
+* Rescheduled the existing 48 reviewed X work items to one per day at 17:00 `Europe/Warsaw`, from 2026-09-02 through 2026-10-19. No post text or media was regenerated.
+* Kept the generic X cadence disabled; the explicit reviewed work-item queue remains the only YAS X publication source.
+
+### Runtime changes
+
+* Production `social_connections` and `social_work_items` for `yas.ooo`; runtime data remains ignored.
+* Recoverable pre-change database copy: `backups/blog_core-before-yas-x-profile-and-17h-schedule-20260901.sqlite3` on the VPS.
+
+### Checks run
+
+* Zernio connection test passed and reported the Twitter mapping.
+* Verified 48 unique `SCHEDULED` work items, 48 linked `DRAFT` social posts, a continuous one-per-day 17:00 Warsaw sequence, and 48 superseded legacy schedule rows.
+* Restarted `blog-yas-core-scheduler`; it is online. A pre-first-slot worker canary found zero due items, and Blog Core `/health` returned `ok`.
+
+## 2026-09-01 — Map the YAS Instagram account without enabling publication
+
+### Summary
+
+* Discovered Instagram account `yas.flows` inside the dedicated Zernio `YAS` profile and saved that exact account mapping for Blog Core site `12`.
+* Preserved the existing `YASflows` X mapping and verified Zernio now reports both Instagram and Twitter as mapped.
+* Kept Instagram and Instagram Reel cadences disabled because the owner has not yet selected frequency and Warsaw publication times.
+
+### Runtime changes and checks
+
+* Production `social_connections` for `yas.ooo`; runtime data remains ignored.
+* Recoverable pre-change database copy: `backups/blog_core-before-yas-instagram-map-20260901.sqlite3` on the VPS.
+* Verified the Instagram connection is `connected`, all 27 carousel drafts and three rendered Reel drafts remain unpublished, and no Instagram schedule was created.
+
+## 2026-09-01 — Schedule the 27 YAS vacancy carousels at 18:00 Warsaw
+
+### Summary
+
+* Submitted all 27 completed seven-slide YAS vacancy carousels to the mapped `yas.flows` Instagram destination through Zernio, one per day at 18:00 `Europe/Warsaw`, from 2026-09-02 through 2026-09-28.
+* Extended the universal Zernio draft publisher to persist explicit schedule metadata in each social post's `content_json.publicationSchedule`; no YAS-specific domain branch was added.
+* Kept all three rendered YAS Reels as unscheduled `DRAFT` records and left generic Instagram and Reel cadences disabled, so only the reviewed finite carousel queue will run.
+* One request returned a transient HTTP 400; replaying the exact same payload with the same idempotency key was accepted without content changes, then reconciled. No duplicate schedule was created.
+
+### Files and runtime changed
+
+* `app.py` — pass and persist the explicit provider schedule for Zernio social drafts.
+* Production `social_posts` for Blog Core site `12`; all 27 carousel rows now have distinct Zernio schedule identifiers.
+* Recoverable pre-change database copy: `backups/blog_core-before-yas-instagram-carousel-schedule-20260901.sqlite3` on the VPS.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable YAS Instagram execution rules and schedule.
+
+### Checks run
+
+* Local and production `py_compile` passed for `app.py`.
+* Verified 27 `SCHEDULED` carousels, 27 unique non-empty Zernio identifiers, one continuous daily 18:00 Warsaw sequence, and exact first/last slots of 2026-09-02 and 2026-09-28.
+* Verified all three Reels remain `DRAFT`, both automatic Instagram cadences remain disabled, `blog-yas-core` is online, and Blog Core `/health` returns `ok`.
+
+## 2026-09-02 — Map the verified YAS Reddit account without enabling publication
+
+### Summary
+
+* Confirmed that reconnecting Reddit replaced the earlier incorrect OAuth identity with the intended system username `AiStartupGuy` in the dedicated Zernio `YAS` profile.
+* Mapped that exact Zernio Reddit account to Blog Core site `12` while preserving the existing YAS Instagram and X mappings.
+* Did not select a default subreddit, activate Reddit as an automatic channel, enable a cadence, schedule a candidate or publish anything. The seven discovered Reddit candidates remain review-only.
+
+### Runtime changes and checks
+
+* Production `social_connections` for `yas.ooo`; runtime data remains ignored.
+* Recoverable pre-change database copy: `backups/blog_core-before-yas-reddit-map-20260902.sqlite3` on the VPS.
+* Zernio connection test passed and reported Instagram, Reddit and Twitter mappings. Verified Reddit cadence remains disabled, no Reddit `social_posts` exist, both Blog Core PM2 processes are online, and `/health` returns `ok`.
+
+## 2026-09-02 — Schedule the reviewed YAS Reddit queue and map Threads
+
+### Summary
+
+* Confirmed and mapped Threads account `yas.flows` in the dedicated Zernio `YAS` profile without enabling Threads generation, scheduling or publication.
+* Reviewed the seven prepared Reddit candidates against current community availability and rules. Replaced unavailable destinations with relevant reviewed communities and materialized seven neutral text/self posts with no links, company mention, offer or CTA.
+* Submitted the finite Reddit queue to Zernio for `AiStartupGuy`, one post per day at 18:00 `Europe/Warsaw`, from 2026-09-02 through 2026-09-08: two to `r/automation`, two to `r/businessanalysis`, and three to `r/softwareengineering`.
+* Kept both generic Reddit and Threads cadences disabled. Threads' fourteen existing drafts remain unscheduled.
+
+### Files and runtime changed
+
+* `app.py` — make Reddit subreddit routing creative-scoped, retain the connection default only as a legacy fallback, and force reviewed text/self-post delivery.
+* Production `social_connections`, `social_community_rule_snapshots`, `social_work_items`, and `social_posts` for Blog Core site `12`; runtime data remains ignored.
+* Recoverable pre-change database copy: `backups/blog_core-before-yas-threads-map-and-reddit-schedule-20260902.sqlite3` on the VPS.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — durable per-creative Reddit routing and YAS schedule state.
+
+### Checks run
+
+* Local and production `py_compile` passed for `app.py`; both Blog Core PM2 processes are online and `/health` returns `ok`.
+* Zernio reports Instagram, Reddit, Threads and Twitter mapped for YAS. Its posts API returns all seven Reddit records as `scheduled`, each with the intended `AiStartupGuy` account, exact subreddit and 16:00 UTC / 18:00 Warsaw timestamp.
+* Verified seven unique Zernio schedule IDs, a continuous one-per-day sequence, per-post rule snapshots, and deterministic no-link/no-company validation. Reddit and Threads automatic cadences remain disabled.
+
+## 2026-09-02 — Make Zernio the authority for Reddit community availability
+
+### Summary
+
+* Confirmed that Zernio exposes the connected Reddit account's managed community list through `/accounts/{accountId}/reddit-subreddits`, analogous to its Pinterest boards endpoint.
+* Detected before the first release that five initially selected communities were absent from the `AiStartupGuy` Zernio list. Updated the existing scheduled provider records in place, preserving all seven dates and Zernio IDs.
+* The final provider-accepted routing is four posts to `r/automation` and three context-adapted startup discussions to `r/GetStartups`. `r/SaaS` was deliberately excluded because its current rules explicitly prohibit AI-generated text.
+* Supersedes the initial two/two/three community split recorded in the immediately preceding change; the 18:00 Warsaw cadence and 2026-09-02 through 2026-09-08 dates are unchanged.
+
+### Files and runtime changed
+
+* `app.py` — require every future Reddit target to appear in the selected Zernio account's live subreddit list before submission; fail closed when provider validation is unavailable or the target is absent.
+* Production Reddit work-item, social-post and rule-snapshot metadata for site `12`; five already scheduled Zernio records were updated in place.
+* Recoverable pre-correction database copy: `backups/blog_core-before-yas-reddit-zernio-community-correction-20260902.sqlite3` on the VPS.
+* `docs/PROJECT_MEMORY.md`, `docs/CHANGELOG_AI.md` — provider-owned destination rule and corrected final schedule.
+
+### Checks run
+
+* Zernio returned the live `AiStartupGuy` subreddit list; every final target is present in it. All five provider updates returned `scheduled` and retained their existing IDs and exact timestamps.
+* Verified seven local `SCHEDULED` work items and posts, each with provider-verified community metadata, one daily 18:00 Warsaw slot, no link/company validation, and a unique provider ID.
+* Local and production `py_compile` passed; both Blog Core processes are online and `/health` returns `ok`. A later read-only provider-list request hit HTTP 429 after the successful validations and updates; no write was ambiguous.
+
+## 2026-09-02 — Integrate EPR Scan with Blog Core and release EN/DE/FR/ES SEO foundations
+
+### Summary
+
+* Registered `eprscan.eu` as Blog Core native content-store site `20` with English, German, French and Spanish only; Russian and Italian are excluded.
+* Added a strict reviewed-compliance publication gate for site-declared Blog Core articles and expanded the durable payload with reviewer date, ruleset version and change log.
+* Fixed collision-prone non-blog native filenames by deriving them from the complete target path.
+* Released EPR Scan `/blog`, `/de/blog`, `/fr/blog`, `/es/blog`, article rendering, native navigation, reciprocal hreflang, sitemap integration, Article/Breadcrumb schema and visible author/reviewer/evidence/change metadata.
+* Corrected `/account` to a self-canonical `noindex,nofollow` page with a server-rendered H1. Existing PPWR/checker/product routes and design remain source-authoritative.
+* Installed an enabled systemd path handoff so an explicit valid Blog Core publication triggers validation, typecheck, production build and EPR Scan restart. No article was generated or published because no real reviewer-approved content was supplied.
+
+### Files and runtime changed
+
+* `app.py` — native filename identity, reviewed multilingual blog publication gate and expanded editorial payload.
+* `docs/EPRSCAN_INTEGRATION.md`, `docs/PROJECT_MEMORY.md`, `docs/INTEGRATIONS.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG_AI.md` — durable contract and operations.
+* Production Blog Core database site `20`; recoverable backup `backups/blog_core-pre-eprscan-20260902-1338.sqlite3`.
+* EPR Scan source/build and systemd units on the VPS; recoverable source/build snapshot `/var/www/eprscan-release-backups/pre-blog-core-20260902-1345`.
+
+### Checks run
+
+* Blog Core local and production `py_compile` passed; both Blog Core PM2 processes restarted online.
+* EPR Scan TypeScript, ESLint and production build passed. The complete source test suite passed 313/315 in the extracted checkout; the two failures are pre-existing repository-context checks for absent parent `../.node-version` and `../docs/REQUIREMENTS_TRACEABILITY.md`, not application failures.
+* Candidate and public production release checks passed across the 12 original launch routes, 52 internal targets, security headers, canonicals, hreflang, sitemap/robots and required schema.
+* Public `https://eprscan.eu` returns 200 for EN/DE/FR/ES blog hubs and sampled translated product/checker pages. The dedicated Blog Core integration check passes, and `/account` exposes one H1 plus `noindex,nofollow` without a home canonical.
+* A live GSC property verification for `sc-domain:eprscan.eu` returned `no_access`. The connection is saved but disabled to prevent scheduler noise; Search Console and Bing completion remain external owner-permission steps.
+
+## 2026-09-02 — Complete EPR Scan multilingual route integrity and seed the review-only TOR roadmap
+
+### Summary
+
+* Corrected inherited home canonicals on `/reports` and `/access/recover`; added server-rendered H1 headings to English and localized account/report entry pages while preserving `noindex` on private routes.
+* Extended localized source generation to translate multiline and expression-split JSX text, including fallback string literals inside composite expressions. Added a catalog-driven completeness check for generated German, French and Spanish source.
+* Expanded the integration regression check to 60 public and 16 private routes across EN/DE/FR/ES, with exact H1, canonical, reciprocal hreflang, sitemap/noindex and RU/IT-exclusion assertions.
+* Added 12 open TOR recommendations to EPR Scan site `20`; no content job was created and nothing was generated or published.
+
+### Runtime changes and recovery
+
+* EPR Scan production source/build at `/var/www/eprscan`; recoverable snapshot `/var/www/eprscan-release-backups/pre-locale-integrity-20260902-1435`.
+* Blog Core production recommendations for site `20`; recoverable database backup `backups/blog_core-pre-eprscan-recommendations-20260902-1442.sqlite3`.
+* The isolated EPR Scan candidate process, source directory and state directory were removed after successful production verification.
+
+### Checks run
+
+* Candidate and public production multilingual checks passed all 76 routes. The standard release check passed 12 launch pages, 52 internal targets, the 27-country capability contract, security, metadata, hreflang, sitemap/robots and required JSON-LD.
+* Localization completeness, TypeScript, source-scoped ESLint and Node 22 production build passed. The repository-wide lint command still scans retained historical `dist.*` snapshots and reports their pre-existing generated-bundle findings, so release lint is scoped to source directories.
+* Production reports 12 open `eprscan-tor:*` recommendations and zero site `20` content jobs. GSC/Bing ownership and assignment of a real legal reviewer remain external gates.
+
+## 2026-09-02 — Enforce honest review indexing and release EPR Scan SEO hubs
+
+### Summary
+
+* Removed the public effect of the placeholder reviewer identity. Country pages now become reviewed/indexable only through a real public reviewer profile.
+* Made DE/FR/ES indexing page-level and fail-closed: translated routes remain accessible but stay `noindex` and out of hreflang/sitemap until named language and legal approvals exist. English remains canonical at root; RU/IT remain excluded.
+* Released populated English `/guides`, `/countries`, `/marketplaces`, `/tools` and `/company` trust directories, visible breadcrumbs, curated related links, Organization/WebSite schema and route-aware language navigation.
+* Added the TOR funnel events alongside existing analytics, with server-confirmed purchase/assistance events and hashed internal identifiers. Kept `template_download` absent because no real template asset exists.
+
+### Runtime changes and recovery
+
+* EPR Scan production source/build at `/var/www/eprscan`.
+* Review/index gate backup: `/var/www/eprscan-release-backups/pre-review-index-gates-20260902-1505`.
+* Hubs/linking/analytics backup: `/var/www/eprscan-release-backups/pre-seo-hubs-20260902-1252`.
+* No Blog Core content job or public article was created.
+
+### Checks run
+
+* Candidate localization, TypeScript, ESLint and Node 22 production build passed; focused new tests passed 10/10. The full isolated suite passed 318/320, with only the two known parent-repository fixture checks failing.
+* Candidate and public production integration checks passed 60 translated public variants, 10 English hub/trust routes and 16 private routes. The release check passed 12 launch pages, 59 internal targets, the EU27 capability catalog, metadata, schema, sitemap/robots, security headers and paid-report readiness.
+* Production health is `ok`, PM2 `eprscan` is online and the Blog Core content path watcher is active.
+* Remaining external gates: real compliance/language reviewers with public evidence, Google Search Console access, and Bing Webmaster Tools ownership/submission.
+
+## 2026-09-02 — Add the EPR Scan weekly production SEO crawl
+
+### Summary
+
+* Added an enabled persistent systemd timer for a read-only weekly production crawl, scheduled Mondays at 06:15 UTC with randomized delay.
+* Added a dynamic sitemap crawler that checks every current sitemap page and discovered internal target for status/redirects, noindex, canonical, metadata duplication, H1, broken links, orphans and hreflang integrity. Future approved Blog Core articles are included automatically.
+* Persisted compact atomic `last.json` status and append-only NDJSON history while retaining full command output in the systemd journal. Failed runs are observable and never mutate or publish content.
+
+### Checks run
+
+* Calendar syntax validated with `systemd-analyze`; the timer is enabled and active.
+* Manual end-to-end timer run passed in 23 seconds: 60 translated variants, 10 English hubs, 16 private routes, 12 release pages, 21 sitemap pages and 69 internal targets.
+* Production health remained `ok`. RU/IT remained excluded as locales.
+
+### Recovery
+
+* `/var/www/eprscan-release-backups/pre-weekly-seo-crawl-20260902-1301`.
+* `/var/www/eprscan-release-backups/pre-indexable-sitemap-crawl-20260902-1305`.
+
+## 2026-09-02 — Remove EPR Scan image redirects and repair contrast
+
+### Summary
+
+* Fixed the new breadcrumb and related-card muted colors that Lighthouse identified below WCAG AA contrast.
+* Switched already-compressed editorial WebP assets to direct static delivery, removing the Vinext `/_next/image` 302-to-HTTP hop from hero loading, and marked above-the-fold heroes for preload/high priority.
+* Reduced the favicon from a 512px/129KB PNG to a visually verified 64px/2.1KB indexed PNG; recompressed the three representative LCP images without changing their subjects.
+
+### Checks run
+
+* Candidate TypeScript, source-scoped ESLint and production build passed; integration, release and dynamic sitemap crawls passed.
+* Post-change Lighthouse reports Accessibility 100 and SEO 100 for home, PPWR and checker. Synthetic mobile performance remains variable and one production run still exceeded the strict 2.5s LCP threshold, so lab performance is not represented as fully closed; actual LCP/CLS/INP continue to be collected in the protected RUM dashboard.
+* Final production weekly crawl passed, favicon delivery is 2,140 bytes, service health is `ok`, and the temporary candidate was removed.
+
+## 2026-09-02 — Stabilize EPR Scan critical rendering and Lighthouse release validation
+
+### Summary
+
+* Deferred the optional `web-vitals` module until browser idle time, reducing the initial analytics-tracker chunk from 10,978 to 2,147 bytes; the 7,962-byte metrics chunk now loads separately.
+* Added intrinsic `content-visibility:auto` containment to below-the-fold public sections. Explicit cream/paper/lime surfaces preserve accurate WCAG contrast checks for skipped content.
+* Reworked the strict Lighthouse release check to run three attempts by default and aggregate conservatively: median Performance/LCP, minimum Accessibility/SEO and maximum CLS. The TOR thresholds remain unchanged.
+* Kept Lighthouse out of the low-priority weekly systemd crawl after real runs showed scheduling/CDN-induced false failures. The deterministic weekly multilingual, release, sitemap and localization checks remain enabled; field LCP/CLS/INP continue through protected RUM.
+
+### Runtime changes and recovery
+
+* EPR Scan production source/build: `/var/www/eprscan`; recovery snapshot: `/var/www/eprscan-release-backups/pre-lcp-stabilization-20260902-1347`.
+* Removed the temporary PM2 candidate, `/var/www/eprscan-lcp-candidate-20260902`, and `/var/lib/eprscan-lcp-candidate-20260902` after deployment.
+* No Blog Core recommendation was materialized and no article was generated or published.
+
+### Checks run
+
+* Candidate three-run medians passed all representative pages: home LCP 2,435 ms, PPWR 2,403 ms and checker 2,483 ms; Accessibility and SEO were 100 throughout, with maximum CLS 0.1.
+* The deployed production-origin run reported home 2,460 ms, PPWR 2,427 ms and checker 2,518 ms. The 18 ms checker overage demonstrates remaining lab variance and is not represented as a closed field-performance result; RUM remains authoritative.
+* Production TypeScript, source-scoped ESLint and Vinext build passed. Public multilingual integration, release, dynamic sitemap and localization checks passed; the final weekly run `20260902T135725Z` passed in 14 seconds.
+
+### Recovery
+
+* `/var/www/eprscan-release-backups/pre-quality-fix-20260902-1322`.
+## 2026-09-02 — Generate and batch-localize the EPR Scan first content wave
+
+* Materialized the ten remaining substantive EPR Scan TOR recommendations as native `/blog/{slug}` content jobs. Kept queue-health and named-reviewer governance recommendations open instead of turning operational work into articles.
+* Prepared a distinct source-bounded page brief for every job with a direct answer, seven-section outline, official/primary sources, reader checks, prohibited claims, required terminology and approved contextual crosslinks to existing source-authoritative EPR Scan routes.
+* Generated the ten new English drafts in controlled waves. Two first-pass drafts failed the 1,200-word validator and were regenerated; the final 11/11 draft set contains 1,201–1,636 words, three inline images, five FAQ items and four or five internal links per page.
+* Ran one `gemini-3.7-flash` translation batch across all 11 English sources. It created and structurally validated exactly 33 rows: 11 DE, 11 FR and 11 ES; RU/IT count remains zero.
+* Extended EPR Scan's unpublished-content validator and TypeScript draft contract to accept complete DE/FR/ES draft localizations without publishing or exposing them. The English private preview remains `noindex`, no-store and outside the sitemap.
+* Rebuilt EPR Scan once after the atomic batch, restored the enabled systemd path watcher and verified all 11 preview IDs return HTTP 200, the service health endpoint passes, zero EPR Scan jobs have a public URL and the sitemap contains no draft blog routes.
+* Production recovery points: `/var/www/eprscan-release-backups/pre-draft-localizations-20260902`, `/var/www/blog.yas.ooo/backups/blog_core-pre-eprscan-batch-20260902.sqlite3`, and `/var/www/blog.yas.ooo/backups/blog_core-pre-eprscan-localization-batch-20260902.sqlite3`.
+
+## 2026-09-02 — Replace human-review gates with official-source audit and publish EPR Scan wave
+
+* Replaced the EPR Scan human reviewer/language reviewer gate with `publication_contract:source_audited_multilingual_compliance`. Publication now requires a passing claim-to-official-source ledger, live source checks, exact EN/DE/FR/ES locale coverage, DOM/number/link parity, SEO review and browser QA.
+* Removed public `Reviewed by` and person-review schema. Published pages transparently display `Official sources verified`, the check date and ruleset version; trust-policy copy documents the automated method.
+* Audited and published 11 English articles plus 33 DE/FR/ES variants. One unsupported added number in the German PPWR translation was removed; the bot-blocked Etsy Help citation was removed, leaving the article bounded by accessible PPWR and ZSVR official sources.
+* Dismissed the obsolete named-human-review recommendation and closed the stale two-article validation warning after the source audit passed. Only the next-five-topics recommendation remains open; it does not authorize generation.
+* Added all four localized blog hubs to the sitemap after the article set became public. Publication now removes its stale private draft-store record.
+* Production checks passed: Python compile, EPR Scan TypeScript, Vinext build, the 60-public/10-English-hub/16-private integration suite, all 44 article routes, reciprocal hreflang, contextual crosslinks, desktop/mobile browser inspection and 48 blog sitemap URLs. RU/IT remain absent.
+* Recovery database: `/var/www/blog.yas.ooo/data/blog_core.sqlite3.pre-source-audit-20260902`.
+## 2026-09-02 — Diagnosed missed yas.ooo LinkedIn and Threads publications
+
+* The scheduled LinkedIn run for yas.ooo started at 08:00 UTC (10:00 Europe/Warsaw) and ended in `ERROR` before provider submission: the prepared draft contained 3,642 characters, exceeding the enforced 3,000-character LinkedIn limit. No LinkedIn post was published.
+* Threads was disabled in yas.ooo's active social cadence (`postsPerDay: 0`), so the scheduler correctly created no Threads slot or publication attempt today.
+* Both Blog Core PM2 processes were online during the check. No credentials, cadence settings, drafts, or public posts were changed while diagnosing the incident.
+
+## 2026-09-02 — Recover LinkedIn overflow slots and make future hero images article-specific
+
+* LinkedIn overflow is now handled as a text-only factual rewrite. When an initial draft exceeds 3,000 characters, Blog Core requests a bounded rewrite, revalidates its length and safety, then continues the same publication flow. It never truncates sentences or regenerates media.
+* Recovered yas.ooo's missed 2026-09-02 LinkedIn delivery: the replacement draft was 2,635 characters and the Posts API accepted it. The existing article hero image was retained; no image-generation request was made.
+* Hero visual planning now requires a concrete, article-specific scene (subject, action, environment and evidence objects) and explicitly rejects generic stock-office compositions. New hero prompts require a bright, readable article-title treatment; body illustrations remain text-free.
+* Compiled `app.py` and `scheduler.py` on production, restarted `blog-yas-core` and `blog-yas-core-scheduler`, and confirmed the health endpoint returned `ok`.
+
+## 2026-09-02 — Published article-specific YAS hero validation draft
+
+* Published `Startup Portal vs No-Code Stack` at `https://yas.ooo/blog/startup-portal-vs-no-code-stack/` after retaining its validated 1,571-word English draft and four completed article assets. The non-English localization tail was stopped; yas.ooo has an English-only publication contract for this job.
+* Set this job's `minimumWordCount` quality requirement to 1,000 words at the user's direction. The completed draft exceeds both the new threshold and the prior 1,200-word default.
+* Visually checked the generated hero: it depicts the article-specific comparison between a unified portal core and a fragile modular stack, and renders the article title as a readable high-contrast headline. It is not a generic office/dashboard visual.
+* Created a 2,316-character LinkedIn draft using the published article and its existing hero. The LinkedIn draft remains `DRAFT`; it was not sent during this verification.
+
+## 2026-09-02 — Restored the established LinkedIn 16:9 image treatment
+
+* Reverted an incorrect experimental LinkedIn crop change before it was used to publish any post. The production LinkedIn asset is restored from the saved working version: 1200×675 (16:9), with the existing centred-crop behavior.
+* The application and scheduler compile successfully; Blog Core restarted cleanly and `/health` returned `ok`.
+## 2026-09-05 — Defined SoloCruz viral short-Reel direction
+
+* Replaced explanation-first and fear-based SoloCruz Reel concepts with six 10-second, joy-led viral concepts. The creative premise is a compatible companion to share the cruise experience with; cost sharing is a payoff rather than the opening subject.
+* Prepared production prompts for vertical photorealistic footage with a universal no-generated-text/no-logo constraint, preserving exact editorial hooks for deterministic overlay.
+* Corrected the execution direction: SoloCruz Reels are spontaneous iPhone UGC rather than cinematic or commercial footage, with a brief warm conversational female voiceover.
+* Refined audio direction: conversational dialogue may come from the on-camera heroines when it strengthens the scene; voiceover is reserved for inward or emotional beats.
+* No media was generated, no social draft was changed, and nothing was scheduled or published.
+
+## 2026-09-05 — Generated SoloCruz iPhone-UGC Omni review batch
+
+* Added `generate_solocruz_ugc_omni_batch.py`, a review-only six-item Omni generator. It creates start/end boundary frames, sends one 10-second iPhone-UGC clip per idea with native speech, and preserves all exact overlay copy outside generated pixels.
+* Generated all six requested SoloCruz Reels using `gemini-omni-1.1-flash` and `Kore`: `not-a-tinder-date`, `best-upgrade`, `survive-one-cabin`, `shared-reaction`, `cruise-person`, and `two-main-characters`. The first attempt for `survive-one-cabin` received a provider HTTP 500; its single retry succeeded. No quota-limit failure occurred.
+* Verified every output as a 10.005-second vertical 720×1280 H.264/AAC file. Mirrored the review MP4s through Blog Core's noindex social-asset route for owner viewing.
+* No social-post row, schedule, or publication was created.
+## 2026-09-06 — Corrected diagnosis of failed yas.ooo X publications
+
+* Verified the live yas.ooo X queue on Blog Core site `12`: five due items from 2026-09-02 through 2026-09-06 were released by the factory on schedule and all five failed at Zernio submission with `HTTP Error 403: Forbidden`; no X post was published.
+* Superseded the initial shared-key diagnosis. YAS successfully submitted a Threads post through Zernio with the same server-side key after the latest X failure, so the key is accepted for publication and cannot explain an X-only 403. LinkedIn remains the only direct YAS publisher; the other YAS social destinations use Zernio.
+* Confirmed the configured X account mapping is present and all five attached image URLs return public HTTP 200. Zernio's read-only activity log gives the exact stable error `account_disconnected`: X account `YASflows` is disconnected because its platform token expired or was revoked. Zernio requires reconnecting that X account and then refreshing its account ID from `GET /v1/accounts`.
+* No credential, queue item, cadence, code, or public post was changed during diagnosis. Failed X work items remain `ERROR` and are not automatically retried by the current scheduler.
+## 2026-09-06 — Reconnected YAS X and recovered five missed publications
+
+* Verified that Zernio reports the reauthorized `YASflows` X account as active; its account ID remained unchanged, so no Blog Core mapping edit was required.
+* Immediately resubmitted the five due X work items that had failed from 2026-09-02 through 2026-09-06. Zernio accepted all five, returned five distinct public X URLs, and reconciliation confirmed both `social_work_items` and `social_posts` as `PUBLISHED`.
+* Left the 43 future scheduled X items unchanged. Created the recoverable production database snapshot `backups/blog_core-before-yas-x-recovery-20260906-200913.sqlite3` before queue-state changes.
+## 2026-09-06 — Diagnosed missing images on recovered YAS X threads
+
+* Verified that Blog Core and Zernio received one public JPEG for each of the five recovered X publications and that Zernio reported `media_count: 1` for every successful delivery.
+* Four recovered publications were multi-tweet threads. Blog Core incorrectly sent their image only in top-level `mediaItems`; when `platformSpecificData.threadItems` is present, Zernio publishes only the per-item content/media and requires the image under `threadItems[0].mediaItems`. The sole single-tweet publication correctly used the top-level image and therefore displayed it.
+* No published X post was deleted, edited, or reposted during diagnosis. Existing X media cannot be added through Zernio's text-only edit operation; correcting those four publications requires an explicit delete/repost decision.
+## 2026-09-06 — Fix X thread cover placement
+
+* Updated the universal Zernio request builder so media for any `threadItems` sequence is attached to the root item (`threadItems[0].mediaItems`). Ordinary single-post media remains top-level.
+* Deployed the change to `/var/www/blog.yas.ooo/app.py`, compiled the application and scheduler, passed isolated single-post/thread payload assertions, restarted both Blog Core PM2 processes, and confirmed `/health` returns `ok` with both processes online.
+* Did not delete or republish the five existing X publications. Server recovery copy: `backups/app.py.before-x-thread-media-20260906-201600`.
+
+## 2026-09-06 — Natural social writing contract and corrected YAS X recovery
+
+### Summary
+
+* Added a shared natural-writing contract directly to the active generic, Facebook, Reddit, X, evidence-X and discovery generation prompts. The model is now explicitly instructed not to write long dashes, smart typography, Markdown emphasis, canned AI phrases, formulaic reversals, generic `PROBLEM`/`SOLUTION` headings, fake quotations, vague hype or generic engagement bait.
+* Added a final publication-boundary normalization for all social text and every X thread item. If forbidden typography still appears, Blog Core converts it to plain social copy before the provider request. X weighted length is revalidated after this normalization.
+* Kept the existing images and corrected X thread delivery so each thread cover is attached to its first tweet. No image was regenerated.
+* Rewrote and republished the five YAS X items the owner had deleted. A shell-escaping defect damaged the monetary values in the first Notion and Gusto recovery attempt; those two complete threads were immediately unpublished and recreated with the verified `$3.8k-$4.5k` and `$1.9k-$2.3k` text.
+
+### Verification
+
+* Compiled `app.py` and `scheduler.py` locally and in production, restarted `blog-yas-core` and `blog-yas-core-scheduler`, and confirmed `/health` is healthy.
+* Zernio reports all five final X publications as `published`, with exactly one image on the root item of each multi-tweet thread and one image on the standalone post.
+* Verified every final tweet item is within X's weighted 280-character limit and contains none of `—`, `–`, `→`, smart quotes, Markdown asterisks or the accidental escaped-number sequence.
+* Production recovery database: `backups/blog_core-before-corrected-x-repost-20260906-203100.sqlite3`. Deployment recovery copies: `backups/app.py.before-social-natural-writing-20260906-203000` and `backups/app.py.before-social-writing-contract-20260906-203500`.
+
+## 2026-09-06 — Replace SoloCruz episode 2 with the unsold-cabin premise
+
+* Superseded in part later the same day: the bag, pillow clue and Marcus inspection described below were removed in favor of the simpler restaurant bridge documented in the next entry.
+* Replaced row 2 on `Episodes 02-24 Detailed` in the existing SoloCruz Google Sheet. The former guest-expert, presenter, microphone and theatre reveal was removed.
+* Episode 2 is now `Пустая на бумаге`: security identifies the referenced cabin as registered empty, Cruz uses a five-minute window to perform a practiced exit, and Marcus finds the remaining pillow indentation after arriving seconds late.
+* Replaced the title, hook, retention summary, comment prompt and all three 10-second production prompts in `C2:J2`. Preserved the existing row formatting, sheet structure, neighboring episodes, pilot and media-generation state.
+* Each prompt binds the exact prior frame and character/set references, keeps the original cabin and single door, sequences every object and hand action, separates the two legitimate door operations with an explicit time cut, and prohibits added doors, characters, narration or generated text.
+* Verified the saved values through the Sheets API and visually in the native Google Sheets UI. No video was generated and nothing was published.
+
+## 2026-09-06 — Simplify SoloCruz episode 2 exit into the Nina restaurant bridge
+
+* Replaced only the second and third production prompts of episode 2 in `Episodes 02-24 Detailed!I2:J2`.
+* Removed the bag-packing, pillow clue, master-key return and Marcus cabin inspection. Cruz now leaves all belongings in the cabin, exits only after security has gone, and temporarily waits out the inspection in the restaurant.
+* The final fragment now introduces Nina naturally: Cruz asks to sit for five minutes, says she doubts they will check the restaurant, and Nina asks who she is avoiding. This creates a direct continuity bridge into episode 3.
+* Preserved the first fragment, spreadsheet formatting, neighboring rows and all other prompts. Verified the saved values through the Sheets API and the native Google Sheets UI. No video was generated or published.
+
+## 2026-09-06 — Remove an accidental third-party name collision from SoloCruz episode 2 prompt 3
+
+* Inspected the failed Flow card for episode 2 fragment 3. Flow returned its third-party content-provider restriction rather than the earlier known-person warning; the same project successfully generated the first two episode fragments.
+* The rejected prompt repeatedly placed the fictional names `Nina` and `Cruz` in the same text, which can be interpreted as the existing name `Nina Cruz`. Replaced names only inside the production directions with reference-bound role labels (`главный персонаж` and `второй персонаж`).
+* Preserved the two characters, attached-reference contract, restaurant action, all three spoken lines and physical continuity. Updated only `Episodes 02-24 Detailed!J2`, retained its formatting, and verified the saved value through the Sheets API and native Sheets UI.
+* No replacement video was generated; the mitigation still requires one Flow generation to confirm that this was the provider classifier trigger.
+
+## 2026-09-07 — Align SoloCruz episode 2 ending with the existing episode 3 opening
+
+* Replaced only `Episodes 02-24 Detailed!J2`; episode 3 and every other cell remain unchanged.
+* Removed Nina, her table and the premature conversation from episode 2. The third fragment now ends with Cruz entering the restaurant, saying she expects not to be checked there, noticing the same two security characters entering behind her, and disappearing deeper into the dining room while they scan it.
+* Preserved episode 3's actual opening: Nina begins alone by hiding the second place setting, and Cruz reaches her only during that episode's third shot at second six.
+* Kept all character names out of the revised generation directions to avoid the earlier provider-name collision. No video was generated or published.
+
+## 2026-09-07 — Rotate the production Gemini API key
+
+* Replaced the primary `GEMINI_API_KEY` only in the protected production environment at `/var/www/blog.yas.ooo/.env`; no secret value was written to source code, documentation, logs, or the local workspace.
+* Created a mode-0600 recovery copy under the production `backups/` directory before changing the environment.
+* Verified the rotated credential directly against the Gemini models endpoint: authentication returned HTTP 200 with an available model result.
+* Restarted `blog-yas-core` and `blog-yas-core-scheduler` with refreshed environment values. Both PM2 processes are online and the Blog Core health endpoint returns `ok`.
+
+## 2026-09-07 — Add durable email alerts for failed queued publications
+
+* Added `publication_failure_email_alerts`, a durable outbox for failures from website, social, shared-carousel, Instagram Reel, TikTok carousel, evidence-X, Threads, and Facebook publication workers.
+* Added stable event fingerprints to prevent duplicate alerts, while failed mail delivery retries with exponential backoff capped at one hour.
+* Reused SoloCruz's proven local `/usr/sbin/sendmail` to Exim delivery path. Recipient and optional sender are protected environment settings; no mail credential is stored in source or SQLite.
+* Added asynchronous Zernio failure capture during provider reconciliation and excluded waiting/no-source states from alerts.
+* Passed Python compile validation and an isolated production-runtime test covering event capture, duplicate suppression, successful delivery state, and attempt accounting.
+* Deployed `app.py` and `scheduler.py`, initialized the outbox schema, restarted both Blog Core PM2 processes, and verified the health endpoint plus matching production source hashes. Delivery remains intentionally disabled until `PUBLICATION_ALERT_EMAIL_TO` is set.
+* The first production reconciliation captured two distinct SoloCruz Facebook provider failures as pending alerts. They were not duplicated on later scheduler passes and will be delivered after the recipient is configured.
+* Configured the protected production recipient as `info@yas.ooo` and successfully delivered both pending alerts through the existing local Exim transport.
+* Diagnosed both Facebook failures from Zernio's destination-level records: Facebook requires the Page owner to complete identity confirmation in the Facebook mobile app before publishing as SoloCruz. The mapped Page account remains active; the rejection occurred at the platform gate before a publish attempt.
+* Extended reconciliation error extraction to preserve Zernio's destination-level `errorMessage`, so future emails contain Facebook's exact actionable reason instead of the generic failed status.
+* Corrected the alert fingerprint after exact error enrichment caused the same two already-sent Facebook failures to be emailed a second time. The fingerprint now uses the durable queue record/slot identity and excludes mutable error wording; anonymous worker failures alone use their message as a fallback identity.
+
+## 2026-09-08 — Diagnose blocked NOMADeira native publication
+
+* Traced the alert to NOMADeira job `8b67f5810fa19fd0be505ce7`, `EU Residence Registration in Madeira: Steps and Verification`, due at 09:00 Europe/Warsaw.
+* Verified that generation and all three configured localizations completed, but the legacy `nomadeira_editorial_plan` source record has no `pageBrief`, no `complianceCluster`, and still states `generationBlockedUntilSourceReview=true`.
+* Identified a contract-version gap: compliance generation and schedule eligibility recognize `complianceCluster`, while this older queue format carries only legacy blocking flags. The strict typed native publisher therefore correctly refused to publish the unreviewed guide.
+* Found seven additional NOMADeira editorial-plan rows scheduled from 9 through 15 September with the same missing contract. No schedule, draft, approval or publication state was changed during this diagnosis.
+
+## 2026-09-08 — Migrate eight scheduled NOMADeira rows to the current evidence contract
+
+* Added the idempotent `deploy/migrate_nomadeira_scheduled_editorial_plan.py` migration for exactly the eight affected unpublished routes; it refuses missing or published targets and defaults to a read-only plan unless `--apply` is explicit.
+* Migrated all eight production rows to private `BLOCKED_EVIDENCE`, removed their 8–15 September schedules, cleared active pre-review draft/hero/FAQ/localization state, and retained only an audit summary that an invalid pre-compliance artifact had existed. No source, verified claim, review, approval or QA state was invented.
+* Marked the EU residence route `CANONICAL_REVIEW_REQUIRED` because it may overlap the existing Phase-A CRUE guide. The other seven rows are `CANONICAL_CHECKED` and await source collection.
+* Updated the universal compliance gates so legacy `generationBlockedUntilSourceReview` and `publicationBlocked` flags remain authoritative even without `complianceCluster`. This closes the format-version hole that allowed the scheduled row to generate.
+* Preserved a production SQLite recovery snapshot, the prior application file and the four removed active image assets under the protected production `backups/` directory.
+* Passed Python compilation, a full migration against a temporary production database copy, repeat-run idempotency, generation/schedule guard assertions, production row/localization validation, PM2 restart checks and the Blog Core health endpoint.
+
+## 2026-09-08 — Preserve the established LinkedIn hero pipeline and task scope
+
+* Recorded the operator rule that implementation must not broaden the requested task or redesign working behavior without an explicit request.
+* Reverted the unrequested LinkedIn hero composition experiment. Dedicated LinkedIn heroes again use the established 16:9 Gemini generation, 55–60% centred headline block and existing 1065×795 crop.
+* Retained only the scoped safeguard that a LinkedIn draft without its dedicated reviewed hero cannot silently fall back to the article hero.
+* Re-generated the missing dedicated hero for YAS LinkedIn post `209` through that restored pipeline. The exact 1065×795 result is stored on the draft with headline `Portal Or No Code`; the deleted publication was not recreated and the draft has no schedule or remote URL.
+* Verified that no other active YAS LinkedIn draft or queued item lacks a dedicated LinkedIn hero. Historical publications and drafts belonging to other sites were not changed.
+* After explicit operator approval of the corrected `Portal Or No Code` cover, published YAS LinkedIn post `209` immediately through the direct LinkedIn Posts API. LinkedIn accepted it; the local post and content job are `SENT` with no publication error.
+
+## 2026-09-11 — Remove contradictory and duplicated LinkedIn hero instructions
+
+* Simplified only the dedicated LinkedIn image prompt. The image model now receives one dynamic string, `COVER HEADLINE`; the complete article title is used only by the preceding headline-writing step and is no longer exposed to image generation.
+* Removed the shared article-photo direction from the LinkedIn prompt because its `never graphic design` instruction contradicted the requested glossy magazine-cover typography and its human-scale scene language biased unrelated covers toward generic people and offices.
+* Removed repeated large-headline and negative-list wording while retaining the existing 16:9 generation, exact headline-once rule, bright editorial typography with drop shadow, 55–60% centred text block, safe margins, and final 1065×795 crop.
+* Deployed the scoped prompt change without altering later production Gemini failover or SoloCruz short-video work. Compiled the application and scheduler, verified the actual generated prompt contract without an image request, restarted both PM2 services, and confirmed a healthy production endpoint.
+
+## 2026-09-12 — Verify My UGC Studio LinkedIn application identity
+
+* Confirmed that the LinkedIn connection stored for My UGC Studio uses the intended application Client ID and has both an access token and client secret.
+* Confirmed that the token was issued only with the deployed member-publishing OAuth flow and stores `Iaroslav Olencovschi` as a personal author. No Company Page organization identity is selected, and no My UGC Studio LinkedIn post has been created or published through Blog Core.
+* No connection, scope, token, publishing identity or queue state was changed during this verification.
+* Confirmed from the application's available OAuth scope inventory that the required Company Page permissions are available: `rw_organization_admin` for organization discovery and `w_organization_social` for publishing. The deployed OAuth request still omits both.
+
+## 2026-09-12 — Connect My UGC Studio as a LinkedIn organization
+
+* Added Blog Core's callback URL to the LinkedIn application's authorized redirect list while preserving the existing My UGC callback.
+* Updated the OAuth request to use the application's available `r_basicprofile`, `w_member_social`, `rw_organization_admin`, and `w_organization_social` scopes. Replaced the OpenID `/v2/userinfo` dependency with `/v2/me` for both callback identity resolution and connection testing.
+* Replaced process-local OAuth state with a 10-minute Secure, HttpOnly, SameSite=Lax callback cookie so callbacks remain valid across the two production Gunicorn workers.
+* Corrected organization discovery by removing the invalid ACL projection and resolving each administered organization's display name through the supported organization lookup endpoint.
+* Reconnected site `6`, selected the exact `My UGC Studio` organization (`urn:li:organization:110609498`) rather than `My UGC Studiio`, and verified the selected Company Page role through the live LinkedIn API. No LinkedIn post was created.
+* Compiled the production application and scheduler, restarted both PM2 services, and confirmed the health endpoint after deployment.
+
+## 2026-09-12 — Allow imported articles in the LinkedIn source queue
+
+* Updated the automatic LinkedIn source selector to accept both `IMPORTED` and `PUBLISHED` content jobs, including already-created LinkedIn drafts attached to either status.
+* Kept the change scoped to LinkedIn; Facebook and every other automatic social channel retain their published-only selection behavior.
+* Required imported sources to have a live URL and excluded localized blog-index URLs ending at the configured blog path, preventing catalog pages from becoming posts.
+* Verified the production selection against My UGC Studio: 450 article records are LinkedIn-eligible, five localized blog indexes are excluded, and Facebook still sees only the seven `PUBLISHED` rows.
+* Compiled and deployed the current production application, restarted both Blog Core PM2 services, and confirmed the health endpoint. My UGC Studio autopublishing was not enabled and no social draft or publication was created.
+
+## 2026-09-12 — Connect Karp and Veselova Veronika to independent native blogs
+
+* Added an optional `sites.content_root_path` so a native site's code root and persistent data/media root can remain separate. Existing native sites retain the prior `<root_path>/data/blog-core` fallback.
+* Reconfigured Karp site `17` to `/var/www/karp-preview` plus `/var/lib/karp-preview/data`, and Veronika site `19` to `/var/www/veronika-preview` plus `/var/lib/veronika-preview/data`. Both are independent RU/EN `native_content_store` factories.
+* Updated post-publication warming to target the isolated artifact processes on ports `3045` and `3055` instead of the former shared Build YAS port.
+* Added native JSON consumers to both source applications. They preserve each site's existing blog chrome and card styles, add localized article routes, and expose noindexed native draft previews.
+* Extended both native sitemaps from the same published-record source; draft records remain excluded.
+* Verified both renderer builds (Veronika with full TypeScript validation; Karp's new code compiled while its pre-existing repository-wide type debt required a one-build-only type-check bypass), restarted only the two artifact processes, checked all six RU/EN public test routes and both private previews, then removed the temporary records and confirmed their routes returned 404.
+
+## 2026-09-12 — Keep a visible Karp native-blog verification article
+
+* Corrected the mistaken removal of the native-blog verification content after the renderer check.
+* Activated the existing Karp blog-card topic `Как выбрать новостройку в Казани` as a persistent RU/EN native article, with its localized routes present in the blog listing and sitemap.
+* Verification content requested for operator review must remain available until the operator explicitly asks to remove it.
+
+## 2026-09-12 — Preserve non-Latin article copy during deduplication
+
+* Fixed the structured-article deduplicator so its comparison key supports Unicode letters instead of only ASCII `a-z`.
+* The former expression reduced every Cyrillic paragraph and ordered-list item to an empty key, silently deleting the full Russian body before validation and making otherwise complete drafts appear to contain only about 460 words.
+* Added a focused Cyrillic duplicate/non-duplicate verification before deploying the fix and rebuilding the Karp article.
+
+## 2026-09-12 — Replace the Karp fixture with a complete native article
+
+* Replaced the five-block placeholder at `/blog/kak-vybrat-novostroyku-v-kazani` with a validated 1,650-word native publication containing eight sections, a comparison table, seven-step checklist, three inline images, six FAQ entries and three contextual internal links.
+* Generated a dedicated hero and three paragraph-bound editorial images, created the English localization, and published the result atomically through Blog Core's native content-store lifecycle.
+* Updated Karp's listing materializer to replace an existing same-title placeholder card in place instead of prepending a duplicate. The live RU blog now has one linked card for the article.
+
+## 2026-09-12 — Bring Karp native articles to the site's editorial standard
+
+* Reworked only Karp's native-article presentation layer, preserving article copy, media, routes and publication state.
+* Added a premium dark editorial system for the contents panel, paragraph rhythm, figures, contextual links, comparison tables, numbered checklist cards, pull quote and accessible FAQ accordions using Karp's existing serif typography and gold accent.
+* Added responsive behavior: the contents and checklist collapse to one column, the comparison table scrolls with a sticky first column, and FAQ controls retain touch-sized targets.
+* Browser QA confirmed the desktop table, checklist, quote, closed FAQ state and expanded FAQ answer. The temporary one-build TypeScript bypass was removed after compilation.
+
+## 2026-09-12 — Repair the Karp blog-index card regression
+
+* Repaired the native article card on `/blog` after the materializer had cloned a runtime property card and then changed Karp's tag-sensitive `span.blog-list__item` wrapper into an anchor.
+* The materializer now preserves the original blog-card wrapper and native classes, updates the matching placeholder in place, and adds a full-card overlay link without changing the page's grid or authored structure.
+* Added card-scoped block spacing for the populated publication date so imported titles, dates and descriptions remain visually distinct.
+* Rebuilt and restarted only `karp-preview-artifact`; desktop browser QA confirmed the three-column grid, separated title/date/description, loaded card images and successful navigation to the native article.
+
+## 2026-09-12 — Complete Veronika's first native Blog Core article
+
+* Published the existing card topic `Как сформировать техническое задание на частный дом` as a complete 1,451-word RU and 1,551-word EN native article with eight sections, three contextual images, a comparison table, seven-step checklist, pull quote, contents navigation and six FAQ entries.
+* Reused Veronika's existing approved house, briefing, location and engineering media; no new or unrelated imagery was generated.
+* Reworked the native article presentation around Veronika's approved single maroon `#6b1730`, white serif typography, translucent panels and rose accents. No second solid maroon was introduced.
+* Fixed Veronika's listing materializer using the same safe contract as Karp: preserve the authored `span.blog-list__item`, replace the matching placeholder in place, separate the populated date, and add an inner full-card link.
+* Full TypeScript/build validation passed. Restarted only `veronika-preview-artifact`; verified RU/EN routes, all four media URLs, sitemap entries, listing-card navigation, contents, article structure and FAQ expansion in the browser.
+
+## 2026-09-12 — Diagnose Veronika's shared contact-section layout defect
+
+* Confirmed the defect is global because every route reuses section `section-23fb0b03-fe4a-4fb1-8474-2f76b5d59948` and the same server materializer.
+* The three social controls are appended to the full `.lp-container`, then styled as an `83.34%` centered row. That ignores the portrait composition's left negative-space column and places the row across Veronika's body.
+* The faulty rule is present in the pre-article runtime backup, so the native Blog Core article CSS did not create this layout. No visual fix was applied during this diagnosis.
+
+## 2026-09-12 — Center Veronika's shared contact section on every route
+
+* Replaced the split desktop composition with one centered group containing the title, primary CTA and Telegram/WhatsApp/Instagram controls, and moved that group below the section midpoint as requested.
+* Preserved the contact photograph, authored 850px desktop/tablet section height and existing mobile bottom-centered layout. The first implementation exposed that absolute positioning collapses the source section unless its height is explicitly retained; the final rule includes that invariant.
+* Bumped the Veronika contact artifact presentation version, rebuilt and restarted only `veronika-preview-artifact`, then warmed every unique sitemap route so public pages no longer fall back to stale HTML.
+* The focused contact-materialization test and full production TypeScript build pass. Browser QA confirmed identical centered geometry on `/` and `/blog`; a route audit found no non-200 or non-`HIT` artifacts.
+
+## 2026-09-12 — Match Veronika's mobile contact CTA to the hero CTA
+
+* Removed the mobile contact CTA's forced full-width, 80px-high geometry only for Veronika's shared contact section.
+* The CTA now uses the Home hero button contract: intrinsic width, 59.2px rendered height and `22px 50px` padding. Its width is slightly larger than the hero CTA only because `Написать Веронике` is a longer label.
+* Preserved the contact image, heading, messenger controls, desktop layout and Karp tenant. Focused tests and the full production build pass; browser QA at `390×844` confirmed the compact button.
+* Bumped the shared Veronika contact presentation version, warmed every unique sitemap route and verified that all public artifacts return HTTP 200 `HIT`.
+
+## 2026-09-11 — Diagnose recurring LinkedIn hero generation defects
+
+* Verified that production uses `gemini-3.1-flash-image` and that no LinkedIn image generation is currently pending.
+* Inspected the deployed LinkedIn hero prompt and identified direct conflicts and accumulated instruction noise: magazine-cover typography versus `never ... graphic design`, two separate title strings, human-subject bias from shared article-photo direction, central-scene exclusions, and repeated `large` wording competing with the single numeric width constraint.
+* No prompt, model, crop, queue or publication state was changed during this diagnosis.
+
+## 2026-09-12 — Create a complete Blog Core repository checkpoint
+
+* Prepared one full source checkpoint containing all current tracked modifications/deletions plus the accumulated untracked application modules, operational scripts, deployment units and canonical documentation.
+* Kept runtime secrets, environment backups, databases, core dumps, generated media, temporary work directories, historical source snapshots and backup files outside Git; expanded `.gitignore` so those unsafe artifacts do not reappear in future status checks.
+* The checkpoint records repository state only. It does not publish content, modify queues, restart services or push to the remote repository.

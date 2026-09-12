@@ -13,6 +13,8 @@
 
 ## Content behavior
 
+* GEO commercial collection completion follows the approved AI-visibility demand map, not generic vendor feature lists. The minimum viable public inventory is six Solutions, four Tools, and four Use cases. The final three queued contracts are: AI Visibility Checker (mentions/recommendations/citations), AI Readiness Checker (access/understanding/citation evidence), and AI Citation Readiness (the workflow for questions such as how to be cited in ChatGPT or Google AI Overviews).
+* These intents must stay separate in copy and canonical targeting: observed answer visibility is not site readiness; readiness is not a promise of an AI citation; citation readiness is not a claim that a provider will cite or recommend the site. Do not create near-duplicate GEO/AEO/AI SEO/LLMO synonym pages to meet collection volume.
 * The current sample article is placeholder content about visual chaos in product pages.
 * Topic discovery produces signals and queued article ideas as `content_jobs`; draft generation exists as a job action, but automatic final publishing is not complete.
 * Article ideas should use trend/discussion hooks to explain audience questions/problems and connect them to the site's offer, expertise, or editorial point of view.
@@ -35,6 +37,12 @@
 * Model-output hygiene is an SEO publish requirement. Visible copy must be rejected if it contains code fences, chain-of-thought/control markers, JSON-output narration, or similar generation artifacts.
 
 ## Known SEO gaps
+
+## 2026-09-08 — Georivo English-only acquisition surface
+
+* Replaced: the attempted English-only composite sitemap was incorrect and has been reverted. Existing localized records remain indexable through sitemap and `hreflang`; only the visible language selector is hidden and unprefixed navigation defaults to English.
+* English money pages, hubs, articles, examples and embed guidance must point commercial actions to `/create-listing` and match the current one-time `$99 / 90-day` flow.
+* Retired Template URLs and subscription CTAs must not appear in indexable English copy or related/recommended links.
 
 * Replaced/deprecated 2026-07-03: The older statement "Dynamic article sitemap expansion is not implemented yet" is no longer true for hosted CNAME blogs. Hosted sitemap expansion now includes public imported/generated content jobs.
 * Local static `/blog` install still writes the sample shell and does not yet export imported/generated content jobs as final static article pages.

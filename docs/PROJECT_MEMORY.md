@@ -1,3 +1,102 @@
+## 2026-09-02 — EPR Scan crosslinks must be visible in reading context
+
+* A stored `internalLinks` array is not sufficient by itself. EPR Scan matches those declared targets to their semantic in-body paragraphs and renders each match as a visible contextual reading card beside the relevant section.
+* Crosslink matching normalizes the supported `/de`, `/fr` and `/es` path prefixes, while retaining the localized paragraph and anchor text. The renderer must not replace translated copy with English interface labels.
+* A single `recommendedNext` action renders as a compact high-contrast CTA, not as an oversized two-column panel with an empty half. Contextual reading links and the conversion CTA remain visually distinct.
+* Every declared contextual target and CTA must return HTTP 200 before the article presentation is accepted.
+
+## 2026-09-02 — EPR Scan articles use a native editorial component system
+
+* Blog Core article HTML remains semantic content, while EPR Scan owns its visual presentation. Generated article blocks must render through the site's native cream/ink/green editorial system rather than browser-default styles.
+* The article contract includes a numbered contents panel, bounded readable text measure, styled figures/captions, a structured desktop data table, locale-derived labelled table cards on phones, numbered workflow steps, a high-contrast quotation, a recommended-next card and accessible FAQ accordions.
+* An English draft preview shows only meaningful available metadata such as author and reading time. It must not expose empty reviewer, last-reviewed or ruleset fields as `Pending`; the draft banner already communicates its workflow status.
+* FAQ controls use native `details`/`summary`, visible plus/minus affordances, keyboard focus and at least 44px interaction height. Evidence links and secondary text must meet WCAG AA contrast.
+
+## 2026-09-02 — EPR Scan first English review draft precedes localization (completed)
+
+* Superseded state: the first roadmap item began as the English-only draft `When does the PPWR apply to ecommerce sellers?` (`content job 5c9fda97f3ca8c064871e6a6`). It is now published with DE/FR/ES localizations after approval and source audit.
+* The approval sequence is English generation and visual/editorial review first. Only after explicit approval may Blog Core translate the accepted English source in one batch to German, French and Spanish. Russian and Italian remain excluded locales.
+* EPR Scan renders review drafts at `/content-preview/{jobId}` in its native design. Draft previews are private workflow surfaces with `noindex`, `no-store`, no sitemap membership and an explicit unpublished-draft banner; they must never be treated as publication.
+* Draft and published article media are copied into EPR Scan-owned `/images/blog-core/{jobId}/` paths during sync so the native self-only image CSP remains intact.
+
+## 2026-08-31 — Social prompt templates and scheduler imports are release gates
+
+* JSON examples embedded in Python f-strings must escape every literal object brace. Compile-only validation is insufficient: release checks must call each active social prompt builder with a real site/job row so formatting errors surface before the daily slot.
+* `scheduler.py` may import only workers that exist in the deployed `app.py`. Restarting both PM2 processes is a required release check because a long-lived scheduler can conceal an app/scheduler mismatch until its next restart.
+* A restored social schedule is verified end to end: generate a new native creative, submit it through the configured provider, confirm the provider returns a remote ID, and keep the public review URL available.
+
+## 2026-09-03 — Reddit scheduling belongs exclusively to Blog Core
+
+* Blog Core is the sole owner of a Reddit draft's queue state and due timestamp. Zernio is a delivery adapter only: it receives a Reddit draft with `publishNow` when Blog Core's local queue releases that reviewed item.
+* A Zernio `scheduledFor` request that includes a Reddit draft is rejected. This prevents a second, provider-owned calendar from bypassing factory queue controls or making cancellation opaque.
+* Replaced: the 2026-09-01 finite YAS Reddit schedule that was materialized directly in Zernio. Six future provider drafts were deleted; the one already published post remains published.
+
+## 2026-09-03 — Threads work queue uses factory-owned daily slots
+
+* Ready Threads work items are materialized as native social drafts and scheduled by Blog Core at 18:00 `Europe/Warsaw`, one per day. Zernio receives an immediate delivery request only after the local due time.
+* The generic channel cadence does not consume this queue: its global time window belongs to other channels. A dedicated Threads queue worker prevents a generic article-derived post from competing with reviewed Threads work.
+
+## 2026-09-03 — Facebook Page is a dedicated editorial social contour
+
+* Facebook Page drafts are not generic cross-posts: Blog Core creates a 420–900-character native adaptation with a single canonical article URL, then a separate article-specific 1200×630 magazine-style cover with its own bounded headline.
+* Facebook delivery uses the site-scoped Zernio Facebook Page account mapping. No account mapping authorizes no generation or publication; production YAS currently has no such mapping. SoloCruz and Laycanmatch have their respective Facebook Page mappings configured in Blog Core.
+* Facebook cover generation starts from a single article-specific Gemini image, then crops/resizes the finished raster to the native 1200×630 (1.91:1) feed surface. This is an image-format derivative only; Blog Core must never add a programmatic text overlay.
+* For SoloCruz's 19 published articles, Facebook drafts are factory-owned and scheduled one per day at 18:00 `Europe/Warsaw` from 4 through 22 September 2026. Zernio receives each item only as an immediate due-time delivery.
+* For Laycanmatch's 11 published articles, Facebook drafts are factory-owned and scheduled one per day at 18:00 `Europe/Warsaw` from 4 through 14 September 2026. Zernio receives each item only as an immediate due-time delivery.
+
+## 2026-09-03 — Blog Core Gemini runtime configuration
+
+* Blog Core's protected production environment holds the Gemini runtime credentials used by its own text and image generation. Production `run.sh` loads and exports that environment before starting Gunicorn.
+* Manual maintenance or batch commands that import `app.py` must first use the same environment-loading sequence. A bare Python shell does not inherit those variables and must never be interpreted as evidence that a key is missing. Credentials remain secret and must never be printed, copied into source code, or recorded here.
+
+## 2026-09-02 — LinkedIn overflow recovery and article-specific hero contract
+
+* A LinkedIn post that exceeds the 3,000-character hard limit must receive a bounded factual rewrite and be revalidated before the same publication attempt continues. It must never be silently skipped or sentence-truncated. Text-only recovery must retain the existing article hero asset.
+* New article hero artwork is an article-specific editorial scene, not a reusable stock office image. The image plan must express the article's central decision or practical task through its own subject, action, environment and physical evidence objects.
+* The exact article title is the only permitted readable text on a new hero image. It uses a bright, high-contrast editorial treatment with safe margins; body illustrations remain free of text overlays and incidental readable UI/document text.
+* Known legacy-queue hazard: LinkedIn draft `209` was created before the dedicated LinkedIn hero payload existed. Its `content_json` had no `linkedin.mediaUrl` or `coverHeadline`, so the publisher fell back to the 1376×768 article hero and then center-cropped it to 1065×795. The article hero carried the full-width article title, which was clipped on both sides. A missing dedicated LinkedIn payload is therefore not a prompt failure and must not be treated as publishable merely because an article hero exists.
+
+## 2026-09-02 — LinkedIn social hero art direction
+
+* The dedicated 16:9 LinkedIn social hero is a photorealistic glossy magazine-cover photograph with a bright, attention-grabbing wow effect. It derives its visual from the article title and renders that title as the only readable text.
+* People, offices, desks, meetings, laptops, dashboards, floating UI, handshakes and generic business imagery are not globally prohibited for LinkedIn heroes; the title should determine whether they fit. Do not use the word `cinematic` in this prompt.
+* A text step derives a 2–5-word cover headline (maximum 21 characters) from the article title. The image model receives only that `COVER HEADLINE`; the full article title must not appear in the image prompt. The headline determines both the photograph and the sole rendered text. It is centred in a 55–60%-wide glossy magazine-cover block with clear space on each side; every glyph must remain fully inside the frame.
+* LinkedIn cover headlines are large, bright, bold magazine-cover typography with a pronounced drop shadow. They require a calm single-tone, softly defocused central field behind the complete text block; no busy visual subject may cross that field. Settings must arise from the visual concept rather than routine desk-work conventions.
+* Cover headlines contain only their generated words: quotation marks, apostrophes, brackets, colons, dashes and other punctuation are prohibited in both the text-generation validation and image prompt.
+* Replaced: LinkedIn social heroes must not use a 16:9 `1200×675` crop. The native post-card contract is `1065×795` (3× the `355×265` card), using a centred crop without letterboxing after generation.
+* LinkedIn hero photography must express one central tension from the title through a single unexpected, physically real magazine-cover scene. It needs one bold visual premise and dominant subject, and must be specific enough that it cannot fit a generic startup, AI, software or consulting article.
+* The dedicated LinkedIn hero prompt must not use the genre triggers `business`, `LinkedIn post`, `startup`, `AI`, `software` or `consulting`; they bias Gemini toward stock corporate photography. Use a glossy editorial magazine-cover visual story instead.
+* LinkedIn heroes favour present-day photorealistic magazine-feature situations: a familiar location, natural human scale and a tangible consequence of the title's central choice. Avoid futuristic, fantastical, abstract or technologically exaggerated visual directions.
+* Article images never render a title or other readable text. Their hero uses its article-specific visual plan; each body image uses only its anchored paragraph and visual brief, not the full article context. The concise LinkedIn cover prompt is separate and must not inherit article-photo restrictions that conflict with magazine-cover typography.
+
+## 2026-09-08 — Do not expand operator tasks or redesign working logic
+
+* Execute the operator's stated scope literally. Do not invent adjacent tasks, broaden the target set, or redesign an already working pipeline unless the operator explicitly asks for that change.
+* When the request is to apply an existing working mechanism where it is missing, preserve that mechanism exactly. For LinkedIn heroes this means keeping the established 16:9 generation, 55–60% centred headline block and existing 1065×795 crop; only add the missing dedicated-hero application or publication guard requested.
+
+## 2026-09-11 — Current LinkedIn hero prompt has verified internal conflicts
+
+* The observed LinkedIn hero defects cannot be attributed only to `gemini-3.1-flash-image`. The current prompt combines a magazine cover with a shared direction that explicitly says `never ... graphic design`; asks for a dominant natural-human-scale subject while clearing people and objects from the central headline field; supplies both the full article title and a separate renderable cover headline; and repeats qualitative `large` headline instructions more strongly than the single 55–60% width constraint.
+* The shared article-photo direction also biases the model toward a familiar physical location and human subject, which can produce recurring office/person scenes even when the title calls for another visual. This prompt diagnosis is verified from the deployed source. Do not change the prompt or generation mechanics without an explicit operator request.
+
+## 2026-09-12 — My UGC Studio LinkedIn publishes as its organization page
+
+* Replaced: My UGC Studio is no longer connected only as a member. Its site-scoped LinkedIn application now requests `r_basicprofile`, `w_member_social`, `rw_organization_admin`, and `w_organization_social`; the application does not expose OpenID scopes.
+* The LinkedIn application has both `https://web.myugc.studio/factory/linkedin/callback` and `https://blog.yas.ooo/oauth/linkedin/callback` registered as authorized redirect URLs.
+* OAuth state is carried in a short-lived Secure, HttpOnly, SameSite=Lax callback cookie. Do not return to process-local state storage: production uses multiple Gunicorn workers and an authorization callback can reach a different worker.
+* Organization discovery uses the unprojected `/rest/organizationAcls?q=roleAssignee&state=APPROVED` finder, then resolves each eligible organization name through `/rest/organizations/{id}`. The earlier custom ACL projection returned HTTP 400.
+* My UGC Studio site `6` is configured to publish as `urn:li:organization:110609498` (`My UGC Studio`), not the similarly named `My UGC Studiio` page. The selected organization role and token were verified through the live LinkedIn API. No post was created during connection.
+
+## 2026-09-12 — LinkedIn may use imported live articles as social sources
+
+* The automatic article-to-LinkedIn worker accepts both `PUBLISHED` and `IMPORTED` content jobs. This expansion is LinkedIn-only; other automatic social channels retain their existing `PUBLISHED` source rule.
+* An `IMPORTED` source must have a real `published_url`. Imported localized blog-index pages whose URL ends at the site's configured blog path are excluded because they are listings, not articles.
+* Existing LinkedIn drafts attached to an `IMPORTED` article are eligible for their due slot under the same rule. My UGC Studio autopublishing remains disabled until explicitly enabled; changing source eligibility alone must not schedule or publish anything.
+
+## 2026-09-02 — YAS article-length preference
+
+* YAS articles may use a per-job minimum of 1,000 words when the editorial task is complete and validated at that length. Do not pad a concise draft solely to reach the former default of 1,200 words.
+
 ## 2026-08-13 — Reel layers use natural shadows and one continuous camera path
 
 * Visible light/white silhouette outlines are deprecated because uneven mattes make them look torn or sticker-like. Registered layers use only a broad soft offset shadow plus a restrained contact shadow for separation from the background.
@@ -1011,5 +1110,318 @@ It must be updated after every meaningful task.
 * Every Reel scene must contain three or four distinct physical layer events. The persistent overlay, camera path, focus, lighting, and static-set reveals are additional direction and never count toward this minimum.
 * Step two must create three or four independently extractable layers and at least one meaningful non-human object. Step three creates exactly one timed rigid entrance for every approved layer and cannot omit or duplicate one.
 * The first three layer events form one causal evidence chain: situation, mechanism, and visible result. An optional fourth event may preserve continuity. Every layer must explain what becomes impossible to understand if it is removed; location dressing, generic accessories, atmosphere, and visual padding are not events.
+
+## 2026-08-14 — Abstract Reel claims need honest evidence layers
+
+* Pricing, discounts, cost splits, matching results, and similar abstract mechanisms must not be converted into invented gifts, luggage, keycards, tickets, wristbands, receipts, or other photographic proxies that do not prove the claim.
+* When people and physical relationships cannot communicate the mechanism honestly, use a restrained programmatic evidence layer with only the minimum fact needed for comprehension. It is not an AI-generated photographed prop and must remain subordinate to the main scene copy.
+* This production capability is still pending full renderer integration. Until then, plans using evidence layers remain text-only review artifacts and must not start image, voice, or video generation.
 * A person layer owns every item worn, carried, held, touched, or overlapped by that person. An independent object layer must be physically separate from people and other movable layers, freestanding, detachable, and unobstructed.
 * Replaced/deprecated: the same-day rule that counted one layer entrance plus overlay text plus camera motion as a valid three-event scene.
+
+## 2026-08-14 — Programmatic Reel evidence is independent of the photographic camera
+
+* Decision: Abstract facts such as prices, discounts, supplements, cost splits, and matching results are rendered as transparent programmatic RGBA evidence layers. They are composited in screen coordinates and are not zoomed or panned with the photographic camera.
+* Decision: Camera phases start from the approved event timestamps, not equal subdivisions of scene duration. Physical photo layers follow the camera; evidence graphics retain their readable screen placement.
+* Decision: Resume production reuses costly completed photo assets but regenerates cheap programmatic graphics from the current approved plan so placement and copy fixes take effect.
+* Decision: Extractable person masters must avoid bags, backpacks, straps, luggage, dangling accessories, and other ownership-crossing details. Two-person mobile scenes use medium-wide framing with each person large enough for reliable matting and phone viewing.
+* Decision: Voice generation remains disabled until the visual result is approved. A visual-only production run may use the site's existing brand music continuously.
+* Reason: Camera-transforming evidence made it overlap people and become unreadable; stale resumed graphics ignored corrected placements; straps and undersized people caused avoidable matting failures.
+* Files/areas affected: `app.py`, `reel_renderer.py`, Instagram Reel generation for every connected site.
+* Replaced/deprecated: photographed proxy props for abstract claims, camera-transforming UI/evidence cards, and blind reuse of stale programmatic layers during resume.
+
+## 2026-08-14 — Reel cards and narration must fit their time and frame
+
+* Decision: Programmatic evidence cards use measured content layout with explicit left, right, top, and bottom safe padding. Logo, title, and detail lines are measured together; typography may reduce within a bounded range when required, but content must never cross the card edge.
+* Decision: Scene narration must finish before its scene boundary. Measure generated audio before rendering and normalize an overlong delivery to the approved narration window so sequential scene voices cannot overlap.
+* Decision: A Reel has one narrative voice sequence. Per-scene WAV segments are timeline parts of that sequence, not concurrent speakers. Brand music remains continuous and is ducked beneath speech.
+* Reason: Fixed text offsets clipped the final evidence detail, while unexpectedly slow TTS delivery exceeded six-second scenes and would have produced overlapping narration.
+* Files/areas affected: `app.py`, Instagram Reel evidence graphics and audio production for every connected site.
+* Replaced/deprecated: unmeasured evidence-card typography and trusting requested TTS speaking duration without inspecting the generated file.
+
+## 2026-08-14 — Reel duration follows comprehension, not a fixed runtime
+
+* Decision: Never accelerate, truncate, paraphrase, or shorten approved narration merely to fit a target Reel duration. Measure the natural generated voice and expand each scene to the full narration duration plus a calm reading pause. The total Reel duration has no fixed upper limit.
+* Decision: Overlay text remains visible until the expanded scene ends. A scene cut, text change, voice transition, and camera-plan boundary share the same content-driven timeline.
+* Decision: Camera direction is authored per scene from that scene's subjects, environment, evidence order, and intended reveal. Camera focus targets only photographic subjects or the physical environment; programmatic evidence graphics remain fixed in screen space and are never camera targets.
+* Decision: Every camera keyframe must preserve the persistent overlay and evidence-card safe zones. A face or essential object may not enter those zones during a push, pan, focus transfer, or pull-out; use a wider environmental move when a close-up has no safe destination.
+* Decision: Evidence-card content is one centered layout group. Accent marker, logo, title, and detail copy are centered horizontally, and the measured group is centered vertically inside safe padding. Text wraps and typography adapts without hard line-count truncation.
+* Reason: Speed-normalized narration became unnaturally fast; keeping six-second scene metadata made text and camera timing diverge from longer audio; left-aligned fixed card layouts produced inconsistent empty space.
+* Files/areas affected: `app.py`, `reel_renderer.py`, all Instagram Reel production.
+* Replaced/deprecated: the earlier same-day rule that normalized overlong narration into a fixed scene window. Scene duration now expands instead.
+## 2026-08-14 — Reel visuals form a reusable, non-destructive per-site library
+
+* Every site's generated Reel imagery is indexed from `data/social_assets/{site_id}` into `data/reel_asset_library/{site_id}/catalog.json`; originals remain untouched in their production directories.
+* Curation separates approved canonical assets, manual-review candidates, rejected assets, exact/visual duplicates, and non-reusable archive imagery. Only `approved` canonical assets may enter future automatic generation.
+* A reusable scene is a registered bundle: its clean/background frame, master context, and registered layers remain geometrically related. A layer from one scene must never be pasted directly onto an unrelated background.
+* Approved scene/master imagery may be supplied to Gemini as a site-specific photographic-world reference. Approved person layers may be supplied as identity/wardrobe references. Both are reference-only outside their original scene: the new master owns pose, action, scale, lighting, and registration.
+* Exact and near duplicates remain on disk for provenance but are excluded from the canonical library. Low-resolution, empty, non-transparent registered layers and clearly undersized mobile subjects are rejected automatically; ambiguous edge contact or matte quality remains manual review.
+* Duplicate detection is role-aware. Exact bytes are compared across all reusable roles; visually equivalent variants are compared within their role; and cross-role opaque frames collapse only at encoding-noise equivalence. A clean plate, populated master, source frame, and registered transparent layer remain separate when they carry different production value.
+* The Distribution tab exposes the Reel visual library with status filters and manual `Approve`, `Review`, and `Reject` controls. Manual decisions persist in `overrides.json` and survive catalog rebuilds.
+* Manual status changes update `catalog.json` atomically before the browser redirect, then queue the full background rebuild. The visible filter state must never wait for the slower scan.
+* The library refreshes automatically in the background after a Reel's complete visual scene set is accepted. Expensive image generation does not wait for the catalog rebuild.
+## 2026-08-31 — Shared carousels require a real editorial source
+
+* A shared Instagram/TikTok carousel plan is never itself a content source. It must resolve to a `PUBLISHED` or `IMPORTED` article before creative generation starts.
+* A stored direct content-job link is authoritative. Legacy synthetic `agent-social-*` links may be repaired only through a high-confidence editorial match using at least two shared topic terms, including one non-generic term.
+* Generic site vocabulary such as `cruise`, `solo`, `best`, or `guide` cannot create a source match. Blog hubs and navigation/index pages are not valid social-source articles.
+* A plan whose source article is still queued or absent remains `WAITING_FOR_SOURCE`; it stays in the plan and is re-evaluated on later scheduler runs. It must not block later plans that have valid articles and must never generate a carousel from an unrelated article.
+
+## 2026-09-01 — High-risk content uses configuration-driven release gates
+
+* A `content_job` with a `complianceCluster` contract uses universal gates, without a site, domain or topic exception: generation needs a current source map and explicitly VERIFIED claims; publication and scheduling need a recorded Tier B approver, all-locale review and visual QA.
+* The NOMADeira Phase-A queue has dated primary-authority source maps for all 12 narrow-intent articles. `SOURCES_COLLECTED` is evidence intake only: it has no generated drafts, localizations, media, schedules or public pages.
+* The daily scheduler uses the same publication gate and cannot publish a protected article merely because it has a due timestamp.
+* Replaced: three legacy `www2.gov.pt` references that returned live HTTP 502 were excluded from the Phase-A source revision; the remaining official sources were retained only after reachability checks.
+* The generic compliance lifecycle exposes two auditable API transitions: `compliance-claim-review` records source-bound verified claims and unlocks draft generation; `compliance-tier-b-approval` requires a generated draft, every configured localization and explicit all-locale/visual QA confirmations before a job can be scheduled.
+* Claim review derives the generator's closed `pageBrief.sourceReferences` from the reviewer-approved claims, including conditions and exceptions. It never feeds a broad source-topic summary to the writing model.
+* Compliance article visual generation is two-stage: a Gemini text batch first creates the complete article and a persisted `mediaBatchPlan` with one hero and three paragraph-bound final image prompts per article; only then may one image batch be sent. The planning stage creates no image bytes or publication.
+## 2026-08-31 — Native V3 publishers derive route identity at publish time
+
+* A stored native-factory draft can predate the current V3 payload schema. Before serializing it, the publisher must derive `page_id` and `language` from the target route and supply safe structural defaults.
+* One incomplete page payload must never make `factory_v3.cli build-preview` fail for every page on the site. The publishing boundary owns this compatibility guard, rather than relying on a later whole-site build to surface it.
+* LaycanMatch's native factory follows this rule. Its release verification is a Python compile, a PM2 restart, and a complete V3 `build-preview` with an `ok` QA result.
+* Its text generation is explicitly configured as `gemini-3.7-flash`; `gemini-2.5-flash` is retired and must not be restored as a fallback.
+
+## 2026-08-31 — LaycanMatch legacy article rewrites preserve the blog cluster
+
+* Existing LaycanMatch informational articles are canonical `/blog/<slug>/` pages. Rewriting them through the native factory must preserve that route rather than creating a second `/resources/<slug>/` page.
+* Generation remains separate from publication. Batch-started native jobs return to Blog Core as drafts for review; they do not replace public pages until explicitly published.
+
+## 2026-08-31 — Separate generated-video Reel plans use an executable narrative ledger
+
+* The separate NOMADeira batch-video contour (`app_video_canary.py` + `batch_video_engine.py`) must not treat a factual hook, a self-score, a caption, or a pinned comment as evidence of a compelling Reel.
+* Every new Gemini production plan has a `narrativeArc` with one ordered beat per clip, the exact payoff clip, the information newly released, the information withheld, visible proof, and the reason the next beat is necessary. In multi-clip stories, the payoff cannot be clip one.
+* Replaced: forcing an explicit recipient/"share this" CTA inside a Reel. `viewerReactionBeat` is an actual final clip requirement, not post metadata, but it contains only a short story-specific comment expression. Shareability is evaluated from the story's transmission value; no geographic, national, cultural, diaspora, resident, heritage, family, friend, or other invented recipient targeting may be persisted from commissioning seeds.
+* A separate hostile Gemini critic and a deterministic structural gate reject early payoff leaks, non-escalating repetition, generic scenery used as proof, and reaction copy absent from the Reel. A failed plan is prompt/contract evidence; it must not trigger blind media generation or mass retries.
+* This applies to every present and future site/story. No place, domain, entity, topic, or prior canary is special-cased. The contour remains separate from the legacy Reel renderer and does not generate or publish media during planning.
+
+## 2026-08-31 — Universal finalized Google Search Console collection
+
+* Each site may select one exact Search Console property in `gsc_site_connections`. Only the property, access state and collection state are stored; credentials and paths remain server-only.
+* The scheduled collector reads the latest finalized Web Search date, three days behind UTC, and persists page and query aggregates separately in `gsc_daily_page_metrics` and `gsc_daily_query_metrics`.
+* Each run is durable in `gsc_collection_runs`. A failed read leaves the last successful daily snapshot untouched.
+* This stage only collects search data. Topic selection, content creation, 21–30-day evaluation, consolidation and conversion attribution remain deliberately separate.
+
+## 2026-08-31 — GSC weekly opportunity planning
+
+* Weekly planning operates only for sites with a connected GSC property. It aggregates the last 28 days of query metrics and considers queries with real impressions and positions 4–25.
+* Candidate ideas still pass the universal editorial and duplicate checks against all existing and planned site content. It creates reviewable `gsc-near-ranking` recommendations, not jobs or publications.
+* The intended output is three to five quality candidates per week, but it is never a quota: insufficient demand or uniqueness produces fewer (including zero) recommendations.
+
+## 2026-08-31 — GSC coverage is verified per connected site
+
+* Search Console access is verified against one exact property per Blog Core site. A successful connection is enabled automatically; inaccessible properties remain disabled and cannot produce collection failures or invented data.
+* The service account currently has confirmed `siteFullUser` access for every independently managed panel site: `yas.wine`, `myugc.studio`, `solocruz.com`, `laycanmatch.com`, `airep24.com`, `yas.ooo`, `pipsalerts.com`, `georivo.com`, `cabinjoin.com`, `karpaleksei.com`, `nomadeira.com`, and `veselovaveronika.com`. `geo.yas.ooo` is not an independent GSC target; its SEO data belongs to the shared `yas.ooo` property.
+* `veselovaveronika.com` is a distinct Blog Core site (`id 19`), even though it shares the VPS application host with `karpaleksei.com`. Its management boundary, GSC property, data, jobs, and future content remain independent. Creating its panel record and initial GSC collection did not scan, publish, or modify its webroot.
+* An initial collection covers only the latest finalized day. Weekly planning is deliberately allowed to return zero until enough 28-day query evidence exists. A `NO_CANDIDATES` result retries once daily rather than blocking the rest of that calendar week.
+* Replaced/deprecated: treating an empty first-week GSC response as a completed weekly plan.
+
+## 2026-09-01 — NOMADeira compliance articles use the native Blog Core article queue
+
+* The NOMADeira compliance cluster does not create a second publisher or a social-content substitute. Verified graph evidence feeds the existing `content_jobs` → `content_job_localizations` → native JSON draft/preview/publish lifecycle.
+* Phase A's 12 narrow-intent records are seeded idempotently as private `BLOCKED_EVIDENCE` jobs. Each records its immutable target slug, one curated parent core route, required primary-authority families, high-risk claim fields and atomic `en`/`de`/`uk`/`ru` release requirement.
+* A matching unpublished job is adopted instead of duplicated. A published, drafted or generating job is never mutated by the seed. No compliance record may generate, preview publicly, or publish until its current primary-source map and Tier B high-risk review are complete.
+
+## 2026-09-01 — Compliance source collection precedes claim verification and drafting
+
+* The first three NOMADeira compliance pilots — NIF through representative, remote employee residence route and opening atividade — now hold private, dated primary-source maps and restricted claim proposals in their existing Blog Core jobs.
+* `SOURCES_COLLECTED` means only that the official material, its supported scope and expiry are recorded. It is not claim verification, legal review, draft authorization, localisation authorization or publication approval. `claimIds` remains empty until the next gate is completed.
+* A source-map collector is idempotent by a stored revision. It preserves the job's generation/publication block and never creates draft HTML, locale records, media or public URLs.
+
+## 2026-09-01 — NOMADeira Phase A content approval and one image batch
+
+* The twelve Phase-A compliance articles are generated as source-bounded English drafts only after verified claims exist. Each is approved only when its structured draft validates and it has exactly four distinct planned images: one hero plus three paragraph-bound scenes.
+* The editorial contract must not force invented workflow steps. Where the closed source ledger supplies three approved reader checks, the quality minimum is three and each is used exactly once; an absent approved internal-link list requires empty link arrays.
+* A transient failure to fetch a still-current reviewed official source is recorded as `TEMPORARILY_UNAVAILABLE`. It permits private drafting from the unexpired reviewed evidence but blocks compliance publication until a later live check succeeds.
+* After 12/12 source-bounded drafts and 48/48 unique image prompts passed owner-authorized content review, one Gemini `gemini-3.1-flash-image` batch was submitted. This is asynchronous media production only; localizations, visual QA, Tier B publication approval and scheduling remain blocked.
+* The submitted batch completed with 48 keyed responses and no provider errors. Blog Core selected one approved image per key, stored 48 WebP assets (hero plus three paragraph-bound images per article), and retained the two extra provider image parts outside the published asset set.
+
+## 2026-09-01 — YAS daily article and explicit X schedules
+
+* `yas.ooo` publishes native content-store articles once per day at 09:00 `Europe/Warsaw`. The initial cleaned schedule contains 16 unique public jobs from 2026-09-02 through 2026-09-17; ready drafts run first and queued legacy rewrites retain their canonical slugs.
+* An internal `yas-evidence-social-preview` record is not an article and is never scheduled. Exact evidence-pattern duplicates are collapsed before scheduling; the retained canonical draft is the more complete generated version.
+* LinkedIn remains an independent daily 10:00 schedule. Explicitly prepared X work items publish once per day at 17:00 `Europe/Warsaw` through their own reviewed queue, not through the generic article-to-social cadence. The earlier 15:00 slot is superseded.
+* The YAS Zernio connection is mapped specifically to the `YASflows` X account inside the `YAS` profile, not the same-named account inside `Default`. The X scheduled worker accepts both evidence-derived and article-derived reviewed work items; if a mapping is ever absent, a due item remains `SCHEDULED` for retry rather than becoming `ERROR`.
+* The current finite X queue contains 48 reviewed items, one per day from 2026-09-02 through 2026-10-19 at 17:00 Warsaw time. Generic X cadence remains disabled so no parallel article-derived X post can duplicate this explicit queue.
+* The same dedicated Zernio `YAS` profile maps Instagram account `yas.flows` for Blog Core site `12`, alongside its existing X mapping. All 27 complete seven-slide vacancy carousels are explicitly scheduled in Zernio, one per day at 18:00 `Europe/Warsaw`, from 2026-09-02 through 2026-09-28. Each row retains the provider timestamp and logical Warsaw slot in `content_json.publicationSchedule`.
+* This is a finite reviewed carousel schedule, not a generic Instagram cadence: the generic worker consumes ordinary `post` assets and must not be treated as an executor for `instagram_vacancy_carousel`. Generic Instagram and Reel cadences remain disabled, preventing additional unreviewed Instagram output. The three rendered Reels remain `DRAFT` and unscheduled.
+* The Zernio `YAS` profile also maps Reddit username `AiStartupGuy` and Threads username `yas.flows` to Blog Core site `12`. The seven reviewed Reddit text posts are explicitly scheduled one per day at 18:00 `Europe/Warsaw` from 2026-09-02 through 2026-09-08: four in `r/automation` and three in `r/GetStartups`.
+* Zernio is the provider source of truth for Reddit communities and Pinterest boards. Reddit routing remains creative-scoped, but before submission Blog Core fetches the selected account's `/reddit-subreddits` list and fails closed when the reviewed target is not available there; the connection-level default is only a legacy fallback. Every scheduled draft stores its own provider-verified subreddit and current rule snapshot.
+* The scheduled Reddit posts contain no external link, company mention, offer or CTA. Unavailable communities are not used, `r/SaaS` is excluded because its current rules prohibit AI-generated text, and a discovered reply is never silently submitted as a comment or routed to a generic default community.
+* Reddit and Threads generic cadences remain disabled and neither channel is in the active automatic-channel list. The current Reddit delivery is a finite reviewed schedule; the Threads connection is mapped only and does not authorize or schedule its fourteen existing drafts.
+* Generic topic discovery remains disabled for `yas.ooo`. The active evidence/vacancy contour and GSC recommendations are its upstream topic sources; neither recommendation source bypasses the draft and explicit scheduling lifecycle.
+
+## 2026-09-01 — SoloCruz Pinterest is mapped through its dedicated Zernio profile
+
+* Blog Core site `7` (`solocruz.com`) uses the Pinterest account `solocruzcom` from the dedicated Zernio profile `Solocruz`; the unrelated `myugc_studio` Pinterest account in Zernio's `Default` profile must not be selected for SoloCruz.
+* The Zernio-reported default public board is `SoloCruz`. Its account and board identifiers are stored in the existing site-scoped Zernio connection, and the same board is registered in the site's Pinterest strategy.
+* Connection and board mapping do not authorize content production or delivery. SoloCruz Pinterest automation remains disabled with a daily target of zero until the complete contextual Pin ledger, destinations and unique image prompts are reviewed and approved; no Pin was generated, queued or published during connection setup.
+
+## 2026-09-01 — Article-derived Pinterest production uses a complete Pin ledger
+
+* A native article-derived Pin is a complete record: one public source article, short mobile overlay, Pin title, description, CTA, alt text, search phrases, exact destination and a context-specific 2:3 scene. A carousel may supply an editorial topic, but its slides are not copied as Pins.
+* Gemini image batches generate only the unique photographic backgrounds. Exact overlay text and a site-owned logo are added deterministically after collection, preventing misspelled hooks, invented logos and unreadable mobile typography. Collection produces reviewable `DRAFT` rows only; it never schedules or publishes.
+* The universal `deploy/pinterest_pin_batch.py` runner validates public source ownership, field limits, a nine-word overlay maximum, destination URLs and global uniqueness before submission. Its deterministic IDs and preserved provider batch metadata make reseeding idempotent and prevent duplicate image-batch charges.
+* SoloCruz has one approved 45-Pin English ledger derived from 15 public articles, with three distinct audience/search angles per article. Four owner-viewed preview images are retained; the remaining backgrounds were generated with `gemini-3.1-flash-image`. Semantic QA rejected two first-pass scenes and accepted their specifically re-prompted corrections. All 45 assets are unique 1000×1500 `DRAFT` records; Pinterest delivery remains disabled until owner visual review and explicit scheduling.
+
+## 2026-09-01 — SoloCruz article Pins use one approved finishing frame
+
+* SoloCruz article-derived Pins use a top-only navy-to-blue gradient headline panel followed by the photographic scene all the way to the bottom edge. The exact short hook is large, uppercase and mobile-readable, with a contextual turquoise emphasis. The site-owned full logo is centered over the lower part of the photograph.
+* Rejected/deprecated for this site: footer fields of any colour, separate bottom brand panels, text placed directly over the photograph, generated logo approximations and free-form per-Pin layout selection. These experiments did not match the owner-approved visual direction.
+* The logo source is site-scoped configuration, not a domain branch in the universal engine. The supplied `logo600.svg` contains a simulated checkerboard rather than real transparency; production preparation must derive a true-alpha colour mark and retain a white separation edge before compositing it. Never place the raw checkerboard square on a Pin.
+* Existing paid photographic backgrounds remain reusable edit targets. Changing the finish must not trigger another provider image generation or discard the stored background.
+* The approved finish is executable through the universal `deploy/pinterest_pin_batch.py` collector and site-scoped `deploy/solocruz_pinterest_finish.json`. Exact line breaks and the turquoise line are configuration for every Pin; the runner contains no SoloCruz/domain branch.
+* All 41 batch-backed SoloCruz drafts were recomposed from their saved Gemini responses with this finish. The four owner-approved previews remain byte-identical to their backup, all 45 records remain `DRAFT`, and no Pin was scheduled or published.
+* Provider images may contain uniform dark or light technical edge/spacer bands. The deterministic crop removes such substantial bands before fitting the photograph, so no accidental footer or blank field survives and the image still reaches the bottom edge.
+* Headline fitting must validate the rendered glyph boxes, not only total nominal text height. Every adjacent line requires at least 18 pixels of measured visual separation at 1000×1500; the normal proportional gap is 20% of the selected font size with a 20-pixel floor. The earlier 5–8-pixel spacing was defective and is superseded.
+
+## 2026-09-01 — SoloCruz approved Pins have an explicit three-slot publication schedule
+
+* The 45 approved article-derived Pins are scheduled directly through the mapped SoloCruz Zernio Pinterest account and board, three per logical Warsaw day at 15:00, 19:00 and 24:00. A logical `24:00` is represented as `00:00` on the following calendar date with the `Europe/Warsaw` offset.
+* The current finite schedule covers logical dates 2026-09-02 through 2026-09-16; the final `24:00` slot executes at 2026-09-17 00:00 Warsaw time.
+* Each `visual_pins.concept_json.publicationSchedule` records provider time, timezone, logical date, logical slot and sequence. The review panel exposes the provider timestamp for scheduled Pins.
+* This finite schedule does not enable ongoing Pinterest generation. `pinterest_strategies.enabled` and `daily_pin_target` remain disabled/zero so Blog Core cannot create or publish extra Pins after the approved 45.
+
+## 2026-09-02 — EPR Scan is a reviewed multilingual native content-store site
+
+* EPR Scan is Blog Core site `20`, rooted at `/var/www/eprscan`, with English canonical content and only German, French and Spanish translations. Russian and Italian are not part of this site.
+* Blog Core owns editorial records under `/blog/{slug}`; EPR Scan remains authoritative for its design, renderer, route system, checker, legal/product pages, metadata, hreflang and sitemap.
+* Superseded: EPR Scan no longer uses `publication_contract:reviewed_multilingual_compliance`. Its `publication_contract:source_audited_multilingual_compliance` marker fails closed without EN/DE/FR/ES, 2–5 live official sources, a complete claim ledger, translation number/structure/link parity, SEO checks and browser QA.
+* The EPR Scan prebuild independently validates the publication payload and rejects executable HTML. A systemd path unit rebuilds and restarts the existing EPR Scan service only after an explicit valid publication; recommendations and drafts are never deployed.
+* Non-blog native content filenames now include the complete normalized target path, preventing collisions between nested routes that share a final slug.
+* `sc-domain:eprscan.eu` is saved but disabled in Blog Core with verified `no_access`; enable collection only after the site owner grants the configured service account access and verification succeeds. Bing ownership/submission remains an external owner-side gate.
+* Public SEO regression coverage is 60 indexable plus 16 private routes across EN/DE/FR/ES. Public equivalents require one server-rendered H1, self-canonical, reciprocal four-language hreflang plus English `x-default`, and sitemap membership; private account/check/report/recovery routes require `noindex` and sitemap exclusion. RU/IT alternates are rejected.
+* Localized EPR Scan code generation must translate catalogued composite JSX fragments as well as ordinary text nodes. `npm run translations:check` is the durable guard against English catalog residue in generated DE/FR/ES source.
+* Superseded: the TOR roadmap is no longer blocked on a human compliance reviewer. Eleven substantive recommendations were materialized, source-audited and published; operational recommendations remain separate from content.
+* Translated route existence alone is not proof of verification. Blog DE/FR/ES routes require a passing source/translation audit before sitemap and hreflang inclusion. Public metadata must identify automated official-source verification transparently and must never invent a human reviewer.
+* EPR Scan now has populated English `/guides`, `/countries`, `/marketplaces`, `/tools` and `/company` trust hubs, visible breadcrumbs, curated related links, Organization/WebSite schema, and route-aware language navigation. No `/templates` hub exists until a real asset exists.
+* TOR funnel events coexist with the original product events. Purchase and registration-assistance completion are recorded server-side; assessment/order identifiers are pseudonymized before persistence and excluded from optional third-party analytics.
+* EPR Scan has an enabled weekly read-only SEO crawl on Monday 06:15 UTC plus randomized delay. It combines the fixed multilingual/release contracts with a dynamic sitemap/internal-link crawl, persists compact pass/fail history under `/var/lib/eprscan/seo-crawl`, and leaves content/publication untouched.
+* EPR Scan editorial images bypass the Vinext image redirector and use direct static WebP delivery; above-the-fold heroes are preloaded. This avoids a production `/_next/image` 302-to-HTTP hop. New breadcrumb/related-card colors meet Lighthouse contrast checks, and `app/icon.png` is a 64px/2.1KB favicon rather than the former 512px/129KB payload.
+* EPR Scan defers the optional `web-vitals` client module until browser idle time and applies `content-visibility:auto` with intrinsic sizing to below-the-fold sections. Explicit background surfaces preserve WCAG contrast when skipped content is audited. The initial analytics-tracker chunk fell from 10,978 to 2,147 bytes and the deferred metrics chunk is 7,962 bytes.
+* The EPR Scan Lighthouse release check uses three attempts by default: median Performance/LCP, minimum Accessibility/SEO, and maximum CLS. This keeps the strict 2.5-second LCP threshold without allowing one unusually fast run to mask a regression. It remains a manual release gate, not part of the low-priority weekly systemd crawl; production RUM is authoritative for real-user LCP/CLS/INP.
+
+## 2026-09-02 — EPR Scan first content wave is source-audited and published
+
+* The approved PPWR timing draft plus the remaining ten substantive TOR roadmap articles are materialized as 11 English `PUBLISHED` jobs. Recommendations `41`–`51` are `IMPLEMENTED`; obsolete human-review recommendation `40` is `DISMISSED`; only topic-discovery recommendation `39` remains open.
+* Every article has a source-bounded brief, three article images, five FAQ items and four or five contextual internal links. Existing PPWR, country, marketplace and checker routes remain source-authoritative; the new records target only `/blog/{slug}`.
+* One Gemini `gemini-3.7-flash` batch produced exactly 33 structurally validated localizations: 11 German, 11 French and 11 Spanish. No Russian or Italian localization exists.
+* Draft-store validation now accepts complete DE/FR/ES localizations on an unpublished English source while keeping the private preview English-only, `noindex`, no-store and outside the sitemap. This replaces the first-pass-only rule that rejected every localized draft.
+* Superseded: no human compliance or language reviewer is required. Codex performs claim-by-claim comparison with open official sources and deterministic EN/DE/FR/ES structure, number and link checks; public copy transparently says `Official sources verified`.
+* All 11 English articles and 33 DE/FR/ES variants are public. Report `eprscan-source-audit-2026-09-02-v1` passed for every job; the 44 article URLs are indexable and four blog hubs plus all article URLs are present in the sitemap. RU/IT remain absent.
+* Publication removes the stale private draft-store record after the public record is durable, preventing published content from continuing to compile as a draft preview.
+## 2026-09-05 — SoloCruz episodes 02–24 require production-grade prompts and engagement design
+
+* Current production-writing source is the Google Sheet tab `Episodes 02-24 Detailed` (sheetId `394342257`) in spreadsheet `1LWI2SFMB3Ghg_mtsmoD4pTH3CAxMq9BdNqfmPC7t3bk`. It deliberately begins at episode 02 and contains 23 episodes / 72 new ten-second prompts; episode 01 is not restated or rewritten there.
+* Every episode carries its own first-seconds hook, retention progression and exact caption/pinned-comment provocation. Engagement copy stays outside generated pixels and dialogue unless the story itself motivates it; do not repeat a generic follow CTA in every episode.
+* Each ten-second prompt is a complete production prompt, not a synopsis: exact timed scene direction, cast/reference boundary, essential camera rules, scene-specific physical continuity, dialogue attribution, ambience, output restrictions and final-frame continuity. Repeated generic directing theory is intentionally excluded. The authoritative 2026-09-06 concise pass reduced the 72 active prompts from an average of 5,396 to 1,721 characters while preserving every timed three-shot scene and exact dialogue.
+* Episode 02 is now `Она не пассажир`. The former booking-list, tablet-scrolling and cabin-chain plot was rejected as dull and unclear. Security believes Cruz is an unlisted passenger; an event host summons her to a packed theatre, where she is revealed as the ship's invited cruise expert whose knowledge and performances provide her cabin. The chief who came to remove her ends in the front row; two microphone taps echo the opening door knocks.
+* Generator prompt `Episodes 02-24 Detailed!H2` must be self-contained and use only information visible in its attached references: the door reference shows the closed door and security characters through its window, and the separate Cruz reference defines her design. Never tell the generator that a `pilot` or an episode performs an action, and never rely on unseen episode history. The referenced door opens once; no phone, tablet or other unlisted prop appears.
+* The former `24 Episodes v3` tab is now labelled `24 Episodes v3 — SYNOPSIS ONLY`; it is planning context, not generator input. v2 remains rejected.
+* Corrected episode 02 clip 01 reference semantics: multiple attached references define Cruz identity/outfit, the exact cabin/door geometry and Marcus identity. They are not assumed to be first/final boundary frames. The prompt permits a new camera composition inside the referenced set but forbids redesigning it, adding handheld objects, duplicating the entrance or opening it twice. One door moves monotonically from closed to approximately 60 degrees exactly once.
+* The first corrected wording triggered Google's known-person image safety classifier. The generator-facing revision now describes Cruz and Marcus only as original fictional stylized 3D model sheets and requests series-design continuity (hair silhouette, palette, wardrobe, proportions) rather than exact identity or face replication. Environment and one-door geometry remain strictly reference-bound.
+* That revision still triggered the same classifier. A plausible text-side collision is the heroine name `Cruz`, which can be interpreted as a known-person surname when combined with a portrait reference. Episode 02 clip 01 now contains no character names or known-person terminology at all; it uses only `fictional heroine` and `fictional security chief`. If the same error persists, the trigger is in at least one attached image rather than the prompt, so references must be tested individually instead of weakening motion physics.
+* Superseded diagnosis: the user's character references are original non-real people, and the name was not established as the cause. The remaining prompt-side risk was likeness-transfer language itself: `character sheet defines`, `facial design`, skin/eye/body descriptors, `recognizable`, `reproduce` and repeated portrait-reference authority. H2 now avoids all face, likeness and person-replication wording. It requests continuity only for hairstyle, costume, officer uniform and the established animated set while preserving the one-door physics.
+* H2 was subsequently rebuilt using character-only vocabulary. It contains no person/people/human/man/woman/identity/face/portrait/celebrity/famous/known/realistic/real terms and no character names. References are described only as fictional 3D character-design and set-design sources.
+* The character-only vocabulary rule now applies to every active production prompt in `Episodes 02-24 Detailed!H2:K24`, not only H2. All 72 active prompts explicitly identify the on-screen cast as original fictional 3D characters and describe references as character/costume/set design sources; the 20 end-of-episode placeholder cells remain unchanged. A post-write readback verified zero occurrences of the human, portrait, realism or known-person trigger vocabulary used in the safety audit.
+* Superseded audit state: on 2026-09-06 the former prompts scored approximately 52% against the user-provided 30-second SoloCruz comedy formula. The user then approved the proposed hybrid rewrite, so that score no longer describes the current production sheet.
+* Current hybrid episode contract: every episode contains a self-contained cruise microstory with an event hook at 0–2 seconds, location and one concrete desire by second 6, a first failed attempt by second 13, a worsening second attempt by second 21, a completed local payoff by second 27, a funny visual callback at seconds 27–30, and only then a compact mystery/romance/Marcus tag. The ongoing three-line serial remains canonical and is not replaced by unrelated sketch plots.
+* `Episodes 02-24 Detailed!C2:F24` and `H2:K24` were rewritten to this hybrid contract: 23 metadata rows, 72 generator prompts, nine edited shots in each 30-second episode and twelve in episodes 08, 16 and 24. Every ten-second prompt specifies exactly three clean-cut shots with one simple physical action per shot and a visible action/reaction at least every 1.5–2 seconds. Episode 02 still continues the finished pilot, but its single referenced door now opens exactly once within the first two seconds and is never replayed.
+* Each episode now records both a specific comment prompt and the exact `This reel will be sent to ... because ...` audience rationale. Dialogue remains 5–31 words per episode, all 23 hooks occupy the literal 0–2-second block, every episode has two escalating attempts and a visual callback, and all active prompts remain free of the audited human/portrait/known-person vocabulary. The rewrite did not generate or publish media.
+
+## 2026-09-05 — SoloCruz serial: authoritative three-line premise and existing pilot
+
+* User-authoritative premise: (A) mysterious cruise expert Cruz, her hidden past and forced long-term life aboard, opposed chiefly by security chief Marcus; (B) changing passengers with independent life stories, including SoloCruz connections; (C) a slowly developing romance with a solo traveller who also conceals his past. These lines must intertwine without replacing the show with a different investigation.
+* The user has an existing first episode: Cruz talks about living aboard for free 300 days per year and cruise secrets; ship security knocks at her cabin, and she invites viewers to follow for the resolution. Preserve that finished pilot. The actual media, exact duration and final frame have not been inspected; episode 2 begins with the same door knock/opening and needs a visual match before generation.
+* Rejected: v2's suitcase/archive/mother storyline was an unauthorized change of the core story. The v2 sheet tabs now explicitly say REJECTED, and `docs/SOLOCRUZ_SERIES_V2.md` is marked rejected. Its mother mystery, Elias-as-Adrian's-brother and altered red watch are not canonical.
+* Current review adaptation: `24 Episodes v3` (1319016408) and `Series Bible v3` (271825949) in spreadsheet `1LWI2SFMB3Ghg_mtsmoD4pTH3CAxMq9BdNqfmPC7t3bk`; local script `docs/SOLOCRUZ_SERIES_V3.md`. Original Season 1/Characters are preserved. 24 total positions = existing pilot plus 23 rewrites, with 72 new ten-second clips; pilot length remains unknown.
+* v3 retains and maps original passenger, loyalty-offer, corridor, gala, storm, Evelyn and Adrian-revelation beats. Detailed new backstory is a proposed script, not user-approved historical fact. Marcus remains the principal antagonist even during limited cooperation; affection does not instantly excuse Adrian's deception.
+* Entertainment-first adult 3D animation, not iPhone UGC. Episode-level hooks/payoffs, connected clips, short dialogue, prop continuity and earned character changes remain required. Sparse organic brand dialogue; retain the pilot CTA but do not add it routinely. 'Free' cruise claims must not become universal factual guarantees or gambling advice.
+* No video generation, scheduling, publication or production-code change was performed for this rewrite.
+
+## 2026-09-06 — YAS AI film hybrid short-episode production sheet
+
+* Spreadsheet `1-Nn5AxeDEXm3MqJ95-0apfIFqWj-mKyqFO-pjPipMrk` now has a first-position authoritative production tab `Episodes 01-24 Detailed` (sheetId `1055500211`). The original `Лист1` remains unchanged as the concise source outline.
+* The 24-episode series preserves the twelve original problem/solution business pairs, YAS's travel transitions, the Jaguar E-Type and the recurring mysterious-character line. Episodes are grouped into three eight-episode seasons; episodes 08, 16 and 24 are 40-second finales, while the other 21 episodes are 30 seconds.
+* The hybrid structure is adapted from the SoloCruz formula without importing cruise subject matter: every episode opens on a literal physical hook at 0–2 seconds, establishes one operational goal by second 6, uses two worsening attempts, resolves one self-contained business problem, delivers a visual callback, then adds only a compact next-case or mystery tag.
+* The tab contains 75 complete ten-second generator prompts. Every prompt specifies exactly three clean-cut shots, one main physical action per shot, visible change every 1.5–2 seconds, detailed object/contact continuity, short exact English dialogue, bounded fictional screen-character references, no narrator and no generated promotional overlays. Ordinary episodes contain nine shots; the three finales contain twelve.
+* The authoritative prompt form is concise: each cell contains only the reference/cast boundary, exact timed three-shot staging, compact camera rules, physics relevant to the props in that scene, and audio/output constraints. Repeated generic directing theory is intentionally excluded. The 2026-09-06 cleanup reduced the 75 active prompts from an average of 4,853 to 1,630 characters while preserving the full staging and dialogue.
+* Every episode records a comment question plus a specific `This reel will be sent to ... because ...` rationale. The original outline is not overwritten, and no video, social draft, schedule or publication was created by this rewrite.
+
+## 2026-09-05 — SoloCruz animated serial v2 direction (plot rejected; see v3 above)
+
+* The user rejected iPhone UGC for the Cruz serial. This series uses the existing adult stylized 3D character designs in the source spreadsheet, not photorealistic phone footage. The earlier standalone UGC direction below is historical and must not be applied to this serial.
+* Superseded v2 review script: 24 episodes across three eight-episode seasons; 21 episodes of 30 seconds and three season finales of 40 seconds, assembled from 75 connected ten-second clips. v3 instead preserves the existing pilot and supplies 72 new clips. Each episode, not each generation clip, remains the dramatic unit.
+* Superseded: v2's family/mother mystery is rejected. Entertainment, Cruz's own past, changing passenger lives and romance lead in v3. Do not impose a brand mention, sales explanation or CTA in every episode.
+* Source spreadsheet `1LWI2SFMB3Ghg_mtsmoD4pTH3CAxMq9BdNqfmPC7t3bk`: new tabs `24 Episodes v2` (1301293975) and `Series Bible v2` (1790453071), preserving all original tabs. Local text version: `docs/SOLOCRUZ_SERIES_V2.md`.
+* Detailed staging, object custody, continuity and short attributed dialogue are required. Script timings are design targets, not verified media durations; no generation, queue or publication was authorized or performed for this rewrite.
+
+## 2026-09-05 — SoloCruz short-form Reel creative direction (historical; superseded for the animated serial)
+
+* SoloCruz Reels sell the emotional upside of travelling with a compatible cruise companion: shared reactions, laughter, photos and stories, with cabin-cost splitting as a secondary benefit. They must not frame the service through danger, cancelled travel, fear of strangers or an explanation-first sales funnel.
+* The approved short-form direction is bright, joyful, photorealistic 10-second vertical stories with one immediate pattern interrupt or social question. Strong reusable formats are: `This is not a Tinder date`, `The best cruise upgrade costs less`, `Would we survive one cabin?`, shared-reaction travel moments, and playful cabin-mate character scenes.
+* SoloCruz Reel footage must look like spontaneous premium iPhone UGC recorded by a friend on the cruise: handheld vertical framing, natural exposure shifts, real imperfect reactions and intimate proximity. Do not use cinematic, commercial, glossy-ad, studio-lit or stock-footage direction.
+* Spoken audio is selected by the scene: use short, natural on-camera lines from the heroines when their interaction carries the hook or twist; use a warm, pleasant female voiceover for an internal thought or an emotional travel moment. Either delivery is brief, conversational and emotionally observant, never a sales-announcer delivery; on-screen copy remains a separate exact overlay.
+* Generated visual footage must contain no readable title, caption, logo, UI or watermark. Any exact hook or brand copy is added separately by the renderer so text remains correct and legible.
+* The first six standalone Omni review Reels are stored in production under `data/social_assets/7/solocruz-ugc-omni-20260905/` and mirrored as noindex review assets under `ugc-omni-20260905/instagram/`. They are all 10.005-second 720×1280 H.264/AAC files: `not-a-tinder-date`, `best-upgrade`, `survive-one-cabin`, `shared-reaction`, `cruise-person`, and `two-main-characters`. They are not social-post rows and are neither scheduled nor published.
+## 2026-09-06 — yas.ooo X delivery fails inside the X-specific Zernio path
+
+* Blog Core site `12` (`yas.ooo`) has a valid stored X account mapping but no site-specific Zernio key, so it falls back to the server-side `ZERNIO_API_KEY`.
+* Superseded: a 401 from the read-only `/accounts` probe does not establish that the shared key is unusable for publication. YAS successfully submitted Threads through Zernio with that same key after an X failure. LinkedIn is YAS's only direct publisher; its other mapped social destinations use Zernio.
+* Scheduled X submissions from 2026-09-02 through 2026-09-06 all failed with HTTP 403, while their public media URLs returned HTTP 200. Zernio's activity log identifies the stable cause as `account_disconnected`: X account `YASflows` has an expired or revoked platform token. Reconnect the X account in Zernio, then refresh the mapped account ID from `GET /v1/accounts` before requeueing failed work items.
+* `run_scheduled_evidence_x_publications` changes a failed due work item from `SCHEDULED` to `ERROR`; it does not retry that row after the X-specific connection problem is repaired. Recovery therefore requires correcting the X destination in Zernio and explicitly requeueing the failed items.
+* Resolved later on 2026-09-06: the owner reauthorized `YASflows` in Zernio, the existing account ID remained valid, and all five failed items were resubmitted immediately and reconciled to `PUBLISHED`. The remaining 43 future X items retained their schedules.
+## 2026-09-06 — X thread media must be attached to the root thread item
+
+* For a Zernio X payload with `platformSpecificData.threadItems`, top-level `content` and `mediaItems` are not the published root tweet. Attach the intended cover to `threadItems[0].mediaItems`; later items remain text-only unless they have their own explicit media.
+* The prior Blog Core payload attached X media only at the top level. Single tweets displayed their image, but multi-tweet threads published without it even though Zernio stored the top-level asset and reported `media_count: 1`.
+* Resolved and deployed on 2026-09-06: the universal Zernio request builder now places supplied media in `threadItems[0].mediaItems` whenever a thread sequence exists, while retaining top-level `mediaItems` for ordinary single posts.
+## 2026-09-06 — Social copy is authored naturally and normalized before delivery
+
+* Every social-copy generation prompt must ask for direct, natural prose at generation time. It must prohibit long dashes, arrows, smart quotes, Markdown emphasis, generic AI filler, formulaic `not X but Y` reversals, generic `PROBLEM`/`SOLUTION` labels, fake quotations, vague hype and generic engagement bait.
+* Publication performs a final deterministic typography normalization even after prompt validation: em/en/minus dashes become the ordinary hyphen, arrows become `to`, smart quotes become straight quotes, non-breaking spaces become ordinary spaces, and Markdown emphasis markers are removed. This is a safety net, not a substitute for correct generation instructions.
+* X threads carry their existing creative on the root tweet through `threadItems[0].mediaItems`; top-level `mediaItems` is reserved for a single X post.
+
+## 2026-09-07 — Queued publication failures use durable email alerts
+
+* Failed due publication attempts across Blog Core's website and social delivery queues create durable email-alert records. Waiting for a connection or source is operational waiting, not a failure alert.
+* Delivery reuses the VPS local sendmail/Exim path already used by SoloCruz. The recipient and optional sender live only in protected environment variables; no SMTP secret is stored in Blog Core data or documentation.
+* Each failure event has a stable queue-record/slot fingerprint, so a scheduler pass or refined provider error wording cannot repeatedly email the same failure. Unsent alerts remain queued and retry with bounded backoff. Asynchronous Zernio failures discovered during reconciliation use the same path.
+* Production publication alerts are delivered to the protected configured recipient through local Exim. Preserve destination-level provider fields such as Zernio `platforms[].errorMessage`; a top-level `failed` status alone is not an actionable alert.
+
+## 2026-09-08 — Legacy NOMADeira editorial-plan rows are not publication-ready
+
+* NOMADeira rows sourced from `nomadeira_editorial_plan` may carry the old boolean `generationBlockedUntilSourceReview=true` without the newer `complianceCluster` and `pageBrief` contracts. The earlier compliance generation/scheduling guards recognized only `complianceCluster`, so legacy rows could be generated or scheduled even though their source review was still explicitly blocked. This gap is closed: the legacy blocking flags now independently stop both generation and scheduling/publication.
+* The native typed-page publisher correctly rejects such a row because it lacks the approved intent, SEO/H1/direct-answer fields, editorial ownership/review dates, source references, internal CTA and review/QA approvals. Do not synthesize these approvals from generated prose or bypass the publisher. Migrate the legacy row into the current evidence contract and complete its real reviews before rescheduling.
+* The eight NOMADeira editorial-plan rows formerly scheduled for 8–15 September 2026 now use `2026-09-08-editorial-plan-migration-v1`. They are private `BLOCKED_EVIDENCE` tasks with no schedule, active draft, localization or active hero reference. Their original intent, route, locale and required-authority requirements remain preserved; no source, claim, review, approval or QA state was inferred.
+* `/madeira-residence-registration-eu/` is `CANONICAL_REVIEW_REQUIRED` because it may overlap the existing Phase-A CRUE guide. The other seven are `CANONICAL_CHECKED` but still require source collection and verified claims before generation.
+
+## 2026-09-08 — NOMADeira EU registration guide uses the editorial-plan canonical
+
+* Replaced: the canonical review for `/madeira-residence-registration-eu/` is complete. That route is the sole published CRUE-supporting guide; the unpublished Phase-A job `madeira-crue-eu-residence-certificate` is canceled as superseded and must not be revived as a second public page.
+* The guide's high-risk evidence boundary uses the current AIMA registration-certificate page together with the gov.pt service page. It covers only listed nationality and stay scope, the 30-day period after the first three months, the responsible `Câmara Municipal`, identity evidence and AIMA's alternative evidence categories. It never infers individual eligibility, appointment availability, processing time, acceptance, fees or unstated local procedure.
+* NOMADeira renders contextual links already embedded in `draftHtml`. For this published record the native payload's duplicate `internalLinks` array is cleared after the atomic write, while the reviewed link ledger remains in Blog Core for validation. Otherwise NOMADeira adds the same contextual link a second time.
+* NOMADeira's sitemap is a static Next.js build artifact. Publishing a new filesystem-backed record requires a successful NOMADeira production build and service restart before the route and its localized alternates appear in `/sitemap.xml`.
+## 2026-09-06 — SoloCruz's central free-cabin premise
+
+* Cruz lives in guest cabins that remain unsold or become vacant after cancellations, moving before the next assignment. The cabin may be empty in inventory, but it is not hers: unauthorized occupancy creates safety-manifest, housekeeping, inventory and removal consequences, which is why she hides from ship security.
+* The pilot's security knock flows directly into episode 2, `Пустая на бумаге`. Cruz does not open the door in its first clip. Security identifies the cabin as registered empty, leaves to obtain Marcus and an override key, and Cruz performs a practiced exit. Marcus arrives seconds late, finds the remaining pillow indentation and says, `She was here.`
+* The earlier explanation based on a fully valid paid booking, public guest-expert status, accumulated credits or a cabin supplied for speaking is superseded as the central secret. Such devices must not erase the unauthorized-empty-cabin premise or make Marcus's pursuit illogical.
+
+## 2026-09-12 — Independent native blogs for Karp and Veselova Veronika
+
+* `karpaleksei.com` (site `17`) and `veselovaveronika.com` (site `19`) are independent `native_content_store` targets. Their code, data, database and renderer processes must never share a write boundary.
+* Karp uses code `/var/www/karp-preview`, content root `/var/lib/karp-preview/data`, generated artifacts `/var/lib/karp-preview/generated`, PostgreSQL database `karp_preview`, project id `karp-aleksei-jade-mills-homepage-ms4qtdi3` and artifact port `3045`.
+* Veronika uses code `/var/www/veronika-preview`, content root `/var/lib/veronika-preview/data`, generated artifacts `/var/lib/veronika-preview/generated`, PostgreSQL database `veronika_preview`, project id `veselova-veronika` and artifact port `3055`.
+* `sites.root_path` remains the code root. The separate optional `sites.content_root_path` owns native Blog Core JSON under `<content_root_path>/blog-core/{drafts,published}`. Falling back to `<root_path>/data/blog-core` remains supported for older native sites.
+* Both sites are RU-first with an English `/en` variant. Their renderers keep the existing native blog header, footer, typography and listing-card structure. Published JSON adds native `/blog/{slug}` and `/en/blog/{slug}` pages; `/content-preview/{jobId}` reads drafts and is always `noindex`.
+* A live verification article requested for visual/operator review is not disposable test data. Leave it published until the operator explicitly requests removal. Karp's persistent verification article is `Как выбрать новостройку в Казани` at `/blog/kak-vybrat-novostroyku-v-kazani`, with English at `/en/blog/how-to-choose-a-new-development-in-kazan`.
+* Structured-copy deduplication is multilingual. Its normalization key must retain Unicode letters; an ASCII-only `[^a-z0-9]` key erases Cyrillic and other non-Latin article paragraphs and list items instead of merely removing duplicates.
+* Karp's active verification article is a complete native RU/EN publication, not the former five-paragraph fixture: eight sections, three inline images, a comparison table, seven-step checklist and six FAQ entries. When a native record has the same localized title as an existing placeholder card, the renderer replaces that card in place rather than adding a duplicate.
+* Karp native articles extend the site's established black, ivory and muted-gold editorial language. Structured components are deliberately styled rather than left to browser defaults: bordered evidence tables, numbered checklist cards, serif pull quotes, two-column contents and accessible plus/minus FAQ rows, with single-column/mobile-scroll adaptations below 760px.
+* Karp's blog index markup is tag-sensitive: native cards must remain `span.blog-list__item`. Never clone runtime property-card anchors or replace the outer tag. Update a matching placeholder in place and use an absolutely positioned inner anchor for article navigation; any populated date needs card-scoped block spacing.
+* Veronika's first persistent native publication is `Как сформировать техническое задание на частный дом` at `/blog/kak-sformirovat-tehnicheskoe-zadanie-na-chastnyj-dom`, localized at `/en/blog/how-to-write-a-brief-for-a-private-house`. It uses the existing approved Veronika house/brief/location/engineering media and remains published until explicitly removed.
+* Veronika's native article components use only the approved solid maroon `#6b1730`; depth comes from translucent white layers, borders and the existing white/rose editorial hierarchy, never a second solid maroon. Her blog-index cards follow the same tag-sensitive `span.blog-list__item` preservation and inner overlay-link contract as Karp.
+* Resolved global Veronika contact-section layout: on viewports from 561px the title, primary CTA and messenger row form one horizontally centered group placed below the section midpoint; the section retains its authored 850px height and portrait background. On mobile, the primary contact CTA is intrinsic-width rather than full-width and matches the Home hero CTA's 59.2px height and `22px 50px` padding; its width grows only for its longer label. The rule belongs to the shared published-site materializer, not native article CSS, and its artifact presentation version must be bumped and all routes warmed after changes.
+* Each site's dynamic sitemap reads the same published store and adds only the available RU/EN article routes. Drafts never enter the sitemap.

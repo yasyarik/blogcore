@@ -1,0 +1,36 @@
+{
+  "sites": [
+    {
+      "siteId": 14,
+      "name": "georivo",
+      "siteUrl": "sc-domain:georivo.com",
+      "sitemapUrl": "https://georivo.com/sitemap.xml",
+      "statusFile": "/var/lib/blog-core/search/georivo.json",
+      "inspectionUrls": [
+        "https://georivo.com/",
+        "https://georivo.com/how-it-works",
+        "https://georivo.com/coverage",
+        "https://georivo.com/pricing",
+        "https://georivo.com/templates",
+        "https://georivo.com/examples",
+        "https://georivo.com/embed"
+      ]
+    },
+    {
+      "siteId": 15,
+      "name": "cabinjoin",
+      "siteUrl": "sc-domain:cabinjoin.com",
+      "sitemapUrl": "https://cabinjoin.com/sitemap.xml",
+      "statusFile": "/var/lib/blog-core/search/cabinjoin.json",
+      "inspectionUrls": [
+        "https://cabinjoin.com/",
+        "https://cabinjoin.com/boats",
+        "https://cabinjoin.com/how-it-works",
+        "https://cabinjoin.com/for-organizers",
+        "https://cabinjoin.com/for-boat-owners"
+      ],
+      "indexNowEnvironmentFile": "/etc/cabinjoin-staging.env",
+      "indexNowKeyName": "INDEXNOW_KEY"
+    }
+  ]
+}

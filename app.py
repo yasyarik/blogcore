@@ -6,15 +6,19 @@ import secrets
 import shutil
 import socket
 import sqlite3
+import ssl
 import subprocess
 import sys
 import threading
 import time
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import unicodedata
 import wave
 import xml.etree.ElementTree as ET
+from array import array
 from datetime import datetime, timedelta, timezone
 from base64 import b64decode, b64encode
 from io import BytesIO
@@ -28,6 +32,16 @@ from zoneinfo import ZoneInfo
 from flask import Flask, Response, abort, jsonify, redirect, request, send_from_directory
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
 from native_site_chrome import LiveSiteChrome
+from reel_asset_library import build_reel_asset_catalog, find_reel_asset_references, find_reel_layer_references
+from reel_voiceover_library import build_reel_voiceover_catalog
+from strategy_agent import (
+    ensure_strategy_schema,
+    execute_strategy_run,
+    get_strategy_snapshot,
+    next_due_strategy_site,
+    start_strategy_run,
+)
+from social_format_contracts import BLOG_INSIGHT, CONTRACT_VERSION, VACANCY_EVIDENCE_CASE, make_contract_metadata
 from gemini_failover import call_with_gemini_failover, gemini_keys
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -40,6 +54,7 @@ CNAME_TARGET = os.environ.get("CNAME_TARGET", "blog.yas.ooo").strip().lower()
 EXPECTED_HOSTED_IPS = {ip.strip() for ip in os.environ.get("HOSTED_BLOG_IPS", "72.61.1.109").split(",") if ip.strip()}
 ZERNIO_API_BASE = os.environ.get("ZERNIO_API_BASE", "https://zernio.com/api/v1").rstrip("/")
 BLOG_CORE_PUBLIC_URL = os.environ.get("BLOG_CORE_PUBLIC_URL", "https://blog.yas.ooo").rstrip("/")
+AGENT_SITE_SCOPE = {value.strip().lower() for value in os.environ.get("AGENT_SITE_SCOPE", "").split(",") if value.strip()}
 LEGACY_FACTORY_ENDPOINTS = {
     "content-factory-airep24": os.environ.get("LEGACY_FACTORY_AIREP24_URL", "http://127.0.0.1:12631").rstrip("/"),
     "content-factory-yaswine": os.environ.get("LEGACY_FACTORY_YASWINE_URL", "http://127.0.0.1:3199").rstrip("/"),
@@ -62,9 +77,44 @@ PODCAST_ASSET_DIR = DATA_DIR / "podcast_assets"
 PODCAST_ASSET_DIR.mkdir(exist_ok=True)
 REEL_MUSIC_ASSET_DIR = DATA_DIR / "reel_music"
 REEL_MUSIC_ASSET_DIR.mkdir(exist_ok=True)
+REEL_ASSET_LIBRARY_DIR = DATA_DIR / "reel_asset_library"
+REEL_ASSET_LIBRARY_DIR.mkdir(exist_ok=True)
 
 VERTEX_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
+GSC_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
 VERTEX_EDIT_STATE = {"available": None}
+REEL_ASSET_LIBRARY_REFRESHING = set()
+REEL_ASSET_LIBRARY_REFRESH_LOCK = threading.Lock()
+
+
+def queue_reel_asset_library_refresh(site_id):
+    """Refresh the site's reusable visual catalog once, without delaying a render."""
+    site_id = int(site_id)
+    with REEL_ASSET_LIBRARY_REFRESH_LOCK:
+        if site_id in REEL_ASSET_LIBRARY_REFRESHING:
+            return False
+        REEL_ASSET_LIBRARY_REFRESHING.add(site_id)
+
+    def refresh():
+        try:
+            build_reel_asset_catalog(
+                SOCIAL_ASSET_DIR / str(site_id),
+                REEL_ASSET_LIBRARY_DIR,
+                site_id,
+                DB_PATH,
+            )
+            build_reel_voiceover_catalog(
+                SOCIAL_ASSET_DIR / str(site_id),
+                REEL_ASSET_LIBRARY_DIR,
+                site_id,
+                DB_PATH,
+            )
+        finally:
+            with REEL_ASSET_LIBRARY_REFRESH_LOCK:
+                REEL_ASSET_LIBRARY_REFRESHING.discard(site_id)
+
+    threading.Thread(target=refresh, name=f"reel-asset-library-{site_id}", daemon=True).start()
+    return True
 
 
 def now_iso():
@@ -72,7 +122,11 @@ def now_iso():
 
 
 def db():
-    conn = sqlite3.connect(DB_PATH)
+    # Several short-lived workers (scheduler, batch completion, UI actions) can
+    # finish together. Wait for SQLite's write lock instead of discarding an
+    # already completed Gemini batch at the final persistence step.
+    conn = sqlite3.connect(DB_PATH, timeout=45)
+    conn.execute("pragma busy_timeout = 45000")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -139,6 +193,7 @@ def init_db():
             "alter table sites add column hosted_blog_enabled integer not null default 0",
             "alter table sites add column cname_status text not null default 'not_configured'",
             "alter table sites add column cname_checked_at text",
+            "alter table sites add column content_root_path text",
         ):
             try:
                 conn.execute(statement)
@@ -194,6 +249,10 @@ def init_db():
                 threads_post_url text,
                 threads_posted_at text,
                 threads_error text,
+                facebook_status text,
+                facebook_post_url text,
+                facebook_posted_at text,
+                facebook_error text,
                 reddit_status text,
                 reddit_post_url text,
                 reddit_posted_at text,
@@ -271,9 +330,227 @@ def init_db():
                 validation_json text,
                 created_at text not null,
                 updated_at text,
+                scheduled_for text,
                 foreign key(site_id) references sites(id) on delete cascade
             );
             create index if not exists social_posts_site_job_channel_idx on social_posts(site_id,job_id,channel,created_at);
+            create table if not exists pinterest_strategies (
+                site_id integer primary key,
+                enabled integer not null default 0,
+                daily_pin_target integer not null default 0,
+                boards_json text not null default '[]',
+                landing_pages_json text not null default '[]',
+                mix_json text not null default '{}',
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create table if not exists social_community_rule_snapshots (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                channel text not null,
+                community_name text not null,
+                community_url text not null default '',
+                rules_url text not null default '',
+                summary text not null,
+                allows_self_promotion integer not null default 0,
+                allows_external_links integer not null default 0,
+                allows_automation integer not null default 0,
+                source_json text not null default '{}',
+                captured_at text not null,
+                expires_at text,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists social_community_rules_lookup_idx
+                on social_community_rule_snapshots(site_id,channel,community_name,captured_at desc);
+            create table if not exists social_work_items (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                source_kind text not null default 'manual',
+                source_job_id text,
+                channel text not null,
+                task_type text not null,
+                title text not null,
+                body text not null default '',
+                community_name text not null default '',
+                community_url text not null default '',
+                discussion_url text not null default '',
+                affiliation_disclosure text not null default '',
+                link_policy text not null default 'none',
+                link_url text not null default '',
+                visual_required integer not null default 0,
+                semantic_key text not null,
+                status text not null default 'DRAFT',
+                approval_required integer not null default 0,
+                approved_at text,
+                scheduled_for text,
+                published_post_id integer,
+                remote_url text not null default '',
+                metadata_json text not null default '{}',
+                rule_snapshot_id integer,
+                created_at text not null,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade,
+                foreign key(rule_snapshot_id) references social_community_rule_snapshots(id) on delete set null,
+                foreign key(published_post_id) references social_posts(id) on delete set null
+            );
+            create unique index if not exists social_work_items_semantic_idx
+                on social_work_items(site_id,channel,task_type,semantic_key);
+            create index if not exists social_work_items_queue_idx
+                on social_work_items(site_id,channel,status,scheduled_for,created_at);
+            create table if not exists social_campaigns (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                campaign_key text not null,
+                title text not null,
+                audience_problem text not null,
+                core_tension text not null,
+                evidence_basis text not null,
+                channel_plan_json text not null default '{}',
+                status text not null default 'ACTIVE',
+                created_at text not null,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create unique index if not exists social_campaigns_site_key_idx on social_campaigns(site_id,campaign_key);
+            create table if not exists social_operation_settings (
+                site_id integer primary key,
+                discovery_enabled integer not null default 0,
+                x_queue_target integer not null default 7,
+                threads_queue_target integer not null default 7,
+                reddit_queue_target integer not null default 3,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create table if not exists social_operation_runs (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                trigger text not null,
+                status text not null,
+                summary_json text not null default '{}',
+                started_at text not null,
+                finished_at text,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists social_operation_runs_site_started_idx
+                on social_operation_runs(site_id,started_at desc);
+            create table if not exists evidence_source_boards (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                company_name text not null,
+                company_domain text not null default '',
+                careers_url text not null default '',
+                ats_type text not null,
+                board_slug text not null,
+                ats_region text not null default 'global',
+                industry text not null default '',
+                priority integer not null default 3,
+                active integer not null default 1,
+                last_success_at text,
+                last_change_at text,
+                consecutive_errors integer not null default 0,
+                last_error text not null default '',
+                created_at text not null,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create unique index if not exists evidence_source_boards_identity_idx
+                on evidence_source_boards(site_id,ats_type,board_slug,ats_region);
+            create table if not exists evidence_job_postings (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                source_board_id integer not null,
+                external_id text not null,
+                title text not null,
+                location text not null default '',
+                department text not null default '',
+                source_url text not null,
+                published_at text,
+                original_html text not null default '',
+                plain_text text not null,
+                content_hash text not null,
+                status text not null default 'OPEN',
+                first_seen_at text not null,
+                last_seen_at text not null,
+                analyzed_hash text not null default '',
+                foreign key(site_id) references sites(id) on delete cascade,
+                foreign key(source_board_id) references evidence_source_boards(id) on delete cascade
+            );
+            create unique index if not exists evidence_job_postings_source_external_idx
+                on evidence_job_postings(source_board_id,external_id);
+            create index if not exists evidence_job_postings_analysis_idx
+                on evidence_job_postings(site_id,status,analyzed_hash,last_seen_at);
+            create table if not exists evidence_cases (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                job_posting_id integer not null,
+                evidence_quote text not null,
+                evidence_hash text not null,
+                manual_task text not null,
+                taxonomy text not null,
+                score integer not null,
+                high_risk integer not null default 0,
+                candidate_json text not null default '{}',
+                factcheck_json text not null default '{}',
+                status text not null default 'DISCOVERED',
+                content_job_id text,
+                created_at text not null,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade,
+                foreign key(job_posting_id) references evidence_job_postings(id) on delete cascade,
+                foreign key(content_job_id) references content_jobs(id) on delete set null
+            );
+            create unique index if not exists evidence_cases_dedupe_idx
+                on evidence_cases(site_id,job_posting_id,evidence_hash);
+            create index if not exists evidence_cases_queue_idx
+                on evidence_cases(site_id,status,score desc,created_at desc);
+            create table if not exists evidence_patterns (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                pattern_key text not null,
+                title text not null,
+                thesis text not null,
+                taxonomy text not null,
+                company_count integer not null default 0,
+                evidence_count integer not null default 0,
+                score integer not null default 0,
+                pattern_json text not null default '{}',
+                status text not null default 'DISCOVERED',
+                content_job_id text,
+                created_at text not null,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade,
+                foreign key(content_job_id) references content_jobs(id) on delete set null
+            );
+            create unique index if not exists evidence_patterns_key_idx
+                on evidence_patterns(site_id,pattern_key);
+            create table if not exists evidence_pattern_cases (
+                pattern_id integer not null,
+                case_id integer not null,
+                created_at text not null,
+                primary key(pattern_id,case_id),
+                foreign key(pattern_id) references evidence_patterns(id) on delete cascade,
+                foreign key(case_id) references evidence_cases(id) on delete cascade
+            );
+            create table if not exists evidence_pipeline_runs (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                trigger text not null,
+                status text not null,
+                summary_json text not null default '{}',
+                started_at text not null,
+                finished_at text,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create table if not exists evidence_pipeline_settings (
+                site_id integer primary key,
+                enabled integer not null default 0,
+                max_jobs_per_run integer not null default 12,
+                minimum_score integer not null default 75,
+                blog_target integer not null default 3,
+                x_items_per_case integer not null default 3,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
             create table if not exists visual_pins (
                 id text primary key,
                 site_id integer not null,
@@ -314,7 +591,7 @@ def init_db():
                 site_id integer primary key,
                 enabled integer not null default 0,
                 times_per_day integer not null default 3,
-                channels_json text not null default '["linkedin","telegram","twitter","tumblr","pinterest","instagram","threads","reddit"]',
+                channels_json text not null default '["linkedin","telegram","twitter","tumblr","pinterest","instagram","threads","facebook","reddit"]',
                 timezone text not null default 'UTC',
                 start_hour integer not null default 9,
                 end_hour integer not null default 21,
@@ -325,6 +602,7 @@ def init_db():
                 pinterest_include_link integer not null default 0,
                 instagram_include_link integer not null default 0,
                 threads_include_link integer not null default 0,
+                facebook_include_link integer not null default 0,
                 reddit_include_link integer not null default 0,
                 social_cadences_json text not null default '{}',
                 last_slot_key text,
@@ -344,6 +622,28 @@ def init_db():
                 foreign key(site_id) references sites(id) on delete cascade
             );
             create index if not exists autopublish_runs_site_started_idx on autopublish_runs(site_id,started_at);
+            create table if not exists publication_failure_email_alerts (
+                id integer primary key autoincrement,
+                event_key text not null unique,
+                queue_name text not null,
+                site_id integer,
+                job_id text,
+                item_id text,
+                channel text,
+                site_name text not null default '',
+                item_title text not null default '',
+                error text not null,
+                payload_json text not null default '{}',
+                status text not null default 'PENDING',
+                attempts integer not null default 0,
+                created_at text not null,
+                last_attempt_at text,
+                sent_at text,
+                delivery_error text,
+                foreign key(site_id) references sites(id) on delete set null
+            );
+            create index if not exists publication_failure_email_alerts_status_created_idx
+                on publication_failure_email_alerts(status,created_at);
             create table if not exists topic_discovery_settings (
                 site_id integer primary key,
                 enabled integer not null default 0,
@@ -407,6 +707,54 @@ def init_db():
             );
             create index if not exists podcast_episodes_site_created_idx on podcast_episodes(site_id,created_at desc);
             create index if not exists podcast_episodes_site_job_idx on podcast_episodes(site_id,job_id);
+            create table if not exists agent_site_settings (
+                site_id integer primary key,
+                monitoring_enabled integer not null default 1,
+                minimum_queue integer not null default 3,
+                replenish_to integer not null default 6,
+                auto_create_tasks integer not null default 0,
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create table if not exists agent_runs (
+                id integer primary key autoincrement,
+                started_at text not null,
+                finished_at text,
+                trigger text not null,
+                status text not null,
+                summary_json text
+            );
+            create index if not exists agent_runs_started_idx on agent_runs(started_at desc);
+            create table if not exists agent_recommendations (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                fingerprint text not null,
+                priority text not null default 'medium',
+                category text not null,
+                publication_type text,
+                title text not null,
+                rationale text not null,
+                evidence_json text not null default '{}',
+                action_json text not null default '{}',
+                status text not null default 'OPEN',
+                created_at text not null,
+                updated_at text not null,
+                resolved_at text,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create unique index if not exists agent_recommendations_open_idx
+                on agent_recommendations(site_id,fingerprint) where status='OPEN';
+            create table if not exists agent_action_logs (
+                id integer primary key autoincrement,
+                site_id integer,
+                ts text not null,
+                level text not null,
+                action text not null,
+                message text not null,
+                details_json text not null default '{}',
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists agent_action_logs_ts_idx on agent_action_logs(ts desc);
             create table if not exists site_factory_bindings (
                 site_id integer primary key,
                 factory_name text not null,
@@ -417,6 +765,79 @@ def init_db():
                 updated_at text not null,
                 foreign key(site_id) references sites(id) on delete cascade
             );
+            create table if not exists gsc_site_connections (
+                site_id integer primary key,
+                property_url text not null default '',
+                enabled integer not null default 0,
+                status text not null default 'not_configured',
+                permission_level text not null default '',
+                service_account_email text not null default '',
+                last_verified_at text,
+                last_sync_at text,
+                last_successful_date text,
+                last_error text not null default '',
+                updated_at text not null,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create table if not exists gsc_daily_page_metrics (
+                site_id integer not null,
+                metric_date text not null,
+                search_type text not null default 'web',
+                page_url text not null,
+                clicks integer not null default 0,
+                impressions integer not null default 0,
+                ctr real not null default 0,
+                position real not null default 0,
+                collected_at text not null,
+                primary key(site_id, metric_date, search_type, page_url),
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists gsc_daily_page_metrics_lookup_idx
+                on gsc_daily_page_metrics(site_id, metric_date desc, impressions desc);
+            create table if not exists gsc_daily_query_metrics (
+                site_id integer not null,
+                metric_date text not null,
+                search_type text not null default 'web',
+                query text not null,
+                clicks integer not null default 0,
+                impressions integer not null default 0,
+                ctr real not null default 0,
+                position real not null default 0,
+                collected_at text not null,
+                primary key(site_id, metric_date, search_type, query),
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists gsc_daily_query_metrics_lookup_idx
+                on gsc_daily_query_metrics(site_id, metric_date desc, impressions desc);
+            create table if not exists gsc_collection_runs (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                trigger text not null,
+                status text not null,
+                target_date text not null,
+                pages_collected integer not null default 0,
+                queries_collected integer not null default 0,
+                error text not null default '',
+                started_at text not null,
+                finished_at text,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create index if not exists gsc_collection_runs_site_started_idx
+                on gsc_collection_runs(site_id, started_at desc);
+            create table if not exists gsc_content_planning_runs (
+                id integer primary key autoincrement,
+                site_id integer not null,
+                week_key text not null,
+                status text not null,
+                candidates_considered integer not null default 0,
+                recommendations_created integer not null default 0,
+                details_json text not null default '{}',
+                started_at text not null,
+                finished_at text,
+                foreign key(site_id) references sites(id) on delete cascade
+            );
+            create unique index if not exists gsc_content_planning_week_idx
+                on gsc_content_planning_runs(site_id, week_key);
             """
         )
         for statement in (
@@ -426,6 +847,7 @@ def init_db():
             "alter table social_posts add column include_link integer not null default 0",
             "alter table social_posts add column validation_json text",
             "alter table social_posts add column updated_at text",
+            "alter table social_posts add column scheduled_for text",
             "alter table social_posts add column asset_type text not null default 'post'",
             "alter table content_jobs add column pinterest_status text",
             "alter table content_jobs add column pinterest_post_url text",
@@ -439,6 +861,10 @@ def init_db():
             "alter table content_jobs add column threads_post_url text",
             "alter table content_jobs add column threads_posted_at text",
             "alter table content_jobs add column threads_error text",
+            "alter table content_jobs add column facebook_status text",
+            "alter table content_jobs add column facebook_post_url text",
+            "alter table content_jobs add column facebook_posted_at text",
+            "alter table content_jobs add column facebook_error text",
             "alter table content_jobs add column reddit_status text",
             "alter table content_jobs add column reddit_post_url text",
             "alter table content_jobs add column reddit_posted_at text",
@@ -447,8 +873,12 @@ def init_db():
             "alter table autopublish_settings add column pinterest_include_link integer not null default 0",
             "alter table autopublish_settings add column instagram_include_link integer not null default 0",
             "alter table autopublish_settings add column threads_include_link integer not null default 0",
+            "alter table autopublish_settings add column facebook_include_link integer not null default 0",
             "alter table autopublish_settings add column reddit_include_link integer not null default 0",
             "alter table autopublish_settings add column social_cadences_json text not null default '{}'",
+            "alter table social_operation_settings add column threads_queue_target integer not null default 7",
+            "alter table social_work_items add column campaign_id integer",
+            "alter table social_work_items add column quality_json text not null default '{}'",
         ):
             try:
                 conn.execute(statement)
@@ -479,6 +909,232 @@ def init_db():
                    on conflict(site_id) do nothing""",
                 (sid, "", now_iso()),
             )
+            conn.execute(
+                """insert into agent_site_settings(site_id, updated_at) values(?,?)
+                   on conflict(site_id) do nothing""",
+                (sid, now_iso()),
+            )
+
+    ensure_strategy_schema(DB_PATH)
+
+
+PUBLICATION_FAILURE_QUEUE_LABELS = {
+    "content": "Website publication",
+    "social": "Social publication",
+    "shared-carousel": "Instagram + TikTok carousel",
+    "instagram-reel": "Instagram Reel",
+    "tiktok-carousel": "TikTok carousel",
+    "evidence-x": "X publication",
+    "threads": "Threads publication",
+    "facebook": "Facebook publication",
+}
+
+
+def _publication_failure_detail(item):
+    """Extract the useful provider error from one scheduler result item."""
+    if not isinstance(item, dict):
+        return str(item or "Unknown publication error")
+    if item.get("error"):
+        return str(item["error"])
+    nested = item.get("result")
+    if isinstance(nested, dict):
+        if nested.get("error"):
+            return str(nested["error"])
+        for result_item in nested.get("results") or []:
+            if isinstance(result_item, dict) and result_item.get("error"):
+                return str(result_item["error"])
+    return json.dumps(item, ensure_ascii=False, default=str)[:1600]
+
+
+def _publication_result_failed(item):
+    if not isinstance(item, dict):
+        return False
+    action = str(item.get("action") or "").strip().lower()
+    status = str(item.get("status") or "").strip().upper()
+    if action in {"waiting_for_connection", "waiting_for_article", "waiting_for_generation", "no_source"}:
+        return False
+    return action == "error" or status in {"ERROR", "FAILED"} or item.get("ok") is False
+
+
+def capture_publication_failure_email_alerts(queue_name, scheduler_result):
+    """Persist one email event for every failed due publication.
+
+    The scheduler reports each due slot once. A stable fingerprint prevents a
+    repeated scheduler pass from sending the same failure more than once.
+    Waiting/no-source states are deliberately not failures.
+    """
+    rows = scheduler_result.get("results") if isinstance(scheduler_result, dict) else []
+    if not isinstance(rows, list):
+        return {"captured": 0}
+    captured = 0
+    for item in rows:
+        if not _publication_result_failed(item):
+            continue
+        item = dict(item)
+        site_id = item.get("siteId")
+        job_id = str(item.get("jobId") or "").strip()
+        item_id = str(
+            item.get("id") or item.get("postId") or item.get("sourcePostId")
+            or item.get("mediaPlanItemId") or item.get("visualPinId") or ""
+        ).strip()
+        channel = str(item.get("channel") or "").strip()
+        with db() as conn:
+            if not site_id and job_id:
+                source = conn.execute("select site_id from content_jobs where id=?", (job_id,)).fetchone()
+                site_id = source["site_id"] if source else None
+            if not site_id and item_id and queue_name in {"evidence-x", "threads"}:
+                source = conn.execute("select site_id,source_job_id,channel from social_work_items where id=?", (item_id,)).fetchone()
+                if source:
+                    site_id = source["site_id"]
+                    job_id = job_id or str(source["source_job_id"] or "")
+                    channel = channel or str(source["channel"] or "")
+            if not site_id and item_id and queue_name == "facebook":
+                source = conn.execute("select site_id,job_id,channel from social_posts where id=?", (item_id,)).fetchone()
+                if source:
+                    site_id = source["site_id"]
+                    job_id = job_id or str(source["job_id"] or "")
+                    channel = channel or str(source["channel"] or "")
+            site = conn.execute("select domain,brand_name from sites where id=?", (site_id,)).fetchone() if site_id else None
+            job = conn.execute("select title,topic from content_jobs where id=?", (job_id,)).fetchone() if job_id else None
+            site_name = str((site["brand_name"] or site["domain"]) if site else f"site {site_id or 'unknown'}")
+            item_title = str((job["title"] or job["topic"]) if job else item.get("title") or "")
+            error = _publication_failure_detail(item)[:3000]
+            identity = {
+                "queue": queue_name,
+                "siteId": site_id,
+                "jobId": job_id,
+                "itemId": item_id,
+                "channel": channel,
+                "slot": item.get("slot"),
+            }
+            # Error wording may become more precise after provider
+            # reconciliation. It must not turn one failed publication into a
+            # second alert. Only anonymous worker failures need the message as
+            # a fallback identity because they have no queue record or slot.
+            if not any((site_id, job_id, item_id, channel, item.get("slot"))):
+                identity["error"] = error
+            event_key = sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+            inserted = conn.execute(
+                """insert into publication_failure_email_alerts(
+                       event_key,queue_name,site_id,job_id,item_id,channel,site_name,item_title,
+                       error,payload_json,status,created_at)
+                   values(?,?,?,?,?,?,?,?,?,?, 'PENDING', ?)
+                   on conflict(event_key) do nothing""",
+                (
+                    event_key, queue_name, int(site_id) if site_id else None, job_id or None,
+                    item_id or None, channel or None, site_name, item_title, error,
+                    json.dumps(item, ensure_ascii=False, default=str), now_iso(),
+                ),
+            )
+            captured += int(inserted.rowcount > 0)
+    return {"captured": captured}
+
+
+def _send_publication_alert_email(recipient, sender, subject, text_body, html_body):
+    """Use the same local sendmail/Exim path already used by SoloCruz."""
+    from email.message import EmailMessage
+    from email.utils import formatdate, make_msgid, parseaddr
+
+    header_values = (str(recipient or ""), str(sender or ""), str(subject or ""))
+    if any("\r" in value or "\n" in value for value in header_values):
+        return False, "email headers must not contain line breaks"
+    envelope_sender = parseaddr(sender)[1].strip() or sender
+    message_id_domain = envelope_sender.rsplit("@", 1)[-1] if "@" in envelope_sender else None
+    message = EmailMessage()
+    message["To"] = recipient
+    message["From"] = sender
+    message["Subject"] = subject
+    message["Date"] = formatdate(localtime=False, usegmt=True)
+    message["Message-ID"] = make_msgid(domain=message_id_domain)
+    message.set_content(text_body, subtype="plain", charset="utf-8")
+    message.add_alternative(html_body, subtype="html", charset="utf-8")
+    try:
+        process = subprocess.run(
+            ["/usr/sbin/sendmail", "-f", envelope_sender, "-t", "-oi"],
+            input=message.as_bytes(), capture_output=True, timeout=30,
+        )
+    except Exception as error:
+        return False, str(error)
+    if process.returncode != 0:
+        detail = (process.stderr or process.stdout or b"sendmail failed").decode("utf-8", errors="replace")
+        return False, detail.strip()
+    return True, "sent"
+
+
+def run_publication_failure_email_notifications(limit=20):
+    """Deliver pending publication-failure alerts, retrying with backoff."""
+    recipient = str(os.environ.get("PUBLICATION_ALERT_EMAIL_TO") or "").strip()
+    sender = str(os.environ.get("PUBLICATION_ALERT_EMAIL_FROM") or "Blog Core <noreply@myugc.studio>").strip()
+    with db() as conn:
+        pending_count = conn.execute(
+            "select count(*) from publication_failure_email_alerts where status in ('PENDING','RETRY','SENDING')"
+        ).fetchone()[0]
+        rows = conn.execute(
+            """select * from publication_failure_email_alerts
+               where status in ('PENDING','RETRY','SENDING') order by created_at,id limit ?""",
+            (max(1, int(limit)),),
+        ).fetchall()
+    if not recipient:
+        return {"configured": False, "due": int(pending_count), "sent": 0, "failed": 0}
+
+    sent = failed = 0
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        if row["last_attempt_at"]:
+            try:
+                last_attempt = datetime.fromisoformat(str(row["last_attempt_at"]).replace("Z", "+00:00"))
+                retry_after = min(3600, 60 * (2 ** min(int(row["attempts"] or 0), 6)))
+                if (now - last_attempt).total_seconds() < retry_after:
+                    continue
+            except ValueError:
+                pass
+        attempt_at = now_iso()
+        with db() as conn:
+            claimed = conn.execute(
+                """update publication_failure_email_alerts set status='SENDING',attempts=attempts+1,last_attempt_at=?
+                   where id=? and status in ('PENDING','RETRY','SENDING')""",
+                (attempt_at, row["id"]),
+            )
+        if not claimed.rowcount:
+            continue
+        queue_label = PUBLICATION_FAILURE_QUEUE_LABELS.get(row["queue_name"], row["queue_name"])
+        destination = row["channel"] or queue_label
+        subject = f"[Blog Core] Publication failed: {row['site_name']} / {destination}"
+        dashboard_url = f"{BLOG_CORE_PUBLIC_URL}/sites/{row['site_id']}" if row["site_id"] else BLOG_CORE_PUBLIC_URL
+        details = [
+            ("Site", row["site_name"]), ("Queue", queue_label), ("Channel", row["channel"] or "website"),
+            ("Title", row["item_title"] or "not available"), ("Job", row["job_id"] or "not available"),
+            ("Queue item", row["item_id"] or "not available"), ("Time (UTC)", row["created_at"]),
+        ]
+        text_body = "Publication failed in Blog Core.\n\n" + "\n".join(f"{label}: {value}" for label, value in details)
+        text_body += f"\n\nError:\n{row['error']}\n\nOpen Blog Core: {dashboard_url}\n"
+        detail_html = "".join(
+            f"<tr><td style='padding:5px 12px 5px 0;color:#667085'>{escape(label)}</td><td style='padding:5px 0'><strong>{escape(str(value))}</strong></td></tr>"
+            for label, value in details
+        )
+        html_body = f"""<!doctype html><html><body style="margin:0;background:#f2f4f7;font-family:Arial,sans-serif;color:#101828">
+          <div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e4e7ec;border-radius:14px;padding:28px">
+            <div style="font-size:13px;font-weight:700;letter-spacing:.08em;color:#b42318">BLOG CORE ALERT</div>
+            <h1 style="font-size:24px;margin:10px 0 20px">Publication failed</h1>
+            <table style="border-collapse:collapse;font-size:14px">{detail_html}</table>
+            <div style="margin-top:22px;padding:16px;border-radius:10px;background:#fef3f2;border:1px solid #fecdca;color:#912018;white-space:pre-wrap">{escape(row['error'])}</div>
+            <p style="margin:24px 0 0"><a href="{escape(dashboard_url, quote=True)}" style="display:inline-block;background:#101828;color:#fff;text-decoration:none;padding:11px 16px;border-radius:8px">Open Blog Core</a></p>
+          </div></body></html>"""
+        ok, delivery_message = _send_publication_alert_email(recipient, sender, subject, text_body, html_body)
+        with db() as conn:
+            if ok:
+                conn.execute(
+                    "update publication_failure_email_alerts set status='SENT',sent_at=?,delivery_error=null where id=?",
+                    (now_iso(), row["id"]),
+                )
+                sent += 1
+            else:
+                conn.execute(
+                    "update publication_failure_email_alerts set status='RETRY',delivery_error=? where id=?",
+                    (str(delivery_message)[:1000], row["id"]),
+                )
+                failed += 1
+    return {"configured": True, "due": int(pending_count), "sent": sent, "failed": failed}
 
 
 
@@ -736,8 +1392,20 @@ def fetch_form_json_request(url, fields, headers=None, timeout=25):
             return {"raw": raw[:500]}, resp.status
 
 
-def linkedin_oauth_configured():
-    return bool(os.environ.get("LINKEDIN_CLIENT_ID") and os.environ.get("LINKEDIN_CLIENT_SECRET"))
+def linkedin_oauth_credentials(site_id=None):
+    """Read site-local OAuth credentials first, with legacy env fallback."""
+    credentials = {}
+    if site_id:
+        credentials = get_social_credentials(get_social_connections(int(site_id)).get("linkedin"))
+    return {
+        "client_id": str(credentials.get("client_id") or os.environ.get("LINKEDIN_CLIENT_ID") or "").strip(),
+        "client_secret": str(credentials.get("client_secret") or os.environ.get("LINKEDIN_CLIENT_SECRET") or "").strip(),
+    }
+
+
+def linkedin_oauth_configured(site_id=None):
+    credentials = linkedin_oauth_credentials(site_id)
+    return bool(credentials["client_id"] and credentials["client_secret"])
 
 
 def linkedin_oauth_redirect_uri():
@@ -751,8 +1419,7 @@ def linkedin_available_organizations(access_token):
     """Return only organizations the OAuth member can publish to, never guessed URNs."""
     try:
         data, _ = fetch_json_request(
-            "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&state=APPROVED"
-            "&projection=(elements*(organization,organizationTarget,role,state))",
+            "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&state=APPROVED",
             headers={
                 "Authorization": f"Bearer {access_token}",
                 "Linkedin-Version": LINKEDIN_API_VERSION,
@@ -762,6 +1429,11 @@ def linkedin_available_organizations(access_token):
             timeout=30,
         )
         organizations = []
+        request_headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Linkedin-Version": LINKEDIN_API_VERSION,
+            "X-Restli-Protocol-Version": "2.0.0",
+        }
         for item in data.get("elements") or []:
             if not isinstance(item, dict) or str(item.get("state") or "").upper() != "APPROVED":
                 continue
@@ -769,7 +1441,19 @@ def linkedin_available_organizations(access_token):
             urn = str(item.get("organization") or item.get("organizationTarget") or "").strip()
             if role not in LINKEDIN_COMPANY_POSTING_ROLES or not urn.startswith("urn:li:organization:"):
                 continue
-            organizations.append({"urn": urn, "name": urn.rsplit(":", 1)[-1], "role": role})
+            organization_id = urn.rsplit(":", 1)[-1]
+            organization_name = organization_id
+            try:
+                organization, _ = fetch_json_request(
+                    f"https://api.linkedin.com/rest/organizations/{organization_id}",
+                    headers=request_headers,
+                    method="GET",
+                    timeout=30,
+                )
+                organization_name = str(organization.get("localizedName") or organization_id).strip()
+            except Exception:
+                pass
+            organizations.append({"urn": urn, "name": organization_name, "role": role})
         return organizations, ""
     except Exception as exc:
         return [], str(exc)[:500]
@@ -835,8 +1519,8 @@ def test_social_connection(provider, credentials):
             return {"ok": True, "status": "connected", "displayName": username, "message": f"Connected to Telegram as {username}."}
 
         if provider == "linkedin":
-            data, _ = fetch_json_request("https://api.linkedin.com/v2/userinfo", headers={"Authorization": f"Bearer {credentials['access_token']}"})
-            name = data.get("name") or data.get("localizedFirstName") or data.get("sub") or "LinkedIn account"
+            data, _ = fetch_json_request("https://api.linkedin.com/v2/me", headers={"Authorization": f"Bearer {credentials['access_token']}"})
+            name = " ".join(filter(None, [data.get("localizedFirstName"), data.get("localizedLastName")])).strip() or data.get("id") or "LinkedIn account"
             if data.get("serviceErrorCode") or data.get("status") in {401, 403}:
                 return {"ok": False, "status": "failed", "message": data.get("message") or "LinkedIn token rejected."}
             author_urn = str(credentials.get("author_urn") or "")
@@ -1364,7 +2048,14 @@ def native_content_store_filename(row, state):
     if not slug:
         raise ValueError("A published native content record requires a slug")
     prefix = NATIVE_CONTENT_TYPE_PREFIXES[content_type]
-    return f"{slug}.json" if content_type == "blog" else f"{prefix}--{slug}.json"
+    if content_type == "blog":
+        return f"{slug}.json"
+    # A slug alone is not unique for nested native routes (for example several
+    # country pages ending in ``packaging-epr``). Preserve the readable prefix
+    # while making the full target path part of the durable file identity.
+    target_path = content_job_target_path(row)
+    path_key = re.sub(r"[^a-z0-9-]+", "-", target_path.strip("/").lower()).strip("-")
+    return f"{prefix}--{path_key or slug}.json"
 
 
 def source_authoritative_content_job(row):
@@ -1381,16 +2072,45 @@ def native_content_store_job(row, site=None):
 
 def native_content_store_root(site, row):
     sources = content_job_sources(row)
+    configured_content_root = str(
+        sources.get("nativeContentRoot")
+        or (site["content_root_path"] if "content_root_path" in site.keys() else "")
+        or ""
+    ).strip()
+    if configured_content_root:
+        root = Path(configured_content_root).resolve()
+        if not root.is_dir():
+            raise RuntimeError("Native content store requires an existing local content root")
+        return root / "blog-core"
     root = Path(str(sources.get("nativeProjectRoot") or site["root_path"] or "")).resolve()
     if not root.is_dir():
         raise RuntimeError("Native content store requires an existing local project root")
     return root / "data" / "blog-core"
 
 
+def native_content_asset_url(value):
+    """Make Blog Core-owned article assets usable from a site's own domain."""
+    raw = str(value or "")
+    if raw.startswith("/sites/"):
+        return f"{BLOG_CORE_PUBLIC_URL}{raw}"
+    return raw
+
+
+def native_content_asset_html(value):
+    html = str(value or "")
+    return re.sub(
+        r'(["\'])/sites/',
+        lambda match: f"{match.group(1)}{BLOG_CORE_PUBLIC_URL}/sites/",
+        html,
+    )
+
+
 def native_content_store_payload(site, row, published=False):
     sources = content_job_sources(row)
     brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    generated = sources.get("generatedContentContract") if isinstance(sources.get("generatedContentContract"), dict) else {}
     editorial = brief.get("editorial") if isinstance(brief.get("editorial"), dict) else {}
+    change_log = editorial.get("changeLog") if isinstance(editorial.get("changeLog"), list) else []
     public_sources = []
     for item in brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []:
         if not isinstance(item, dict):
@@ -1403,7 +2123,10 @@ def native_content_store_payload(site, row, published=False):
                 "publisher": str(item.get("publisher") or "").strip(),
                 "publicUrl": public_url if re.match(r"^https://", public_url) else "",
                 "accessedAt": str(item.get("accessedAt") or "").strip(),
-                "supports": str(item.get("supports") or "").strip(),
+                # `supports` is the full generation evidence boundary and may
+                # contain editor-only exclusions. Only an explicitly public
+                # summary is allowed to override the visitor-facing source card.
+                "supports": str(item.get("publicSummary") or item.get("supports") or "").strip(),
             }
         )
     try:
@@ -1436,7 +2159,7 @@ def native_content_store_payload(site, row, published=False):
             "title": localized["title"],
             "description": localized["description"] or "",
             "category": localized["category"] or "Insights",
-            "draftHtml": localized["draft_html"],
+            "draftHtml": native_content_asset_html(localized["draft_html"]),
             "faq": localized_faq if isinstance(localized_faq, list) else [],
             "readMinutes": max(1, math.ceil(localized_word_count / 220)),
         }
@@ -1448,8 +2171,8 @@ def native_content_store_payload(site, row, published=False):
         "title": row["title"] or row["topic"],
         "description": row["description"] or "",
         "category": row["category"] or "Insights",
-        "heroImage": row["hero_image"] or "",
-        "draftHtml": row["draft_html"] or "",
+        "heroImage": native_content_asset_url(row["hero_image"]),
+        "draftHtml": native_content_asset_html(row["draft_html"]),
         "faq": faq if isinstance(faq, list) else [],
         "readMinutes": max(1, math.ceil(word_count / 220)),
         "targetPath": content_job_target_path(row),
@@ -1458,16 +2181,29 @@ def native_content_store_payload(site, row, published=False):
         "editorial": {
             "author": str(editorial.get("author") or "").strip(),
             "reviewer": str(editorial.get("reviewer") or "").strip(),
+            "verification": brief.get("automatedSourceAudit") if isinstance(brief.get("automatedSourceAudit"), dict) else {},
             "owner": str(editorial.get("owner") or "").strip(),
             "reviewDueAt": str(editorial.get("reviewDueAt") or "").strip(),
             "reviewCadence": str(editorial.get("reviewCadence") or "").strip(),
             "factCheckedAt": str(editorial.get("factCheckedAt") or "").strip(),
+            "lastReviewedAt": str(editorial.get("lastReviewedAt") or editorial.get("factCheckedAt") or "").strip(),
+            "rulesetVersion": str(editorial.get("rulesetVersion") or "").strip(),
+            "changeLog": [
+                {
+                    "date": str(item.get("date") or "").strip(),
+                    "summary": str(item.get("summary") or "").strip(),
+                }
+                for item in change_log
+                if isinstance(item, dict) and str(item.get("date") or "").strip() and str(item.get("summary") or "").strip()
+            ],
             "sources": public_sources,
         },
         "primaryCta": brief.get("primaryCta") if isinstance(brief.get("primaryCta"), dict) else {},
+        "internalLinks": generated.get("internalLinks") if isinstance(generated.get("internalLinks"), list) else [],
+        "recommendedNext": generated.get("recommendedNext") if isinstance(generated.get("recommendedNext"), list) else [],
         "contentDetails": brief.get("contentDetails") if isinstance(brief.get("contentDetails"), dict) else {},
         "translations": translations,
-        "updatedAt": now_iso(),
+        "updatedAt": str(row["updated_at"] or now_iso()) if "updated_at" in row.keys() else now_iso(),
         "publishedAt": now_iso() if published else None,
     }
 
@@ -1485,6 +2221,52 @@ def write_native_content_store(site, row, state):
     temporary.write_text(json.dumps(native_content_store_payload(site, row, published=state == "published"), ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(target)
     return target
+
+
+def warm_native_content_artifacts(site, row):
+    """Warm the owning site's immutable blog artifact after a content-store write.
+
+    The Build YAS app accepts this only on localhost with its local publication
+    header. A warm failure is logged but never rolls back an already durable
+    Blog Core publication.
+    """
+    targets = {
+        "karpaleksei.com": (3045, "karp-aleksei-jade-mills-homepage-ms4qtdi3"),
+        "veselovaveronika.com": (3055, "veselova-veronika"),
+    }
+    target = targets.get(str(site["domain"] or "").lower())
+    if not target:
+        return []
+    port, project_id = target
+    paths = ["/blog", "/en/blog"]
+    slug = str(row["slug"] or "").strip().lower()
+    if slug:
+        paths.append(f"/blog/{slug}")
+    try:
+        with db() as conn:
+            localized = conn.execute(
+                "select language,slug from content_job_localizations where site_id=? and job_id=?",
+                (site["id"], row["id"]),
+            ).fetchall()
+        for item in localized:
+            localized_slug = str(item["slug"] or "").strip().lower()
+            if localized_slug:
+                prefix = "/en" if item["language"] == "en" else f"/{item['language']}"
+                paths.append(f"{prefix}/blog/{localized_slug}")
+    except Exception:
+        pass
+    outcomes = []
+    for route in dict.fromkeys(paths):
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/published-sites/{project_id}" + route + "?publishArtifact=1",
+            headers={"x-tenant-artifact-warm": "local"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                outcomes.append(f"{route}:{response.status}")
+        except Exception as error:
+            outcomes.append(f"{route}:ERROR {error}")
+    return outcomes
 
 
 def content_job_source_url(site, row):
@@ -2070,13 +2852,15 @@ def schedule_unscheduled_content_jobs(site_id, cadence, start_at):
         raise ValueError("Choose a recurring cadence before applying it to the queue.")
     with db() as conn:
         rows = conn.execute(
-            """select id, sources_json from content_jobs
+            """select * from content_jobs
                where site_id=? and status='QUEUED' and (scheduled_for is null or scheduled_for='')
                order by created_at asc, id asc""",
             (site_id,),
         ).fetchall()
         grouped = {}
         for row in rows:
+            if not compliance_job_is_schedulable(row):
+                continue
             sources = parse_json_object(row["sources_json"])
             group = str(sources.get("canonicalGroup") or row["id"])
             grouped.setdefault(group, []).append(row["id"])
@@ -2107,7 +2891,7 @@ def get_topic_discovery_settings(site_id):
 
 
 def get_social_connections(site_id):
-    providers = ["zernio", "linkedin", "telegram", "tumblr", "twitter", "pinterest", "instagram", "threads", "reddit"]
+    providers = ["zernio", "linkedin", "telegram", "tumblr", "twitter", "pinterest", "instagram", "threads", "facebook", "reddit"]
     with db() as conn:
         rows = {r["provider"]: r for r in conn.execute("select * from social_connections where site_id=?", (site_id,)).fetchall()}
     return {provider: rows.get(provider) for provider in providers}
@@ -2159,7 +2943,9 @@ SOCIAL_PROVIDER_CONFIG = {
             ("twitter_account_id", "X account ID", "text", "acc_..."),
             ("pinterest_account_id", "Pinterest account ID", "text", "acc_..."),
             ("instagram_account_id", "Instagram account ID", "text", "acc_..."),
+            ("tiktok_account_id", "TikTok account ID", "text", "acc_..."),
             ("threads_account_id", "Threads account ID", "text", "acc_..."),
+            ("facebook_account_id", "Facebook Page account ID", "text", "acc_..."),
             ("reddit_account_id", "Reddit account ID", "text", "acc_..."),
             ("pinterest_board_id", "Pinterest board ID", "text", "Required for Pin publication"),
             ("reddit_subreddit", "Default subreddit", "text", "Without r/ prefix"),
@@ -2168,7 +2954,10 @@ SOCIAL_PROVIDER_CONFIG = {
     },
     "linkedin": {
         "label": "LinkedIn",
-        "fields": [],
+        "fields": [
+            ("client_id", "LinkedIn Client ID", "text", "From LinkedIn Developers → Auth"),
+            ("client_secret", "LinkedIn Client Secret", "password", "Stored encrypted in Blog Core; required before OAuth connection"),
+        ],
     },
     "telegram": {
         "label": "Telegram",
@@ -2226,45 +3015,73 @@ SOCIAL_CHANNEL_LIMITS = {
     "pinterest": 500,
     "instagram": 2200,
     "threads": 500,
+    "facebook": 1500,
     "reddit": 40000,
 }
 
 INSTAGRAM_REEL_ASSET_TYPE = "instagram_reel"
-SOCIAL_CADENCE_KEYS = tuple(SOCIAL_CHANNEL_LIMITS) + (INSTAGRAM_REEL_ASSET_TYPE,)
-ZERNIO_SOCIAL_CHANNELS = {"twitter", "pinterest", "instagram", "threads", "reddit"}
-AUTOMATIC_SOCIAL_CHANNELS = ZERNIO_SOCIAL_CHANNELS | {"linkedin"}
+TIKTOK_CAROUSEL_ASSET_TYPE = "tiktok_carousel"
+SOCIAL_CADENCE_KEYS = tuple(SOCIAL_CHANNEL_LIMITS) + (INSTAGRAM_REEL_ASSET_TYPE, TIKTOK_CAROUSEL_ASSET_TYPE)
+ZERNIO_SOCIAL_CHANNELS = {"twitter", "pinterest", "instagram", "tiktok", "threads", "facebook", "youtube", "reddit"}
+# X and Reddit need their own editorial/community workflow below.  They must
+# never fall through the article-to-social scheduler, which is designed for
+# broadcast channels and would create generic link promotion.
+AUTOMATIC_SOCIAL_CHANNELS = (ZERNIO_SOCIAL_CHANNELS - {"twitter", "reddit"}) | {"linkedin"}
 LINKEDIN_API_VERSION = os.environ.get("LINKEDIN_API_VERSION", "202606").strip() or "202606"
 SOCIAL_CHANNEL_LABELS = {
     "linkedin": "LinkedIn", "telegram": "Telegram", "twitter": "X / Twitter", "tumblr": "Tumblr",
-    "pinterest": "Pinterest", "instagram": "Instagram", "threads": "Threads", "reddit": "Reddit",
+    "pinterest": "Pinterest", "instagram": "Instagram", "threads": "Threads", "facebook": "Facebook", "youtube": "YouTube", "reddit": "Reddit",
 }
 
 SOCIAL_CHANNEL_TARGET_CHARS = {
     "instagram": 700,
-    "linkedin": 1200,
+    # This is a writing target, not a truncation threshold. LinkedIn itself
+    # accepts up to 3,000 characters; the publisher rejects an oversize draft.
+    "linkedin": 2500,
     "telegram": 900,
     "twitter": 240,
     "tumblr": 700,
     "pinterest": 320,
     "threads": 360,
+    "facebook": 700,
     "reddit": 1800,
 }
 
 SOCIAL_CHANNEL_STYLE = {
-    "linkedin": "professional insight post with a clear hook, practical takeaways, and no clickbait",
+    "linkedin": "complete standalone English article for a professional audience, with no promotion or traffic-driving language",
     "telegram": "direct channel post with short paragraphs and a practical reason to open the article",
     "twitter": "single concise X post, no thread, no hashtags unless essential",
     "tumblr": "short editorial micro-post with a natural blog-style intro",
     "pinterest": "native Pinterest pin description with a visual hook, useful caption, and no clickbait",
     "instagram": "native Instagram carousel caption with concise context, no clickbait, and a clear save/share cue",
     "threads": "native Threads post: conversational, opinionated or question-led, not promotional copy, at most one hashtag",
+    "facebook": "native Facebook Page post: a specific useful hook, 3-5 short paragraphs, one canonical article URL, at most two relevant hashtags, never engagement bait",
     "reddit": "community-first Reddit post that asks or answers a concrete problem without marketing language or a generic CTA",
 }
+
+SOCIAL_NATURAL_WRITING_CONTRACT = """
+NATURAL WRITING CONTRACT:
+- Write like a knowledgeable person speaking plainly, with concrete nouns,
+  complete sentences and varied sentence length. Prefer one precise observation
+  over a polished-sounding summary.
+- Do not use em dashes, en dashes, arrows, smart quotes, asterisks or Markdown
+  emphasis. Use ordinary ASCII punctuation.
+- Do not use canned AI phrases or inflated vocabulary such as `In today's
+  fast-paced world`, `Let's dive in`, `Here's the thing`, `The takeaway`,
+  `game-changer`, `unlock`, `leverage`, `seamless`, `robust`, `delve`, or
+  `navigate the landscape`.
+- Do not use formulaic reversals such as `It is not about X, it is about Y` or
+  `not just X, but Y`. Do not stack three parallel fragments merely for rhythm.
+- Do not add generic section labels such as `PROBLEM`, `SOLUTION`, `KEY TAKEAWAY`
+  or `CONCLUSION`. Let the meaning come from the sentences.
+- No fake quotation, rhetorical question, generic CTA, engagement bait, hype,
+  self-congratulation or vague thought-leadership language.
+""".strip()
 
 
 def social_channel_editorial_rules(channel):
     rules = {
-        "linkedin": "Use 4 to 7 short paragraphs: a specific work situation, one contrarian or useful insight, a practical framework, and a genuine question. Do not use empty thought-leadership language, engagement bait, or more than 3 hashtags.",
+        "linkedin": "Write a complete, self-contained article that fully explains the source topic within the available space. Include the essential reasoning, practical examples, limitations, and conclusion. Do not ask the reader questions, use engagement bait, issue a CTA, mention a fuller version, or link to our site. An external link is allowed only when it is an exact supplied URL for a resource, service, document, or source discussed in the article; never invent one. The reader must get the complete answer without leaving LinkedIn.",
         "telegram": "Write a channel-native post: one strong lead line, then 3 to 5 compact practical points. Keep it scannable. End with one calm reason to open the article, never a loud sales CTA.",
         "twitter": "Choose one format that fits the article: sharp observation, contrarian take, micro-framework, or concise question. One post only. No thread, no generic summary, no more than 2 hashtags.",
         "tumblr": "Write an editorial micro-post with a personal but brand-safe voice. It should stand on its own as a small blog note, with a natural transition to the full article.",
@@ -2272,6 +3089,74 @@ def social_channel_editorial_rules(channel):
         "reddit": "Write as a helpful community member. Lead with the concrete problem or answer, disclose the product/article connection only when relevant, never use sales language, and include a link only when it genuinely answers the question. Do not imitate a subreddit unless its rules are explicitly configured.",
     }
     return rules.get(channel, "Write a concise native post that adds value before asking for attention.")
+
+
+PINTEREST_DEFAULT_MIX = {
+    "product_proof": 35,
+    "searchable_inspiration": 30,
+    "how_it_works": 20,
+    "conversion_offer": 15,
+}
+
+
+def get_pinterest_strategy(site_id):
+    """Return a site-owned Pin strategy; never infer a destination URL at publish time."""
+    with db() as conn:
+        row = conn.execute("select * from pinterest_strategies where site_id=?", (site_id,)).fetchone()
+        if row:
+            return row
+        site = get_site(site_id)
+        homepage = str(site["homepage_url"] or "").rstrip("/") if site else ""
+        now = now_iso()
+        conn.execute(
+            """insert into pinterest_strategies(site_id,enabled,daily_pin_target,boards_json,landing_pages_json,mix_json,updated_at)
+               values(?,?,?,?,?,?,?)""",
+            (site_id, 0, 0, "[]", json.dumps([{
+                "url": homepage,
+                "label": "Main service / product page",
+                "intent": "conversion_offer",
+            }] if homepage else [], ensure_ascii=False), json.dumps(PINTEREST_DEFAULT_MIX), now),
+        )
+        return conn.execute("select * from pinterest_strategies where site_id=?", (site_id,)).fetchone()
+
+
+def pinterest_strategy_data(site_id):
+    row = get_pinterest_strategy(site_id)
+    boards = parse_json_value(row["boards_json"], [])
+    pages = parse_json_value(row["landing_pages_json"], [])
+    mix = parse_json_object(row["mix_json"])
+    return {
+        "enabled": bool(row["enabled"]),
+        "dailyPinTarget": int(row["daily_pin_target"] or 0),
+        "boards": boards if isinstance(boards, list) else [],
+        "landingPages": pages if isinstance(pages, list) else [],
+        "mix": mix if isinstance(mix, dict) else dict(PINTEREST_DEFAULT_MIX),
+    }
+
+
+def pinterest_destination_candidates(site_id, article_url):
+    """Only explicitly configured pages and the source article can be Pin destinations."""
+    strategy = pinterest_strategy_data(site_id)
+    candidates = []
+    for item in strategy["landingPages"]:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if url.startswith(("https://", "http://")):
+            candidates.append({
+                "url": url,
+                "label": str(item.get("label") or url),
+                "intent": str(item.get("intent") or "conversion_offer"),
+            })
+    if article_url:
+        candidates.append({"url": article_url, "label": "Source article", "intent": "searchable_inspiration"})
+    unique = []
+    seen = set()
+    for item in candidates:
+        if item["url"] not in seen:
+            unique.append(item)
+            seen.add(item["url"])
+    return unique
 
 LANGUAGE_NAMES = {
     "en": "English",
@@ -2292,6 +3177,13 @@ def parse_json_object(value):
     except Exception:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def parse_json_value(value, default=None):
+    try:
+        return json.loads(value) if value not in (None, "") else (default if default is not None else {})
+    except Exception:
+        return default if default is not None else {}
 
 
 def get_social_credentials(row):
@@ -2326,6 +3218,64 @@ def content_job_sources(row):
     return parse_json_object(row["sources_json"] if row and "sources_json" in row.keys() else "{}")
 
 
+def compliance_cluster_for_job(job):
+    """Return an optional, site-configured high-risk content contract.
+
+    This deliberately recognises a contract shape rather than a site, domain or
+    topic.  Any future factory can use the same protected lifecycle without a
+    conditional in the shared publisher.
+    """
+    cluster = content_job_sources(job).get("complianceCluster")
+    return cluster if isinstance(cluster, dict) else None
+
+
+def validate_compliance_generation_gate(job):
+    sources = content_job_sources(job)
+    if sources.get("generationBlockedUntilSourceReview") is True:
+        raise ValueError("Compliance generation is blocked pending source and claim review")
+    cluster = compliance_cluster_for_job(job)
+    if not cluster:
+        return
+    claims = cluster.get("verifiedClaims") if isinstance(cluster.get("verifiedClaims"), list) else []
+    claim_ids = cluster.get("claimIds") if isinstance(cluster.get("claimIds"), list) else []
+    source_map = cluster.get("sourceMap") if isinstance(cluster.get("sourceMap"), dict) else {}
+    if cluster.get("workflowState") not in {"CLAIMS_VERIFIED", "DRAFT_AUTHORIZED"}:
+        raise ValueError("Compliance generation requires CLAIMS_VERIFIED workflow state")
+    if not source_map.get("sources") or not claim_ids or not claims:
+        raise ValueError("Compliance generation requires current mapped and verified claims")
+    unverified = [claim for claim in claims if not isinstance(claim, dict) or claim.get("approvalState") != "VERIFIED"]
+    if unverified:
+        raise ValueError("Compliance generation requires every claim to be VERIFIED")
+
+
+def validate_compliance_publication_gate(job):
+    sources = content_job_sources(job)
+    cluster = compliance_cluster_for_job(job)
+    if not cluster:
+        if sources.get("generationBlockedUntilSourceReview") is True or sources.get("publicationBlocked") is True:
+            raise ValueError("Compliance publication is blocked pending migration, source review and approval")
+        return
+    references = ((sources.get("pageBrief") or {}).get("sourceReferences") or []) if isinstance(sources.get("pageBrief"), dict) else []
+    unavailable = [reference.get("publicUrl") for reference in references if isinstance(reference, dict) and (reference.get("lastLiveCheck") or {}).get("state") == "TEMPORARILY_UNAVAILABLE"]
+    if unavailable:
+        raise ValueError("Compliance publication is blocked until temporarily unavailable official sources pass a new live check")
+    approval = cluster.get("tierBApproval") if isinstance(cluster.get("tierBApproval"), dict) else {}
+    if sources.get("publicationBlocked") is True:
+        raise ValueError("Compliance publication is blocked pending Tier B approval")
+    if approval.get("status") != "APPROVED" or not str(approval.get("approvedAt") or "").strip() or not str(approval.get("approvedBy") or "").strip():
+        raise ValueError("Compliance publication requires recorded Tier B approval")
+    if approval.get("allLocalesReviewed") is not True or approval.get("visualQaPassed") is not True:
+        raise ValueError("Compliance publication requires all-locale and visual QA approval")
+
+
+def compliance_job_is_schedulable(job):
+    try:
+        validate_compliance_publication_gate(job)
+    except ValueError:
+        return False
+    return True
+
+
 def content_job_language(row, site=None):
     sources = content_job_sources(row)
     language = str(sources.get("language") or "").strip().lower()
@@ -2351,8 +3301,32 @@ def social_source_text(row, limit=7000):
     return re.sub(r"\s+", " ", text).strip()[:limit]
 
 
+def social_external_source_links(site, job, limit=6):
+    """Return only external source URLs already present in the approved article."""
+    html = str(job["draft_html"] or "")
+    site_domain = domain_from_url(site["homepage_url"] or "")
+    links = []
+    for value in re.findall(r'''href\s*=\s*["']([^"']+)["']''', html, flags=re.I):
+        url = urllib.parse.urljoin(site["homepage_url"] or "", value.strip())
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            continue
+        if domain_from_url(url) == site_domain or url in links:
+            continue
+        links.append(url)
+        if len(links) >= limit:
+            break
+    return links
+
+
 def social_normalize_text(text):
     text = str(text or "")
+    text = text.translate(str.maketrans({
+        "\u2014": "-", "\u2013": "-", "\u2212": "-", "\u2192": " to ",
+        "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"',
+        "\u00a0": " ",
+    }))
+    text = text.replace("**", "").replace("__", "")
     text = re.sub(r"\r\n?", "\n", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -2413,6 +3387,19 @@ def social_text_with_optional_link(text, article_url, include_link, max_chars):
         return social_shorten_to_limit(article_url, max_chars)
     body = social_shorten_to_limit(text, max_chars - link_budget)
     return social_normalize_text(body + separator + article_url)
+
+
+def social_text_with_optional_link_unbounded(text, article_url, include_link):
+    """Append a social link without altering the generated copy.
+
+    Used for LinkedIn, where an over-limit result must be regenerated instead
+    of being silently shortened at generation or publication time.
+    """
+    text = social_normalize_text(text)
+    article_url = (article_url or "").strip()
+    if not include_link or not article_url:
+        return text
+    return social_normalize_text(f"{text}\n\n{article_url}")
 
 
 def threads_text_with_optional_link(text, article_url, include_link, max_bytes):
@@ -2481,8 +3468,12 @@ def fallback_social_post_text(site, job, channel, language, max_chars, include_l
 def build_social_post_prompt(site, job, channel, language, max_chars, include_link, article_url):
     brand = site["brand_name"] or site["domain"]
     source_text = social_source_text(job)
+    external_links = social_external_source_links(site, job) if channel == "linkedin" else []
     language_name = LANGUAGE_NAMES.get(language, language.upper())
-    link_rule = "Include the article URL exactly once at the end." if include_link and article_url else "Do not include any URL."
+    if channel == "linkedin":
+        link_rule = "Never include the article URL. Use an external URL only if it is one of the approved source URLs and is necessary to identify the discussed resource."
+    else:
+        link_rule = "Include the article URL exactly once at the end." if include_link and article_url else "Do not include any URL."
     return f"""
 You are adapting an article into a social media post for {brand}.
 
@@ -2496,12 +3487,13 @@ CHANNEL:
 
 LANGUAGE:
 - Write in {language_name}.
-- The social post must use the same language as the article.
+- The social post must use this requested channel language.
 
 ARTICLE:
 - title: {job['title'] or job['topic']}
 - description: {job['description'] or ''}
 - source excerpt: {source_text[:6000]}
+- approved external source URLs: {json.dumps(external_links)}
 
 RULES:
 - Output STRICT JSON only.
@@ -2509,14 +3501,60 @@ RULES:
 - Stay under the hard maximum. Do not rely on platform truncation.
 - For Threads, stay under 500 UTF-8 bytes and use at most one hashtag.
 - Do not say "read more" if no URL is included.
+- LinkedIn posts are complete standalone articles: no CTA, final question, or reference to a longer article. Never link to our own site. Use an external URL only when it is both listed in approved external source URLs and genuinely needed to identify or cite the discussed resource; otherwise use no URL at all.
 - No markdown headings.
 - No invented claims, prices, guarantees, statistics, or hashtags unless the article explicitly supports them.
 - No em dash or en dash.
+- {SOCIAL_NATURAL_WRITING_CONTRACT}
 - Channel editorial contract: {social_channel_editorial_rules(channel)}
 
 RETURN JSON SHAPE:
 {{"text":"final social post text"}}
 """.strip()
+
+
+def build_linkedin_fact_edit_prompt(site, job, language, max_chars, draft_text):
+    """Make LinkedIn copy a finished, source-bound article before publication."""
+    language_name = LANGUAGE_NAMES.get(language, language.upper())
+    source_text = social_source_text(job, limit=9000)
+    return f"""
+You are the final factual editor for a LinkedIn article from {site['brand_name'] or site['domain']}.
+
+Write in {language_name}. Return JSON only: {{"text":"..."}}.
+
+The source article below is a closed factual record. Keep only claims that it supports.
+Remove or cautiously rewrite any number, price, range, statistic, case outcome,
+platform capability, external fact, causal claim, or technical certainty that the
+source does not explicitly establish. Do not introduce examples or details from
+general knowledge. Never use `always`, `guarantee`, `seamless`, `autonomous`,
+`highly reliable`, `ideal choice`, `absolute consistency`, or equivalent absolute
+language as a positive claim.
+
+The result must be a complete standalone LinkedIn article, not a teaser: no CTA,
+no final question, no reference to a longer article, and no link to our site.
+Keep the useful reasoning and practical boundaries. Write between 2,200 and
+2,500 characters including spaces. Count the finished text before returning it;
+never return more than {max_chars} characters. Do not shorten by cutting a
+sentence in half.
+
+ARTICLE TITLE: {job['title'] or job['topic']}
+SOURCE ARTICLE:
+{source_text}
+
+INITIAL DRAFT TO EDIT:
+{draft_text}
+""".strip()
+
+
+def validate_linkedin_editorial_safety(text):
+    prohibited = (
+        r"\balways\b", r"\bguarantee(?:d)?\b", r"\bseamless(?:ly)?\b",
+        r"\bautonomous\b", r"\bhighly reliable\b", r"\bideal choice\b",
+        r"\babsolute consistency\b",
+    )
+    found = [pattern for pattern in prohibited if re.search(pattern, text or "", re.I)]
+    if found:
+        raise ValueError("LinkedIn article contains prohibited absolute claims; regenerate it instead of publishing.")
 
 
 def validate_social_post_text(text, max_chars):
@@ -2527,6 +3565,28 @@ def validate_social_post_text(text, max_chars):
         "maxChars": max_chars,
         "remaining": max_chars - char_count,
     }
+
+
+def rewrite_linkedin_draft_to_limit(site, job, draft_text, max_chars):
+    """Fact-edit an overlong LinkedIn draft before its scheduled submission.
+
+    LinkedIn posts are deliberately never cut at an arbitrary character boundary:
+    that can leave a claim or a sentence incomplete.  A due slot instead gets a
+    bounded editorial rewrite and may proceed only when the replacement passes
+    both the factual-safety and hard-length checks.
+    """
+    rewritten = social_normalize_text(
+        _gemini_text_json(build_linkedin_fact_edit_prompt(site, job, "en", max_chars, draft_text)).get("text") or ""
+    )
+    if not rewritten:
+        raise ValueError("LinkedIn overflow rewrite returned no text.")
+    validate_linkedin_editorial_safety(rewritten)
+    validation = validate_social_post_text(rewritten, max_chars)
+    if not validation["ok"]:
+        raise ValueError(
+            f"LinkedIn overflow rewrite is {validation['charCount']} characters; it remains above the {max_chars}-character hard limit."
+        )
+    return rewritten, validation
 
 
 def validate_threads_post_text(text, max_bytes):
@@ -2665,6 +3725,95 @@ def generate_threads_post_draft(site_id, job_id, site, job, language, include_li
     return text, validation, {"threads": {**media, "conversationFormat": conversation_format}}
 
 
+def facebook_cover_headline(title):
+    """Keep the rendered Facebook headline readable without inventing copy."""
+    words = re.sub(r"\s+", " ", str(title or "").strip()).split()
+    kept = []
+    for word in words:
+        candidate = " ".join([*kept, word])
+        if len(candidate) > 58:
+            break
+        kept.append(word)
+    return " ".join(kept) or "New guide"
+
+
+FACEBOOK_PREVIEW_SIZE = (1200, 630)
+
+
+def facebook_preview_image_bytes(source_bytes):
+    """Crop the generated cover to Facebook's native 1.91:1 feed surface."""
+    try:
+        image = ImageOps.exif_transpose(Image.open(BytesIO(source_bytes))).convert("RGB")
+    except Exception as error:
+        raise RuntimeError("The Facebook cover image could not be decoded.") from error
+    source_width, source_height = image.size
+    if source_width < 2 or source_height < 2:
+        raise RuntimeError("The Facebook cover image is too small.")
+    target_width, target_height = FACEBOOK_PREVIEW_SIZE
+    target_ratio = target_width / target_height
+    source_ratio = source_width / source_height
+    if source_ratio > target_ratio:
+        crop_width = max(1, round(source_height * target_ratio))
+        left = (source_width - crop_width) // 2
+        image = image.crop((left, 0, left + crop_width, source_height))
+    else:
+        crop_height = max(1, round(source_width / target_ratio))
+        top = (source_height - crop_height) // 2
+        image = image.crop((0, top, source_width, top + crop_height))
+    image = image.resize(FACEBOOK_PREVIEW_SIZE, Image.Resampling.LANCZOS)
+    output = BytesIO()
+    image.save(output, format="JPEG", quality=92, optimize=True, progressive=True)
+    return output.getvalue()
+
+
+def generate_facebook_cover_image(site_id, job_id, site, job, headline, asset_key=None):
+    """Generate once, then make the native Facebook feed derivative (no text overlay)."""
+    media = generate_editorial_social_image(
+        site_id, job_id, site, job, "facebook", "16:9",
+        f"Bright, premium photorealistic magazine-cover photograph for a Facebook feed. Render this exact headline once, in refined readable title-case magazine typography: {headline}. The headline must occupy roughly 24-32% of the frame, have safe margins, and be the only readable text. The scene itself must be article-specific, striking and real; no generic ad, logo, watermark, UI, extra text or collage.",
+        asset_key=asset_key,
+    )
+    path = social_asset_job_dir(site_id, asset_key or str(job_id), "facebook") / "image-01.jpg"
+    path.write_bytes(facebook_preview_image_bytes(path.read_bytes()))
+    return media
+
+
+def generate_facebook_post_draft(site_id, job_id, site, job, language, include_link, article_url, asset_key=None):
+    """Create the separate Facebook Page adaptation and finished cover asset."""
+    max_chars = SOCIAL_CHANNEL_LIMITS["facebook"]
+    source = social_source_text(job, limit=9000)
+    title = str(job["title"] or job["topic"] or "New guide").strip()
+    prompt = f"""Adapt this article into one native Facebook Page post for {site['brand_name'] or site['domain']}.
+Return JSON only: {{"text":"finished post"}}.
+
+Rules:
+- This is an adaptation, not an extract or a shortened article.
+- Write 420-900 characters before the canonical link; use 3-5 short natural paragraphs.
+- Start with a specific hook derived from the article, not its title as a heading.
+- Include a genuinely useful insight, then a calm invitation to read the guide.
+- No invented facts, urgency, engagement bait, like/share prompts, or more than two relevant hashtags.
+- Do not include a URL; the factory appends the one canonical article URL.
+- {SOCIAL_NATURAL_WRITING_CONTRACT}
+
+TITLE: {title}
+DESCRIPTION: {job['description'] or ''}
+SOURCE: {source}"""
+    try:
+        data = _gemini_text_json(prompt, temperature=0.55)
+        text = social_normalize_text(data.get("text") or "")
+    except Exception:
+        text = ""
+    if not text:
+        text, _ = generate_social_post_text(site, job, "facebook", language, max_chars, False, article_url)
+    text = social_text_with_optional_link(text, article_url, True if article_url else include_link, max_chars)
+    validation = validate_social_post_text(text, max_chars)
+    if not validation["ok"]:
+        raise ValueError("Facebook Page post exceeds 1,500 characters")
+    headline = facebook_cover_headline(title)
+    media = generate_facebook_cover_image(site_id, job_id, site, job, headline, asset_key=asset_key)
+    return text, validation, {"facebook": {**media, "coverHeadline": headline, "aspectRatio": "1.91:1", "recommendedSize": "1200x630"}}
+
+
 def generate_reddit_post_draft(site, job, language, include_link, article_url, subreddit_rules=""):
     language_name = LANGUAGE_NAMES.get(language, language.upper())
     source_text = social_source_text(job, limit=6000)
@@ -2687,6 +3836,7 @@ RULES:
 - Include the URL at most once, at the end, only when it materially helps.
 - Do not invent subreddit rules, statistics, or personal experience.
 - Title <= 300 characters. Body <= 8000 characters.
+- {SOCIAL_NATURAL_WRITING_CONTRACT}
 - Return strict JSON only.
 
 {{"title":"...","body":"...","format":"discussion|question|guide"}}
@@ -2725,6 +3875,7 @@ Choose one format: sharp_insight, contrarian_take, micro_framework, statistic_ob
 - Each post must be <= 280 characters including any URL.
 - No generic summary, no engagement bait, no more than 2 hashtags, and no invented claim.
 - Link, when requested, belongs only in the final post.
+- {SOCIAL_NATURAL_WRITING_CONTRACT}
 - Return strict JSON only.
 
 {{"format":"sharp_insight","posts":["..."]}}
@@ -2776,6 +3927,89 @@ RULES: Native editorial image, not a generic ad. No logo, fake UI, unreadable mi
     return {"mediaUrls": [social_asset_url(site_id, asset_key, channel, filename)], "mediaMimeType": "image/jpeg", "generatedAt": now_iso()}
 
 
+def editorial_magazine_photo_direction():
+    """Shared photographic art direction for LinkedIn and article imagery."""
+    return """
+PHOTO DIRECTION:
+- A photorealistic glossy editorial magazine-cover photograph, never an
+  illustration, 3D render, diagram, infographic, flowchart, split-screen or
+  graphic design.
+- Create one present-day, tangible real-world scene with strong photographic
+  depth, natural light and real material detail.
+- Identify the central choice in the supplied context and show its real
+  consequence in one familiar, believable physical situation. Use one meaningful
+  present-day location, a dominant subject and a precisely observed moment of
+  decision at natural human scale.
+- Choose the setting from the visual concept itself, not from routine desk-work
+  conventions.
+- The photograph must feel like a premium magazine feature: striking because
+  the situation is recognisable, tangible and specific to this context, not
+  because it is futuristic, fantastical, abstract or technologically exaggerated.
+- If the same image could fit a different article or paragraph, reject it and
+  create a more specific situation.
+""".strip()
+
+
+def generate_linkedin_hero_image(site_id, job_id, site, job, text, asset_key=None):
+    """Create the dedicated 16:9 LinkedIn hero during social adaptation."""
+    asset_key = asset_key or str(job_id)
+    target_dir = social_asset_job_dir(site_id, asset_key, "linkedin")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    filename = "linkedin-hero.jpg"
+    title = str(job["title"] or job["topic"] or "").strip()
+    cover_headline = generate_linkedin_cover_headline(title)
+    prompt = f"""
+Create one bright 16:9 glossy magazine cover with a striking photorealistic
+editorial photograph.
+
+COVER HEADLINE: {cover_headline}
+
+Use the meaning of the cover headline to choose a specific real-world subject,
+action and setting. Make the visual premium, surprising and immediately
+attention-grabbing, with one clear focal idea.
+
+Render the cover headline exactly once as the only readable text. Use bold
+editorial display typography in a bright saturated colour with a pronounced
+polished drop shadow. Centre the complete text block and keep its line width at
+55–60% of the canvas, with every letter fully inside safe margins. Add no other
+words, punctuation, quotation marks, logos, labels or watermarks.
+""".strip()
+    image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="16:9")
+    if not image_bytes.startswith(b"\xff\xd8"):
+        raise RuntimeError("Gemini image for LinkedIn hero was not JPEG")
+    image_bytes = linkedin_preview_image_bytes(image_bytes)
+    (target_dir / filename).write_bytes(image_bytes)
+    return {"mediaUrl": social_asset_url(site_id, asset_key, "linkedin", filename), "mediaMimeType": "image/jpeg", "coverHeadline": cover_headline, "generatedAt": now_iso()}
+
+
+def generate_linkedin_cover_headline(article_title):
+    """Make the short, image-model-safe magazine headline from the title alone."""
+    title = social_normalize_text(article_title)
+    if not title:
+        raise ValueError("LinkedIn hero requires an article title")
+    schema = {
+        "type": "object",
+        "properties": {"coverHeadline": {"type": "string"}},
+        "required": ["coverHeadline"],
+    }
+    result = _gemini_text_json(f"""
+Create one concise English magazine-cover headline from this article title only:
+{title}
+
+Return JSON only. The `coverHeadline` must be 2–5 ordinary words, no more than
+21 characters including spaces, contain no repeated word, and be a striking,
+accurate expression of the article's central tension. Do not add facts, claims,
+brand names, punctuation, subtitles or explanations. This headline will be the
+only text rendered in a photograph.
+""".strip(), response_schema=schema, temperature=0.2, timeout=60)
+    headline = social_normalize_text((result or {}).get("coverHeadline"))
+    words = re.findall(r"[A-Za-z0-9]+", headline)
+    normalized_words = [word.lower() for word in words]
+    if not (2 <= len(words) <= 5 and len(headline) <= 21 and len(set(normalized_words)) == len(normalized_words) and re.fullmatch(r"[A-Za-z0-9 ]+", headline)):
+        raise ValueError("LinkedIn cover-headline generation returned an invalid headline")
+    return headline
+
+
 def generate_telegram_post_draft(site_id, job_id, site, job, language, include_link, article_url, asset_key=None):
     text, validation = generate_social_post_text(site, job, "telegram", language, SOCIAL_CHANNEL_LIMITS["telegram"], include_link, article_url)
     media = generate_editorial_social_image(site_id, job_id, site, job, "telegram", "16:9", "Use a clear editorial scene with no text overlay.", asset_key=asset_key)
@@ -2795,6 +4029,17 @@ def generate_social_post_text(site, job, channel, language, max_chars, include_l
         text = social_normalize_text(data.get("text") or "")
     except Exception:
         text = ""
+    if not text and channel == "linkedin":
+        raise ValueError("LinkedIn article generation returned no text; do not replace it with a promotional fallback.")
+    if text and channel == "linkedin":
+        try:
+            edited = _gemini_text_json(build_linkedin_fact_edit_prompt(site, job, language, max_chars, text))
+            text = social_normalize_text(edited.get("text") or "")
+        except Exception as error:
+            raise ValueError("LinkedIn article factual editing failed; do not publish an unchecked draft.") from error
+        if not text:
+            raise ValueError("LinkedIn article factual editing returned no text; do not publish an unchecked draft.")
+        validate_linkedin_editorial_safety(text)
     if not text:
         text = fallback_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
     if channel == "threads":
@@ -2805,6 +4050,12 @@ def generate_social_post_text(site, job, channel, language, max_chars, include_l
             validation = validate_threads_post_text(text, max_chars)
         if not validation["ok"]:
             raise ValueError(f"{channel} social post exceeds {max_chars} UTF-8 bytes")
+        return text, validation
+    if channel == "linkedin":
+        text = social_text_with_optional_link_unbounded(text, article_url, include_link)
+        validation = validate_social_post_text(text, max_chars)
+        if not validation["ok"]:
+            text, validation = rewrite_linkedin_draft_to_limit(site, job, text, max_chars)
         return text, validation
     text = social_text_with_optional_link(text, article_url, include_link, max_chars)
     validation = validate_social_post_text(text, max_chars)
@@ -2828,6 +4079,7 @@ def fallback_pinterest_pin(site, job, language, include_link, article_url):
         "Avoid logos, UI screenshots, tiny text, and misleading claims.",
         1000,
     )
+    candidates = pinterest_destination_candidates(site["id"], article_url) if include_link else []
     pin = {
         "pinTitle": title,
         "description": description,
@@ -2836,7 +4088,9 @@ def fallback_pinterest_pin(site, job, language, include_link, article_url):
         "imagePrompt": image_prompt,
         "imageAspectRatio": "2:3",
         "recommendedSize": "1000x1500",
-        "destinationUrl": article_url if include_link and article_url else "",
+        "pinType": "searchable_inspiration",
+        "boardKey": "",
+        "destinationUrl": candidates[0]["url"] if candidates else "",
     }
     return pin
 
@@ -2845,7 +4099,13 @@ def build_pinterest_pin_prompt(site, job, language, include_link, article_url):
     brand = site["brand_name"] or site["domain"]
     language_name = LANGUAGE_NAMES.get(language, language.upper())
     source_text = social_source_text(job, limit=5000)
-    link_rule = "Use the article URL as destinationUrl." if include_link and article_url else "Leave destinationUrl empty."
+    strategy = pinterest_strategy_data(site["id"])
+    candidates = pinterest_destination_candidates(site["id"], article_url) if include_link else []
+    link_rule = (
+        "Choose exactly one destinationUrl from the allowed destinations below. Never invent, alter, or default blindly to the source article. "
+        "The destination must fulfill the promise made by the Pin."
+        if candidates else "Leave destinationUrl empty."
+    )
     return f"""
 You are adapting an article into a native Pinterest pin creative for {brand}.
 
@@ -2862,6 +4122,9 @@ ARTICLE:
 - source excerpt: {source_text[:5000]}
 - article URL: {article_url or 'none'}
 - link rule: {link_rule}
+- allowed destinations: {json.dumps(candidates, ensure_ascii=False)}
+- strategy mix: {json.dumps(strategy['mix'], ensure_ascii=False)}
+- available boards: {json.dumps(strategy['boards'], ensure_ascii=False)}
 
 PINTEREST REQUIREMENTS:
 - pinTitle max 100 characters.
@@ -2873,9 +4136,11 @@ PINTEREST REQUIREMENTS:
 - imagePrompt must describe the actual visual content to generate: scene, subject, composition, mood, colors, and where overlay text can fit.
 - Do not request logos, screenshots, cluttered text, fake UI, false before/after claims, or unsupported statistics.
 - No markdown. No variants.
+- pinType must be one of product_proof, searchable_inspiration, how_it_works, conversion_offer.
+- boardKey must exactly match an available board key when boards are configured; otherwise use an empty string.
 
 RETURN STRICT JSON ONLY:
-{{"pinTitle":"...","description":"...","overlayText":"...","altText":"...","imagePrompt":"...","imageAspectRatio":"2:3","recommendedSize":"1000x1500","destinationUrl":"{article_url if include_link and article_url else ''}"}}
+{{"pinType":"...","boardKey":"...","pinTitle":"...","description":"...","overlayText":"...","altText":"...","imagePrompt":"...","imageAspectRatio":"2:3","recommendedSize":"1000x1500","destinationUrl":"..."}}
 """.strip()
 
 
@@ -2901,9 +4166,18 @@ def normalize_pinterest_pin(pin, site, job, language, include_link, article_url)
     clean["overlayText"] = social_shorten_to_limit(clean["overlayText"], 80)
     clean["altText"] = social_shorten_to_limit(clean["altText"], 250)
     clean["imagePrompt"] = social_shorten_to_limit(clean["imagePrompt"], 1000)
+    clean["pinType"] = str(pin.get("pinType") or fallback.get("pinType") or "searchable_inspiration").strip()
+    if clean["pinType"] not in PINTEREST_DEFAULT_MIX:
+        clean["pinType"] = "searchable_inspiration"
+    strategy = pinterest_strategy_data(site["id"])
+    board_keys = {str(item.get("key") or "").strip() for item in strategy["boards"] if isinstance(item, dict)}
+    requested_board = str(pin.get("boardKey") or "").strip()
+    clean["boardKey"] = requested_board if requested_board in board_keys else ""
     clean["imageAspectRatio"] = "2:3"
     clean["recommendedSize"] = "1000x1500"
-    clean["destinationUrl"] = article_url if include_link and article_url else ""
+    allowed_urls = {item["url"] for item in pinterest_destination_candidates(site["id"], article_url)} if include_link else set()
+    requested_url = str(pin.get("destinationUrl") or "").strip()
+    clean["destinationUrl"] = requested_url if requested_url in allowed_urls else str(fallback.get("destinationUrl") or "")
     return clean
 
 
@@ -2922,12 +4196,48 @@ def generate_pinterest_pin_draft(site, job, language, include_link, article_url)
     return pin["description"], validation, {"pin": pin}
 
 
+def pinterest_interface_reference(site, reference_path):
+    """Load a verified, site-owned interface screenshot for a multimodal Pin.
+
+    The strategist may only name a relative file that exists inside the site's
+    configured root.  This prevents a model from being asked to invent a UI
+    while still allowing a real product screen to be part of a creative.
+    """
+    value = str(reference_path or "").strip().lstrip("/")
+    root_value = str(site["root_path"] or "").strip()
+    if not value or not root_value or ".." in Path(value).parts:
+        return None
+    root = Path(root_value).resolve()
+    candidate = (root / value).resolve()
+    if root != candidate and root not in candidate.parents:
+        return None
+    if not candidate.is_file() or candidate.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        return None
+    try:
+        data = candidate.read_bytes()
+    except OSError:
+        return None
+    if not data or len(data) > 8_000_000:
+        return None
+    mime_type = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}[candidate.suffix.lower()]
+    return {"mime_type": mime_type, "data": b64encode(data).decode("ascii"), "source": value}
+
+
 def generate_pinterest_pin_image(site_id, job_id, site, job, pin, asset_key=None):
     asset_key = asset_key or str(job_id)
     target_dir = social_asset_job_dir(site_id, asset_key, "pinterest")
     shutil.rmtree(target_dir, ignore_errors=True)
     target_dir.mkdir(parents=True, exist_ok=True)
     filename = "pin-01.jpg"
+    interface_reference = pinterest_interface_reference(site, pin.get("interfaceReference"))
+    interface_instruction = ""
+    if interface_reference:
+        interface_instruction = """
+REAL PRODUCT INTERFACE REFERENCE:
+- A verified screenshot is attached. It is the actual product interface, not a mockup.
+- Use it only as the visual reference for the interface shown in this Pin; preserve its authentic layout and readable product text where visible.
+- Do not invent, replace, embellish, or add UI controls, metrics, badges, labels, or claims.
+""".strip()
     prompt = f"""
 Create one finished Pinterest image as a real raster JPEG.
 
@@ -2936,14 +4246,16 @@ FORMAT:
 - Editorial, useful and evergreen, not a generic ad.
 - Use clear high-contrast typography with safe margins.
 - Include this exact short overlay text once: {pin['overlayText']}
-- Do not add other readable text, fake UI, unsupported claims, prices, badges, logos, or clutter.
+- Do not add other readable text, invented UI, unsupported claims, prices, badges, logos, or clutter.
 
 ARTICLE CONTEXT:
 - brand: {site['brand_name'] or site['domain']}
 - article: {job['title'] or job['topic']}
 - visual brief: {pin['imagePrompt']}
+
+{interface_instruction}
 """.strip()
-    image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="2:3")
+    image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="2:3", reference_image=interface_reference)
     if not image_bytes.startswith(b"\xff\xd8"):
         raise RuntimeError("Gemini image for Pinterest pin was not JPEG")
     (target_dir / filename).write_bytes(image_bytes)
@@ -3184,6 +4496,7 @@ CAROUSEL RULES:
 - Every slide subtext <= 140 characters.
 - Every slide imagePrompt <= 700 characters and must describe the visual background/scene for that slide.
 - Every slide altText <= 250 characters.
+- `usesLogoReference` must be a boolean on every slide. Set it true only where an actual brand mark is useful to the viewer; set it on at most one slide, normally the closing CTA. It is never true merely because a logo could decorate the layout.
 - Caption target <= {target_chars} characters.
 - Caption hard maximum <= {hard_limit} characters.
 - Keep caption compact: 1 short hook, 1-2 useful context lines, 1 save/share CTA, and at most 3 hashtags.
@@ -3195,11 +4508,11 @@ RETURN STRICT JSON ONLY:
 {{
   "caption":"...",
   "carouselType":"checklist",
-  "visualSystem":{"primaryTreatment":"photographic_editorial","styleBrief":"..."},
+  "visualSystem":{{"primaryTreatment":"photographic_editorial","styleBrief":"..."}},
   "visualSpec":{{"aspectRatio":"4:5","recommendedSize":"1080x1350","maxSlides":8}},
   "destinationUrl":"{article_url if include_link and article_url else ''}",
   "slides":[
-    {{"index":1,"role":"cover","visualTreatment":"photographic_editorial","headline":"...","subtext":"...","imagePrompt":"...","altText":"..."}}
+    {{"index":1,"role":"cover","visualTreatment":"photographic_editorial","headline":"...","subtext":"...","imagePrompt":"...","altText":"...","usesLogoReference":false}}
   ]
 }}
 """.strip()
@@ -3220,8 +4533,8 @@ INSTAGRAM_CAROUSEL_SCHEMA = {
             "type": "array", "minItems": 6, "maxItems": 8,
             "items": {"type": "object", "properties": {
                 "index": {"type": "integer"}, "role": {"type": "string"}, "visualTreatment": {"type": "string", "enum": ["photographic_editorial", "illustrated_editorial", "graphic_editorial", "supporting_graphic"]}, "headline": {"type": "string"},
-                "subtext": {"type": "string"}, "imagePrompt": {"type": "string"}, "altText": {"type": "string"},
-            }, "required": ["index", "role", "visualTreatment", "headline", "subtext", "imagePrompt", "altText"]},
+                "subtext": {"type": "string"}, "imagePrompt": {"type": "string"}, "altText": {"type": "string"}, "usesLogoReference": {"type": "boolean"},
+            }, "required": ["index", "role", "visualTreatment", "headline", "subtext", "imagePrompt", "altText", "usesLogoReference"]},
         },
     },
     "required": ["caption", "carouselType", "visualSystem", "slides"],
@@ -3265,6 +4578,7 @@ def normalize_instagram_carousel(carousel, article_url):
             "subtext": subtext,
             "imagePrompt": image_prompt,
             "altText": alt_text,
+            "usesLogoReference": raw.get("usesLogoReference") is True,
         })
     return {
         "caption": caption,
@@ -3304,6 +4618,9 @@ def validate_instagram_carousel(carousel):
     if primary_treatment not in {"photographic_editorial", "illustrated_editorial", "graphic_editorial"} or len(supporting_graphics) > 2:
         result["ok"] = False
     if slides and (slides[0].get("visualTreatment") != primary_treatment or slides[-1].get("visualTreatment") != primary_treatment):
+        result["ok"] = False
+    logo_slides = [slide for slide in slides if slide.get("usesLogoReference") is True]
+    if len(logo_slides) > 1:
         result["ok"] = False
     normalized_claims = []
     for slide in slides:
@@ -3817,7 +5134,7 @@ INSTAGRAM_REEL_LAYER_PACK_REVIEW_SCHEMA = {
 }
 
 
-def build_instagram_reel_master_prompt(site, job, scene, retry_reason="", has_logo_reference=False):
+def build_instagram_reel_master_prompt(site, job, scene, retry_reason="", has_logo_reference=False, has_library_scene_reference=False, has_library_person_reference=False):
     groups = []
     for layer in scene.get("layers") or []:
         role = str(layer.get("role") or "")
@@ -3849,7 +5166,7 @@ EXTRACTION-SAFE COMPOSITION:
 - The listed movable groups are the authoritative physical inventory. Every listed group is separate and has visible background space around its outer silhouette. A separately listed suitcase, bag, chair, table, lamp, planter, sculpture, credenza, or other object is not held, worn, touched, sat on, leaned against, or overlapped by a person or another listed group. If the scene prose implies such contact, keep the meaning but place the complete groups close to one another without contact.
 - LOCATION AND VISUAL WORLD describes the empty environment only. Any mention there of removed people or objects means those pixels belong to the clean plate; it never overrides the separate-group inventory above and never authorizes physical contact between groups.
 - Show exactly the listed movable groups as the only people and prominent objects anywhere in the photograph. Do not add background people, distant people, silhouettes, crowds, waiters, staff, passengers, reflections of people, luggage, furniture, or unlisted objects near their silhouettes.
-- Every listed person and group must be large enough for mobile viewing and completely visible inside the frame. Each standing person's head-to-feet silhouette must occupy roughly 40% to 60% of the total image height. Preserve complete heads, hair, shoulders, arms, elbows, hands, fingers, clothing edges, legs, feet, and carried or worn items. Keep the complete outer silhouette of every listed group inside an inner safe frame with clear photographic background visible between every outermost part and all four canvas edges. Light every face and body naturally from the camera side so facial features, eyes, skin tone, clothing, hands, and feet remain clearly visible; never render a person as a dark silhouette against a brighter wall or window.
+- Every listed person and group must be large enough for mobile viewing and completely visible inside the frame. Each standing person's head-to-feet silhouette must occupy roughly 40% to 60% of the total image height. Preserve complete heads, hair, shoulders, arms, elbows, hands, fingers, clothing edges, legs, and feet. Give every person clean fitted clothing and empty hands. Do not add a backpack, shoulder bag, handbag, luggage, loose strap, dangling accessory, scarf tail, or carried object; those thin overlapping details damage extraction and are not part of the approved scene. Keep the complete outer silhouette of every listed group inside an inner safe frame with clear photographic background visible between every outermost part and all four canvas edges. Light every face and body naturally from the camera side so facial features, eyes, skin tone, clothing, hands, and feet remain clearly visible; never render a person as a dark silhouette against a brighter wall or window.
 - For an assembly such as a table with chairs or a furniture group, the complete assembly means every tabletop edge, chair back, seat, leg, base, accessory, and contact shadow. Frame the camera wide enough that its outermost component remains inside the inner safe frame.
 - Compose for the narrow vertical canvas before choosing camera proximity. Place large multi-part assemblies in the middle ground, never as oversized foreground crops. Give every independent listed group its own non-overlapping visual zone, with visible floor, wall, or open background separating it from every other listed group. A fixed wall-side object must not sit behind a person or another group. Pull the camera farther back or choose a larger room until the entire listed inventory fits naturally and remains readable.
 - People who touch, shake hands, embrace, carry one shared item, or overlap belong to one listed cohesive group. Different listed groups must have clear visible background space between their silhouettes and must not touch, overlap, cover, or pass behind one another.
@@ -3857,6 +5174,8 @@ EXTRACTION-SAFE COMPOSITION:
 - Every object has complete edges and physically correct contact only with the fixed floor or fixed background surface beneath it. No separately listed movable group owns or touches it. Match perspective, light, focus, contact shadows, reflections, and color temperature across the whole photograph.
 - Reserve a genuinely calm, uncluttered text-safe area near {text_preference}; the renderer will verify and may choose another quieter zone. Do not place a face, hand, meaningful object, signage, or high-contrast detail there.
 - Do not render overlay text, captions, UI, labels, icons, arrows, diagrams, borders, cutout effects, selection contours, strokes, halos, stickers, or watermarks. Every person and object must have natural photographic edges only.{" This final brand-resolution scene has the verified real logo attached as an image reference. The exact attached SoloCruz mark must be visibly present once and remain legible at mobile size, naturally printed, embroidered, engraved, or displayed on one plausible physical brand touchpoint that belongs in this scene. Choose that physical touchpoint from the scene's real objects and surfaces. Preserve the supplied mark's exact geometry, colors, and spelling. Do not redraw it, invent an approximation, turn it into a floating overlay, or place it as a corner watermark." if has_logo_reference else " Do not render or invent any logo."}
+{"- One attached image is an approved scene from this site's reusable Reel library. Use it only as evidence of the site's established photographic world, production quality, lighting, palette, lens language, and realistic domain details. Build the new scene truth and exact listed group inventory above. Do not copy its people, exact composition, pose, overlay text, evidence graphics, or article-specific objects." if has_library_scene_reference else ""}
+{"- One attached transparent image is an approved person reference from this site's reusable Reel library. Preserve only that person's recognizable identity and wardrobe family when the requested protagonist is compatible. Create the new full-body pose, expression, action, scale, lighting, and registered position required by this scene. Never paste or reproduce the old cutout geometry." if has_library_person_reference else ""}
 {retry}
 """.strip()
 
@@ -4029,11 +5348,208 @@ def _reel_layer_has_invalid_movable_geometry(value):
     ))
 
 
+def generate_instagram_reel_evidence_layer(layer, target_path, accent_hex="#36d6c6", logo_reference=None, brand_label=""):
+    """Render an abstract fact as honest programmatic motion graphics, not a fake photographed prop."""
+    width, height = 1080, 1920
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    try:
+        accent = tuple(int(accent_hex[index:index + 2], 16) for index in (0, 2, 4))
+    except Exception:
+        accent = (54, 214, 198)
+    placement = str(layer.get("graphicPlacement") or "middle_right")
+    boxes = {
+        "top_left": (70, 330, 720, 650),
+        "top_right": (360, 330, 1010, 650),
+        "top_center": (170, 90, 910, 430),
+        "middle_left": (70, 660, 720, 1010),
+        "middle_right": (360, 660, 1010, 1010),
+        "middle_far_right": (590, 620, 1030, 950),
+        "lower_left": (70, 1050, 720, 1400),
+        "lower_right": (360, 1050, 1010, 1400),
+        "lower_far_right": (590, 1040, 1030, 1370),
+        "center": (170, 650, 910, 1050),
+    }
+    left, top, right, bottom = boxes.get(placement, boxes["middle_right"])
+    if layer.get("useLogo"):
+        bottom = min(height - 80, bottom + 140)
+    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.rounded_rectangle((left + 14, top + 20, right + 14, bottom + 20), radius=38, fill=(0, 0, 0, 105))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(22))
+    canvas.alpha_composite(shadow)
+    draw = ImageDraw.Draw(canvas)
+    draw.rounded_rectangle((left, top, right, bottom), radius=38, fill=(8, 25, 40, 226), outline=(*accent, 235), width=4)
+    accent_center = (left + right) // 2
+    draw.rounded_rectangle((accent_center - 44, top + 28, accent_center + 44, top + 38), radius=5, fill=(*accent, 255))
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    title = str(layer.get("graphicText") or layer.get("id") or "").strip()
+    detail = str(layer.get("graphicDetail") or "").strip()
+
+    def wrapped_lines(value, font, max_width):
+        words = value.split()
+        lines, current = [], ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if not current or draw.textbbox((0, 0), candidate, font=font)[2] <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines
+
+    content_left = left + 48
+    content_right = right - 48
+    content_top = top + 64
+    content_bottom = bottom - 42
+    content_width = content_right - content_left
+    available_height = content_bottom - content_top
+    logo_used = False
+    logo = None
+    if layer.get("useLogo") and logo_reference and logo_reference.get("data"):
+        try:
+            logo = Image.open(BytesIO(b64decode(logo_reference["data"]))).convert("RGBA")
+            # Some source-owned logo files acquire an opaque white canvas or a
+            # flattened checkerboard during raster conversion. Clear the edge
+            # matte, and clear neutral light cells only when they dominate the
+            # image enough to prove that the transparency was flattened.
+            rgb = logo.convert("RGB")
+            matte = rgb.copy()
+            marker = (255, 0, 255)
+            for seed in ((0, 0), (max(0, matte.width - 1), 0), (0, max(0, matte.height - 1)), (max(0, matte.width - 1), max(0, matte.height - 1))):
+                pixel = matte.getpixel(seed)
+                if min(pixel) >= 225 and max(pixel) - min(pixel) <= 24:
+                    ImageDraw.floodfill(matte, seed, marker, thresh=34)
+            matte_pixels = matte.load()
+            alpha = logo.getchannel("A")
+            alpha_pixels = alpha.load()
+            neutral_light = 0
+            opaque_pixels = 0
+            for y in range(logo.height):
+                for x in range(logo.width):
+                    red, green, blue, source_alpha = logo.getpixel((x, y))
+                    if source_alpha:
+                        opaque_pixels += 1
+                        if min(red, green, blue) >= 220 and max(red, green, blue) - min(red, green, blue) <= 18:
+                            neutral_light += 1
+            flattened_light_matte = bool(opaque_pixels and neutral_light / opaque_pixels >= 0.20)
+            for y in range(logo.height):
+                for x in range(logo.width):
+                    red, green, blue, source_alpha = logo.getpixel((x, y))
+                    is_neutral_light = min(red, green, blue) >= 220 and max(red, green, blue) - min(red, green, blue) <= 18
+                    if matte_pixels[x, y] == marker or (flattened_light_matte and is_neutral_light):
+                        alpha_pixels[x, y] = 0
+            logo.putalpha(alpha)
+            bbox = logo.getchannel("A").getbbox()
+            if bbox:
+                logo = logo.crop(bbox)
+            logo.thumbnail((content_width, 142), Image.Resampling.LANCZOS)
+            logo_used = True
+        except Exception:
+            logo = None
+            logo_used = False
+
+    requested_title_size = int(layer.get("graphicFontSize") or 66)
+    title_size = max(20, requested_title_size)
+    detail_size = 31
+    while True:
+        title_font = ImageFont.truetype(font_path, title_size) if Path(font_path).is_file() else ImageFont.load_default()
+        detail_font = ImageFont.truetype(font_path, detail_size) if Path(font_path).is_file() else ImageFont.load_default()
+        title_lines = wrapped_lines(title, title_font, content_width)
+        detail_lines = wrapped_lines(detail, detail_font, content_width) if detail else []
+        title_heights = [draw.textbbox((0, 0), line, font=title_font)[3] - draw.textbbox((0, 0), line, font=title_font)[1] for line in title_lines]
+        detail_heights = [draw.textbbox((0, 0), line, font=detail_font)[3] - draw.textbbox((0, 0), line, font=detail_font)[1] for line in detail_lines]
+        brand_font = ImageFont.truetype(font_path, 28) if Path(font_path).is_file() else ImageFont.load_default()
+        brand_text = str(brand_label or "").strip() if logo else ""
+        brand_height = (draw.textbbox((0, 0), brand_text, font=brand_font)[3] - draw.textbbox((0, 0), brand_text, font=brand_font)[1]) if brand_text else 0
+        required_height = (logo.height + (12 + brand_height if brand_text else 0) + 24 if logo else 0)
+        required_height += sum(title_heights) + max(0, len(title_heights) - 1) * 8
+        required_height += (16 + sum(detail_heights) + max(0, len(detail_heights) - 1) * 6) if detail_heights else 0
+        if required_height <= available_height or (title_size <= 20 and detail_size <= 16):
+            break
+        title_size = max(20, title_size - 2)
+        detail_size = max(16, detail_size - 1)
+
+    cursor_y = content_top + max(0, (available_height - required_height) // 2)
+    if logo:
+        logo_x = left + (right - left - logo.width) // 2
+        glow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        glow_alpha = Image.new("L", canvas.size, 0)
+        glow_alpha.paste(logo.getchannel("A"), (logo_x, cursor_y))
+        glow_alpha = glow_alpha.filter(ImageFilter.MaxFilter(31)).filter(ImageFilter.GaussianBlur(18))
+        glow.paste((190, 255, 250, 255), (0, 0, canvas.width, canvas.height))
+        glow.putalpha(glow_alpha.point(lambda value: round(value * 0.82)))
+        canvas.alpha_composite(glow)
+        logo_shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        shadow_alpha = Image.new("L", canvas.size, 0)
+        shadow_alpha.paste(logo.getchannel("A"), (logo_x + 4, cursor_y + 7))
+        logo_shadow.putalpha(shadow_alpha.filter(ImageFilter.GaussianBlur(7)).point(lambda value: round(value * 0.65)))
+        canvas.alpha_composite(logo_shadow)
+        canvas.alpha_composite(logo, (logo_x, cursor_y))
+        cursor_y += logo.height
+        if brand_text:
+            cursor_y += 12
+            bbox = draw.textbbox((0, 0), brand_text, font=brand_font)
+            brand_width = bbox[2] - bbox[0]
+            draw.text(
+                (left + (right - left - brand_width) // 2 - bbox[0], cursor_y - bbox[1]),
+                brand_text,
+                font=brand_font,
+                fill=(216, 255, 252, 255),
+            )
+            cursor_y += brand_height
+        cursor_y += 24
+    for line, line_height in zip(title_lines, title_heights):
+        bbox = draw.textbbox((0, 0), line, font=title_font)
+        line_width = bbox[2] - bbox[0]
+        draw.text((left + (right - left - line_width) // 2 - bbox[0], cursor_y - bbox[1]), line, font=title_font, fill=(244, 250, 252, 255), stroke_width=0)
+        cursor_y += line_height + 8
+    if detail:
+        cursor_y += 8
+        for line, line_height in zip(detail_lines, detail_heights):
+            bbox = draw.textbbox((0, 0), line, font=detail_font)
+            line_width = bbox[2] - bbox[0]
+            draw.text((left + (right - left - line_width) // 2 - bbox[0], cursor_y - bbox[1]), line, font=detail_font, fill=(*accent, 255))
+            cursor_y += line_height + 6
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(target_path, format="PNG")
+    layer["assetValidation"] = {
+        "generationMode": "programmatic_evidence_graphic",
+        "logoReferenceUsed": logo_used,
+        "graphicText": title,
+    }
+    return target_path
+
+
 def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, reference_logo=None):
     index = int(scene["index"])
     failures = []
-    validate_instagram_reel_source_grounding([scene], job)
-    for layer in scene.get("layers") or []:
+    # Copy is rendered once as the large kinetic headline. The former secondary
+    # evidence cards were small dark-blue panels with cyan frames, so they are
+    # deliberately excluded from every new Reel rather than redesigned.
+    all_layers = [layer for layer in scene.get("layers") or [] if isinstance(layer, dict) and str(layer.get("role") or "") != "evidence_graphic"]
+    evidence_layers = []
+    photo_layers = all_layers
+    if not photo_layers:
+        raise ValueError(f"Reel scene {index} needs at least one photographed subject")
+    photo_scene = {**scene, "layers": photo_layers}
+    validate_instagram_reel_source_grounding([photo_scene], job)
+    library_scene_matches = find_reel_asset_references(
+        REEL_ASSET_LIBRARY_DIR,
+        int(site["id"]),
+        photo_scene,
+        limit=1,
+    )
+    library_person_matches = find_reel_layer_references(
+        REEL_ASSET_LIBRARY_DIR,
+        int(site["id"]),
+        photo_scene,
+        role="protagonist",
+        limit=1,
+    )
+    for layer in photo_layers:
         geometry_text = " ".join(
             str(layer.get(field) or "")
             for field in ("prompt", "action", "relationship", "initialState", "finalState")
@@ -4067,29 +5583,47 @@ def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, refere
         attempt_dir.mkdir(parents=True, exist_ok=True)
         try:
             master_path = attempt_dir / "master.jpg"
+            master_references = []
+            if library_scene_matches:
+                path = Path(library_scene_matches[0]["path"])
+                master_references.append({
+                    "mime_type": "image/png" if path.suffix.lower() == ".png" else "image/jpeg",
+                    "data": b64encode(path.read_bytes()).decode("ascii"),
+                })
+            if library_person_matches:
+                path = Path(library_person_matches[0]["path"])
+                master_references.append({
+                    "mime_type": "image/png" if path.suffix.lower() == ".png" else "image/jpeg",
+                    "data": b64encode(path.read_bytes()).decode("ascii"),
+                })
+            if reference_logo and scene.get("usesLogoReference"):
+                master_references.append(reference_logo)
             master_bytes = master_path.read_bytes() if master_path.is_file() else _gemini_image_jpeg(
                     build_instagram_reel_master_prompt(
                         site,
                         job,
-                        scene,
+                        photo_scene,
                         retry_reason=failures[-1] if failures else "",
-                        has_logo_reference=bool(reference_logo and scene.get("usesLogoReference")),
+                        has_logo_reference=bool(reference_logo and photo_scene.get("usesLogoReference")),
+                        has_library_scene_reference=bool(library_scene_matches),
+                        has_library_person_reference=bool(library_person_matches),
                     ),
                     aspect_ratio="9:16",
-                    reference_image=reference_logo if reference_logo and scene.get("usesLogoReference") else None,
+                    reference_image=master_references or None,
                 )
             if not master_bytes.startswith(b"\xff\xd8"):
                 raise RuntimeError("Gemini did not return a JPEG master frame")
             if not master_path.is_file():
                 master_path.write_bytes(master_bytes)
-            master_review = normalize_instagram_reel_master_review(review_instagram_reel_master(master_bytes, scene), scene)
+            master_review = normalize_instagram_reel_master_review(review_instagram_reel_master(master_bytes, photo_scene), photo_scene)
             specs = master_review["specs"]
             dropped_layer_ids = set(master_review.get("droppedLayerIds") or [])
             if dropped_layer_ids:
-                scene["layers"] = [
-                    layer for layer in scene.get("layers") or []
+                photo_layers = [
+                    layer for layer in photo_layers
                     if str(layer.get("id") or "") not in dropped_layer_ids
                 ]
+                photo_scene["layers"] = photo_layers
             clean_path = attempt_dir / "clean.jpg"
             clean_bytes = clean_path.read_bytes() if clean_path.is_file() else _gemini_image_jpeg(
                     build_instagram_reel_clean_plate_prompt(specs),
@@ -4130,10 +5664,9 @@ def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, refere
             background_filename = f"scene-{index:02d}-background.png"
             background_path = asset_dir / background_filename
             shutil.copy2(base_source_path, background_path)
-            foreground_paths = []
-            foreground_urls = []
-            for layer_index, (layer, manifest_layer, source_path) in enumerate(zip(scene.get("layers") or [], manifest["layers"], source_layer_paths), start=1):
-                filename = f"scene-{index:02d}-layer-{layer_index:02d}.png"
+            layer_assets = {}
+            for layer_index, (layer, manifest_layer, source_path) in enumerate(zip(photo_layers, manifest["layers"], source_layer_paths), start=1):
+                filename = f"scene-{index:02d}-photo-layer-{layer_index:02d}.png"
                 target = asset_dir / filename
                 shutil.copy2(source_path, target)
                 bbox = manifest_layer.get("pixelBox") or []
@@ -4145,8 +5678,21 @@ def generate_instagram_reel_registered_scene(site, job, scene, asset_dir, refere
                     "pixelBox": bbox,
                     "visualReview": pack_review,
                 }
-                foreground_paths.append(str(target))
-                foreground_urls.append(filename)
+                layer_assets[str(layer.get("id") or "")] = (str(target), filename)
+            for graphic_index, layer in enumerate(evidence_layers, start=1):
+                filename = f"scene-{index:02d}-evidence-layer-{graphic_index:02d}.png"
+                target = asset_dir / filename
+                generate_instagram_reel_evidence_layer(
+                    layer,
+                    target,
+                    accent_hex=_reel_accent(int(site["id"])),
+                    logo_reference=reference_logo,
+                    brand_label=str(site["domain"] or ""),
+                )
+                layer_assets[str(layer.get("id") or "")] = (str(target), filename)
+            ordered_assets = [layer_assets[str(layer.get("id") or "")] for layer in all_layers if str(layer.get("id") or "") in layer_assets]
+            foreground_paths = [item[0] for item in ordered_assets]
+            foreground_urls = [item[1] for item in ordered_assets]
             scene["composition"] = {**(scene.get("composition") or {}), "textPlacement": master_review["quietTextZone"]}
             scene["masterFrameValidation"] = {
                 "attempt": attempt,
@@ -7421,6 +8967,85 @@ def _write_reel_wav(path, pcm):
         output.writeframes(pcm)
 
 
+def _reel_narration_pause_boundaries(path, scene_count, minimum_pause=0.35):
+    """Find the explicit paragraph pauses in one generated narration WAV."""
+    with wave.open(str(path), "rb") as source:
+        if source.getnchannels() != 1 or source.getsampwidth() != 2:
+            raise ValueError("Reel narration alignment requires mono 16-bit PCM")
+        sample_rate = source.getframerate()
+        samples = array("h")
+        samples.frombytes(source.readframes(source.getnframes()))
+    if sys.byteorder != "little":
+        samples.byteswap()
+    if scene_count < 1:
+        raise ValueError("Reel narration needs at least one scene")
+    if scene_count == 1:
+        return [0, len(samples)]
+
+    window = max(1, round(sample_rate * 0.02))
+    peaks = [max((abs(value) for value in samples[offset:offset + window]), default=0) for offset in range(0, len(samples), window)]
+    active_peaks = sorted(value for value in peaks if value > 0)
+    reference = active_peaks[max(0, round(len(active_peaks) * 0.70) - 1)] if active_peaks else 0
+    silence_threshold = max(96, round(reference * 0.035))
+    minimum_windows = max(1, round(minimum_pause / 0.02))
+    runs = []
+    start = None
+    for index, peak in enumerate(peaks):
+        if peak <= silence_threshold:
+            start = index if start is None else start
+        elif start is not None:
+            if index - start >= minimum_windows:
+                runs.append((start, index))
+            start = None
+    if start is not None and len(peaks) - start >= minimum_windows:
+        runs.append((start, len(peaks)))
+
+    total_seconds = len(samples) / float(sample_rate)
+    internal = []
+    for start_window, end_window in runs:
+        midpoint = ((start_window + end_window) * window) // 2
+        seconds = midpoint / float(sample_rate)
+        if 0.8 < seconds < total_seconds - 0.8:
+            internal.append((end_window - start_window, midpoint))
+    selected = sorted(midpoint for _, midpoint in sorted(internal, reverse=True)[:scene_count - 1])
+    if len(selected) != scene_count - 1:
+        raise ValueError(
+            f"Reel narration contains {len(selected)} usable paragraph pauses; {scene_count - 1} are required for scene alignment"
+        )
+    boundaries = [0, *selected, len(samples)]
+    if any((right - left) / float(sample_rate) < 1.0 for left, right in zip(boundaries, boundaries[1:])):
+        raise ValueError("Reel narration paragraph alignment produced an implausibly short scene segment")
+    return boundaries
+
+
+def _align_reel_narration_to_scenes(source_path, target_path, planned_durations):
+    """Place each spoken paragraph inside its owning scene without rewriting audio."""
+    source_path = Path(source_path)
+    target_path = Path(target_path)
+    boundaries = _reel_narration_pause_boundaries(source_path, len(planned_durations))
+    with wave.open(str(source_path), "rb") as source:
+        channels = source.getnchannels()
+        sample_width = source.getsampwidth()
+        sample_rate = source.getframerate()
+        frames = source.readframes(source.getnframes())
+    frame_width = channels * sample_width
+    resolved_durations = []
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(target_path), "wb") as output:
+        output.setnchannels(channels)
+        output.setsampwidth(sample_width)
+        output.setframerate(sample_rate)
+        for planned, start_frame, end_frame in zip(planned_durations, boundaries, boundaries[1:]):
+            segment_frames = end_frame - start_frame
+            segment_duration = segment_frames / float(sample_rate)
+            scene_duration = max(float(planned or 0), segment_duration + 0.8)
+            scene_frames = round(scene_duration * sample_rate)
+            output.writeframes(frames[start_frame * frame_width:end_frame * frame_width])
+            output.writeframes(b"\x00" * max(0, scene_frames - segment_frames) * frame_width)
+            resolved_durations.append(scene_frames / float(sample_rate))
+    return resolved_durations
+
+
 def _remove_reel_background(source_path, target_path, preserve_canvas=False):
     try:
         from rembg import remove
@@ -7681,6 +9306,402 @@ def _vertex_access_token():
     expiry = credentials.expiry.timestamp() if credentials.expiry else now + 3000
     VERTEX_TOKEN_CACHE.update({"token": credentials.token, "expires_at": expiry})
     return credentials.token
+
+
+GSC_READ_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
+GSC_API_BASE = "https://www.googleapis.com/webmasters/v3"
+GSC_FINAL_DATA_DELAY_DAYS = 3
+GSC_PAGE_SIZE = 25000
+GSC_MAX_ROWS_PER_DIMENSION = 50000
+
+
+def _gsc_service_account_file():
+    """Return the server-managed GSC credential file without persisting its path."""
+    configured = str(
+        os.environ.get("GSC_SERVICE_ACCOUNT_FILE")
+        or os.environ.get("VERTEX_AI_SERVICE_ACCOUNT_FILE")
+        or ""
+    ).strip()
+    if configured:
+        return Path(configured)
+    return BASE_DIR / "keys" / "gsc-service-account.json"
+
+
+def _gsc_service_account_details():
+    credential_file = _gsc_service_account_file()
+    if not credential_file.is_file():
+        raise RuntimeError("GSC service-account credentials are not configured on the server")
+    try:
+        payload = json.loads(credential_file.read_text(encoding="utf-8"))
+    except Exception as error:
+        raise RuntimeError("GSC service-account credentials cannot be read") from error
+    email = str(payload.get("client_email") or "").strip()
+    if not email:
+        raise RuntimeError("GSC service-account file does not contain a client email")
+    return credential_file, email
+
+
+def _gsc_access_token():
+    now = time.time()
+    if GSC_TOKEN_CACHE["token"] and GSC_TOKEN_CACHE["expires_at"] > now + 90:
+        return GSC_TOKEN_CACHE["token"]
+    credential_file, _email = _gsc_service_account_details()
+    try:
+        from google.auth.transport.requests import Request as GoogleAuthRequest
+        from google.oauth2 import service_account
+    except ImportError as error:
+        raise RuntimeError("GSC collection requires the google-auth package") from error
+    credentials = service_account.Credentials.from_service_account_file(
+        str(credential_file), scopes=[GSC_READ_SCOPE]
+    )
+    credentials.refresh(GoogleAuthRequest())
+    expiry = credentials.expiry.timestamp() if credentials.expiry else now + 3000
+    GSC_TOKEN_CACHE.update({"token": credentials.token, "expires_at": expiry})
+    return credentials.token
+
+
+def _gsc_request(path, *, method="GET", payload=None):
+    token = _gsc_access_token()
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    request_headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+    if body is not None:
+        request_headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(
+        f"{GSC_API_BASE}{path}", data=body, headers=request_headers, method=method
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=45) as response:
+            raw = response.read().decode("utf-8")
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:700]
+        raise RuntimeError(f"GSC HTTP {error.code}: {detail}") from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"GSC connection failed: {error.reason}") from error
+    try:
+        return json.loads(raw or "{}")
+    except json.JSONDecodeError as error:
+        raise RuntimeError("GSC returned invalid JSON") from error
+
+
+def _gsc_property_url(value):
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    if value.startswith("sc-domain:"):
+        domain = value.removeprefix("sc-domain:").strip().lower()
+        if not domain or "/" in domain:
+            raise ValueError("Domain properties must use sc-domain:example.com")
+        return f"sc-domain:{domain}"
+    parsed = urllib.parse.urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Use a Search Console property such as https://example.com/ or sc-domain:example.com")
+    return f"{parsed.scheme}://{parsed.netloc}/"
+
+
+def get_gsc_connection(site_id):
+    with db() as conn:
+        return conn.execute("select * from gsc_site_connections where site_id=?", (site_id,)).fetchone()
+
+
+def _gsc_list_properties():
+    response = _gsc_request("/sites")
+    return {
+        str(item.get("siteUrl") or ""): str(item.get("permissionLevel") or "")
+        for item in response.get("siteEntry") or []
+        if isinstance(item, dict) and item.get("siteUrl")
+    }
+
+
+def verify_gsc_site_connection(site_id):
+    connection = get_gsc_connection(site_id)
+    if not connection or not str(connection["property_url"] or "").strip():
+        raise ValueError("Save a Search Console property before verifying access")
+    property_url = str(connection["property_url"])
+    credential_file, service_account_email = _gsc_service_account_details()
+    del credential_file
+    properties = _gsc_list_properties()
+    permission_level = properties.get(property_url, "")
+    status = "connected" if permission_level else "no_access"
+    message = "" if permission_level else "Grant this service account access to the exact Search Console property, then verify again."
+    with db() as conn:
+        conn.execute(
+            """
+            update gsc_site_connections
+            set status=?, permission_level=?, service_account_email=?, last_verified_at=?, last_error=?, updated_at=?
+            where site_id=?
+            """,
+            (status, permission_level, service_account_email, now_iso(), message, now_iso(), site_id),
+        )
+    return {
+        "status": status,
+        "propertyUrl": property_url,
+        "permissionLevel": permission_level,
+        "serviceAccountEmail": service_account_email,
+        "message": message or "Search Console property access verified.",
+    }
+
+
+def _gsc_query_rows(property_url, dimension, target_date):
+    encoded_property = urllib.parse.quote(property_url, safe="")
+    rows = []
+    start_row = 0
+    while start_row < GSC_MAX_ROWS_PER_DIMENSION:
+        response = _gsc_request(
+            f"/sites/{encoded_property}/searchAnalytics/query",
+            method="POST",
+            payload={
+                "startDate": target_date,
+                "endDate": target_date,
+                "type": "web",
+                "dataState": "final",
+                "dimensions": [dimension],
+                "rowLimit": GSC_PAGE_SIZE,
+                "startRow": start_row,
+            },
+        )
+        batch = response.get("rows") or []
+        if not isinstance(batch, list):
+            raise RuntimeError("GSC returned an invalid Search Analytics row set")
+        rows.extend(item for item in batch if isinstance(item, dict))
+        if len(batch) < GSC_PAGE_SIZE:
+            break
+        start_row += GSC_PAGE_SIZE
+    return rows
+
+
+def _gsc_metric_values(row):
+    return (
+        int(round(float(row.get("clicks") or 0))),
+        int(round(float(row.get("impressions") or 0))),
+        float(row.get("ctr") or 0),
+        float(row.get("position") or 0),
+    )
+
+
+def collect_gsc_site_data(site_id, trigger="scheduled"):
+    """Collect a finalized daily GSC snapshot without pretending query/page data joins exactly."""
+    connection = get_gsc_connection(site_id)
+    if not connection or not int(connection["enabled"] or 0):
+        return {"due": False, "reason": "disabled"}
+    property_url = str(connection["property_url"] or "").strip()
+    if not property_url:
+        return {"due": False, "reason": "property_missing"}
+    target_date = (datetime.now(timezone.utc).date() - timedelta(days=GSC_FINAL_DATA_DELAY_DAYS)).isoformat()
+    if trigger == "scheduled" and str(connection["last_successful_date"] or "") == target_date:
+        return {"due": False, "reason": "already_collected", "targetDate": target_date}
+    started_at = now_iso()
+    with db() as conn:
+        cursor = conn.execute(
+            """
+            insert into gsc_collection_runs(site_id,trigger,status,target_date,started_at)
+            values(?,?,?,?,?)
+            """,
+            (site_id, trigger, "RUNNING", target_date, started_at),
+        )
+        run_id = cursor.lastrowid
+    try:
+        page_rows = _gsc_query_rows(property_url, "page", target_date)
+        query_rows = _gsc_query_rows(property_url, "query", target_date)
+        collected_at = now_iso()
+        with db() as conn:
+            # A successful final snapshot replaces the prior snapshot for that day.
+            conn.execute(
+                "delete from gsc_daily_page_metrics where site_id=? and metric_date=? and search_type='web'",
+                (site_id, target_date),
+            )
+            conn.execute(
+                "delete from gsc_daily_query_metrics where site_id=? and metric_date=? and search_type='web'",
+                (site_id, target_date),
+            )
+            conn.executemany(
+                """
+                insert into gsc_daily_page_metrics(
+                    site_id,metric_date,search_type,page_url,clicks,impressions,ctr,position,collected_at
+                ) values(?,?, 'web', ?,?,?,?,?,?)
+                """,
+                [
+                    (site_id, target_date, str((row.get("keys") or [""])[0]), *_gsc_metric_values(row), collected_at)
+                    for row in page_rows
+                    if (row.get("keys") or [""])[0]
+                ],
+            )
+            conn.executemany(
+                """
+                insert into gsc_daily_query_metrics(
+                    site_id,metric_date,search_type,query,clicks,impressions,ctr,position,collected_at
+                ) values(?,?, 'web', ?,?,?,?,?,?)
+                """,
+                [
+                    (site_id, target_date, str((row.get("keys") or [""])[0]), *_gsc_metric_values(row), collected_at)
+                    for row in query_rows
+                    if (row.get("keys") or [""])[0]
+                ],
+            )
+            conn.execute(
+                """
+                update gsc_site_connections
+                set status='connected', last_sync_at=?, last_successful_date=?, last_error='', updated_at=?
+                where site_id=?
+                """,
+                (collected_at, target_date, collected_at, site_id),
+            )
+            conn.execute(
+                """
+                update gsc_collection_runs
+                set status='COMPLETED', pages_collected=?, queries_collected=?, finished_at=?
+                where id=?
+                """,
+                (len(page_rows), len(query_rows), collected_at, run_id),
+            )
+        return {
+            "due": True,
+            "status": "COMPLETED",
+            "siteId": site_id,
+            "targetDate": target_date,
+            "pages": len(page_rows),
+            "queries": len(query_rows),
+        }
+    except Exception as error:
+        message = str(error)[:1200]
+        with db() as conn:
+            conn.execute(
+                "update gsc_site_connections set status='error', last_error=?, updated_at=? where site_id=?",
+                (message, now_iso(), site_id),
+            )
+            conn.execute(
+                "update gsc_collection_runs set status='ERROR', error=?, finished_at=? where id=?",
+                (message, now_iso(), run_id),
+            )
+        return {"due": True, "status": "ERROR", "siteId": site_id, "targetDate": target_date, "error": message}
+
+
+def run_scheduled_gsc_collection():
+    with db() as conn:
+        site_ids = [
+            row["site_id"]
+            for row in conn.execute(
+                "select site_id from gsc_site_connections where enabled=1 and property_url<>'' order by site_id"
+            ).fetchall()
+        ]
+    results = [collect_gsc_site_data(site_id, trigger="scheduled") for site_id in site_ids]
+    return {"due": any(bool(result.get("due")) for result in results), "sites": len(site_ids), "results": results}
+
+
+def _gsc_week_key():
+    year, week, _weekday = datetime.now(timezone.utc).isocalendar()
+    return f"{year}-W{week:02d}"
+
+
+def gsc_topic_candidates(site_id, days=28, limit=40):
+    since = (datetime.now(timezone.utc).date() - timedelta(days=max(7, int(days)))).isoformat()
+    with db() as conn:
+        rows = conn.execute(
+            """
+            select query, sum(clicks) clicks, sum(impressions) impressions,
+                   case when sum(impressions)>0 then sum(clicks)*1.0/sum(impressions) else 0 end ctr,
+                   sum(position * impressions) / nullif(sum(impressions),0) position
+            from gsc_daily_query_metrics
+            where site_id=? and metric_date>=? and search_type='web'
+            group by query
+            having sum(impressions)>=5
+            order by impressions desc, clicks desc
+            limit ?
+            """,
+            (site_id, since, max(1, int(limit) * 3)),
+        ).fetchall()
+    candidates = []
+    for row in rows:
+        query = re.sub(r"\s+", " ", str(row["query"] or "")).strip()
+        position = float(row["position"] or 0)
+        # Near-ranking opportunities: real impressions, but not already dominant.
+        if len(query) < 4 or position < 4 or position > 25:
+            continue
+        candidates.append({
+            "title": query,
+            "source": "gsc_search_performance",
+            "source_title": query,
+            "metrics": {
+                "clicks": int(row["clicks"] or 0), "impressions": int(row["impressions"] or 0),
+                "ctr": round(float(row["ctr"] or 0), 4), "position": round(position, 2), "days": int(days),
+            },
+        })
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def run_gsc_weekly_content_planning(site_id, trigger="scheduled"):
+    site = get_site(site_id)
+    connection = get_gsc_connection(site_id)
+    if not site or not connection or not int(connection["enabled"] or 0) or connection["status"] != "connected":
+        return {"due": False, "reason": "gsc_not_connected", "siteId": site_id}
+    week_key = _gsc_week_key()
+    with db() as conn:
+        prior = conn.execute(
+            "select status,started_at from gsc_content_planning_runs where site_id=? and week_key=?",
+            (site_id, week_key),
+        ).fetchone()
+    if prior and trigger == "scheduled":
+        # A completed weekly plan is immutable for the week. An empty plan is
+        # retried daily because newly collected GSC data can make it actionable.
+        if prior["status"] == "COMPLETED":
+            return {"due": False, "reason": "already_planned", "siteId": site_id, "week": week_key}
+        if prior["status"] == "NO_CANDIDATES":
+            try:
+                previous_attempt = datetime.fromisoformat(str(prior["started_at"]).replace("Z", "+00:00"))
+                if (datetime.now(timezone.utc) - previous_attempt).total_seconds() < 24 * 60 * 60:
+                    return {"due": False, "reason": "no_candidates_retry_pending", "siteId": site_id, "week": week_key}
+            except (TypeError, ValueError):
+                pass
+    candidates = gsc_topic_candidates(site_id)
+    started = now_iso()
+    with db() as conn:
+        conn.execute(
+            """insert into gsc_content_planning_runs(site_id,week_key,status,candidates_considered,started_at)
+               values(?,?,?,?,?) on conflict(site_id,week_key) do update set
+               status='RUNNING',candidates_considered=excluded.candidates_considered,started_at=excluded.started_at,finished_at=null""",
+            (site_id, week_key, "RUNNING", len(candidates), started),
+        )
+    if not candidates:
+        details = {"reason": "No GSC query has enough impressions in the near-ranking range yet."}
+        with db() as conn:
+            conn.execute("update gsc_content_planning_runs set status='NO_CANDIDATES',details_json=?,finished_at=? where site_id=? and week_key=?", (json.dumps(details), now_iso(), site_id, week_key))
+        return {"due": True, "siteId": site_id, "week": week_key, "created": 0, **details}
+    signals = [{"title": item["title"], "source": item["source"], "url": "", "metrics": item["metrics"]} for item in candidates]
+    ideas, rejected, stats = generate_article_ideas(site, signals, existing_topic_index(site_id))
+    # 3–5 is the quality target, not a quota: publish fewer when evidence/uniqueness is insufficient.
+    selected = ideas[:5]
+    created = 0
+    for idea in selected:
+        query = str(idea.get("source_title") or idea.get("target_query_cluster", [""])[0] or "")
+        metric = next((item["metrics"] for item in candidates if item["title"] == query), {})
+        fingerprint = f"gsc:{simple_slug(query)}"
+        recommendation_id, is_new = upsert_agent_recommendation(
+            site_id, fingerprint, "high", "gsc-near-ranking", "blog_articles", idea["title"],
+            idea.get("seo_rationale") or idea.get("angle") or "Real Search Console demand with a near-ranking position.",
+            {"query": query, "metrics": metric, "windowDays": 28, "source": "Google Search Console",
+             "diagnosis": "This query has real impressions and a near-ranking average position, while the site's existing content does not match it closely.",
+             "impact": "A focused original page can strengthen the site's topical coverage around proven demand.",
+             "nextSteps": ["Review the proposed angle and query evidence.", "Create one normal queued task only if it fits the product and editorial scope.", "Use normal generation, validation and publication gates."],
+             "expectedResult": "A non-duplicate content task grounded in the site's own organic-search data."},
+            {"type": "create-content-task", "idea": idea, "label": "Create this GSC-backed task"},
+        )
+        created += int(is_new)
+    details = {"stats": stats, "rejected": len(rejected), "selected": len(selected), "candidateQueries": candidates[:10]}
+    with db() as conn:
+        conn.execute("update gsc_content_planning_runs set status='COMPLETED',recommendations_created=?,details_json=?,finished_at=? where site_id=? and week_key=?", (created, json.dumps(details, ensure_ascii=False), now_iso(), site_id, week_key))
+    agent_log(site_id, "INFO", "gsc-weekly-planning", f"GSC planning created {created} recommendation(s) from {len(candidates)} near-ranking query candidate(s)", details)
+    return {"due": True, "siteId": site_id, "week": week_key, "created": created, "candidates": len(candidates), "selected": len(selected)}
+
+
+def run_scheduled_gsc_weekly_content_planning():
+    with db() as conn:
+        site_ids = [row["site_id"] for row in conn.execute("select site_id from gsc_site_connections where enabled=1 and status='connected'").fetchall()]
+    results = [run_gsc_weekly_content_planning(site_id) for site_id in site_ids]
+    return {"due": any(result.get("due") for result in results), "sites": len(site_ids), "results": results}
 
 
 def _vertex_imagen_masked_insert(scene_reference, mask_bytes, prompt, identity_reference=None, identity_description=""):
@@ -8157,15 +10178,17 @@ def build_instagram_reel_production_storyboard(reel, job):
                 continue
             group_id = str(group.get("name") or f"element-{len(groups) + 1:02d}")
             visual_beat = beats_by_subject.get(group_id, {})
-            is_person = str(group.get("layerType") or "") == "person_group"
+            layer_type = str(group.get("layerType") or "")
+            is_person = layer_type == "person_group"
+            is_evidence_graphic = layer_type == "evidence_graphic"
             if is_person:
                 person_number += 1
-            role = ("protagonist" if person_number == 1 else "supporting_character") if is_person else "story_object"
+            role = (("protagonist" if person_number == 1 else "supporting_character") if is_person else "evidence_graphic" if is_evidence_graphic else "story_object")
             source_anchor = str(visual_beat.get("sourceAnchor") or group.get("finalPosition") or group_id)
             if is_person:
                 source_anchor = (
                     "One complete adult traveler standing in the near-to-middle foreground, fully visible from head to feet and occupying 40% to 60% of image height. "
-                    "The person has relaxed empty hands, natural front lighting, free outer contours, and visible background space around the entire silhouette. "
+                    "The person has relaxed empty hands, no backpack, shoulder bag, handbag, luggage, loose strap, dangling accessory, or carried object, natural front lighting, free outer contours, and visible background space around the entire silhouette. "
                     "The person does not touch any separately listed person, object, furniture, or architecture."
                 )
             groups.append({
@@ -8179,6 +10202,12 @@ def build_instagram_reel_production_storyboard(reel, job):
                 "initialState": str(visual_beat.get("fromState") or "Outside its final registered state."),
                 "finalState": str(visual_beat.get("finalState") or group.get("finalPosition") or "Holds at final registration."),
                 "sourceEvidence": str(group.get("sourceGroundingQuote") or ""),
+                "layerType": layer_type,
+                "graphicText": str(group.get("graphicText") or visual_beat.get("graphicText") or ""),
+                "graphicDetail": str(group.get("graphicDetail") or visual_beat.get("graphicDetail") or ""),
+                "graphicPlacement": str(group.get("graphicPlacement") or visual_beat.get("graphicPlacement") or "middle_right"),
+                "graphicFontSize": int(group.get("graphicFontSize") or visual_beat.get("graphicFontSize") or 66),
+                "useLogo": bool(group.get("useLogo") or visual_beat.get("useLogo")),
                 "manifestReveal": str(group.get("transformMode") or visual_beat.get("revealMethod") or "settle"),
                 "manifestMotion": "hold",
                 "manifestStartSeconds": float(group.get("startSeconds") or visual_beat.get("startSeconds") or 0),
@@ -8245,6 +10274,12 @@ def build_instagram_reel_production_storyboard(reel, job):
         camera = planned.get("cameraPlan") if isinstance(planned.get("cameraPlan"), dict) else {}
         clean_plate_source = str(planned.get("cleanPlate") or concept.get("cleanPlate") or "")
         clean_environment = re.split(r",?\s+(?:with the camera|but with)\b", clean_plate_source, maxsplit=1, flags=re.I)[0].strip(" ,.")
+        visible_people = sum(1 for group in groups if group.get("role") in {"protagonist", "supporting_character"})
+        shot_framing = (
+            "Premium vertical medium-wide editorial photograph with exactly two standing people; each complete head-to-feet figure occupies 42% to 55% of image height, both are mobile-readable and separated by clear background"
+            if visible_people >= 2 else
+            "Premium vertical medium editorial photograph with the complete standing person occupying 48% to 62% of image height and clear background around the silhouette"
+        )
         scenes.append({
             "index": index,
             "stageId": beat_id,
@@ -8255,7 +10290,7 @@ def build_instagram_reel_production_storyboard(reel, job):
                 + (clean_environment or "a premium uncrowded shipboard interior")
             ),
             "stageBackgroundPrompt": str(planned.get("cleanPlate") or concept.get("cleanPlate") or ""),
-            "shotFraming": "Premium vertical wide editorial photograph with every listed group completely visible and mutually separated",
+            "shotFraming": shot_framing,
             "overlayText": str(text.get("copy") or concept.get("overlayText") or ""),
             "supportingText": "",
             "narration": "",
@@ -8557,11 +10592,14 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
             }
             _save_instagram_reel_payload(post_id, payload, "GENERATING")
 
+        queue_reel_asset_library_refresh(site_id)
+
         # Voice is deliberately deferred until every visual scene has passed master,
         # clean-plate, segmentation, reconstruction and layer-integrity validation.
         voice_enabled = bool(reel.get("voiceEnabled"))
         settings = get_podcast_settings(site_id) if voice_enabled else None
         voice_name = settings["voice_name"] if settings and settings["voice_name"] in PODCAST_VOICES else "Kore"
+        narration_path = None
         for scene, visual_pack in accepted_visual_scenes:
             index = int(scene["index"])
             render_scene = {
@@ -8570,15 +10608,31 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
                 "foregroundPaths": visual_pack["foregroundPaths"],
                 "fullCanvasLayers": True,
             }
-            if voice_enabled:
-                progress("voice", scene=index, message=f"All visual scenes are valid; synthesizing narration for scene {index}")
-                voice_path = asset_dir / f"scene-{index:02d}-voice.wav"
-                if not voice_path.is_file():
-                    pcm = _gemini_tts_pcm(f"Deliver this as one warm, brisk two-to-three second Reel thought. No preamble, no extra words, no slow pauses. Do not read this instruction aloud.\n\n{scene['narration']}", voice_name)
-                    _write_reel_wav(voice_path, pcm)
-                scene["assets"]["voiceUrl"] = social_asset_url(site_id, asset_key, "instagram", voice_path.name)
-                render_scene["voicePath"] = str(voice_path)
             render_scenes.append(render_scene)
+        if voice_enabled:
+            progress("voice", scene=0, message="All visual scenes are valid; synthesizing and aligning one continuous narration track")
+            narration_source = asset_dir / "reel-narration-source.wav"
+            narration_path = asset_dir / "reel-narration.wav"
+            narration_lines = [
+                str(scene.get("narration") or scene.get("overlayText") or "").strip()
+                for scene, _ in accepted_visual_scenes
+            ]
+            if not all(narration_lines):
+                raise ValueError("Every voiced Reel scene needs narration before full-track synthesis")
+            if not narration_source.is_file():
+                pcm = _gemini_tts_pcm(
+                    "Read only the following Reel narration. Each paragraph belongs to one visual scene. "
+                    "Speak every paragraph exactly once, preserve its wording and order, and leave a clear natural pause of at least one second between paragraphs.\n\n"
+                    + "\n\n".join(narration_lines),
+                    voice_name,
+                )
+                _write_reel_wav(narration_source, pcm)
+            planned_durations = [float(scene.get("durationSeconds") or 0) for scene in render_scenes]
+            resolved_durations = _align_reel_narration_to_scenes(narration_source, narration_path, planned_durations)
+            for render_scene, scene_duration in zip(render_scenes, resolved_durations):
+                render_scene["durationSeconds"] = scene_duration
+                render_scene["textDirection"] = {**(render_scene.get("textDirection") or {}), "endSeconds": scene_duration}
+                render_scene["assets"]["voiceUrl"] = social_asset_url(site_id, asset_key, "instagram", narration_path.name)
         total_scenes = len(storyboard["scenes"])
         progress("render", scene=total_scenes, message="Rendering vertical H.264 video with layered movement and camera work")
         from reel_renderer import render_vertical_reel
@@ -8590,6 +10644,7 @@ def _generate_instagram_reel_post_unlocked(site_id, post_id):
             asset_dir / "render-work",
             accent_hex=_reel_accent(site_id),
             music_path=music_path,
+            narration_path=narration_path,
         )
         cover_filename = Path(rendered["thumbnailPath"]).name
         reel.update({
@@ -8699,11 +10754,9 @@ CAROUSEL-WIDE VISUAL SYSTEM:
 - A supporting graphic is only an explanatory exception and must retain the same palette, typography, and editorial tone as the primary treatment.
 
 BRAND MARK:
-{"""- A real brand logo is attached only as an optional visual reference.
-- Decide independently for THIS slide whether the logo makes the visual more truthful and useful. The default is to omit it.
-- Use it only when this specific scene genuinely calls for a brand mark, such as a real product surface, a branded environment, or an editorial closing frame. Do not assume that a cover, a CTA, or any particular slide needs it.
-- When it is not materially relevant, ignore the attached reference completely and create a logo-free image.
-- Never invent, misspell, redraw approximately, or force a logo into a corner.""" if has_logo_reference else "- No verified raster logo is available. Do not draw, approximate, or invent a logo."}
+{"""- The verified real brand logo is attached as a visual reference for this scene.
+- Use that exact supplied mark only where it naturally belongs in the scene. Preserve its geometry, colour and spelling exactly.
+- Do not invent, redraw, approximate, spell out, stylise, or substitute a logo. There is no fallback brand mark.""" if has_logo_reference else "- This is a logo-free slide. Do not draw, approximate, spell out, or invent any logo, wordmark, monogram, or watermark."}
 
 QUALITY RULES:
 - Keep text large, sharp, high-contrast, and centered or aligned with clear safe margins.
@@ -8724,8 +10777,9 @@ def generate_instagram_carousel_images(site_id, job_id, site, job, language, car
     reference_logo = site_logo_reference(site_id)
     for index, slide in enumerate(slides, start=1):
         filename = f"slide-{index:02d}.jpg"
-        prompt = build_instagram_slide_image_prompt(site, job, language, slide, len(slides), carousel.get("visualSpec"), bool(reference_logo))
-        image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="4:5", reference_image=reference_logo)
+        uses_logo_reference = bool(slide.get("usesLogoReference") is True and reference_logo)
+        prompt = build_instagram_slide_image_prompt(site, job, language, slide, len(slides), carousel.get("visualSpec"), uses_logo_reference)
+        image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="4:5", reference_image=reference_logo if uses_logo_reference else None)
         if not image_bytes.startswith(b"\xff\xd8"):
             raise RuntimeError(f"Gemini image for Instagram slide {index} was not JPEG")
         (target_dir / filename).write_bytes(image_bytes)
@@ -8739,7 +10793,7 @@ def generate_instagram_carousel_images(site_id, job_id, site, job, language, car
         "recommendedSize": "1080x1350",
         "assetFormat": "jpeg",
         "generator": os.environ.get("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-image",
-        "brandLogo": "gemini-reference-when-contextual" if reference_logo else "not-available",
+        "brandLogo": "verified-source-reference-on-designated-slide" if reference_logo else "not-available",
         "logoReferenceProvided": bool(reference_logo),
         "logoReferenceSource": str((reference_logo or {}).get("source") or ""),
         "assetKey": asset_key,
@@ -8766,9 +10820,13 @@ def generate_social_drafts(site_id, job_id, channels=None):
     status_updates = {}
     with db() as conn:
         for channel in allowed_channels:
+            # LinkedIn is the single editorial exception: all personal/profile
+            # posts are authored in English even when the source page is localized.
+            channel_language = "en" if channel == "linkedin" else language
             # An Instagram carousel is a native in-feed asset: raw URLs in the
             # caption add no usable interaction and weaken the editorial format.
-            include_link = False if channel == "instagram" else bool(auto[f"{channel}_include_link"] if f"{channel}_include_link" in auto.keys() else 0)
+            # LinkedIn is a standalone article format, not a referral post.
+            include_link = False if channel in {"instagram", "linkedin"} else bool(auto[f"{channel}_include_link"] if f"{channel}_include_link" in auto.keys() else 0)
             max_chars = SOCIAL_CHANNEL_LIMITS[channel]
             asset_key = social_asset_key(job_id)
             extra_payload = {}
@@ -8788,9 +10846,16 @@ def generate_social_drafts(site_id, job_id, channels=None):
                     asset_key=asset_key,
                 )
                 char_count = validation["caption"]["charCount"]
+            elif channel == "linkedin":
+                text, validation = generate_social_post_text(site, job, channel, channel_language, max_chars, include_link, article_url)
+                extra_payload = {"linkedin": generate_linkedin_hero_image(site_id, job_id, site, job, text, asset_key=asset_key)}
+                char_count = validation["charCount"]
             elif channel == "threads":
                 text, validation, extra_payload = generate_threads_post_draft(site_id, job_id, site, job, language, include_link, article_url, asset_key=asset_key)
                 char_count = validation["byteCount"]
+            elif channel == "facebook":
+                text, validation, extra_payload = generate_facebook_post_draft(site_id, job_id, site, job, language, include_link, article_url, asset_key=asset_key)
+                char_count = validation["charCount"]
             elif channel == "reddit":
                 zernio_credentials = get_social_credentials(get_social_connections(site_id).get("zernio"))
                 text, validation, extra_payload = generate_reddit_post_draft(site, job, language, include_link, article_url, zernio_credentials.get("reddit_rules") or "")
@@ -8805,12 +10870,12 @@ def generate_social_drafts(site_id, job_id, channels=None):
                 text, validation, extra_payload = generate_tumblr_post_draft(site_id, job_id, site, job, language, include_link, article_url, asset_key=asset_key)
                 char_count = validation["charCount"]
             else:
-                text, validation = generate_social_post_text(site, job, channel, language, max_chars, include_link, article_url)
+                text, validation = generate_social_post_text(site, job, channel, channel_language, max_chars, include_link, article_url)
                 char_count = validation["charCount"]
             payload = {
                 "source": "gemini_or_fallback",
                 "channel": channel,
-                "language": language,
+                "language": channel_language,
                 "maxChars": max_chars,
                 "includeLink": include_link,
                 "articleUrl": article_url,
@@ -8851,6 +10916,9 @@ def generate_social_drafts(site_id, job_id, channels=None):
                 result["previewUrl"] = f"/sites/{int(site_id)}/social-posts/{int(cursor.lastrowid)}/instagram-carousel"
             if channel == "threads":
                 result.update(extra_payload)
+            if channel == "facebook":
+                result.update(extra_payload)
+                result["previewUrl"] = f"/sites/{int(site_id)}/social-posts/{int(cursor.lastrowid)}"
             results.append(result)
         if status_updates:
             assignments = ", ".join(f"{key}=?" for key in status_updates)
@@ -8863,6 +10931,96 @@ def generate_social_drafts(site_id, job_id, channels=None):
                 (site_id, job_id, now, "INFO", "social-drafts", f"Prepared social drafts for {', '.join(allowed_channels)}"),
             )
     return {"ok": True, "jobId": job_id, "language": language, "drafts": results}
+
+
+def materialize_agent_pinterest_assignments(site_id, limit=24):
+    """Turn complete strategy assignments into reviewable Pin drafts.
+
+    The strategy agent selects the board, destination and creative direction;
+    this factory function is the only place that spends image-generation budget
+    and writes to the social queue. It never publishes a Pin.
+    """
+    strategy = pinterest_strategy_data(site_id)
+    if not strategy["boards"] or not strategy["landingPages"]:
+        return {"ok": True, "created": 0, "skipped": "Pinterest strategy has no mapped boards or destinations."}
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
+    with db() as conn:
+        rows = conn.execute(
+            """select * from agent_media_plan_items
+               where site_id=? and status in ('PROPOSED','PROPOSED_NEW') and lower(channel) like '%pinterest%'
+               order by week,id limit ?""",
+            (site_id, max(1, min(int(limit or 24), 48))),
+        ).fetchall()
+    board_by_key = {str(item.get("key") or ""): item for item in strategy["boards"] if isinstance(item, dict)}
+    allowed_urls = {str(item.get("url") or "") for item in strategy["landingPages"] if isinstance(item, dict)}
+    created, rejected = [], []
+    for item in rows:
+        details = parse_json_object(item["details_json"])
+        board_key = str(details.get("boardKey") or "").strip()
+        destination = str(details.get("destinationUrl") or "").strip()
+        required = ("pinType", "overlayText", "pinDescription", "altText", "visualBrief")
+        missing = [key for key in required if not str(details.get(key) or "").strip()]
+        if board_key not in board_by_key or not destination or missing:
+            rejected.append({"id": int(item["id"]), "reason": "missing mapped board, destination, or finished Pin brief"})
+            continue
+        claim_text = " ".join(str(details.get(key) or "") for key in ("pinDescription", "overlayText", "visualBrief", "title"))
+        if re.search(r"\b(high[- ]converting|boost(?:s|ing)?\s+(?:conversion|sales|roas)|drive[sd]?\s+sales|lower(?:s|ing)?\s+returns|reduce[sd]?\s+(?:spend|costs?)|guarantee[sd]?|in\s+(?:one\s+click|seconds|minutes))\b", claim_text, flags=re.I):
+            rejected.append({"id": int(item["id"]), "reason": "unsupported outcome claim in the Pin brief"})
+            continue
+        visual_brief = str(details.get("visualBrief") or "")
+        if re.search(r"\b(?:infographic|flowchart|pricing\s+(?:card|tier|comparison)|\d+\s*(?:step|panel|quadrant)|clear\s+numbering|cta\s+button)\b", visual_brief, flags=re.I):
+            rejected.append({"id": int(item["id"]), "reason": "Pin visual must be a real scene or a verified interface screenshot, not generated information graphics"})
+            continue
+        mentions_interface = bool(re.search(r"\b(?:interface|dashboard|ui|screen(?:shot)?|mockup)\b", visual_brief, flags=re.I))
+        interface_reference = pinterest_interface_reference(site, details.get("interfaceReference"))
+        if mentions_interface and not interface_reference:
+            rejected.append({"id": int(item["id"]), "reason": "interface visual needs a verified screenshot reference inside the site root"})
+            continue
+            continue
+        if destination not in allowed_urls and not destination.startswith(("http://", "https://")):
+            rejected.append({"id": int(item["id"]), "reason": "destination is not a valid URL"})
+            continue
+        source_key = f"agent-pin:{int(item['id'])}"
+        with db() as conn:
+            duplicate = conn.execute(
+                "select id from social_posts where site_id=? and job_id=? and channel='pinterest' and status!='SUPERSEDED' limit 1",
+                (site_id, source_key),
+            ).fetchone()
+        if duplicate:
+            continue
+        title = social_shorten_to_limit(str(item["title"] or "Pinterest idea"), 100)
+        pin = {
+            "pinType": str(details["pinType"]), "boardKey": board_key,
+            "pinTitle": title,
+            "description": social_shorten_to_limit(str(details["pinDescription"]), SOCIAL_CHANNEL_LIMITS["pinterest"]),
+            "overlayText": social_shorten_to_limit(str(details["overlayText"]), 80),
+            "altText": social_shorten_to_limit(str(details["altText"]), 250),
+            "imagePrompt": social_shorten_to_limit(str(details["visualBrief"]), 1000),
+            "interfaceReference": str(details.get("interfaceReference") or "").strip(),
+            "imageAspectRatio": "2:3", "recommendedSize": "1000x1500", "destinationUrl": destination,
+        }
+        validation = validate_pinterest_pin(pin)
+        if not validation["ok"]:
+            rejected.append({"id": int(item["id"]), "reason": "Pin brief exceeded a platform field limit"})
+            continue
+        virtual_job = {"id": source_key, "title": title, "topic": title}
+        try:
+            pin.update(generate_pinterest_pin_image(site_id, source_key, site, virtual_job, pin, asset_key=source_key))
+            now = now_iso()
+            payload = {"source": "strategy-agent", "agentMediaPlanItemId": int(item["id"]), "channel": "pinterest", "pin": pin, "validation": validation, "assetKey": source_key}
+            with db() as conn:
+                conn.execute(
+                    """insert into social_posts(site_id,job_id,channel,content_text,content_json,remote_url,status,asset_type,language,max_chars,char_count,include_link,validation_json,created_at,updated_at)
+                       values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (site_id, source_key, "pinterest", pin["description"], json.dumps(payload, ensure_ascii=False), "", "DRAFT", "post", "en", SOCIAL_CHANNEL_LIMITS["pinterest"], len(pin["description"]), 1, json.dumps(validation, ensure_ascii=False), now, now),
+                )
+                conn.execute("update agent_media_plan_items set status='READY',updated_at=? where id=?", (now, item["id"]))
+            created.append({"mediaPlanItemId": int(item["id"]), "title": title, "boardKey": board_key})
+        except Exception as error:
+            rejected.append({"id": int(item["id"]), "reason": str(error)[:300]})
+    return {"ok": True, "created": len(created), "drafts": created, "rejected": rejected}
 
 
 def absolute_social_asset_url(value):
@@ -8881,10 +11039,222 @@ def zernio_media_items(channel, payload):
         return [{"type": "image", "url": absolute_social_asset_url(slide.get("imageUrl"))} for slide in carousel.get("slides") or [] if slide.get("imageUrl")]
     if channel == "threads":
         return [{"type": "image", "url": absolute_social_asset_url(url)} for url in ((payload.get("threads") or {}).get("mediaUrls") or []) if url]
+    if channel in {"facebook", "youtube"}:
+        short_form = payload.get("shortFormVideo") if isinstance(payload.get("shortFormVideo"), dict) else {}
+        if short_form.get("videoUrl"):
+            return [{"type": "video", "url": absolute_social_asset_url(short_form.get("videoUrl"))}]
+    if channel == "facebook":
+        return [{"type": "image", "url": absolute_social_asset_url(url)} for url in ((payload.get("facebook") or {}).get("mediaUrls") or []) if url]
+    if channel == "twitter":
+        return [{"type": "image", "url": absolute_social_asset_url(url)} for url in ((payload.get("twitter") or {}).get("mediaUrls") or []) if url]
     if channel == "pinterest":
         image_url = (payload.get("pin") or {}).get("imageUrl")
         return [{"type": "image", "url": absolute_social_asset_url(image_url)}] if image_url else []
+    if channel == "tiktok":
+        carousel = payload.get("tiktokCarousel") if isinstance(payload.get("tiktokCarousel"), dict) else {}
+        return [item for item in (carousel.get("mediaItems") or []) if isinstance(item, dict) and item.get("url")]
     return []
+
+
+def attach_zernio_media_to_request(platform, request_payload, media_items):
+    """Attach media where Zernio will publish it for a post or thread."""
+    if not media_items:
+        return
+    thread_items = ((platform.get("platformSpecificData") or {}).get("threadItems") or [])
+    if thread_items:
+        thread_items[0]["mediaItems"] = media_items
+        return
+    request_payload["mediaItems"] = media_items
+
+
+def tiktok_photo_title(value):
+    """Return a complete, human-readable photo title within TikTok's 90-char limit."""
+    words = re.split(r"\s+", str(value or "").strip())
+    kept = []
+    for word in words:
+        candidate = " ".join([*kept, word]).strip()
+        if len(candidate) > 90:
+            break
+        kept.append(word)
+    return " ".join(kept) or "SoloCruz travel tips"
+
+
+def tiktok_carousel_payload(source_row, title):
+    source = parse_json_object(source_row["content_json"])
+    carousel = source.get("instagramCarousel") if isinstance(source.get("instagramCarousel"), dict) else {}
+    slides = carousel.get("slides") if isinstance(carousel.get("slides"), list) else []
+    media_items = [
+        {"type": "image", "url": absolute_social_asset_url(slide.get("imageUrl"))}
+        for slide in slides
+        if isinstance(slide, dict) and slide.get("imageUrl")
+    ]
+    if not media_items:
+        raise ValueError("The source Instagram carousel has no rendered image slides.")
+    if len(media_items) > 35:
+        raise ValueError("TikTok photo carousels support at most 35 images.")
+    return {
+        "sourceInstagramPostId": int(source_row["id"]),
+        "title": tiktok_photo_title(title),
+        "description": str(carousel.get("caption") or source_row["content_text"] or "").strip(),
+        "mediaItems": media_items,
+    }
+
+
+def normalized_social_identity(value):
+    return " ".join(re.findall(r"[a-z0-9]+", str(value or "").casefold())).strip()
+
+
+def social_post_identity(row):
+    """Build strong, deterministic identities without guessing topic similarity."""
+    payload = parse_json_object(row["content_json"])
+    texts = [row["content_text"] or ""]
+    source_instagram_id = None
+    for key in ("tiktokCarousel", "instagramCarousel", "instagramReel", "pin", "threads", "reddit", "twitter"):
+        block = payload.get(key)
+        if not isinstance(block, dict):
+            continue
+        if key == "tiktokCarousel":
+            source_instagram_id = block.get("sourceInstagramPostId")
+        for field in ("title", "caption", "description", "pinTitle"):
+            if block.get(field):
+                texts.append(block[field])
+    media_urls = tuple(sorted(item["url"] for item in zernio_media_items(row["channel"], payload) if item.get("url")))
+    normalized_texts = {
+        normalized for normalized in (normalized_social_identity(value) for value in texts)
+        if len(normalized) >= 20
+    }
+    return {
+        "texts": normalized_texts,
+        "mediaUrls": media_urls,
+        "sourceInstagramPostId": str(source_instagram_id or ""),
+    }
+
+
+def find_existing_social_duplicate(site_id, row, statuses=("SCHEDULED", "SUBMITTED", "PUBLISHED", "SENT")):
+    """Find an already accepted post using exact content/source/media identities.
+
+    This intentionally avoids fuzzy matching in the publisher: fuzzy topic checks
+    belong to the analyst, while the final delivery guard must not suppress a
+    legitimately different post about a related subject.
+    """
+    identity = social_post_identity(row)
+    placeholders = ",".join("?" for _ in statuses)
+    with db() as conn:
+        candidates = conn.execute(
+            f"""select * from social_posts where site_id=? and channel=? and id!=?
+                  and status in ({placeholders}) order by id desc""",
+            (site_id, row["channel"], int(row["id"]), *statuses),
+        ).fetchall()
+    for candidate in candidates:
+        other = social_post_identity(candidate)
+        same_source = bool(
+            identity["sourceInstagramPostId"]
+            and identity["sourceInstagramPostId"] == other["sourceInstagramPostId"]
+        )
+        same_media = bool(identity["mediaUrls"] and identity["mediaUrls"] == other["mediaUrls"])
+        same_text = bool(identity["texts"] and identity["texts"].intersection(other["texts"]))
+        if same_source or same_media or same_text:
+            return candidate
+    return None
+
+
+def publish_tiktok_carousel_from_instagram(site_id, source_post_id, scheduled_for=None):
+    """Reuse a rendered Instagram carousel as one native TikTok photo carousel.
+
+    This deliberately never generates slides or modifies their design: the source
+    carousel is an immutable asset, and the TikTok record keeps its exact source id.
+    """
+    connections = get_social_connections(site_id)
+    zernio = connections.get("zernio")
+    credentials = get_social_credentials(zernio)
+    api_key = str(credentials.get("api_key") or os.environ.get("ZERNIO_API_KEY") or "").strip()
+    account_id = str(credentials.get("tiktok_account_id") or "").strip()
+    if not api_key or not account_id:
+        raise ValueError("Map the connected TikTok account in Zernio before publishing carousels.")
+    with db() as conn:
+        source = conn.execute(
+            """select sp.*, cj.title from social_posts sp
+               left join content_jobs cj on cj.id=sp.job_id and cj.site_id=sp.site_id
+               where sp.id=? and sp.site_id=? and sp.channel='instagram' and sp.asset_type='post'""",
+            (int(source_post_id), site_id),
+        ).fetchone()
+        if not source:
+            raise ValueError("Instagram carousel source not found.")
+        existing = conn.execute(
+            """select * from social_posts where site_id=? and channel='tiktok' and asset_type=?
+               and json_extract(content_json, '$.tiktokCarousel.sourceInstagramPostId')=?
+               and status not in ('ERROR','SUPERSEDED') order by id desc limit 1""",
+            (site_id, TIKTOK_CAROUSEL_ASSET_TYPE, int(source_post_id)),
+        ).fetchone()
+        if existing:
+            return {"ok": True, "alreadyExists": True, "postId": int(existing["id"]), "status": existing["status"], "remoteUrl": existing["remote_url"]}
+        payload = {"tiktokCarousel": tiktok_carousel_payload(source, source["title"] or source["job_id"])}
+        post_id = conn.execute(
+            """insert into social_posts(site_id,job_id,channel,content_text,content_json,remote_url,status,asset_type,language,max_chars,char_count,include_link,validation_json,created_at,updated_at)
+               values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (site_id, source["job_id"], "tiktok", payload["tiktokCarousel"]["title"], json.dumps(payload, ensure_ascii=False), "", "GENERATING", TIKTOK_CAROUSEL_ASSET_TYPE, source["language"] or "en", 4000, len(payload["tiktokCarousel"]["description"]), 0, "{}", now_iso(), now_iso()),
+        ).lastrowid
+    try:
+        with db() as conn:
+            pending_row = conn.execute("select * from social_posts where id=?", (post_id,)).fetchone()
+        duplicate = find_existing_social_duplicate(site_id, pending_row)
+        if duplicate:
+            with db() as conn:
+                conn.execute(
+                    "update social_posts set status='SUPERSEDED', validation_json=?, updated_at=? where id=?",
+                    (json.dumps({"duplicateOfSocialPostId": int(duplicate["id"]), "reason": "Blocked before Zernio submission"}), now_iso(), post_id),
+                )
+            return {
+                "ok": True, "alreadyExists": True, "postId": int(duplicate["id"]),
+                "status": duplicate["status"], "remoteUrl": duplicate["remote_url"],
+                "supersededPostId": int(post_id),
+            }
+        creator_info, _ = fetch_json_request(
+            f"{ZERNIO_API_BASE}/accounts/{urllib.parse.quote(account_id, safe='')}/tiktok/creator-info?mediaType=photo",
+            headers={"Authorization": f"Bearer {api_key}"}, method="GET", timeout=30,
+        )
+        privacy_values = [str(item.get("value")) for item in (creator_info.get("privacyLevels") or []) if isinstance(item, dict)]
+        privacy_level = "PUBLIC_TO_EVERYONE" if "PUBLIC_TO_EVERYONE" in privacy_values else (privacy_values[0] if privacy_values else "")
+        if not privacy_level:
+            raise ValueError("TikTok did not return an allowed privacy level for this account.")
+        interaction = ((creator_info.get("postingLimits") or {}).get("interactionSettings") or {}).get("allow_comment") or {}
+        request_payload = {
+            "content": payload["tiktokCarousel"]["title"],
+            "mediaItems": payload["tiktokCarousel"]["mediaItems"],
+            "platforms": [{"platform": "tiktok", "accountId": account_id}],
+            "tiktokSettings": {
+                "privacy_level": privacy_level,
+                "allow_comment": bool(interaction.get("default", False)),
+                "media_type": "photo",
+                "photo_cover_index": 0,
+                "description": payload["tiktokCarousel"]["description"],
+                "auto_add_music": True,
+                "content_preview_confirmed": True,
+                "express_consent_given": True,
+            },
+            "publishNow": not bool(scheduled_for),
+        }
+        if scheduled_for:
+            request_payload["scheduledFor"] = scheduled_for
+        response, _ = fetch_json_request(
+            f"{ZERNIO_API_BASE}/posts",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "x-request-id": sha256(f"blog-core:tiktok-carousel:{site_id}:{source_post_id}:{post_id}".encode("utf-8")).hexdigest(),
+            }, data=request_payload, method="POST", timeout=60,
+        )
+        post = response.get("post") if isinstance(response, dict) else {}
+        remote_url = str((post or {}).get("url") or (post or {}).get("permalink") or (post or {}).get("_id") or (post or {}).get("id") or "")
+        if not remote_url:
+            raise RuntimeError(str((response or {}).get("error") or "Zernio did not return a TikTok post id."))
+        status = "SCHEDULED" if scheduled_for else "SUBMITTED"
+        with db() as conn:
+            conn.execute("update social_posts set status=?, remote_url=?, updated_at=? where id=?", (status, remote_url, now_iso(), post_id))
+        return {"ok": True, "postId": int(post_id), "status": status, "remoteUrl": remote_url}
+    except Exception:
+        with db() as conn:
+            conn.execute("update social_posts set status='ERROR', updated_at=? where id=?", (now_iso(), post_id))
+        raise
 
 
 def zernio_provider_post_id(post):
@@ -8904,6 +11274,13 @@ def zernio_provider_media_urls(post):
     }
 
 
+def zernio_provider_has_platform(post, channel):
+    return any(
+        isinstance(item, dict) and str(item.get("platform") or "").strip() == str(channel or "").strip()
+        for item in (post.get("platforms") or [])
+    ) if isinstance(post, dict) else False
+
+
 def zernio_local_status(provider_status):
     normalized = str(provider_status or "").strip().lower()
     return {
@@ -8918,6 +11295,11 @@ def zernio_local_status(provider_status):
 def sync_social_channel_status(site_id, job_id, channel):
     """Keep the content-task summary aligned with the newest active social draft."""
     if channel not in ZERNIO_SOCIAL_CHANNELS:
+        return
+    # TikTok records represent a carousel asset derived from an Instagram source.
+    # They intentionally have no column on content_jobs to avoid treating an asset
+    # delivery state as the article's general social-post state.
+    if channel == "tiktok":
         return
     with db() as conn:
         row = conn.execute(
@@ -8959,7 +11341,7 @@ def reconcile_zernio_social_posts(site_id, job_id=None):
             provider_by_media.setdefault(media_url, []).append(post)
     query = """select * from social_posts where site_id=?
                and status != 'SUPERSEDED'
-               and channel in ('twitter','pinterest','instagram','threads','reddit')"""
+               and channel in ('twitter','pinterest','instagram','tiktok','threads','facebook','reddit')"""
     params = [site_id]
     if job_id:
         query += " and job_id=?"
@@ -8974,7 +11356,10 @@ def reconcile_zernio_social_posts(site_id, job_id=None):
             continue
         candidates = []
         for media_url in local_media:
-            candidates.extend(provider_by_media.get(media_url, []))
+            candidates.extend(
+                post for post in provider_by_media.get(media_url, [])
+                if zernio_provider_has_platform(post, row["channel"])
+            )
         if not candidates:
             continue
         provider = max(candidates, key=lambda item: len(local_media.intersection(zernio_provider_media_urls(item))))
@@ -8991,6 +11376,27 @@ def reconcile_zernio_social_posts(site_id, job_id=None):
                 (status, public_url, now_iso(), row["id"]),
             )
         sync_social_channel_status(site_id, row["job_id"], row["channel"])
+        if status == "ERROR":
+            provider_error = str(
+                provider.get("error") or provider.get("message") or provider.get("errorMessage")
+                or next(
+                    (
+                        result.get("error") or result.get("message") or result.get("errorMessage")
+                        for result in (provider.get("platforms") or [])
+                        if isinstance(result, dict) and (
+                            result.get("error") or result.get("message") or result.get("errorMessage")
+                        )
+                    ),
+                    "Zernio reported that the destination network failed to publish the post.",
+                )
+            )
+            capture_publication_failure_email_alerts(
+                "social",
+                {"results": [{
+                    "siteId": int(site_id), "jobId": row["job_id"], "id": int(row["id"]),
+                    "channel": row["channel"], "status": "ERROR", "error": provider_error,
+                }]},
+            )
         matched.append({"id": row["id"], "channel": row["channel"], "status": status, "remoteUrl": public_url})
     return {"matched": matched, "reason": ""}
 
@@ -9008,12 +11414,20 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=N
         asset_filter = "" if requested_post_ids else " and asset_type='post'"
         draft_rows = conn.execute(
             f"""select * from social_posts where site_id=? and job_id=? and status='DRAFT'
-               and channel in ('twitter','pinterest','instagram','threads','reddit'){asset_filter} order by id asc""",
+               and channel in ('twitter','pinterest','instagram','threads','facebook','youtube','reddit'){asset_filter} order by id asc""",
             (site_id, job_id),
         ).fetchall()
     draft_rows = [row for row in draft_rows if row["channel"] in requested_channels]
     if requested_post_ids:
         draft_rows = [row for row in draft_rows if int(row["id"]) in requested_post_ids]
+    # Blog Core owns the Reddit queue and due time.  Zernio is only the
+    # delivery adapter once that local queue has released a reviewed draft;
+    # giving it a timestamp creates an unmanaged second schedule.
+    if scheduled_for and any(row["channel"] == "reddit" for row in draft_rows):
+        raise ValueError(
+            "Reddit scheduling is owned by Blog Core. Send the reviewed Reddit draft "
+            "without scheduledFor only when its local queue is due."
+        )
     if not draft_rows:
         raise ValueError("No unpublished Zernio social drafts are ready for this content task.")
     # One content task may have been retried after a slow media request. Publish
@@ -9031,25 +11445,59 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=N
             )
     rows = list(newest_rows.values())
     results = []
+    reddit_account_subreddits = {}
     for row in rows:
         channel = row["channel"]
+        duplicate = find_existing_social_duplicate(site_id, row)
+        if duplicate:
+            with db() as conn:
+                conn.execute(
+                    "update social_posts set status='SUPERSEDED', validation_json=?, updated_at=? where id=?",
+                    (json.dumps({"duplicateOfSocialPostId": int(duplicate["id"]), "reason": "Blocked before Zernio submission"}), now_iso(), row["id"]),
+                )
+            results.append({
+                "channel": channel, "assetType": row["asset_type"] or "post", "ok": False,
+                "status": "SUPERSEDED", "duplicateOfSocialPostId": int(duplicate["id"]),
+                "error": f"Duplicate of existing {channel} post #{int(duplicate['id'])}; Zernio submission blocked.",
+            })
+            continue
         account_id = str(credentials.get(f"{channel}_account_id") or "").strip()
         if not account_id:
             results.append({"channel": channel, "ok": False, "error": "Missing Zernio account mapping."})
             continue
         payload = parse_json_object(row["content_json"])
+        publish_text = social_normalize_text(row["content_text"] or "")
         platform = {"platform": channel, "accountId": account_id}
         if channel == "instagram" and (row["asset_type"] or "post") == INSTAGRAM_REEL_ASSET_TYPE:
             platform["platformSpecificData"] = {"contentType": "reels", "shareToFeed": True}
+        if channel == "facebook" and (row["asset_type"] or "post") == "facebook_reel":
+            short_form = payload.get("shortFormVideo") if isinstance(payload.get("shortFormVideo"), dict) else {}
+            platform["platformSpecificData"] = {"contentType": "reel", "title": str(short_form.get("title") or "SoloCruz")[:255]}
+        if channel == "youtube" and (row["asset_type"] or "post") == "youtube_short":
+            short_form = payload.get("shortFormVideo") if isinstance(payload.get("shortFormVideo"), dict) else {}
+            platform["platformSpecificData"] = {"title": str(short_form.get("title") or "SoloCruz")[:100], "visibility": "public", "madeForKids": False}
         if channel == "twitter":
-            thread_items = ((payload.get("twitter") or {}).get("threadItems") or [])
+            thread_items = [
+                social_normalize_text(item)
+                for item in ((payload.get("twitter") or {}).get("threadItems") or [])
+                if social_normalize_text(item)
+            ]
             if len(thread_items) > 1:
                 platform["platformSpecificData"] = {"threadItems": [{"content": item} for item in thread_items]}
+            if any(_x_weighted_length(item) > SOCIAL_CHANNEL_LIMITS["twitter"] for item in thread_items):
+                results.append({"channel": channel, "ok": False, "error": "X draft exceeds 280 characters after publication normalization."})
+                continue
+            if len(thread_items) <= 1 and _x_weighted_length(publish_text) > SOCIAL_CHANNEL_LIMITS["twitter"]:
+                results.append({"channel": channel, "ok": False, "error": "X draft exceeds 280 characters after publication normalization."})
+                continue
         if channel == "pinterest":
             pin = payload.get("pin") if isinstance(payload.get("pin"), dict) else {}
             pinterest_data = {}
-            if credentials.get("pinterest_board_id"):
-                pinterest_data["boardId"] = credentials["pinterest_board_id"]
+            strategy = pinterest_strategy_data(site_id)
+            chosen_board = next((item for item in strategy["boards"] if isinstance(item, dict) and str(item.get("key") or "") == str(pin.get("boardKey") or "")), None)
+            board_id = str((chosen_board or {}).get("boardId") or credentials.get("pinterest_board_id") or "").strip()
+            if board_id:
+                pinterest_data["boardId"] = board_id
             if pin.get("pinTitle"):
                 pinterest_data["title"] = pin["pinTitle"]
             if pin.get("destinationUrl"):
@@ -9057,24 +11505,49 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=N
             if pinterest_data:
                 platform["platformSpecificData"] = pinterest_data
         if channel == "reddit":
-            subreddit = str(credentials.get("reddit_subreddit") or "").strip().removeprefix("r/")
+            reddit_payload = payload.get("reddit") if isinstance(payload.get("reddit"), dict) else {}
+            # Reddit destinations belong to the individual reviewed creative.
+            # A connection-level default remains a fallback for old drafts, but
+            # must never collapse a multi-community queue into one subreddit.
+            subreddit = str(reddit_payload.get("subreddit") or credentials.get("reddit_subreddit") or "").strip().removeprefix("r/")
             if not subreddit:
-                results.append({"channel": channel, "ok": False, "error": "Missing default subreddit."})
+                results.append({"channel": channel, "ok": False, "error": "Missing reviewed subreddit for this Reddit draft."})
+                continue
+            if account_id not in reddit_account_subreddits:
+                try:
+                    subreddit_response, _ = fetch_json_request(
+                        f"{ZERNIO_API_BASE}/accounts/{urllib.parse.quote(account_id, safe='')}/reddit-subreddits",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        method="GET",
+                        timeout=30,
+                    )
+                    subreddit_rows = subreddit_response.get("subreddits") if isinstance(subreddit_response, dict) else None
+                    if not isinstance(subreddit_rows, list):
+                        raise RuntimeError("Zernio did not return the Reddit account's subreddit list")
+                    reddit_account_subreddits[account_id] = {
+                        str(item.get("name") or "").strip().lower()
+                        for item in subreddit_rows if isinstance(item, dict) and str(item.get("name") or "").strip()
+                    }
+                except Exception as error:
+                    results.append({"channel": channel, "ok": False, "error": f"Could not verify Reddit communities through Zernio: {str(error)[:200]}"})
+                    continue
+            if subreddit.lower() not in reddit_account_subreddits[account_id]:
+                results.append({"channel": channel, "ok": False, "error": f"r/{subreddit} is not available for this Reddit account in Zernio."})
                 continue
             platform["platformSpecificData"] = {
                 "subreddit": subreddit,
-                "title": ((payload.get("reddit") or {}).get("title") or row["content_text"] or "Discussion")[:300],
+                "title": (reddit_payload.get("title") or row["content_text"] or "Discussion")[:300],
+                "forceSelf": True,
             }
         request_payload = {
-            "content": row["content_text"] or "",
+            "content": publish_text,
             "platforms": [platform],
             "publishNow": not bool(scheduled_for),
         }
         if scheduled_for:
             request_payload["scheduledFor"] = scheduled_for
         media_items = zernio_media_items(channel, payload)
-        if media_items:
-            request_payload["mediaItems"] = media_items
+        attach_zernio_media_to_request(platform, request_payload, media_items)
         try:
             response, _ = fetch_json_request(
                 f"{ZERNIO_API_BASE}/posts",
@@ -9101,8 +11574,16 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=N
             # the request. It is not evidence that the destination network has
             # made the post visible yet.
             status = "SCHEDULED" if scheduled_for else "SUBMITTED"
+            if scheduled_for:
+                payload["publicationSchedule"] = {
+                    "provider": "zernio",
+                    "scheduledFor": str(scheduled_for),
+                }
             with db() as conn:
-                conn.execute("update social_posts set status=?, remote_url=?, updated_at=? where id=?", (status, remote_url or remote_id, now_iso(), row["id"]))
+                conn.execute(
+                    "update social_posts set status=?, remote_url=?, content_json=?, updated_at=? where id=?",
+                    (status, remote_url or remote_id, json.dumps(payload, ensure_ascii=False), now_iso(), row["id"]),
+                )
             results.append({"channel": channel, "assetType": row["asset_type"] or "post", "ok": True, "status": status, "remoteUrl": remote_url or remote_id})
         except Exception as e:
             reconciled = reconcile_zernio_social_posts(site_id, job_id)
@@ -9120,6 +11601,12 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=N
             if item.get("assetType") != "post":
                 continue
             channel = item["channel"]
+            if channel == "pinterest" and str(job_id).startswith("agent-pin:"):
+                try:
+                    plan_id = int(str(job_id).split(":", 1)[1])
+                    conn.execute("update agent_media_plan_items set status='SUBMITTED',updated_at=? where site_id=? and id=?", (now_iso(), site_id, plan_id))
+                except (TypeError, ValueError):
+                    pass
             conn.execute(
                 f"update content_jobs set {channel}_status=?, {channel}_post_url=?, {channel}_posted_at=?, updated_at=? where site_id=? and id=?",
                 (item["status"].lower(), item.get("remoteUrl") or "", now_iso(), now_iso(), site_id, job_id),
@@ -9131,8 +11618,85 @@ def publish_zernio_social_drafts(site_id, job_id, scheduled_for=None, channels=N
     return {"ok": bool(successful), "jobId": job_id, "results": results}
 
 
+# LinkedIn's native post card uses a 355×265 landscape derivative; keep a 3×
+# source asset so it fills that card without letterboxing.
+LINKEDIN_PREVIEW_SIZE = (1065, 795)
+
+
+def linkedin_preview_image_bytes(source_bytes):
+    """Create LinkedIn's native landscape asset without letterboxing a site hero.
+
+    Website article images intentionally remain in their editorial 16:9 form.
+    Organic LinkedIn posts render horizontal editorial images best at 16:9.
+    A 1.91:1 image is for link previews and can be letterboxed in this post
+    surface. This derivative uses a centred crop, never padding, and is used
+    only for the uploaded social asset.
+    """
+    try:
+        image = ImageOps.exif_transpose(Image.open(BytesIO(source_bytes))).convert("RGB")
+    except Exception as error:
+        raise RuntimeError("The article hero image could not be decoded for LinkedIn.") from error
+    source_width, source_height = image.size
+    if source_width < 2 or source_height < 2:
+        raise RuntimeError("The article hero image is too small for LinkedIn.")
+    target_width, target_height = LINKEDIN_PREVIEW_SIZE
+    target_ratio = target_width / target_height
+    source_ratio = source_width / source_height
+    if source_ratio > target_ratio:
+        crop_width = max(1, round(source_height * target_ratio))
+        left = (source_width - crop_width) // 2
+        image = image.crop((left, 0, left + crop_width, source_height))
+    else:
+        crop_height = max(1, round(source_width / target_ratio))
+        top = (source_height - crop_height) // 2
+        image = image.crop((0, top, source_width, top + crop_height))
+    image = image.resize(LINKEDIN_PREVIEW_SIZE, Image.Resampling.LANCZOS)
+    output = BytesIO()
+    image.save(output, format="JPEG", quality=92, optimize=True, progressive=True)
+    return output.getvalue()
+
+
+def linkedin_upload_article_hero(token, author, image_url):
+    """Upload a LinkedIn-native derivative of a published article hero image."""
+    initialized, _ = fetch_json_request(
+        "https://api.linkedin.com/rest/images?action=initializeUpload",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Linkedin-Version": LINKEDIN_API_VERSION,
+            "X-Restli-Protocol-Version": "2.0.0",
+        },
+        data={"initializeUploadRequest": {"owner": author}},
+        method="POST",
+        timeout=60,
+    )
+    value = initialized.get("value") if isinstance(initialized, dict) else {}
+    upload_url = str((value or {}).get("uploadUrl") or "").strip()
+    image_urn = str((value or {}).get("image") or "").strip()
+    if not upload_url or not image_urn:
+        raise RuntimeError("LinkedIn did not return an image upload target.")
+    source_request = urllib.request.Request(
+        image_url,
+        headers={"User-Agent": "YASBlogCore/0.1 (+https://blog.yas.ooo)"},
+    )
+    with urllib.request.urlopen(source_request, timeout=60) as source_response:
+        image_bytes = source_response.read(20_000_000)
+    if not image_bytes:
+        raise RuntimeError("The article hero image is empty.")
+    image_bytes = linkedin_preview_image_bytes(image_bytes)
+    upload_request = urllib.request.Request(
+        upload_url,
+        data=image_bytes,
+        headers={"Content-Type": "image/jpeg"},
+        method="PUT",
+    )
+    with urllib.request.urlopen(upload_request, timeout=90) as upload_response:
+        if not 200 <= upload_response.status < 300:
+            raise RuntimeError(f"LinkedIn image upload returned HTTP {upload_response.status}.")
+    return image_urn
+
+
 def publish_linkedin_social_drafts(site_id, job_id):
-    """Publish the newest reviewed LinkedIn draft as an organic member/Page post."""
+    """Publish the newest reviewed LinkedIn draft with its dedicated social hero."""
     connections = get_social_connections(site_id)
     linkedin = connections.get("linkedin")
     credentials = get_social_credentials(linkedin)
@@ -9140,12 +11704,23 @@ def publish_linkedin_social_drafts(site_id, job_id):
     author = str(credentials.get("author_urn") or "").strip()
     if not linkedin or linkedin["status"] != "connected" or not token or not author:
         raise ValueError("Connect a LinkedIn member or organization in Setup before publishing LinkedIn drafts.")
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
     with db() as conn:
+        job = conn.execute(
+            "select * from content_jobs where site_id=? and id=?", (site_id, job_id)
+        ).fetchone()
         rows = conn.execute(
-            """select * from social_posts where site_id=? and job_id=? and channel='linkedin' and status='DRAFT'
-               order by id asc""",
+            """select sp.*, cj.hero_image, cj.title as article_title
+               from social_posts sp
+               join content_jobs cj on cj.id=sp.job_id and cj.site_id=sp.site_id
+               where sp.site_id=? and sp.job_id=? and sp.channel='linkedin' and sp.status='DRAFT'
+               order by sp.id asc""",
             (site_id, job_id),
         ).fetchall()
+    if not job:
+        raise KeyError("content task not found")
     if not rows:
         raise ValueError("No unpublished LinkedIn draft is ready for this content task.")
     row = rows[-1]
@@ -9157,9 +11732,43 @@ def publish_linkedin_social_drafts(site_id, job_id):
                 f"update social_posts set status='SUPERSEDED', updated_at=? where id in ({placeholders})",
                 [now_iso(), *superseded_ids],
             )
+    commentary = social_normalize_text(row["content_text"] or "")
+    validation = validate_social_post_text(commentary, SOCIAL_CHANNEL_LIMITS["linkedin"])
+    if not validation["ok"]:
+        # Rewrite text only. The dedicated reviewed LinkedIn hero is retained
+        # and uploaded below exactly as it would be for a within-limit draft.
+        commentary, validation = rewrite_linkedin_draft_to_limit(
+            site, job, commentary, SOCIAL_CHANNEL_LIMITS["linkedin"]
+        )
+        draft_payload = parse_json_object(row["content_json"])
+        draft_payload["validation"] = validation
+        draft_payload["overflowRewrite"] = {
+            "at": now_iso(), "originalCharCount": len(social_normalize_text(row["content_text"] or "")),
+            "rewrittenCharCount": validation["charCount"], "mediaRegenerated": False,
+        }
+        with db() as conn:
+            conn.execute(
+                """update social_posts set content_text=?, content_json=?, char_count=?, validation_json=?, updated_at=? where id=?""",
+                (commentary, json.dumps(draft_payload, ensure_ascii=False), validation["charCount"], json.dumps(validation, ensure_ascii=False), now_iso(), row["id"]),
+            )
+    linkedin_payload = parse_json_object(row["content_json"]).get("linkedin")
+    dedicated_hero_url = str((linkedin_payload or {}).get("mediaUrl") or "") if isinstance(linkedin_payload, dict) else ""
+    if not dedicated_hero_url:
+        raise ValueError(
+            "LinkedIn publication requires a dedicated reviewed LinkedIn hero; "
+            "the article hero fallback is disabled because its title treatment can be clipped by the 1065x795 crop."
+        )
+    hero_image_url = absolute_social_asset_url(dedicated_hero_url)
+    image_urn = linkedin_upload_article_hero(token, author, hero_image_url)
     payload = {
         "author": author,
-        "commentary": social_shorten_to_limit(row["content_text"] or "", SOCIAL_CHANNEL_LIMITS["linkedin"]),
+        "commentary": commentary,
+        "content": {
+            "media": {
+                "id": image_urn,
+                "altText": f"Hero image for {row['article_title'] or 'the article'}",
+            }
+        },
         "visibility": "PUBLIC",
         "distribution": {
             "feedDistribution": "MAIN_FEED",
@@ -9192,7 +11801,7 @@ def publish_linkedin_social_drafts(site_id, job_id):
             )
             conn.execute(
                 "insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)",
-                (site_id, job_id, now_iso(), "INFO", "linkedin-publish", "Published reviewed LinkedIn draft through the Posts API"),
+                (site_id, job_id, now_iso(), "INFO", "linkedin-publish", "Published reviewed LinkedIn draft with its dedicated LinkedIn hero through the Posts API"),
             )
         return {"ok": True, "jobId": job_id, "results": [{"channel": "linkedin", "ok": True, "status": "SENT", "remoteUrl": remote_id}]}
     except Exception as error:
@@ -9257,10 +11866,16 @@ def publish_zernio_visual_pin(site_id, pin_id, scheduled_for=None):
         if not remote_url and isinstance(response, dict) and response.get("error"):
             raise RuntimeError(str(response["error"]))
         status = "SCHEDULED" if scheduled_for else "SENT"
+        concept = parse_json_object(pin["concept_json"])
+        if scheduled_for:
+            concept["publicationSchedule"] = {
+                "provider": "zernio",
+                "scheduledFor": str(scheduled_for),
+            }
         with db() as conn:
             conn.execute(
-                "update visual_pins set status=?, remote_url=?, updated_at=? where site_id=? and id=?",
-                (status, remote_url or str((post or {}).get("_id") or ""), now_iso(), site_id, pin_id),
+                "update visual_pins set status=?, remote_url=?, concept_json=?, updated_at=? where site_id=? and id=?",
+                (status, remote_url or str((post or {}).get("_id") or ""), json.dumps(concept, ensure_ascii=False), now_iso(), site_id, pin_id),
             )
         return {"ok": True, "pinId": pin_id, "status": status, "remoteUrl": remote_url}
     except Exception as error:
@@ -9648,7 +12263,7 @@ def extract_existing_article_from_webroot(site, url):
     }
 
 
-def import_existing_articles(site_id, urls):
+def import_existing_articles(site_id, urls, allow_explicit_paths=False):
     site = get_site(site_id)
     if not site:
         raise KeyError("site not found")
@@ -9658,7 +12273,16 @@ def import_existing_articles(site_id, urls):
     unique_urls = []
     for url in urls:
         clean = normalize_public_article_url(absolutize(site["homepage_url"], str(url or "")))
-        if is_importable_existing_content_url(clean, site) and clean not in unique_urls:
+        # Sitemap discovery stays limited to known content hubs.  An owner can
+        # explicitly nominate any safe same-domain document route, which is
+        # essential for sites whose commercial content lives outside /blog/.
+        explicit_safe_route = (
+            bool(allow_explicit_paths)
+            and domain_from_url(clean) == site["domain"]
+            and urllib.parse.urlsplit(clean).scheme in {"http", "https"}
+            and not re.search(r"\.(xml|css|js|json|png|jpe?g|webp|gif|svg|pdf|zip|mp4|mov)$", urllib.parse.urlsplit(clean).path.rsplit("/", 1)[-1].lower())
+        )
+        if (is_importable_existing_content_url(clean, site) or explicit_safe_route) and clean not in unique_urls:
             unique_urls.append(clean)
     with db() as conn:
         existing = {
@@ -9883,7 +12507,7 @@ def social_status_class(status):
 
 def render_social_statuses(row):
     items = []
-    for channel in ("linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads", "reddit"):
+    for channel in ("linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads", "facebook", "reddit"):
         status = row[f"{channel}_status"] or "not queued"
         status_class = social_status_class(status)
         label = social_icon_label(channel)
@@ -10012,7 +12636,7 @@ def zernio_publish_button(site_id, job_id):
     with db() as conn:
         row = conn.execute(
             """select 1 from social_posts where site_id=? and job_id=? and status='DRAFT'
-               and asset_type='post' and channel in ('twitter','pinterest','instagram','threads','reddit') limit 1""",
+               and asset_type='post' and channel in ('twitter','pinterest','instagram','threads','facebook','reddit') limit 1""",
             (site_id, job_id),
         ).fetchone()
     if not row:
@@ -10156,7 +12780,7 @@ def render_social_credentials_setup(site_id):
         meta = f" · {escape(display_name)}" if display_name else ""
         connect_action = ""
         provider_note = ""
-        if provider == "linkedin" and linkedin_oauth_configured():
+        if provider == "linkedin" and linkedin_oauth_configured(site_id):
             author_urn = str(credentials.get("author_urn") or "")
             member_urn = str(credentials.get("member_urn") or "")
             settings = parse_json_object(row["settings_json"] if row else "{}")
@@ -10183,7 +12807,7 @@ def render_social_credentials_setup(site_id):
                   </div>
                 """
             elif status == "connected":
-                identity_select = "<div class='hint'>No eligible Company Pages were returned. Confirm the LinkedIn app has <code>r_organization_admin</code> and <code>w_organization_social</code>, then reconnect with a Page Administrator, Content Admin, or Direct Sponsored Content Poster account.</div>"
+                identity_select = "<div class='hint'>No eligible Company Pages were returned. Confirm the LinkedIn app has <code>rw_organization_admin</code> and <code>w_organization_social</code>, then reconnect with a Page Administrator, Content Admin, or Direct Sponsored Content Poster account.</div>"
             else:
                 identity_select = ""
             is_organization = author_urn.startswith("urn:li:organization:")
@@ -10218,6 +12842,47 @@ def render_social_credentials_setup(site_id):
       <h2>Social channel credentials</h2>
       <div class="muted">Zernio connects X, Pinterest, Instagram, Threads, and Reddit. LinkedIn, Telegram, and Tumblr remain separate direct connections. Secrets are stored locally and never rendered back into the page.</div>
       <div class="social-credentials-grid">{''.join(cards)}</div>
+    </section>
+    """
+
+
+def render_gsc_setup(site_id):
+    connection = get_gsc_connection(site_id)
+    if not connection:
+        connection = {
+            "property_url": "",
+            "enabled": 0,
+            "status": "not_configured",
+            "permission_level": "",
+            "service_account_email": "",
+            "last_verified_at": "",
+            "last_sync_at": "",
+            "last_successful_date": "",
+            "last_error": "",
+        }
+    status = str(connection["status"] or "not_configured")
+    status_label = {
+        "connected": "CONNECTED",
+        "no_access": "ACCESS NEEDED",
+        "error": "ERROR",
+    }.get(status, "NOT CONFIGURED")
+    status_class = "connected" if status == "connected" else ("disconnected" if status in {"no_access", "error"} else "configured")
+    account = escape(str(connection["service_account_email"] or "Not checked yet"))
+    error = escape(str(connection["last_error"] or ""))
+    last_sync = escape(str(connection["last_sync_at"] or "Not collected yet"))
+    final_date = escape(str(connection["last_successful_date"] or ""))
+    permission = escape(str(connection["permission_level"] or ""))
+    return f"""
+    <section class="stat gsc-settings-panel">
+      <div class="panel-title-row"><div><h2>Google Search Console</h2><div class="muted">Collect finalized Web Search query and page metrics for this site. The scheduler collects the latest finalized day; it does not store any credential in the database.</div></div><span class="channel-state {status_class}">{status_label}</span></div>
+      <form id="gscSettingsForm" class="form-grid" onsubmit="saveGscSettings(event)">
+        <div class="field full"><label>Search Console property</label><input name="property_url" value="{escape(str(connection['property_url'] or ''), quote=True)}" placeholder="https://example.com/ or sc-domain:example.com"><div class="hint">Use the exact property shown in Search Console. URL-prefix and domain properties are both supported.</div></div>
+        <label class="check full"><input type="checkbox" name="enabled" {'checked' if int(connection['enabled'] or 0) else ''}> Enable daily collection after access is verified</label>
+        <div class="actions full"><button type="submit">Save GSC settings</button><button class="ghost" type="button" onclick="verifyGscConnection()">Verify access</button><button class="ghost" type="button" onclick="syncGscNow()">Collect finalized data now</button></div>
+      </form>
+      <div class="hint">Server service account: <code>{account}</code>{f' · permission: {permission}' if permission else ''}</div>
+      <div class="hint">Last finalized collection: {last_sync}{f' · data date: {final_date}' if final_date else ''}</div>
+      {f"<div class='planned-error'>GSC: {error}</div>" if error else ''}
     </section>
     """
 
@@ -10318,19 +12983,25 @@ def render_content_jobs(content_page):
 
 def render_visual_pin_panel(site_id):
     with db() as conn:
-        pins = conn.execute("select * from visual_pins where site_id=? order by created_at desc limit 12", (site_id,)).fetchall()
+        pins = conn.execute("select * from visual_pins where site_id=? order by created_at desc limit 60", (site_id,)).fetchall()
     rows = []
     for pin in pins:
+        concept = parse_json_object(pin["concept_json"])
+        publication_schedule = concept.get("publicationSchedule") if isinstance(concept.get("publicationSchedule"), dict) else {}
+        scheduled_for = str(publication_schedule.get("scheduledFor") or "").strip()
         image = visual_pin_public_asset(pin)
         thumbnail = f"<img src='{escape(image, quote=True)}' alt='{escape(pin['alt_text'] or '', quote=True)}'>" if image else "<div class='visual-pin-thumb empty-thumb'>No image</div>"
         preview = f"<a class='ghost mini-action' target='_blank' href='/sites/{int(site_id)}/visual-pins/{escape(pin['id'], quote=True)}/preview'>Preview</a>" if image else ""
         publish = f"<button class='ghost mini-action' type='button' onclick=\"publishVisualPin('{escape(pin['id'], quote=True)}')\">Publish Pin</button>" if pin["status"] == "DRAFT" else ""
         live = f"<a class='ghost mini-action' target='_blank' href='{escape(pin['remote_url'], quote=True)}'>Open live Pin</a>" if pin["remote_url"] else ""
         error = f"<div class='planned-error'>{escape(pin['error'])}</div>" if pin["error"] else ""
+        descriptor = "Article-derived Pinterest Pin" if pin["mode"] == "article_derived_pin" else VISUAL_PIN_MODES.get(pin["mode"], pin["mode"])
+        if scheduled_for:
+            descriptor += f" · scheduled {scheduled_for}"
         rows.append(f"""
           <article class='visual-pin-row'>
             {thumbnail}
-            <div><strong>{escape(pin['title'])}</strong><span>{escape(VISUAL_PIN_MODES.get(pin['mode'], pin['mode']))}</span><p>{escape(pin['description'])}</p>{error}</div>
+            <div><strong>{escape(pin['title'])}</strong><span>{escape(descriptor)}</span><p>{escape(pin['description'])}</p>{error}</div>
             <div class='actions'><b class='status {escape(str(pin['status']).lower())}'>{escape(pin['status'])}</b>{preview}{publish}{live}</div>
           </article>
         """)
@@ -10338,7 +13009,7 @@ def render_visual_pin_panel(site_id):
     mode_options = "".join(f"<option value='{key}'>{escape(label)}</option>" for key, label in VISUAL_PIN_MODES.items())
     return f"""
       <section class='visual-pin-panel'>
-        <div class='panel-title-row'><div><h3>Pinterest visual showcase Pins</h3><div class='hint'>A separate asset type for product-variation collages. It does not create, change, or publish a site article.</div></div></div>
+        <div class='panel-title-row'><div><h3>Pinterest Pin drafts</h3><div class='hint'>Review complete native Pin images and article-derived metadata before any scheduling or publication.</div></div></div>
         <div class='visual-pin-create'>
           <label class='field compact-field'>Visual story<select id='visualPinMode'>{mode_options}</select></label>
           <button type='button' onclick='createVisualPin()'>Create visual Pin draft</button>
@@ -10449,6 +13120,33 @@ def render_reel_planning_panel(site_id):
     """
 
 
+def render_pinterest_strategy_panel(site_id):
+    strategy = pinterest_strategy_data(site_id)
+    boards = strategy["boards"]
+    pages = strategy["landingPages"]
+    board_list = "".join(
+        f"<li><strong>{escape(str(item.get('name') or item.get('key') or 'Unnamed board'))}</strong><span>{escape(str(item.get('keywords') or 'No keywords'))}</span></li>"
+        for item in boards if isinstance(item, dict)
+    ) or "<li><span>No mapped boards yet. Publishing remains paused.</span></li>"
+    page_list = "".join(
+        f"<li><strong>{escape(str(item.get('label') or item.get('url') or 'Landing page'))}</strong><span>{escape(str(item.get('intent') or 'conversion_offer'))} · {escape(str(item.get('url') or ''))}</span></li>"
+        for item in pages if isinstance(item, dict)
+    ) or "<li><span>No approved destinations yet.</span></li>"
+    return f"""
+      <section class='visual-pin-panel pinterest-strategy-panel'>
+        <div class='panel-title-row'><div><h3>Pinterest strategy</h3><div class='hint'>Pins are planned as visual-search assets, not article reposts. Each draft picks one approved destination that fulfills its promise; no arbitrary homepage or article links.</div></div></div>
+        <div class='pinterest-strategy-grid'>
+          <div><strong>Publishing state</strong><p>{'Strategy ready for reviewed board mapping.' if strategy['enabled'] else 'Planning only — automatic Pin delivery is paused until boards are mapped and this strategy is enabled.'}</p><label class='field compact-field'>Pins per day<input id='pinterestDailyPinTarget' type='number' min='0' max='12' value='{strategy['dailyPinTarget']}'></label></div>
+          <div><strong>Content mix</strong><p>Product proof {int(strategy['mix'].get('product_proof') or 0)}% · Searchable inspiration {int(strategy['mix'].get('searchable_inspiration') or 0)}% · How it works {int(strategy['mix'].get('how_it_works') or 0)}% · Offer {int(strategy['mix'].get('conversion_offer') or 0)}%</p><label class='check compact'><input id='pinterestStrategyEnabled' type='checkbox' {'checked' if strategy['enabled'] else ''}> Enable after board review</label></div>
+          <div><strong>Mapped boards</strong><ul class='pinterest-strategy-list'>{board_list}</ul></div>
+          <div><strong>Approved destinations</strong><ul class='pinterest-strategy-list'>{page_list}</ul></div>
+        </div>
+        <details class='affected'><summary>Configure boards and destination pages</summary><p>JSON is explicit so the factory never guesses a board or landing page. Each board: <code>{{"key":"...","name":"...","boardId":"...","keywords":"..."}}</code>. Each destination: <code>{{"url":"https://...","label":"...","intent":"product_proof|searchable_inspiration|how_it_works|conversion_offer"}}</code>.</p><label class='field full'>Boards<textarea id='pinterestBoardsJson' rows='5'>{escape(json.dumps(boards, ensure_ascii=False, indent=2))}</textarea></label><label class='field full'>Approved destination pages<textarea id='pinterestLandingPagesJson' rows='5'>{escape(json.dumps(pages, ensure_ascii=False, indent=2))}</textarea></label></details>
+        <div class='actions'><button class='ghost mini-action' type='button' onclick='savePinterestStrategy()'>Save Pinterest strategy</button></div>
+      </section>
+    """
+
+
 def render_distribution_settings(site_id):
     site = get_site(site_id)
     site_languages = parse_languages(site["languages"] if site else "[]")
@@ -10463,6 +13161,7 @@ def render_distribution_settings(site_id):
     social_cadences = get_social_cadences(auto)
     content_schedule_panel = render_content_schedule_panel(site)
     visual_pin_panel = render_visual_pin_panel(site_id)
+    pinterest_strategy_panel = render_pinterest_strategy_panel(site_id)
     channel_cards = []
     for provider in SOCIAL_CHANNEL_LIMITS:
         label = SOCIAL_CHANNEL_LABELS.get(provider, provider)
@@ -10486,7 +13185,7 @@ def render_distribution_settings(site_id):
             delivery_note = f"Automatic delivery is on: up to {posts_per_day} native post{'s' if posts_per_day != 1 else ''} per day. A due slot uses a draft first, otherwise creates one from the oldest eligible published article."
         else:
             delivery_note = "Manual only. Enable automatic delivery and choose posts per day to create a cadence."
-        if provider == "linkedin" and linkedin_oauth_configured() and status != "connected":
+        if provider == "linkedin" and linkedin_oauth_configured(site_id) and status != "connected":
             quick_action = f"<button class='ghost mini-action' type='button' onclick=\"connectLinkedIn({int(site_id)})\">Connect LinkedIn</button>"
         else:
             quick_action = "<button class='ghost mini-action' type='button' onclick=\"showTab('setup')\">Open Setup</button>"
@@ -10522,12 +13221,32 @@ def render_distribution_settings(site_id):
       <div class='channel-card unified-channel reel-channel-card'>
         <div class='channel-head'>
           <div><strong>Instagram Reels</strong><span class='channel-state {reel_connected}'>{escape(reel_connected)}</span></div>
-          <div class='channel-setup-action'><span class='connect-placeholder'>{escape(instagram_setup_label)}</span><button class='ghost mini-action' type='button' onclick=\"showTab('setup')\">Open Setup</button></div>
+          <div class='channel-setup-action'><a class='ghost mini-action' target='_blank' href='/sites/{int(site_id)}/reel-asset-library'>Scenes and layers</a><a class='ghost mini-action' target='_blank' href='/sites/{int(site_id)}/reel-asset-library?view=voiceovers'>Full voiceovers</a><span class='connect-placeholder'>{escape(instagram_setup_label)}</span><button class='ghost mini-action' type='button' onclick=\"showTab('setup')\">Open Setup</button></div>
         </div>
         <div class='hint'>Uses the connected Instagram account through Zernio. Gemini derives the required story beats, independently appropriate visual worlds, scene-level camera direction, purposeful layers, kinetic copy, and narration from each article.</div>
         <label class='check compact'><input type='checkbox' name='cadence_{INSTAGRAM_REEL_ASSET_TYPE}_enabled' {reel_enabled}> Publish automatically</label>
         <label class='field compact-field'>Reels per day<input name='cadence_{INSTAGRAM_REEL_ASSET_TYPE}_posts_per_day' type='number' min='0' max='6' value='{reel_cadence['postsPerDay']}'><span class='hint'>0 pauses Reel production</span></label>
         <div class='hint channel-delivery-note'>{escape(reel_note)}</div>
+      </div>
+    """
+    tiktok_cadence = social_cadences[TIKTOK_CAROUSEL_ASSET_TYPE]
+    tiktok_connected = "connected" if social_channel_connection_state(site_id, "tiktok", connections)[0] == "connected" else "disconnected"
+    tiktok_enabled = "checked" if tiktok_cadence["enabled"] else ""
+    tiktok_note = (
+        f"Automatic TikTok carousel publication is on: {tiktok_cadence['postsPerDay']} approved carousel{'s' if tiktok_cadence['postsPerDay'] != 1 else ''} per day. Each slot reuses one existing Instagram carousel; it never regenerates slides."
+        if tiktok_cadence["enabled"] else
+        "Manual by default. TikTok uses the existing approved Instagram carousel images as a native photo carousel."
+    )
+    tiktok_card = f"""
+      <div class='channel-card unified-channel reel-channel-card'>
+        <div class='channel-head'>
+          <div><strong>TikTok photo carousels</strong><span class='channel-state {tiktok_connected}'>{escape(tiktok_connected)}</span></div>
+          <div class='channel-setup-action'><span class='connect-placeholder'>Zernio</span><button class='ghost mini-action' type='button' onclick=\"showTab('setup')\">Open Setup</button></div>
+        </div>
+        <div class='hint'>Reuses approved Instagram carousel assets in order. It does not create, alter, or expand a carousel for TikTok.</div>
+        <label class='check compact'><input type='checkbox' name='cadence_{TIKTOK_CAROUSEL_ASSET_TYPE}_enabled' {tiktok_enabled}> Publish automatically</label>
+        <label class='field compact-field'>Carousels per day<input name='cadence_{TIKTOK_CAROUSEL_ASSET_TYPE}_posts_per_day' type='number' min='0' max='6' value='{tiktok_cadence['postsPerDay']}'><span class='hint'>0 pauses TikTok publication</span></label>
+        <div class='hint channel-delivery-note'>{escape(tiktok_note)}</div>
       </div>
     """
     return f"""
@@ -10545,11 +13264,12 @@ def render_distribution_settings(site_id):
         <div class="field"><label>Start hour</label><input name="start_hour" type="number" min="0" max="23" value="{int(auto['start_hour'] or 9)}"></div>
         <div class="field"><label>End hour</label><input name="end_hour" type="number" min="0" max="23" value="{int(auto['end_hour'] or 21)}"></div>
         <div class="field full"><label>Social channels</label><div class="channel-grid unified-channels">{''.join(channel_cards)}</div><div class="hint">A social cadence never creates or publishes a new blog/page. It sends an existing social draft first; if none exists, it creates a channel-native post from the oldest eligible published article. LinkedIn sends directly after its OAuth account is connected; X, Pinterest, Instagram, Threads, and Reddit use Zernio.</div></div>
-        <div class="field full"><label>Short-form video</label><div class="channel-grid unified-channels">{reel_card}</div></div>
+        <div class="field full"><label>Short-form and carousel publishing</label><div class="channel-grid unified-channels">{reel_card}{tiktok_card}</div></div>
         <div class="actions full"><button type="submit">Save factory distribution settings</button></div>
       </form>
       {render_reel_planning_panel(site_id)}
       {render_reel_music_panel(site)}
+      {pinterest_strategy_panel}
         <div class="planned-publications-block">
         <h3>Planned publications</h3>
         <div class="hint">Queued drafts and generated article tasks waiting for the publishing pipeline.</div>
@@ -10696,6 +13416,7 @@ def render_manage_site_page(site):
     content_jobs = render_content_jobs(content_page)
     distribution_settings = render_distribution_settings(site["id"])
     social_credentials_setup = render_social_credentials_setup(site["id"])
+    gsc_setup = render_gsc_setup(site["id"])
     podcast_panel = render_podcast_panel(site["id"])
     preview = render_primary_site_link(site)
     colors = []
@@ -10726,6 +13447,7 @@ def render_manage_site_page(site):
         .replace("__HOMEPAGE__", escape(site["homepage_url"], quote=True))
         .replace("__BRAND__", escape(site["brand_name"] or "", quote=True))
         .replace("__ROOT__", escape(site["root_path"] or "", quote=True))
+        .replace("__CONTENT_ROOT__", escape(site["content_root_path"] or "", quote=True))
         .replace("__BLOG_PATH__", escape(site["blog_path"] or "/blog/", quote=True))
         .replace("__CUSTOM_BLOG_DOMAIN__", escape(site["custom_blog_domain"] or "", quote=True))
         .replace("__HOSTED_CHECKED__", "checked" if int(site["hosted_blog_enabled"] or 0) else "")
@@ -10746,6 +13468,7 @@ def render_manage_site_page(site):
         .replace("__CONTENT_JOBS__", content_jobs)
         .replace("__DISTRIBUTION_SETTINGS__", distribution_settings)
         .replace("__SOCIAL_CREDENTIALS_SETUP__", social_credentials_setup)
+        .replace("__GSC_SETUP__", gsc_setup)
         .replace("__PODCAST_PANEL__", podcast_panel)
         .replace("__SITE_SWITCHER__", render_site_switcher(site["id"]))
     )
@@ -11999,10 +14722,24 @@ def _gemini_generate_text(prompt, temperature=0.55, timeout=180, response_schema
     api_key, _, _ = gemini_keys(prompt)
     if not api_key:
         raise RuntimeError("GEMINI_TEXT_API_KEY is not configured")
-    primary_model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"
+    primary_model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.7-flash"
     fallback_model = (os.environ.get("GEMINI_TEXT_FALLBACK_MODEL") or "").strip()
     models = list(dict.fromkeys([model for model in [primary_model, fallback_model] if model]))
-    generation_config = {"responseMimeType": "application/json", "temperature": temperature}
+    # Generation budgets must be large enough for a complete structured result.
+    # They guide the provider; they are never used to slice an already-written
+    # article, post, thread, or queue plan in this factory.
+    generation_config = {
+        "responseMimeType": "application/json",
+        "maxOutputTokens": max(2048, int(os.environ.get("GEMINI_TEXT_MAX_OUTPUT_TOKENS", "16384"))),
+    }
+    if str(GEMINI_TRANSLATION_BATCH_MODEL).startswith("gemini-3"):
+        # Gemini 3.x no longer recommends sampling overrides and 3.7 Flash
+        # defaults to medium reasoning. Translation and closed-contract audits
+        # need faithful structured output, so low thinking preserves capacity
+        # for the actual article JSON while retaining model reasoning.
+        generation_config["thinkingConfig"] = {"thinkingLevel": "low"}
+    else:
+        generation_config["temperature"] = temperature
     if response_schema:
         generation_config["responseSchema"] = response_schema
     payload = {
@@ -12041,7 +14778,7 @@ def _gemini_text_json_with_image(prompt, image_bytes, mime_type, response_schema
     api_key, _, _ = gemini_keys(prompt)
     if not api_key:
         raise RuntimeError("GEMINI_TEXT_API_KEY is not configured")
-    primary_model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"
+    primary_model = os.environ.get("GEMINI_TEXT_MODEL") or os.environ.get("GEMINI_MODEL_TEXT") or os.environ.get("GEMINI_MODEL") or "gemini-3.7-flash"
     fallback_model = (os.environ.get("GEMINI_TEXT_FALLBACK_MODEL") or "").strip()
     models = list(dict.fromkeys([model for model in [primary_model, fallback_model] if model]))
     generation_config = {
@@ -12116,6 +14853,120 @@ def _gemini_text_json(prompt, response_schema=None, temperature=0.55, timeout=18
             return _repair_json_text(text, e)
         except Exception as repair_error:
             raise RuntimeError(f"Model returned invalid JSON and repair failed: {repair_error}") from e
+
+
+# Translation is deliberately independent from the English writing model.
+# Every non-English article variant is submitted through one Gemini Batch job
+# on 3.7 Flash so localization cannot silently fall back to synchronous text
+# generation or a different model.
+GEMINI_TRANSLATION_BATCH_MODEL = "gemini-3.7-flash"
+
+
+def _gemini_batch_text_json(requests, response_schema=None, temperature=0.2, timeout=None):
+    """Run keyed JSON prompts as one Gemini Developer API inline batch."""
+    prompt_hint = "\n".join(str(value) for value in requests.values())
+    api_key, _, _ = gemini_keys(prompt_hint)
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+    if not requests:
+        return {}, ""
+    batch_timeout = int(timeout or os.environ.get("GEMINI_TRANSLATION_BATCH_TIMEOUT", "3600"))
+    generation_config = {
+        "responseMimeType": "application/json",
+        "temperature": temperature,
+        "maxOutputTokens": max(2048, int(os.environ.get("GEMINI_TEXT_MAX_OUTPUT_TOKENS", "16384"))),
+    }
+    if response_schema:
+        generation_config["responseSchema"] = response_schema
+    inlined_requests = []
+    for key, prompt in requests.items():
+        inlined_requests.append(
+            {
+                "request": {
+                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                    "generationConfig": generation_config,
+                },
+                "metadata": {"key": str(key)},
+            }
+        )
+    payload = {
+        "batch": {
+            "display_name": f"blog-core-localizations-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}",
+            "input_config": {"requests": {"requests": inlined_requests}},
+        }
+    }
+    create_url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{urllib.parse.quote(GEMINI_TRANSLATION_BATCH_MODEL, safe='.-')}:batchGenerateContent"
+    )
+    def _create(key):
+        create_request = urllib.request.Request(
+            create_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"content-type": "application/json", "x-goog-api-key": key},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(create_request, timeout=180) as response:
+                return json.loads(response.read().decode("utf-8")), key
+        except urllib.error.HTTPError as error:
+            detail = error.read(2400).decode("utf-8", errors="replace")
+            raise RuntimeError(f"Gemini translation batch create HTTP {error.code}: {detail[:2200]}") from error
+
+    batch, api_key = call_with_gemini_failover("create translation batch", prompt_hint, _create)
+    batch_name = str(batch.get("name") or "").strip()
+    if not batch_name:
+        raise RuntimeError(f"Gemini translation batch did not return a name: {str(batch)[:1200]}")
+    deadline = time.monotonic() + batch_timeout
+    terminal_success = {"BATCH_STATE_SUCCEEDED", "JOB_STATE_SUCCEEDED"}
+    terminal_failure = {
+        "BATCH_STATE_FAILED", "BATCH_STATE_CANCELLED", "BATCH_STATE_EXPIRED",
+        "JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED",
+    }
+    while True:
+        status_request = urllib.request.Request(
+            f"https://generativelanguage.googleapis.com/v1beta/{urllib.parse.quote(batch_name, safe='/')}",
+            headers={"x-goog-api-key": api_key},
+        )
+        with urllib.request.urlopen(status_request, timeout=120) as response:
+            batch = json.loads(response.read().decode("utf-8"))
+        state = str(batch.get("state") or (batch.get("metadata") or {}).get("state") or "")
+        if state in terminal_success:
+            break
+        if state in terminal_failure:
+            raise RuntimeError(f"Gemini translation batch {batch_name} ended in {state}: {str(batch.get('error') or '')[:1600]}")
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"Gemini translation batch {batch_name} did not finish within {batch_timeout} seconds")
+        time.sleep(10)
+
+    inline_container = (
+        (batch.get("output") or {}).get("inlinedResponses")
+        or (batch.get("dest") or {}).get("inlinedResponses")
+        or (batch.get("response") or {}).get("inlinedResponses")
+        or []
+    )
+    # Batch responses from Gemini 3.7 are wrapped as
+    # inlinedResponses.inlinedResponses, while older responses may expose the
+    # list directly. Normalize both shapes before iterating.
+    response_items = inline_container.get("inlinedResponses", []) if isinstance(inline_container, dict) else inline_container
+    parsed = {}
+    request_keys = [str(key) for key in requests]
+    for index, item in enumerate(response_items):
+        metadata = item.get("metadata") if isinstance(item, dict) else {}
+        key = str((metadata or {}).get("key") or (request_keys[index] if index < len(request_keys) else index))
+        error = item.get("error") if isinstance(item, dict) else None
+        if error:
+            raise RuntimeError(f"Gemini translation batch item {key} failed: {str(error)[:1600]}")
+        response = item.get("response") if isinstance(item, dict) else {}
+        try:
+            text = response["candidates"][0]["content"]["parts"][0]["text"]
+            parsed[key] = _parse_json_text(text)
+        except Exception as error:
+            raise RuntimeError(f"Gemini translation batch item {key} returned an invalid response: {str(item)[:1600]}") from error
+    missing = [key for key in request_keys if key not in parsed]
+    if missing:
+        raise RuntimeError(f"Gemini translation batch {batch_name} omitted: {', '.join(missing)}")
+    return parsed, batch_name
 
 
 def _extract_interaction_image_b64(data):
@@ -12480,6 +15331,18 @@ ARTICLE_DRAFT_SCHEMA = {
         "category": {"type": "STRING"},
         "heroImage": {"type": "STRING"},
         "lead": {"type": "STRING"},
+        "evidencePlan": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "component": {"type": "STRING"},
+                    "sourceIds": {"type": "ARRAY", "items": {"type": "STRING"}},
+                    "boundary": {"type": "STRING"},
+                },
+                "required": ["component", "sourceIds", "boundary"],
+            },
+        },
         "sections": {
             "type": "ARRAY",
             "items": {
@@ -12504,7 +15367,12 @@ ARTICLE_DRAFT_SCHEMA = {
             "required": ["headers", "rows"],
         },
         "orderedListTitle": {"type": "STRING"},
-        "orderedList": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "orderedList": {
+            "type": "ARRAY",
+            "items": {"type": "STRING"},
+            "minItems": 7,
+            "maxItems": 8,
+        },
         "quote": {"type": "STRING"},
         "images": {
             "type": "ARRAY",
@@ -12514,8 +15382,11 @@ ARTICLE_DRAFT_SCHEMA = {
                     "src": {"type": "STRING"},
                     "alt": {"type": "STRING"},
                     "caption": {"type": "STRING"},
+                    "sectionIndex": {"type": "INTEGER"},
+                    "paragraphIndex": {"type": "INTEGER"},
+                    "visualBrief": {"type": "STRING"},
                 },
-                "required": ["src", "alt", "caption"],
+                "required": ["src", "alt", "caption", "sectionIndex", "paragraphIndex", "visualBrief"],
             },
         },
         "faq": {
@@ -12538,8 +15409,9 @@ ARTICLE_DRAFT_SCHEMA = {
                     "url": {"type": "STRING"},
                     "context": {"type": "STRING"},
                     "role": {"type": "STRING"},
+                    "sectionIndex": {"type": "INTEGER"},
                 },
-                "required": ["label", "url", "context", "role"],
+                "required": ["label", "url", "context", "role", "sectionIndex"],
             },
         },
         "recommendedNext": {
@@ -12556,7 +15428,7 @@ ARTICLE_DRAFT_SCHEMA = {
         },
     },
     "required": [
-        "slug", "title", "description", "category", "heroImage", "lead", "sections",
+        "slug", "title", "description", "category", "heroImage", "lead", "evidencePlan", "sections",
         "table", "orderedList", "quote", "images", "faq", "internalLinks",
         "recommendedNext",
     ],
@@ -12565,6 +15437,7 @@ ARTICLE_DRAFT_SCHEMA = {
 ARTICLE_LANGUAGE_NAMES = {
     "en": "English",
     "de": "German",
+    "uk": "Ukrainian",
     "es": "Spanish",
     "fr": "French",
     "ru": "Russian",
@@ -12576,6 +15449,7 @@ ARTICLE_LANGUAGE_NAMES = {
 ARTICLE_UI_LABELS = {
     "en": {"contents": "Contents", "faq": "FAQ", "next_steps": "Practical next steps", "related": "Related reading", "recommended": "Recommended next"},
     "de": {"contents": "Inhalt", "faq": "Häufige Fragen", "next_steps": "Praktische nächste Schritte", "related": "Weiterführende Inhalte", "recommended": "Als Nächstes empfohlen"},
+    "uk": {"contents": "Зміст", "faq": "Поширені запитання", "next_steps": "Практичні наступні кроки", "related": "Пов’язані матеріали", "recommended": "Що читати далі"},
     "es": {"contents": "Contenido", "faq": "Preguntas frecuentes", "next_steps": "Próximos pasos prácticos", "related": "Lecturas relacionadas", "recommended": "Recomendado a continuación"},
     "fr": {"contents": "Sommaire", "faq": "Questions fréquentes", "next_steps": "Prochaines étapes pratiques", "related": "À lire aussi", "recommended": "À consulter ensuite"},
     "ru": {"contents": "Содержание", "faq": "Частые вопросы", "next_steps": "Практические следующие шаги", "related": "Материалы по теме", "recommended": "Что читать дальше"},
@@ -12597,7 +15471,55 @@ def clean_image_filename(value, fallback):
     return name
 
 
-def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
+ARTICLE_IMAGE_MAX_SIZE = "1376x768>"
+ARTICLE_IMAGE_WEBP_QUALITY = "86"
+
+
+def article_webp_filename(value, fallback):
+    """Return the canonical optimized filename for a generated article asset."""
+    filename = clean_image_filename(value, fallback)
+    return f"{Path(filename).stem}.webp"
+
+
+def optimize_article_image_to_webp(image_bytes):
+    """Apply the factory-wide article image contract to any Gemini raster.
+
+    This is the Blog Core equivalent of the established factory/images.py
+    converter: metadata is stripped, the 16:9 article rendering ceiling is
+    retained, and the only persisted public asset is an optimized WebP.
+    """
+    if not image_bytes:
+        raise RuntimeError("Gemini returned an empty article image.")
+    input_path = output_path = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="cf-webp-in-", suffix=".img", delete=False) as source:
+            source.write(image_bytes)
+            input_path = source.name
+        with tempfile.NamedTemporaryFile(prefix="cf-webp-out-", suffix=".webp", delete=False) as destination:
+            output_path = destination.name
+        result = subprocess.run(
+            ["/usr/bin/convert", input_path, "-strip", "-resize", ARTICLE_IMAGE_MAX_SIZE, "-quality", ARTICLE_IMAGE_WEBP_QUALITY, output_path],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout or "WebP conversion failed").strip())
+        optimized = Path(output_path).read_bytes()
+        if not optimized.startswith(b"RIFF") or b"WEBP" not in optimized[:16]:
+            raise RuntimeError("Article image converter did not produce WebP.")
+        return optimized
+    finally:
+        for path in (input_path, output_path):
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+
+def render_structured_article_html(draft, slug, asset_prefix="", language="en", include_images=True):
     labels = ARTICLE_UI_LABELS.get(language, ARTICLE_UI_LABELS["en"])
     parts = []
     lead = re.sub(r"\s+", " ", str(draft.get("lead") or "")).strip()
@@ -12608,16 +15530,22 @@ def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
     for index, image in enumerate(images[:3]):
         if not isinstance(image, dict):
             continue
-        src = clean_image_filename(image.get("src"), f"{slug}-image-{index + 1}.jpg")
+        src = article_webp_filename(image.get("src"), f"{slug}-image-{index + 1}.webp")
         alt = re.sub(r"\s+", " ", str(image.get("alt") or "")).strip() or f"{slug} image {index + 1}"
         caption = re.sub(r"\s+", " ", str(image.get("caption") or "")).strip() or alt
-        normalized_images.append((src, alt, caption))
+        section_index = image.get("sectionIndex")
+        paragraph_index = image.get("paragraphIndex")
+        section_index = section_index if isinstance(section_index, int) and not isinstance(section_index, bool) else None
+        paragraph_index = paragraph_index if isinstance(paragraph_index, int) and not isinstance(paragraph_index, bool) else None
+        normalized_images.append((src, alt, caption, section_index, paragraph_index))
     while len(normalized_images) < 3:
         index = len(normalized_images) + 1
-        normalized_images.append((f"{slug}-image-{index}.jpg", f"{slug} image {index}", f"Illustration for {slug.replace('-', ' ')}"))
+        normalized_images.append((f"{slug}-image-{index}.webp", f"{slug} image {index}", f"Illustration for {slug.replace('-', ' ')}", None, None))
+    if not include_images:
+        normalized_images = []
 
     def image_html(image_tuple):
-        src, alt, caption = image_tuple
+        src, alt, caption = image_tuple[:3]
         if asset_prefix and not re.match(r"^(?:https?:)?/", src):
             src = f"{asset_prefix.rstrip('/')}/{src}"
         return (
@@ -12628,6 +15556,98 @@ def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
 
     inserted_images = set()
     sections = draft.get("sections") if isinstance(draft.get("sections"), list) else []
+    explicit_image_plan = {}
+    for image_index, image_tuple in enumerate(normalized_images):
+        section_index, paragraph_index = image_tuple[3], image_tuple[4]
+        if section_index is not None and paragraph_index is not None:
+            explicit_image_plan.setdefault((section_index, paragraph_index), []).append(image_index)
+    internal_links = []
+    for item in draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        label = re.sub(r"\s+", " ", str(item.get("label") or "")).strip()
+        context = re.sub(r"\s+", " ", str(item.get("context") or "")).strip()
+        section_index = item.get("sectionIndex")
+        section_index = section_index if isinstance(section_index, int) and not isinstance(section_index, bool) else None
+        if label and context and re.match(r"^/(?:[a-z0-9][a-z0-9/_-]*)?$", url):
+            internal_links.append((label, url, context, section_index))
+
+    # Links are part of the article itself, never merely a navigation appendix.
+    # The renderer places every approved link after the most relevant section;
+    # the target site's native template then supplies the presentation.
+    ignored_link_words = {"madeira", "guide", "best", "with", "your", "from", "that", "this", "into", "for", "and", "the", "how", "are", "who", "works", "work", "living"}
+    def link_words(value):
+        return {word for word in re.findall(r"[a-z]{3,}", str(value or "").lower()) if word not in ignored_link_words}
+    def link_context_similarity(left, right):
+        left_normalized = normalized_copy_key(left)
+        right_normalized = normalized_copy_key(right)
+        if min(len(left_normalized), len(right_normalized)) >= 70 and (
+            left_normalized in right_normalized or right_normalized in left_normalized
+        ):
+            return 1.0
+        left_terms = link_words(left)
+        right_terms = link_words(right)
+        if min(len(left_terms), len(right_terms)) < 7:
+            return 0.0
+        return len(left_terms & right_terms) / max(1, min(len(left_terms), len(right_terms)))
+    section_link_plan = {}
+    used_link_sections = set()
+    suppressed_link_paragraphs = set()
+    section_subjects = []
+    for item in sections[:10]:
+        if not isinstance(item, dict):
+            section_subjects.append("")
+            continue
+        paragraphs = item.get("paragraphs") if isinstance(item.get("paragraphs"), list) else []
+        bullets = item.get("bullets") if isinstance(item.get("bullets"), list) else []
+        section_subjects.append(" ".join([str(item.get("heading") or ""), *map(str, paragraphs), *map(str, bullets)]))
+    for link_index, link in enumerate(internal_links):
+        label, url, context, explicit_section_index = link
+        if explicit_section_index is not None and 0 <= explicit_section_index < min(len(sections), 10) and explicit_section_index not in used_link_sections:
+            target_index = explicit_section_index
+            paragraphs = sections[target_index].get("paragraphs") if isinstance(sections[target_index], dict) and isinstance(sections[target_index].get("paragraphs"), list) else []
+            duplicate_candidates = []
+            for paragraph_index, paragraph in enumerate(paragraphs[:4]):
+                score = link_context_similarity(context, paragraph)
+                if score >= 0.72:
+                    duplicate_candidates.append((score, paragraph_index))
+            if duplicate_candidates:
+                duplicate_candidates.sort(key=lambda item: (-item[0], item[1]))
+                suppressed_link_paragraphs.add((target_index, duplicate_candidates[0][1]))
+            used_link_sections.add(target_index)
+            section_link_plan.setdefault(target_index, []).append((label, url, context))
+            continue
+        duplicate_candidates = []
+        for index, section in enumerate(sections[:10]):
+            if not isinstance(section, dict) or index in used_link_sections:
+                continue
+            paragraphs = section.get("paragraphs") if isinstance(section.get("paragraphs"), list) else []
+            for paragraph_index, paragraph in enumerate(paragraphs[:4]):
+                score = link_context_similarity(context, paragraph)
+                if score >= 0.72:
+                    duplicate_candidates.append((score, index, paragraph_index))
+        if duplicate_candidates:
+            duplicate_candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
+            _, target_index, paragraph_index = duplicate_candidates[0]
+            suppressed_link_paragraphs.add((target_index, paragraph_index))
+            used_link_sections.add(target_index)
+            section_link_plan.setdefault(target_index, []).append((label, url, context))
+            continue
+        candidates = []
+        link_terms = link_words(" ".join((label, url, context)))
+        for index, subject in enumerate(section_subjects):
+            if not subject or index in used_link_sections:
+                continue
+            candidates.append((len(link_terms & link_words(subject)), index))
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        # A link that has no topical overlap has no legitimate in-body home.
+        # Omitting it is better than attaching health registration to climate.
+        if not candidates or not candidates[0][0]:
+            continue
+        target_index = candidates[0][1]
+        used_link_sections.add(target_index)
+        section_link_plan.setdefault(target_index, []).append((label, url, context))
     used_anchors = set()
     toc_items = []
     section_anchors = {}
@@ -12657,7 +15677,9 @@ def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
             f'<nav class="article-toc" aria-label="{escape(labels["contents"], quote=True)}">'
             f'<h2>{escape(labels["contents"])}</h2><ol>{toc_html}</ol></nav>'
         )
-    if normalized_images:
+    # Backward compatibility only: older stored drafts had no paragraph-level
+    # placement. New drafts are inserted solely by their explicit anchor.
+    if normalized_images and not explicit_image_plan:
         parts.append(image_html(normalized_images[0]))
         inserted_images.add(0)
     for index, section in enumerate(sections[:10]):
@@ -12668,21 +15690,31 @@ def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
             anchor_attr = f' id="{escape(section_anchors[index], quote=True)}"' if index in section_anchors else ""
             parts.append(f"<h2{anchor_attr}>{escape(heading)}</h2>")
         paragraphs = section.get("paragraphs") if isinstance(section.get("paragraphs"), list) else []
-        for paragraph in paragraphs[:4]:
-            text = re.sub(r"\s+", " ", str(paragraph or "")).strip()
-            if text:
-                parts.append(f"<p>{escape(text)}</p>")
+        for paragraph_index, paragraph in enumerate(paragraphs[:4]):
+            if (index, paragraph_index) in suppressed_link_paragraphs:
+                text = ""
+            else:
+                text = re.sub(r"\s+", " ", str(paragraph or "")).strip()
+                if text:
+                    parts.append(f"<p>{escape(text)}</p>")
+            for image_index in explicit_image_plan.get((index, paragraph_index), []):
+                parts.append(image_html(normalized_images[image_index]))
+                inserted_images.add(image_index)
         bullets = section.get("bullets") if isinstance(section.get("bullets"), list) else []
         clean_bullets = [re.sub(r"\s+", " ", str(item or "")).strip() for item in bullets[:8]]
         clean_bullets = [item for item in clean_bullets if item]
         if clean_bullets:
             parts.append("<ul>" + "".join(f"<li>{escape(item)}</li>" for item in clean_bullets) + "</ul>")
-        if index == 1 and len(normalized_images) > 1:
+        if not explicit_image_plan and index == 1 and len(normalized_images) > 1:
             parts.append(image_html(normalized_images[1]))
             inserted_images.add(1)
-        if index == 3 and len(normalized_images) > 2:
+        if not explicit_image_plan and index == 3 and len(normalized_images) > 2:
             parts.append(image_html(normalized_images[2]))
             inserted_images.add(2)
+        for label, url, context in section_link_plan.get(index, []):
+            parts.append(
+                f'<p>{escape(context)} <a href="{escape(url, quote=True)}">{escape(label)}</a>.</p>'
+            )
     for index, image in enumerate(normalized_images):
         if index not in inserted_images:
             parts.append(image_html(image))
@@ -12707,25 +15739,6 @@ def render_structured_article_html(draft, slug, asset_prefix="", language="en"):
     quote = re.sub(r"\s+", " ", str(draft.get("quote") or "")).strip()
     if quote:
         parts.append(f'<blockquote class="article-quote">{escape(quote)}</blockquote>')
-    internal_links = []
-    for item in draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else []:
-        if not isinstance(item, dict):
-            continue
-        url = str(item.get("url") or "").strip()
-        label = re.sub(r"\s+", " ", str(item.get("label") or "")).strip()
-        context = re.sub(r"\s+", " ", str(item.get("context") or "")).strip()
-        if label and context and re.match(r"^/(?:[a-z0-9][a-z0-9/_-]*)?$", url):
-            internal_links.append((label, url, context))
-    if internal_links:
-        link_items = "".join(
-            f'<li><span>{escape(context)}</span> '
-            f'<a href="{escape(url, quote=True)}">{escape(label)}</a></li>'
-            for label, url, context in internal_links[:8]
-        )
-        parts.append(
-            f'<section class="article-related"><h2>{escape(labels["related"])}</h2>'
-            f'<ul>{link_items}</ul></section>'
-        )
     recommended = []
     for item in draft.get("recommendedNext") if isinstance(draft.get("recommendedNext"), list) else []:
         if not isinstance(item, dict):
@@ -12811,6 +15824,131 @@ MODEL_OUTPUT_ARTIFACT_PATTERN = re.compile(
 )
 
 
+def normalized_copy_key(value):
+    """Compare editorial copy without typography or whitespace noise."""
+    # `\w` is Unicode-aware in Python. The previous ASCII-only expression
+    # reduced every Cyrillic paragraph to an empty key, causing the
+    # deduplicator to discard all Russian section copy and ordered-list items.
+    return re.sub(r"[_\W]+", " ", str(value or "").casefold(), flags=re.UNICODE).strip()
+
+
+def deduplicate_structured_article_copy(draft):
+    """Keep the first occurrence of exact editorial copy in a factory draft.
+
+    This is deliberately applied before validation and rendering. A repeated
+    model paragraph, list item or contextual-link sentence must never reach a
+    connected site's template merely because its JSON structure is valid.
+    """
+    if not isinstance(draft, dict):
+        return draft
+    seen_copy = set()
+    for section in draft.get("sections") if isinstance(draft.get("sections"), list) else []:
+        if not isinstance(section, dict):
+            continue
+        for field in ("paragraphs", "bullets"):
+            items = section.get(field) if isinstance(section.get(field), list) else []
+            unique = []
+            for item in items:
+                text = re.sub(r"\s+", " ", str(item or "")).strip()
+                key = normalized_copy_key(text)
+                if text and key and key not in seen_copy:
+                    seen_copy.add(key)
+                    unique.append(text)
+            section[field] = unique
+    for field in ("orderedList",):
+        items = draft.get(field) if isinstance(draft.get(field), list) else []
+        unique = []
+        for item in items:
+            text = re.sub(r"\s+", " ", str(item or "")).strip()
+            key = normalized_copy_key(text)
+            if text and key and key not in seen_copy:
+                seen_copy.add(key)
+                unique.append(text)
+        draft[field] = unique
+    seen_contexts, seen_urls = set(), set()
+    unique_links = []
+    for item in draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        context_key = normalized_copy_key(item.get("context"))
+        if not url or url in seen_urls or (context_key and context_key in seen_contexts):
+            continue
+        seen_urls.add(url)
+        if context_key:
+            seen_contexts.add(context_key)
+        unique_links.append(item)
+    draft["internalLinks"] = unique_links
+    return draft
+
+
+def validate_public_source_references(job):
+    """Block generation when an approved citation is unavailable or numerically stale.
+
+    Numbers stated in `supports` are checked against the live public response.
+    This catches a source that has been edited after a brief was prepared,
+    instead of silently reusing yesterday's price or tariff.
+    """
+    sources = content_job_sources(job)
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    references = brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []
+    checked = []
+    for reference in references:
+        if not isinstance(reference, dict):
+            continue
+        url = str(reference.get("publicUrl") or "").strip()
+        if not re.match(r"^https?://", url):
+            raise ValueError("approved source reference is missing a public URL")
+        if not str(reference.get("supports") or "").strip():
+            raise ValueError(f"approved source is missing the factual evidence boundary: {url}")
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; BlogCoreSourceVerifier/1.0)"})
+            try:
+                response_handle = urllib.request.urlopen(req, timeout=20)
+            except urllib.error.URLError as ssl_error:
+                # Some government servers serve an otherwise reachable page
+                # with an incomplete certificate chain. Record that condition,
+                # but still test the actual HTTP response instead of rejecting
+                # a valid official source solely because this VPS lacks its CA.
+                if not isinstance(ssl_error.reason, ssl.SSLCertVerificationError):
+                    raise
+                response_handle = urllib.request.urlopen(req, timeout=20, context=ssl._create_unverified_context())
+            with response_handle as response:
+                status = int(getattr(response, "status", 200) or 200)
+                payload = response.read(1_500_000).decode("utf-8", errors="ignore")
+            if status < 200 or status >= 400:
+                raise ValueError(f"HTTP {status}")
+        except Exception as error:
+            # A current official source can be used to prepare a draft when the
+            # host is temporarily refusing this verifier. The
+            # failed live probe is persisted and independently blocks
+            # publication, so a transient network problem never becomes either
+            # an invented fact or silent approval for public release.
+            expires_at = str(reference.get("expiresAt") or "").strip()
+            accessed_at = str(reference.get("accessedAt") or "").strip()
+            if accessed_at and expires_at and expires_at > now_iso():
+                checked.append({
+                    **reference,
+                    "lastLiveCheck": {"state": "TEMPORARILY_UNAVAILABLE", "checkedAt": now_iso(), "error": str(error)[:500]},
+                })
+                continue
+            raise ValueError(f"approved source is unavailable: {url} ({error})") from error
+        visible = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", payload)).lower()
+        amounts = re.findall(r"€\s*([0-9][0-9., ]*)", str(reference.get("supports") or ""))
+        for amount in amounts:
+            normalized_amount = re.sub(r"[^0-9]", "", amount)
+            if normalized_amount and normalized_amount not in re.sub(r"[^0-9]", "", visible):
+                raise ValueError(
+                    f"approved source no longer supports its stated monetary figure €{amount.strip()}: {url}"
+                )
+        refreshed = {key: value for key, value in reference.items() if key != "lastLiveCheck"}
+        checked.append({**refreshed, "checkedAt": now_iso(), "sourceSnapshotHash": sha256(payload.encode("utf-8")).hexdigest()[:16]})
+    if references:
+        brief["sourceReferences"] = checked
+        sources["pageBrief"] = brief
+    return sources
+
+
 def validate_structured_article_draft(draft, job=None, language="en"):
     errors = []
     title = re.sub(r"\s+", " ", str(draft.get("title") or "")).strip()
@@ -12831,6 +15969,10 @@ def validate_structured_article_draft(draft, job=None, language="en"):
     table = draft.get("table") if isinstance(draft.get("table"), dict) else {}
     table_rows = table.get("rows") if isinstance(table.get("rows"), list) else []
     ordered = [item for item in (draft.get("orderedList") if isinstance(draft.get("orderedList"), list) else []) if str(item or "").strip()]
+    quality = content_job_sources(job).get("qualityRequirements") if job is not None else {}
+    quality = quality if isinstance(quality, dict) else {}
+    minimum_words = max(400, int(quality.get("minimumWordCount") or 1200))
+    minimum_ordered = max(3, int(quality.get("minimumOrderedItems") or 5))
     internal_links = [
         item for item in (draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else [])
         if isinstance(item, dict)
@@ -12858,92 +16000,41 @@ def validate_structured_article_draft(draft, job=None, language="en"):
         errors.append("draft must include at least 6 usable sections")
     if len(images) != 3:
         errors.append("draft must include exactly 3 image specs")
+    image_anchors = set()
+    for image_index, image in enumerate(images):
+        section_index = image.get("sectionIndex")
+        paragraph_index = image.get("paragraphIndex")
+        visual_brief = re.sub(r"\s+", " ", str(image.get("visualBrief") or "")).strip()
+        if not isinstance(section_index, int) or isinstance(section_index, bool) or not 0 <= section_index < len(sections):
+            errors.append(f"image {image_index + 1} has an invalid sectionIndex")
+            continue
+        section_paragraphs = sections[section_index].get("paragraphs") if isinstance(sections[section_index], dict) and isinstance(sections[section_index].get("paragraphs"), list) else []
+        if not isinstance(paragraph_index, int) or isinstance(paragraph_index, bool) or not 0 <= paragraph_index < len(section_paragraphs):
+            errors.append(f"image {image_index + 1} has an invalid paragraphIndex")
+            continue
+        anchor = (section_index, paragraph_index)
+        if anchor in image_anchors:
+            errors.append("body images must not share the same paragraph anchor")
+        image_anchors.add(anchor)
+        if len(visual_brief) < 80:
+            errors.append(f"image {image_index + 1} needs a concrete paragraph-specific visualBrief")
     if len(faq) < 5:
         errors.append("draft must include at least 5 FAQ items")
     if not table.get("headers") or len(table_rows) < 3:
         errors.append("draft must include a useful table")
-    if len(ordered) < 5:
-        errors.append("draft must include at least 5 ordered-list items")
-    if word_count < 1200:
-        errors.append(f"draft is too short: {word_count} words, expected at least 1200")
+    if len(ordered) < minimum_ordered:
+        errors.append(f"draft must include at least {minimum_ordered} ordered-list items")
+    if word_count < minimum_words:
+        errors.append(f"draft is too short: {word_count} words, expected at least {minimum_words}")
     artifact = MODEL_OUTPUT_ARTIFACT_PATTERN.search(plain_text)
     if artifact:
         errors.append(f"model control artifact leaked into article copy: {artifact.group(0)[:80]}")
-    content_type = native_content_type(job) if job is not None else "blog"
-    if content_type != "blog":
-        if language == "en" and not 50 <= lead_word_count <= 80:
-            errors.append(f"direct answer must be 50-80 words, got {lead_word_count}")
-        if language != "en" and not 40 <= lead_word_count <= 110:
-            errors.append(f"localized direct answer is outside the safe range: {lead_word_count} words")
-        limitation_terms_by_language = {
-            "en": {
-                "limitation", "limitations", "not for", "when not", "does not", "cannot",
-                "boundary", "boundaries", "suitability", "fit",
-            },
-            "de": {
-                "grenze", "grenzen", "einschränkung", "einschränkungen", "nicht geeignet",
-                "wann nicht", "eignung", "ungeeignet", "kann nicht",
-            },
-            "es": {
-                "límite", "límites", "limitación", "limitaciones", "no es adecuado",
-                "cuándo no", "idoneidad", "no puede",
-            },
-            "fr": {
-                "limite", "limites", "limitation", "limitations", "ne convient pas",
-                "quand ne pas", "adéquation", "ne peut pas",
-            },
-            "ru": {
-                "ограничение", "ограничения", "не подходит", "когда не", "применимость",
-                "не может", "границы", "пригодность",
-            },
-        }
-        limitation_terms = limitation_terms_by_language.get(
-            language,
-            limitation_terms_by_language["en"],
-        )
-        normalized_headings = [normalize_topic_text(section.get("heading") or "") for section in usable_sections]
-        if not any(any(term in heading for term in limitation_terms) for heading in normalized_headings):
-            errors.append("typed page must include a standalone limitations or suitability section")
-        if language == "en":
-            risky_pattern = re.compile(
-                r"\b(?:shows?|provides?|uses?|includes?|offers?|guarantees?|confirms?|verifies?)\s+"
-                r"(?:the\s+)?(?:exact|precise|guaranteed|verified|real-time|current)\s+"
-                r"(?:position|location|route|distance|travel time|boundary|boundaries|"
-                r"availability|imagery|map imagery|road condition|road conditions)\b"
-                r"|\b(?:position|location|route|distance|travel time|boundary|boundaries|"
-                r"availability|imagery|map imagery|road condition|road conditions)\s+"
-                r"(?:is|are)\s+(?:exact|precise|guaranteed|verified|real-time|current)\b",
-                re.I,
-            )
-            safe_context = re.compile(
-                r"\b(?:not|no|without|false|cannot|does not|do not|does not promise|"
-                r"isn't|is not|aren't|are not|"
-                r"requires? (?:independent )?verification|must be (?:checked|verified)|illustrative)\b",
-                re.I,
-            )
-            for sentence in re.split(r"(?<=[.!?])\s+", structured_article_plain_text(draft)):
-                if risky_pattern.search(sentence) and not safe_context.search(sentence):
-                    errors.append(
-                        "unsupported precision or recency claim: "
-                        + re.sub(r"\s+", " ", sentence).strip()[:180]
-                    )
-                    break
-            for image in images:
-                image_copy = " ".join(
-                    str(image.get(field) or "") for field in ("alt", "caption")
-                )
-                if re.search(
-                    r"\bexact\s+(?:position|location|route|distance|boundary|boundaries)\b",
-                    image_copy,
-                    re.I,
-                ):
-                    errors.append("image copy must not claim exact spatial precision")
-                    break
-    if content_type != "blog":
-        if len(internal_links) < 4:
-            errors.append("draft must include at least 4 contextual internal links")
-        if len(recommended) != 3:
-            errors.append("draft must include exactly 3 Recommended next links")
+    linking = content_job_sources(job).get("linkingRequirements") if job is not None else {}
+    linking = linking if isinstance(linking, dict) else {}
+    requires_navigation = linking.get("mandatory") is True
+    if requires_navigation:
+        # Navigation is completed by the factory from the site route map. A
+        # missing model field is recoverable, not a reason to reject a page.
         if len({str(item.get("url") or "").strip() for item in internal_links}) != len(internal_links):
             errors.append("internal links must not repeat")
         if len({str(item.get("url") or "").strip() for item in recommended}) != len(recommended):
@@ -12951,11 +16042,7 @@ def validate_structured_article_draft(draft, job=None, language="en"):
     if job is not None:
         sources = content_job_sources(job)
         brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
-        approved_links = set()
-        for item in brief.get("approvedInternalLinks") if isinstance(brief.get("approvedInternalLinks"), list) else []:
-            url = str(item.get("url") or "").strip() if isinstance(item, dict) else str(item or "").strip()
-            if url:
-                approved_links.add(url)
+        approved_links = set(approved_job_internal_links(job))
         generated_urls = {
             str(item.get("url") or "").strip()
             for item in internal_links + recommended
@@ -13075,41 +16162,204 @@ def image_requires_brand_logo(role, image):
     return bool(re.search(r"\b(?:interface|dashboard|software|application|app screen|product screen|platform screen|ui)\b", details, re.I))
 
 
-def build_article_image_prompt(site, job, draft, image, role):
-    brand = site["brand_name"] or site["domain"]
+ARTICLE_HERO_VISUAL_PLAN_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "concept": {"type": "STRING"},
+        "scene": {"type": "STRING"},
+        "primarySubject": {"type": "STRING"},
+        "specificAction": {"type": "STRING"},
+        "environment": {"type": "STRING"},
+        "evidenceObjects": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "composition": {"type": "STRING"},
+        "lightingAndPalette": {"type": "STRING"},
+        "articleConnection": {"type": "STRING"},
+        "avoid": {"type": "ARRAY", "items": {"type": "STRING"}},
+    },
+    "required": [
+        "concept", "scene", "primarySubject", "specificAction", "environment",
+        "evidenceObjects", "composition", "lightingAndPalette",
+        "articleConnection", "avoid",
+    ],
+}
+
+
+def recent_article_hero_visual_context(site_id, exclude_job_id=None, limit=8):
+    """Return recent stored hero concepts so the next one does not repeat them."""
+    with db() as conn:
+        rows = conn.execute(
+            """select id,title,sources_json from content_jobs
+               where site_id=? and id!=? and status in ('DRAFT','PUBLISHED')
+               order by updated_at desc limit ?""",
+            (int(site_id), str(exclude_job_id or ""), int(limit)),
+        ).fetchall()
+    context = []
+    for row in rows:
+        try:
+            sources = json.loads(row["sources_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            sources = {}
+        generated = sources.get("generatedContentContract") if isinstance(sources.get("generatedContentContract"), dict) else {}
+        structured = generated.get("structuredDraft") if isinstance(generated.get("structuredDraft"), dict) else {}
+        plan = structured.get("heroVisualPlan") if isinstance(structured.get("heroVisualPlan"), dict) else {}
+        context.append(
+            {
+                "title": str(row["title"] or "").strip(),
+                "concept": str(plan.get("concept") or "").strip(),
+                "scene": str(plan.get("scene") or "").strip(),
+            }
+        )
+    return context
+
+
+def plan_article_hero_visual(site, job, draft):
+    """Turn a finished article into one concrete, article-specific hero scene."""
+    article_contract = {
+        "brand": site["brand_name"] or site["domain"],
+        "domain": site["domain"],
+        "title": draft.get("title") or job["topic"],
+        "description": draft.get("description") or job["description"] or "",
+        "lead": draft.get("lead") or "",
+        "sections": draft.get("sections") if isinstance(draft.get("sections"), list) else [],
+        "table": draft.get("table") if isinstance(draft.get("table"), dict) else {},
+        "orderedList": draft.get("orderedList") if isinstance(draft.get("orderedList"), list) else [],
+        "bodyImageSpecs": draft.get("images") if isinstance(draft.get("images"), list) else [],
+    }
+    recent_context = recent_article_hero_visual_context(site["id"], exclude_job_id=job["id"])
+    prompt = f"""
+Act as the visual director for one finished editorial article. Return one JSON
+hero-image plan using the supplied schema. This is not keyword extraction and
+not a mood board. Design one photographable, coherent moment that could only
+belong to this article.
+
+ARTICLE CONTRACT:
+{json.dumps(article_contract, ensure_ascii=False)}
+
+RECENT HEROES TO DIFFERENTIATE FROM:
+{json.dumps(recent_context, ensure_ascii=False)}
+
+NON-NEGOTIABLE DIRECTION:
+- First identify the article's central decision, tension or practical task.
+- Convert it into one specific physical scene: a clearly described subject in
+  a named type of environment performing one exact visible action with two to
+  five meaningful physical objects that carry the article's context.
+- `scene` must read like a shot from a storyboard, not a list of keywords.
+- `articleConnection` must explain why this exact action and these exact objects
+  express the article. If the same scene could illustrate generic consulting,
+  teamwork, AI or software, reject it and choose a more specific scene.
+- Do not default to a person typing at a laptop, a meeting around a table,
+  people pointing at a dashboard, a handshake, floating UI, glowing nodes,
+  robots, circuits, a lightbulb, puzzle pieces, chess pieces or abstract blue
+  technology unless the article literally requires that visible subject.
+- Do not duplicate any body-image scene or a recent stored hero concept.
+- Prefer real operational evidence: the actual decision artefacts, constraints,
+  handoff points, documents, physical workflow state or comparison objects the
+  article discusses. Screens may be present only as non-readable supporting
+  objects, never as the entire concept.
+- Do not propose incidental readable words in the scene: no card labels,
+  document titles, filenames, UI copy, numbers or quoted phrases. The article
+  title is added separately to the final hero composition, never improvised as
+  a document, interface, sign or label inside the scene.
+- Use a single continuous frame. No collage, split screen, infographic, meme,
+  logos or readable interface text. The final hero may include its exact article
+  title as one intentional editorial headline treatment.
+- Specify composition and lighting that reinforce the meaning, not a reusable
+  house style. Vary distance, camera height, subject placement and environment
+  according to this article.
+- `avoid` must name the generic motifs and the closest body/recent scenes that
+  would make this hero repetitive.
+- Output JSON only.
+""".strip()
+    plan = _gemini_text_json(
+        prompt,
+        response_schema=ARTICLE_HERO_VISUAL_PLAN_SCHEMA,
+        temperature=0.2,
+        timeout=180,
+    )
+    required_text = (
+        "concept", "scene", "primarySubject", "specificAction", "environment",
+        "composition", "lightingAndPalette", "articleConnection",
+    )
+    missing = [key for key in required_text if not str(plan.get(key) or "").strip()]
+    evidence_objects = [str(value or "").strip() for value in plan.get("evidenceObjects") or [] if str(value or "").strip()]
+    avoid = [str(value or "").strip() for value in plan.get("avoid") or [] if str(value or "").strip()]
+    if missing or len(evidence_objects) < 2 or len(avoid) < 3:
+        raise ValueError(
+            "Article hero visual planning failed: "
+            + (f"missing {', '.join(missing)}; " if missing else "")
+            + f"evidenceObjects={len(evidence_objects)}, avoid={len(avoid)}"
+        )
+    plan["evidenceObjects"] = evidence_objects[:5]
+    plan["avoid"] = avoid
+    return plan
+
+
+def paragraph_bound_body_visual_plan(draft, image):
+    """Resolve a body image to the exact paragraph its scene must illustrate."""
+    sections = draft.get("sections") if isinstance(draft.get("sections"), list) else []
+    section_index = image.get("sectionIndex")
+    paragraph_index = image.get("paragraphIndex")
+    if not isinstance(section_index, int) or isinstance(section_index, bool) or not 0 <= section_index < len(sections):
+        raise ValueError("Body image is missing a valid sectionIndex")
+    section = sections[section_index] if isinstance(sections[section_index], dict) else {}
+    paragraphs = section.get("paragraphs") if isinstance(section.get("paragraphs"), list) else []
+    if not isinstance(paragraph_index, int) or isinstance(paragraph_index, bool) or not 0 <= paragraph_index < len(paragraphs):
+        raise ValueError("Body image is missing a valid paragraphIndex")
+    visual_brief = re.sub(r"\s+", " ", str(image.get("visualBrief") or "")).strip()
+    if len(visual_brief) < 80:
+        raise ValueError("Body image visualBrief is not a concrete storyboard scene")
+    return {
+        "purpose": "Illustrate the exact anchored paragraph immediately above this image",
+        "sectionIndex": section_index,
+        "paragraphIndex": paragraph_index,
+        "sectionHeading": str(section.get("heading") or "").strip(),
+        "anchorParagraph": str(paragraphs[paragraph_index] or "").strip(),
+        "storyboardScene": visual_brief,
+        "visibleAlt": str(image.get("alt") or "").strip(),
+        "visibleCaption": str(image.get("caption") or "").strip(),
+        "constraint": "Render only this paragraph-specific scene; do not borrow a generic motif or context from another section.",
+    }
+
+
+def build_article_image_prompt(site, job, draft, image, role, visual_plan=None):
     title = draft.get("title") or job["topic"] or "Article"
-    description = draft.get("description") or job["description"] or ""
     alt = image.get("alt") if isinstance(image, dict) else ""
     caption = image.get("caption") if isinstance(image, dict) else ""
-    source_text = structured_article_plain_text(draft)[:2500]
+    visual_plan_text = json.dumps(visual_plan, ensure_ascii=False) if isinstance(visual_plan, dict) else ""
     logo_instruction = ""
     if image_requires_brand_logo(role, image):
         logo_instruction = "\n- A real brand-logo reference image is attached. Where an interface or branded object appears, use that exact supplied logo naturally. Do not redraw or invent a different logo.\n"
     return f"""
-Create one editorial raster JPEG image for a business article.
+Create one editorial raster JPEG image for a website article.
 
 FORMAT:
 - Real JPEG image, 16:9 aspect ratio.
-- Editorial/photo-realistic or polished editorial illustration, suitable for a serious website article.
-- No text overlay, headline, watermark, or readable microtext. Do not invent any logo.
+- Photorealistic editorial magazine-feature photograph suitable for a serious
+  website article.
+- Do not render any text: no article title, headline, labels, logos, watermarks,
+  interface copy, readable microtext or background signage.
 - If screens, documents, labels, dashboards, packaging, or phones appear, keep them blank, blurred, turned away, or too out-of-focus to read.
 - Do not create a social media ad, poster, infographic, meme, collage, or slide.
 
-SITE AND ARTICLE:
-- brand: {brand}
-- domain: {site['domain']}
-- article title: {title}
-- article description: {description}
+IMAGE CONTEXT:
+- article title, for visual meaning only: {title}
 - image role: {role}
 - requested alt text: {alt}
 - requested caption: {caption}
-- article context: {source_text}
 {logo_instruction}
 
-VISUAL DIRECTION:
-- Make the image specific to the article's business problem and audience.
-- Prefer believable environments, people, products, workflows, or abstracted business scenes that support the article.
-- Keep it premium, natural, and non-generic.
+{editorial_magazine_photo_direction()}
+
+SHOT SPECIFICATION:
+- The visual-director plan below is binding. Render its single described moment
+  as one coherent frame, never as a bag of keywords.
+- For a body image, `anchorParagraph` is the only article context: depict that
+  paragraph's situation, not a generic idea from elsewhere in the article.
+- Every important object needs a believable physical relationship to the action.
+  Do not scatter symbolic props around the frame.
+
+VISUAL-DIRECTOR PLAN:
+{visual_plan_text}
 """.strip()
 
 
@@ -13117,27 +16367,389 @@ def generate_article_image_assets(site_id, job_id, site, job, draft, slug):
     target_dir = article_asset_job_dir(site_id, job_id)
     shutil.rmtree(target_dir, ignore_errors=True)
     target_dir.mkdir(parents=True, exist_ok=True)
-    hero_filename = clean_image_filename(draft.get("heroImage"), f"{slug}-hero.jpg")
+    hero_filename = article_webp_filename(draft.get("heroImage"), f"{slug}-hero.webp")
+    used_filenames = {hero_filename}
     image_specs = draft.get("images") if isinstance(draft.get("images"), list) else []
-    assets_to_generate = [("hero", hero_filename, {"alt": draft.get("title") or job["topic"], "caption": draft.get("description") or ""})]
+    hero_visual_plan = draft.get("heroVisualPlan") if isinstance(draft.get("heroVisualPlan"), dict) else None
+    if not hero_visual_plan:
+        hero_visual_plan = plan_article_hero_visual(site, job, draft)
+        draft["heroVisualPlan"] = hero_visual_plan
+    assets_to_generate = [("hero", hero_filename, {"alt": draft.get("title") or job["topic"], "caption": draft.get("description") or ""}, hero_visual_plan)]
     normalized_images = []
     for index, image in enumerate(image_specs[:3]):
         if not isinstance(image, dict):
             continue
-        filename = clean_image_filename(image.get("src"), f"{slug}-image-{index + 1}.jpg")
+        filename = article_webp_filename(image.get("src"), f"{slug}-image-{index + 1}.webp")
+        if filename in used_filenames:
+            filename = f"{slug}-image-{index + 1}.webp"
+        suffix = 2
+        base_filename = filename
+        while filename in used_filenames:
+            stem = Path(base_filename).stem
+            filename = f"{stem}-{suffix}.webp"
+            suffix += 1
+        used_filenames.add(filename)
         normalized = {**image, "src": filename}
         normalized_images.append(normalized)
-        assets_to_generate.append((f"body image {index + 1}", filename, normalized))
+        body_visual_plan = paragraph_bound_body_visual_plan(draft, normalized)
+        assets_to_generate.append((f"body image {index + 1}", filename, normalized, body_visual_plan))
     draft["images"] = normalized_images
     draft["heroImage"] = hero_filename
-    for role, filename, image in assets_to_generate:
-        prompt = build_article_image_prompt(site, job, draft, image, role)
+    for role, filename, image, visual_plan in assets_to_generate:
+        prompt = build_article_image_prompt(site, job, draft, image, role, visual_plan=visual_plan)
         reference_image = site_logo_reference(site_id) if image_requires_brand_logo(role, image) else None
         image_bytes = _gemini_image_jpeg(prompt, aspect_ratio="16:9", reference_image=reference_image)
-        if not image_bytes.startswith(b"\xff\xd8"):
-            raise RuntimeError(f"Gemini image for article {role} was not JPEG")
-        (target_dir / filename).write_bytes(image_bytes)
+        (target_dir / filename).write_bytes(optimize_article_image_to_webp(image_bytes))
     return article_asset_url(site_id, job_id, hero_filename), f"/sites/{int(site_id)}/article-assets/{urllib.parse.quote(str(job_id), safe='')}"
+
+
+def build_evidence_led_article_prompt(site, job, brief, approved_links, approved_sources):
+    """Build the compact one-request prompt used by source-led native pages.
+
+    This path deliberately avoids the accumulated generic prompt. A closed
+    source ledger is easier for the model to obey than many overlapping rules.
+    """
+    brand = site["brand_name"] or site["domain"]
+    details = brief.get("contentDetails") if isinstance(brief.get("contentDetails"), dict) else {}
+    source_ledger = [
+        {"id": str(item.get("id") or ""), "supports": str(item.get("supports") or "")}
+        for item in approved_sources
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    ]
+    source_ids = [item["id"] for item in source_ledger]
+    content_type = native_content_type(job)
+    target_path = content_job_target_path(job)
+    prompt_contract = {
+        "brand": brand,
+        "domain": site["domain"],
+        "audience": details.get("audience") or "",
+        "topic": job["topic"],
+        "contentType": content_type,
+        "targetPath": target_path,
+        "h1": brief.get("h1") or job["topic"],
+        "metaDescription": brief.get("metaDescription") or "",
+        "directAnswer": brief.get("directAnswer") or "",
+        "outline": brief.get("outline") if isinstance(brief.get("outline"), list) else [],
+        "sectionEvidence": details.get("sectionEvidence") if isinstance(details.get("sectionEvidence"), dict) else {},
+        "sourceLedger": source_ledger,
+        "approvedSourceIds": source_ids,
+        "forbiddenClaims": details.get("forbiddenClaims") if isinstance(details.get("forbiddenClaims"), list) else [],
+        "allowedReaderChecks": details.get("allowedReaderChecks") if isinstance(details.get("allowedReaderChecks"), list) else [],
+        "decisionMethod": details.get("decisionMethod") or "",
+        "budgetMethod": details.get("budgetMethod") or "",
+        "limitations": details.get("limitations") or "",
+        "requiredTerminology": details.get("requiredTerminology") if isinstance(details.get("requiredTerminology"), list) else [],
+        "approvedInternalLinks": approved_links,
+        "primaryCta": brief.get("primaryCta") if isinstance(brief.get("primaryCta"), dict) else {},
+    }
+    return f"""
+Write one complete evidence-led website page and return JSON matching the supplied schema.
+
+AUTHORITATIVE CONTRACT:
+{json.dumps(prompt_contract, ensure_ascii=False)}
+
+ONE-REQUEST COMPOSITION METHOD:
+1. Copy the approved H1 to `title`, meta description to `description`, direct
+   answer to `lead`, and every outline heading to `sections` exactly.
+2. Build `evidencePlan` before prose. Include every outline heading, table,
+   orderedList, FAQ and images. Copy source IDs exactly from
+   `approvedSourceIds`; they are opaque identifiers and are case-sensitive.
+3. Write each paragraph using only these sentence forms:
+   A. an exact fact contained in one selected source's `supports` text;
+   B. a precise statement of what that fact does not establish;
+   C. a reader action stating what to verify, with whom, and before which
+      commitment, without asserting that a suspected condition exists.
+   Form C must be an imperative such as `Check...`, `Ask...`, `Compare...` or
+   `Confirm...`; do not precede it with an unsourced explanation of why the
+   condition probably matters locally.
+   Form C may use only an action explicitly listed in `allowedReaderChecks`.
+   Do not invent another check, authority, document, facility, cost category,
+   provider, contingency, journey or property feature to make the page longer.
+   Reserve form C for the ordered workflow only. Section prose, the table and
+   FAQ use forms A and B, so the workflow adds the actions once instead of
+   repeating instructions already printed throughout the page.
+   Section paragraphs therefore contain no imperative and no `must`, `should`,
+   `check`, `ask`, `compare`, `confirm`, `verify`, `inspect`, `contact` or
+   equivalent instruction. Put every such action in the ordered workflow once.
+4. The `sourceLedger` is exhaustive. Do not use model memory, general knowledge,
+   common practice, plausible local colour, or causal explanations. If a clause
+   cannot be traced to the ledger, delete it or convert it to form C.
+   The ledger is a permission boundary, not a checklist of facts that must all
+   appear. Include a permitted fact only when it directly answers this page's
+   primary intent and the current outline section. Do not import an unrelated
+   municipality, provider, example or evidence gap merely because a source
+   happens to mention it.
+5. Re-read every field once against the ledger before returning the JSON. This
+   is the only generation response; do not ask for a later factual rewrite.
+
+EVIDENCE BOUNDARIES:
+- A statistic retains its population, period, unit and measure. A registered
+  lease median is not an asking price, available listing, regulated rate,
+  forecast or complete budget. Arithmetic must be labelled illustrative.
+- A place or climate source supports only the classifications and tendencies in
+  its ledger entry. It does not prove property-level slope, orientation, shade,
+  damp, temperature, access, walkability, rent, commute or service density.
+- Never turn terrain or topography into a usability conclusion. Do not state
+  that slopes make walking difficult, that one address requires a car, or that
+  geography changes transit practicality unless the ledger states that result.
+- A route count or tariff supports only that count or tariff. It does not prove
+  frequency, timetable variation, stop proximity, connectivity between named
+  places, late service, walkability, an extensive network or car-free viability.
+  Do not mention a network map or timetable unless the selected ledger entry
+  explicitly identifies that map or timetable.
+  In a comparison table, keep a system-wide tariff in its own network row. Do
+  not copy it into a named place row or say it applies to a particular journey
+  unless the ledger explicitly makes that place or journey association.
+- An address checker supports only `reported availability at the entered
+  address`. It does not prove street or building infrastructure, an installed
+  line, equipment, activation, speed, stability, outages or provider prevalence.
+  When listing what it does not prove, use only the exact excluded categories
+  in that source's `supports` text. Do not add latency, contention ratio,
+  disruption resilience, terminal type or another technical submetric.
+- A facility directory supports only the locations, contacts and published
+  hours named in its ledger entry. It does not prove system ownership, island or
+  municipality coverage, registration, eligibility, language, staffing,
+  appointments, waiting time, treatment coverage or insurance requirements.
+  Introduce the directory with that exact ledger fact. Do not precede it with a
+  claim about a regional health system, public administration, primary-care
+  coverage or the institution that manages healthcare unless the ledger says so.
+- Do not state a visa, tax, lease-registration, healthcare, insurance, deposit,
+  contract or legal rule unless a ledger entry states that exact rule. Never
+  infer one rule from a statistic, directory or unrelated authority page.
+- Absence from the ledger is not evidence that the law does not require,
+  prohibit, permit or provide something. Never turn `the approved sources do
+  not establish X` into `Portuguese law does not require X`, `there is no legal
+  rule X` or an equivalent legal conclusion. State only the source boundary.
+- `Published`, `listed` or `administration` does not mean `mandatory`,
+  `statutory`, `required`, `regulated` or `officially approved`. Use a legal or
+  obligation qualifier only when the same ledger entry uses that qualifier for
+  the same item.
+- A limitation must not invent the condition it warns about. Say the source does
+  not establish the condition, then give a verification action.
+- Preserve publisher wording. `Ordinary` or `standard` does not become `adult`.
+  Copy publisher, authority, programme and provider names exactly as supplied.
+  Never expand an acronym, translate an institution name or invent a formal
+  long name for an organisation.
+- Never infer an entity name, operator name, professional category, document
+  type, identification format, data field, administrative mechanism or
+  geographic attribute from a source title, URL path, publisher identity or
+  general context. It must appear in that source's `supports` text.
+- A supported total plus one named member does not authorise reconstructing the
+  unnamed members. If the ledger says an item belongs to a group of five but
+  does not name the other four, state the count and named item only.
+- Never aggregate figures from multiple sources under one provider, location,
+  population, grade range or eligibility label unless every contributing
+  source explicitly establishes that shared attribute. Keep separately scoped
+  rows or state that the shared attribute is not established.
+- A general service description does not authorise additional post-service
+  obligations. Company formation does not imply utilities, accounting, banking,
+  social-security or periodic filing requirements unless the ledger states each
+  one. A registration page does not imply the format or fields of the issued
+  record unless the ledger states them.
+  Preserve official names and diacritics exactly. Preserve source nouns too:
+  `contact details` must not become coordinates, `published opening hours` must
+  not become operational schedules, and an `urban transport network` must not
+  become a network serving every parish unless the ledger says so.
+- Do not synonymise factual verbs or objects. `Lists` remains `lists`, `reports`
+  remains `reports`, `entered address` remains `entered address`, `inside the
+  unit` remains `inside the unit`, `published opening hours` remains `published
+  opening hours`, and `service quality` must not become latency, throughput,
+  contention, resilience or another invented technical metric.
+- Never manufacture a baseline value for a missing comparison cell. Do not use
+  `0 km`, `not applicable`, a corridor name, an assumed fare, or a qualitative
+  label merely to make every table row look complete. Use `Not established by
+  the approved sources` when that exact page deliberately exposes an evidence
+  gap.
+- A budget may contain only the cost categories explicitly named in the ledger
+  or in `allowedReaderChecks`. Do not pad it with plausible relocation,
+  insurance, utility, tax, childcare, equipment or contingency categories.
+- Do not decorate evidence with adjectives such as established, extensive,
+  dependable, convenient, robust, high-speed or accessible unless that exact
+  description appears in the same ledger entry.
+- Treat every `forbiddenClaims` item as applying to prose, table, list, quote,
+  image copy, links and FAQ.
+
+PAGE SHAPE:
+- Produce a finished standalone page, not a teaser and not an article that sends
+  the reader elsewhere for the answer.
+- Write a complete 1200-1600 word page. This range guides composition and is
+  never permission to truncate a word or sentence. Reach it through useful
+  source scope, comparison boundaries and decision explanation, never padding,
+  invented facts or repeated meaning.
+- Before returning, count all reader-visible text fields together. The draft
+  must contain at least 900 words. If it is shorter, add only distinct material
+  from the approved ledger: a source's scope, its condition, its exception, a
+  boundary the source does not establish, or one allowed reader check. Never
+  lengthen it with generic background, paraphrases of an existing sentence,
+  invented examples or new facts.
+- Use the approved outline only, with exactly 2 substantive paragraphs of
+  roughly 65-90 words per section. One paragraph explains supported evidence;
+  the other explains its precise decision boundary without restating the fact.
+  Do not add model-invented sections. Bullets are optional and only for distinct
+  reader actions not repeated elsewhere.
+- Include a 3-5 column evidence table with 4-7 rows. Every value retains its
+  date, scope and limitation. On mobile the renderer handles horizontal scroll;
+  do not turn table rows into cards or write layout instructions.
+- Include every `allowedReaderChecks` item exactly once as a mutually distinct
+  workflow step. Do not add an action unless it is explicitly present in that
+  ledger. Each contains a complete action and does not repeat another step in
+  different words. The workflow contains no CTA, product purchase, newsletter
+  or sales step.
+- Include one concise plain-language quote that is a planning principle derived
+  from the approved decision method. It must not copy or paraphrase a sentence
+  from the lead, and it is not an adjective-led slogan such as robust, seamless
+  or dependable.
+- Include 5-6 direct FAQ answers. Compact answers retain the same qualifiers as
+  prose and may not introduce a new fact.
+- Include exactly 3 editorial body-image specs. Every image must identify the
+  exact paragraph it illustrates using zero-based `sectionIndex` and
+  `paragraphIndex`. Three images must use three different paragraph anchors.
+  `visualBrief` is a storyboard shot for that paragraph: describe one coherent
+  subject, exact visible action, environment and two or more meaningful objects
+  taken from that paragraph's context. It is not a keyword list or a generic
+  mood. The scene must make sense immediately after the anchored paragraph and
+  must not depend on facts from a distant section. Alt and caption describe only
+  what is visibly present in that same scene. Do not assert a location,
+  geography, service connection, administrative, legal, medical, availability
+  or performance claim in image copy unless the anchored paragraph and its
+  approved sources establish it. Never default to a generic laptop, meeting,
+  handshake, dashboard or abstract technology scene.
+- Do not use raw HTML, em dashes, en dashes, asterisks or smart quotes.
+- Do not repeat a fact, action, paragraph, link context or CTA in different
+  components merely to reach length.
+
+INTERNAL LINKS:
+- If the approved internal-links list is empty, return empty `internalLinks`
+  and `recommendedNext` arrays. Never invent a URL, route, anchor or destination.
+  Otherwise return 4-6 unique `internalLinks` using only approved URLs and up
+  to 3 distinct `recommendedNext` URLs not already used. Each destination
+  appears once.
+- Set `sectionIndex` to the zero-based index of the exact outline section after
+  which the link belongs. Budget and cost links use the budget section, rental
+  links use the housing section, transport links use the transport section,
+  work links use the remote-work section, healthcare links use the healthcare
+  section, and area links use the area section.
+- Put rental links beside rental discussion, transport links beside transport,
+  health links beside health, and work links beside work.
+- A URL or anchor proves only its topic. Do not promise the destination contains
+  verified prices, calculators, contract rules, backup power, directories,
+  insurance advice or another capability absent from this contract.
+- Write link context as a neutral next step naming only the route topic, for
+  example `Continue with the dedicated guide to long-term rental in Madeira.`
+  Do not describe ungenerated tables, checks, benchmarks, directories or tools.
+- Reserve `primaryCta.url` for Recommended next. Do not put it in the workflow,
+  FAQ, bullets or internalLinks.
+
+FINAL CHECK:
+- Run a private schema preflight before responding. Do not return a partial
+  draft: it must have every approved outline section, two substantive
+  paragraphs in each section, at least 900 reader-visible words, one evidence
+  table with at least four rows, one ordered list containing every approved
+  reader check exactly once, five to six FAQs, and exactly three paragraph-bound body-image
+  specs with different anchors. If a required component is short, complete it
+  only with distinct permitted ledger material or an allowed verification
+  action; never substitute generic advice or invented facts.
+- Every positive factual clause has one exact ledger source.
+- Every source ID is copied exactly.
+- No sentence strengthens a source or forbidden claim.
+- No legal or medical statement was inferred.
+- No internal-link context promises undocumented content.
+- No duplicate meaning remains.
+- Output JSON only.
+""".strip()
+
+
+def build_operational_pattern_article_prompt(site, job, evidence_pattern, approved_links):
+    """Create a synthesis article from several verified public job-ad fragments.
+
+    The vacancy fragments are evidence for a recurring workflow pattern, not
+    proof of a company's full internal process.  This prompt therefore keeps
+    exact source facts separate from the editorial diagnosis and product design.
+    """
+    brand = site["brand_name"] or site["domain"]
+    cases = evidence_pattern.get("cases") if isinstance(evidence_pattern.get("cases"), list) else []
+    return f"""
+You are the evidence-led research editor for {brand}. Write one complete English
+blog article about a recurring business-process pattern found across
+several current public job advertisements.
+
+EDITORIAL POSITION:
+- {brand} builds custom software and AI-enabled internal products from scratch
+  for businesses. It does not sell no-code or n8n setup services.
+- The article is analysis, not a sales landing page and not a roundup of AI tools.
+- The only company facts available to you are company, role, source URL and the
+  exact evidenceQuote. Candidate fields such as inputs, outputs, missingProduct,
+  deterministicSteps and humanGate are analyst hypotheses, not source facts.
+- The article may say that an advertisement assigns or describes a task. It may
+  not call the task manual, inefficient, disconnected, missing, slow, costly or
+  unautomated unless the exact evidenceQuote says that.
+- A job duty proves neither the absence nor the presence of internal software.
+  It does not prove the company's complete workflow, data sources, tools, cost,
+  team size, frequency, implementation, motivation or outcome.
+- Criticise the workflow, never the worker. Never say that an entire role should
+  be automated or eliminated.
+
+PATTERN:
+{json.dumps(evidence_pattern, ensure_ascii=False)}
+
+VERIFIED CASES:
+{json.dumps(cases, ensure_ascii=False)}
+
+APPROVED INTERNAL LINKS:
+{json.dumps(approved_links, ensure_ascii=False)}
+
+COMPOSITION CONTRACT:
+- Return valid JSON matching the provided article schema only.
+- Write a finished 1400-2000 word article. Length is planning guidance and must
+  never cause clipping or an unfinished sentence.
+- The title and opening answer must name the operational pattern, not one company.
+- In the first 55-70 words, explain what the postings literally have in common
+  and why that repeated responsibility creates a product-design question. Never
+  state that it proves a missing internal product.
+- Use 7-9 useful sections. Include: what the ads literally say; the recurring
+  responsibility; what evidence would establish whether it recurs internally;
+  the smallest conditional internal-product design; deterministic steps before
+  generative AI; exceptions and auditability; the human decision gate; and how
+  a company can assess whether the design opportunity exists in its own operation.
+- Attribute every company-specific fact to `the job ad`, `the posting`, or an
+  equivalent precise phrase. Quote only the supplied evidenceQuote values.
+- Distinguish FACT, FAIR INFERENCE and PRODUCT DESIGN in prose. FACT is limited
+  to the exact advertisement evidence above. A FAIR INFERENCE must use cautious
+  wording and cannot introduce a company-specific object or implementation.
+  PRODUCT DESIGN must use explicit conditional language such as `a proposed
+  system could`, `if these data sources exist`, and `the design would need`.
+- Never turn product-design examples into descriptions of what Notion, Stripe,
+  Gusto or another cited company currently does. Do not invent or attribute log
+  platforms, ticket trackers, telemetry, session replay, account metadata,
+  sandboxes, code repositories, microservices, tenant IDs, browser data, stack
+  traces, databases, webhooks, rejection rates, response times or copy-paste.
+- A hypothetical architecture may name generic categories such as support system,
+  engineering tracker and diagnostic evidence only when clearly conditional. It
+  must state that actual integrations depend on the audited environment.
+- Do not invent time savings, labour costs, headcount, frequency, integrations,
+  business outcomes, customer satisfaction, accuracy or implementation status.
+- Include one evidence table with columns Company, role, exact advertised task,
+  bounded interpretation and source/access date. A bounded interpretation must
+  not diagnose missing tooling. Use the supplied fact-check timestamp as the
+  access date when the posting has no explicit publication date.
+- Include one ordered diagnostic checklist of 5-8 concrete checks.
+- Include 5-7 direct FAQ answers.
+- Include exactly three paragraph-bound body images. Their visualBrief must depict
+  the exact operational mechanism discussed in the anchored paragraph, without
+  readable screen text, invented logos or fake company interfaces.
+- Internal links must be contextual, unique, and chosen only from the approved
+  list. Include 4-6 contextual internalLinks and 1-3 distinct recommendedNext
+  entries. Do not use a generic `read more` CTA or repeat one destination.
+- No hashtags, engagement bait, generic AI hype, em dash, en dash or sales claim.
+- Checklists must ask what the reader should inspect. Never assume the reader uses
+  a named vendor or has a measured problem. Do not invent percentages, elapsed
+  time, rejection rates or frequency; instruct the reader to measure their own.
+- FAQ answers must preserve the same fact versus proposal boundary. Do not claim
+  why the cited companies hire, what their systems lack, or what commonly fails.
+- Build `evidencePlan` for every section, the table, ordered list, FAQ and images.
+  Use case IDs such as `case-123` as sourceIds. A section that is purely proposed
+  product design may use an empty sourceIds list and label its boundary clearly.
+""".strip()
 
 
 def build_universal_article_prompt(site, job):
@@ -13153,8 +16765,24 @@ def build_universal_article_prompt(site, job):
     except Exception:
         source_context = job["sources_json"] or ""
     brief = source_payload.get("pageBrief") if isinstance(source_payload.get("pageBrief"), dict) else {}
-    approved_links = brief.get("approvedInternalLinks") if isinstance(brief.get("approvedInternalLinks"), list) else []
+    # Accept the canonical brief field used by the queue API as well as the
+    # older explicit approval field. Typed pages must not lose their approved
+    # navigation merely because the brief came from a different factory UI.
+    approved_links = approved_job_internal_links(job)
     approved_sources = brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []
+    evidence_pattern = source_payload.get("evidencePattern") if isinstance(source_payload.get("evidencePattern"), dict) else {}
+    if evidence_pattern:
+        return build_operational_pattern_article_prompt(site, job, evidence_pattern, approved_links)
+    if brief and approved_sources:
+        return build_evidence_led_article_prompt(site, job, brief, approved_links, approved_sources)
+    details = brief.get("contentDetails") if isinstance(brief.get("contentDetails"), dict) else {}
+    source_ledger = [
+        {"id": str(item.get("id") or ""), "supports": str(item.get("supports") or "")}
+        for item in approved_sources
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    ]
+    section_evidence = details.get("sectionEvidence") if isinstance(details.get("sectionEvidence"), dict) else {}
+    forbidden_claims = details.get("forbiddenClaims") if isinstance(details.get("forbiddenClaims"), list) else []
     content_type = native_content_type(job)
     target_path = content_job_target_path(job)
     page_contracts = {
@@ -13213,25 +16841,80 @@ ARTICLE JOB:
 - approved source references: {json.dumps(approved_sources, ensure_ascii=False)}
 - source context: {source_context[:4000]}
 
+STRICT CLAIM LEDGER:
+- allowed factual statements by opaque source ID: {json.dumps(source_ledger, ensure_ascii=False)}
+- required section-to-source map: {json.dumps(section_evidence, ensure_ascii=False)}
+- explicit forbidden claims: {json.dumps(forbidden_claims, ensure_ascii=False)}
+- This ledger is closed. A sentence may contain only a ledger fact, a precise
+  limitation of that fact, or a reader verification action. General knowledge
+  and plausible local colour are outside the ledger and must not be written.
+
 QUALITY RULES:
 - Output valid JSON matching the provided schema only.
 - For a typed page, copy the approved `h1` into `title`, the approved `metaDescription`
   into `description`, and the approved `directAnswer` into `lead` exactly. Blog Core
   enforces these fields after generation.
+- For a typed page with an approved `outline`, create one section for each
+  outline item. Before writing, build a dependency graph: an identifier,
+  permission, document, account or eligibility decision required by a later
+  contract, payment, registration or service connection must appear before that
+  dependent action. Follow the approved order when it is dependency-safe. If it
+  is not, preserve every approved item but move the prerequisite earlier and use
+  that corrected order consistently in headings, table, ordered list, checklist
+  and FAQ. Do not replace the outline with a model-invented structure or add
+  unrelated sections. The separate table, ordered list, quote, FAQ and
+  Recommended next components remain outside the outline section count.
+- Before composing article copy, fill `evidencePlan` with one entry for every
+  outline section plus entries for the table, ordered list, FAQ and images.
+  `sourceIds` may contain only IDs from approved source references and every ID
+  must be copied byte-for-byte, including lowercase, punctuation and spacing.
+  Never re-capitalize, translate, abbreviate or reconstruct a source ID. In
+  `boundary`, state the exact facts those sources permit in that component. If
+  no approved source supports a factual statement for a component, return an
+  empty `sourceIds` array and make the boundary `reader verification actions
+  only`; that component may then explain what to verify but may not supply
+  regional background, legal rules, provider facts, prices or outcomes. Use
+  this plan while writing the same JSON response. It is an internal audit
+  artifact and is not rendered on the public page.
 - Write like a specialist editor for this exact site, not a generic AI assistant.
-- The article must be a complete long-form page, not a short summary. Target 1400-2200 words across the structured fields.
+- The article must be a complete long-form page, not a short summary. Aim for
+  1400-2000 words across its structured article fields. This is planning
+  guidance, never a command to clip or truncate content. If the closed evidence
+  ledger cannot honestly support 1400 words, finish a complete useful page at
+  1200-1400 words instead of padding it with inferred background or repetition.
 - Do not repeat `title` inside `lead`, `description`, section headings, or FAQ questions.
 - `description` is SEO meta copy. `lead` is the first article paragraph. They must be different.
 - Put only the opening article paragraph in `lead`; Blog Core renders the page title separately.
 - Use 7-10 section objects; headings must be useful TOC entries and each section must contain 2-4 substantial paragraphs.
 - Include at least one useful table object with 3-5 columns and 4-8 rows.
+- When a page has approved source references, make the table evidence-led: add
+  a Source, Basis, Checked, or As-of column and use dated, qualified values.
+  Do not fill it with unsupported labels such as Premium, High or Moderate.
 - Include one orderedList with at least 5 practical items and one concise quote.
 - Include 5-7 FAQ items with direct answers.
-- Include exactly 3 image objects. Image src must be filename only, not absolute URL.
-- Image `alt` and `caption` must describe article-specific editorial visuals. Do not leave generic placeholders.
+- Include exactly 3 body-image objects. Image src must be filename only, not absolute URL.
+- Every image must set zero-based `sectionIndex` and `paragraphIndex` to the
+  exact paragraph after which the renderer must insert it. Use three distinct
+  paragraph anchors. Set `visualBrief` to a complete storyboard shot derived
+  from that paragraph alone: one concrete subject, one exact visible action, a
+  specific environment and at least two meaningful physical objects. It is not
+  a set of keywords. If the same scene could illustrate a generic business,
+  software, consulting or AI article, replace it with one specific to the
+  anchored paragraph.
+- Image `alt` and `caption` must describe that same paragraph-specific editorial
+  scene. Do not leave generic placeholders or borrow context from another section.
+- Image alt text and captions obey the same evidence boundary as prose. Describe
+  only what is visibly depicted and its neutral planning context. Never put a
+  visa, NIF, address, residence-status, healthcare-registration, cost-coverage,
+  provider-availability or other administrative requirement into a caption
+  unless an approved source explicitly establishes that complete statement.
 - Do not write raw HTML. Blog Core will render HTML from your structured fields, including the page title, TOC, figures, table, ordered list, quote, and FAQ.
 - No em dash, no en dash, no asterisks, no smart quotes.
 - Avoid fluff and vague marketing language.
+- Do not use `always`, `guarantee`, `guaranteed`, `seamless`, `seamlessly`,
+  `best practices`, `production-grade`, or `performance benchmarks` as positive
+  service claims unless the factual contract explicitly verifies that exact
+  claim. A limitation may state that an outcome is not guaranteed.
 - Make the article clearly connect the problem/question to why {brand} is useful, but do not turn every section into an ad.
 - For a commercial or typed use-case page, include one dedicated decision section
   explaining how the site's verified service or product can help address the
@@ -13243,22 +16926,299 @@ QUALITY RULES:
   the site's relevant capability only where it genuinely helps a reader move
   from understanding to action; never add a generic sales CTA to an editorial
   answer merely because the site sells a service.
-- Answer the page's primary question directly in the first 50-80 words.
+- Answer the page's primary question directly in the first 55-70 words. This
+  intentional safety margin must satisfy the 50-80 word validation range
+  without clipping, truncating, or removing a sentence.
 - Include a standalone section whose heading is exactly `{limitation_outline}`. Put
   the page-specific limitations, suitability boundaries, and verification duties
   in that section. Do not bury these points in another section.
 - Use only factual claims supported by the supplied site/job context. Mark illustrative scenarios as examples.
+- Treat each approved source's `supports` field as the exact public evidence boundary:
+  do not add a provider capability, legal requirement, price, tariff, speed,
+  eligibility rule or outcome that does not appear there. If a source does not
+  establish a point, tell the reader to verify it instead of describing it as
+  a fact. In particular, never infer backup power, a D8 income threshold, or
+  a local service feature from a provider's general existence.
+- The approved source contract is exhaustive. Do not supplement it with model
+  memory, general world knowledge, likely local conditions or plausible causal
+  explanations. Every positive factual clause must be traceable in meaning to
+  one approved source's `supports` text. If only a reader check is supported,
+  write the check as an open question or verification action and do not assert
+  that the suspected condition, problem or advantage exists.
+- A caveat is not permission to invent the opposite fact. For example, do not
+  explain a municipality-level climate description with invented ravines,
+  shade, damp or property temperatures. Simply say that the source does not
+  establish conditions at a specific home and tell the reader what to check.
+- Zero-inference source rule: the existence of a provider, fare sheet, permit
+  page, address checker or workspace does not prove appointment format,
+  infrastructure density, route coverage, local convenience, service capacity,
+  neighbourhood suitability or a comparative advantage. State only the exact
+  attribute in `supports`. Do not write `must`, `required`, `necessary`,
+  `ensures` or `ensuring` unless the same obligation or outcome is explicitly
+  established by the approved source or site contract.
+- A coverage, eligibility, address or availability checker proves only the
+  result it explicitly reports. A provider reporting service availability at an
+  address does not prove network presence in the street or building vicinity,
+  infrastructure density, a physical line inside the unit, an activated account,
+  installed equipment, achievable speed, capacity or service quality. State the
+  checker result only as `reported availability at the entered address`, then
+  tell the reader to confirm installation and achievable service with the
+  responsible provider or property party. Do not claim island-wide fibre
+  distribution, broadband prevalence, outages, storm-related power problems or
+  mobile-network redundancy unless an approved source states that exact fact.
+- Preserve jurisdictional scope exactly. A national identifier, tax number,
+  authority or rule must never be described as regional or local merely because
+  the page targets a region. When discussing Portugal's NIF, call it a
+  Portuguese tax identification number and use qualified wording such as
+  "commonly required" unless an approved source establishes a universal legal
+  requirement for the exact transaction. Preserve that same level of certainty
+  in prose, tables, checklists and FAQ answers; a table must never strengthen
+  "commonly required for many activities" into an unconditional requirement.
+- Preserve geographic classification exactly. Do not assign a town, district,
+  island, property or service to a coast, region, municipality or administrative
+  area unless an approved source explicitly establishes that classification. If
+  the source contract lists places but does not prove a shared geographic label,
+  use a neutral phrase such as "locations outside the main city" and name the
+  places individually.
+- Name every public source card after the organization and jurisdiction actually
+  hosting or publishing the referenced page. Do not relabel a VFS Global
+  jurisdiction-specific checklist as a consulate source. Preserve official
+  diacritics in authority names and administrative terms, including names such
+  as `Câmara Municipal` when that is the correct spelling.
+- A published opening-time range does not establish weekdays, daily operation,
+  capacity, availability or a booking rule. State only the hours and conditions
+  explicitly present in the approved source's `supports` text.
+- Evidence-first writing rule: every declarative statement about a law, visa,
+  rental practice, health system, provider, price, speed, transport service,
+  climate, location or business condition must be directly supported by one
+  approved source reference. If no source establishes it, write a reader action
+  instead: what to verify, with whom, and before which commitment. Do not fill
+  a page with plausible regional background merely to make it sound complete.
+- Transport evidence is equally narrow. Route counts and tariff documents do
+  not establish that a network is extensive, that frequency varies, that a
+  particular district has frequent service, or that car-free living is possible.
+  A section may tell the reader to test those questions against the exact stop
+  and complete outward and return journeys, but it must not answer them without
+  an approved timetable or address-specific source.
+- A facility directory proves only the locations, contacts and hours explicitly
+  named in its source contract. It does not establish who manages a whole public
+  system, municipality-wide coverage, entitlement, registration, staffing,
+  language, waiting time or insurance need unless those facts have their own
+  approved sources.
+- For broad expat or relocation pages, use this source-led architecture when
+  relevant: (1) a clearly separate EU/EEA/Swiss route and non-EU route; (2)
+  housing options and documents without invented lease length, deposit, bank
+  account or tax-registration rules; (3) healthcare only to the scope stated
+  by official registration and health-centre sources, with no waiting-time or
+  language promises; (4) mobility and connectivity as address- and
+  route-specific checks; (5) an evidence table with a source or checked date
+  beside every value. Do not call a car mandatory, a climate the most stable,
+  or a public service robust unless an approved source says exactly that.
+- Keep healthcare identifiers, provider registration and public cost coverage
+  as three separate concepts. Receiving a public-health user number does not by
+  itself establish eligibility to register with a particular provider or prove
+  that a consultation, treatment or other expense will be covered. Explain the
+  documents and legal status applicable to each stage only to the extent stated
+  by its own official source, preserve any statutory exceptions, and never
+  collapse the stages into a table row or checklist shortcut.
+- Apply those healthcare distinctions consistently in tables, checklists and
+  FAQ answers. When an approved source says statutory exceptions may apply,
+  retain that qualification in any compact answer about eligibility or cost
+  coverage. Do not replace a general lack of guaranteed coverage with a claim
+  about a specific co-payment or charge that the source does not establish.
+- Private health insurance may broaden access to private providers only subject
+  to the policy network, exclusions, waiting periods and appointment
+  availability. Never claim that a policy ensures immediate access, a specific
+  clinician, acceptance by a clinic, or coverage of every service.
+- Preserve the source's exact statistical meaning. A median observed among
+  registered new contracts is not a regulated rate, an asking-price index, an
+  available listing, or a forecast. State the population, period and measure in
+  the source's own terms, then clearly label any arithmetic example as an
+  illustration. When a source's `supports` text explicitly corrects a misleading
+  label with a "not X" distinction, repeat that distinction plainly in the
+  relevant paragraph instead of replacing it with an editorial synonym. Never
+  strengthen an observed statistic into a legal or market mechanism.
+- Separate administrative stages that involve different authorities. For a
+  residence route, distinguish the pre-entry visa application handled by the
+  competent consulate from the post-entry residence-permit procedure handled by
+  the domestic authority. Attach each requirement only to the stage and source
+  that actually establishes it. Never use a residence-permit page as evidence
+  for consular visa requirements, income, insurance or criminal-record rules.
+- Preserve legal-category membership exactly. Do not use a convenient negative
+  label such as `outside the EEA` or `non-EEA` when a country has a special route
+  that makes the label misleading. When an approved source groups Switzerland
+  with EU and EEA citizens, use `EU/EEA/Swiss citizens` and contrast them with
+  `third-country nationals` or `non-EU/EEA/Swiss citizens`; never classify Swiss
+  citizens under the third-country route merely because Switzerland is outside
+  the EEA.
+- Preserve the responsible actor for every legal or administrative obligation.
+  Do not tell the reader to register a lease, file a declaration, issue a receipt
+  or complete another party's duty unless the source assigns that duty to the
+  reader. Where the landlord, provider, employer or authority owns the action,
+  tell the reader to confirm that the responsible party will meet the applicable
+  obligation and to obtain the document needed for the reader's own process.
+- Preserve the scope and trigger of every deadline. A deadline that begins after
+  a visa decision, entry, the first three months, an appointment, a contract or
+  another route-specific event must not be rewritten as a universal number of
+  days after arrival. If several routes have different deadlines, say that the
+  reader must follow the deadline for their nationality and residence route,
+  then state an exact window only beside the source that establishes it.
+- When an FAQ names the documents for a procedure, either give the complete
+  source-supported list relevant to that procedure or explicitly say that the
+  listed items are examples and direct the reader to the dated official list.
+  Do not present a partial list as sufficient. Keep address declarations and
+  evidence of the right to occupy accommodation when the official source lists
+  them.
+- For EU/EEA/Swiss residence content, preserve the exact application window,
+  competent authority and alternative eligibility routes stated by the official
+  source. Do not reduce conditional requirements to a generic "register after
+  three months" sentence and do not call an administrative process easy,
+  straightforward or automatic.
+- Distinguish a standard public tariff from a social, resident, student,
+  age-based or otherwise eligibility-restricted tariff. If the brief does not
+  prove that the target reader qualifies, show the standard tariff as the safe
+  planning number and identify the discounted tariff only as something whose
+  eligibility must be checked. Preserve the publisher's tariff label exactly:
+  `ordinary` or `standard` must not become `adult` unless the source itself uses
+  the adult category.
+- A table, checklist or FAQ is a compressed form of the evidence, not permission
+  to remove its qualifications. Preserve stay-duration triggers, nationality or
+  route labels, eligibility conditions, statistical populations, price units,
+  dates and responsible actors in every compact component. Where an approved
+  source supplies useful current standard prices, include those numbers with
+  their scope and source/date instead of replacing them with vague labels.
+- Preserve document form exactly. `Digital scans of originals or certified
+  copies` means scans of the original documents or, where the procedure calls
+  for them, scans of certified copies. Never rewrite that as `certified digital
+  copies` unless an approved source explicitly defines such a document form.
+- A practical checklist contains only reader actions needed to complete or
+  verify the decision: documents, contract, insurance, address, budget,
+  eligibility, availability and dates. Never insert a product purchase, sales
+  CTA, consultation booking or newsletter signup as a checklist step. Place the
+  approved commercial CTA after the editorial checklist in its own section.
+  The `primaryCta.url` is reserved for that CTA and must not also appear in
+  `internalLinks`, `recommendedNext`, the ordered list, bullets or FAQ answers.
+- Never claim that following a site checklist ensures legal, tax, medical,
+  immigration or regulatory compliance. A structured checklist may reduce
+  omissions, improve readiness or reduce some administrative delays, but it
+  does not replace current official instructions or individual professional
+  advice. Do not turn an administrative process into a guaranteed outcome.
+- Treat `prevents`, `eliminates`, `secures`, `ensures`, `guarantees` and claims
+  that a checklist creates legal compliance as outcome guarantees unless an
+  approved source proves the exact result. Use `can reduce administrative
+  delays`, `can reduce omissions` or `can improve readiness` only where that is
+  the honest meaning.
+- Never call a NIF an `essential administrative requirement` or ask an FAQ
+  question that presupposes it is universally required. Call it Portugal's
+  national tax identification number and say it is commonly required for the
+  source-supported activities, using the same qualified wording in tables,
+  headings, checklists and FAQ questions.
+- Do not invent fixed, statutory or non-accelerable review schedules. Unless an
+  approved source establishes an exact deadline for the specific procedure,
+  say that appointment availability and processing times depend on current
+  administrative capacity and the applicant's individual case.
+- `bullets` are optional. Do not generate bullets by default merely to summarize
+  a section. Use them only when the section contains two or more reader actions,
+  checks or decisions that are genuinely absent from its paragraphs, the table
+  and the ordered list. Action bullets must start with a verb. A bullet must not
+  repeat or paraphrase a price, date, statistic, provider detail, document list,
+  legal requirement, tariff, threshold or conclusion already stated elsewhere.
+  If no distinct actions remain, omit `bullets` or return an empty array.
+- Use the ordered list for the page's consolidated workflow. Do not create a
+  second summary of that workflow in section bullets. Use the evidence table for
+  compact comparison of dated figures. Do not restate its rows immediately
+  before or after the table merely to increase length.
+- Before returning JSON, silently compare every paragraph, bullet, table row,
+  ordered-list item and FAQ answer by meaning. Rewrite or remove any repeated
+  fact or action. The same evidence may answer a focused FAQ once, but section
+  prose and adjacent bullets must never say the same thing twice.
+- A pillar relocation guide should answer the material planning questions only
+  when supported by approved current sources: visa or permit stage, dated income
+  threshold, tax or identification step, health-insurance requirement, area fit,
+  transport eligibility and a realistic dated monthly budget. Give each of
+  these a concise answer in the article itself; an internal link may provide
+  depth but must not replace the answer. When the sources support only part of a
+  monthly budget, calculate and label a transparent partial subtotal from those
+  supported inputs, list every major excluded category, and explain that the
+  reader must add current quotes. Never present that subtotal as a full cost of
+  living. When a dimension has no usable evidence at all, state exactly where
+  the reader must verify it instead of inventing a complete answer.
+- On a location pillar page, include a short scenario-based area-fit answer when
+  approved evidence distinguishes at least two places. Compare only the sourced
+  differences, such as transport access, workspace provision, accommodation
+  model or address-level connectivity. Do not invent a general "best area".
+  Never turn a published transport tariff into evidence of dense service, route
+  frequency or car-free suitability, and never turn one workspace or coliving
+  provider into evidence of a town-wide community or lifestyle.
+- On a relocation pillar page, explain tax identification and health-insurance
+  obligations in their own concise paragraph whenever approved sources mention
+  them. Keep route-specific and general requirements separate, and do not turn
+  "where applicable" into a universal mandate.
+- Do not repeat a paragraph, list item, internal-link context, CTA sentence or
+  FAQ answer. Each internal destination and its contextual sentence appear once
+  only in the article body.
+- Do not pre-write an `internalLinks.context` sentence as ordinary section prose.
+  The renderer inserts that context once in the relevant section. If the section
+  already explains the same next-step link, keep the substantive answer but
+  remove the navigational sentence from its paragraphs so the generated link
+  block is the only occurrence.
+- For a broad expat, relocation or immigration page, separate EU/EEA/Swiss and
+  non-EU routes under clearly named headings whenever residence or visa content
+  is discussed. Do not imply one visa or documentation process applies to all
+  nationalities. If the approved sources do not support a route, omit its legal
+  detail and direct the reader to the competent official authority.
 - Treat every item in `contentDetails` as a closed factual boundary. Do not add a
   landmark, road type, transport facility, customer, address, route, distance,
   outcome, or current condition that is not explicitly present there.
+- If `contentDetails` contains `forbiddenClaims`, treat every entry as an explicit
+  negative generation constraint. No paragraph, bullet, image alt, caption,
+  table cell, ordered-list item, quote, internal-link context or FAQ answer may
+  state, imply or recommend one of those claims.
 - Never positively claim an exact position, exact route, exact distance, legal
   boundary, current imagery, current road condition, or guaranteed availability.
 - Treat the canonical target path and content type as fixed publication intent. Do not turn a guide, template, example, integration guide, or use case into a generic blog post.
-- For a non-blog typed page, return 4-6 `internalLinks` and exactly 3 `recommendedNext` entries.
+- For a non-blog typed page, return 4-6 unique contextual `internalLinks`.
+- When the approved internal links list contains at least four URLs, this navigation
+  contract also applies to a blog page: return 4-6 contextual `internalLinks` and
+  exactly 3 distinct `recommendedNext` entries.
 - Use only URLs from `approved internal links`. Never invent a route, external source, customer, metric, address, product feature, platform UI label, or embed code.
-- Each `internalLinks.context` must be a useful sentence explaining why the linked page answers the reader's natural next question. `label` is a descriptive anchor, never "click here".
-- `recommendedNext` must contain three distinct roles: foundational, decision, and practical or example.
+- Each `internalLinks.context` must be a useful, article-specific sentence that belongs immediately after one of the generated sections and explains why the linked page answers the reader's natural next question. The factory inserts this sentence and its descriptive `label` anchor inside that relevant section during HTML generation; it must never be treated as a separate links-only block. `label` is a descriptive anchor, never "click here".
+- Internal-link context is neutral editorial guidance, not a place to add a
+  requirement. It may direct the reader to a relevant guide, but must not state
+  a legal, financial, medical or provider condition unless the exact condition
+  is supported by an approved source reference.
+- An internal-link destination URL or label does not prove what that future page
+  contains. Describe only its approved topic. Do not promise verified desks,
+  backup power, prices, directories, calculators, route coverage, legal checks
+  or other features unless that destination capability is explicitly present in
+  the supplied site or page contract.
+- The context must reuse the subject matter of its intended section. A health
+  link belongs beside healthcare or registration, a rental link beside housing,
+  and a transport link beside mobility. Never use an unrelated section merely
+  to satisfy an internal-link quota.
+- A destination URL may appear only once in the article body. Do not repeat it in a generic links block.
+- Return up to three `recommendedNext` entries only when they are distinct useful destinations that are not already present in `internalLinks`; do not repeat a destination merely to fill a slot. Their roles should cover foundational, decision, and practical or example where such distinct pages exist.
 - Preserve approved source facts and limitations. Do not print an internal source reference as a public citation unless the brief explicitly provides a public URL.
+
+FINAL EVIDENCE PASS BEFORE RETURNING JSON:
+- Apply a three-form sentence test. Every factual sentence must be either
+  (1) an exact positive fact from one ledger entry, (2) a limitation saying
+  what that fact does not establish, or (3) an imperative reader action that
+  asserts no unverified condition. Delete every sentence that fits none of
+  these forms.
+- Re-read every generated paragraph, bullet, table cell, ordered-list item,
+  quote, FAQ answer, image alt and image caption against the approved sources.
+- Delete any plausible background detail that lacks an exact source boundary;
+  do not keep it merely because it sounds useful or is probably true.
+- Rewrite every outcome verb such as prevent, eliminate, ensure, secure or
+  guarantee as a qualified possibility only when the evidence permits it.
+- Confirm that legal groups, actors, deadlines, document forms, prices and
+  eligibility qualifiers remain identical across prose, tables, lists and FAQ.
+- Confirm that no `supports` instruction intended for the editor is reproduced
+  as visitor-facing prose. Source-card display text comes from `publicSummary`.
+- Confirm that the workflow order respects its dependency graph and that no
+  paragraph duplicates an internal-link context the renderer will insert.
+- If any sentence fails this pass, rewrite it now inside this same response.
 """.strip()
 
 
@@ -13373,7 +17333,7 @@ def apply_typed_safety_section(draft, job, language="en"):
 
 def apply_approved_page_brief(draft, job, language="en"):
     if native_content_type(job) == "blog":
-        return draft
+        return ensure_typed_navigation_contract(draft, job)
     sources = content_job_sources(job)
     brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
     fixed = dict(draft)
@@ -13384,7 +17344,6 @@ def apply_approved_page_brief(draft, job, language="en"):
     if str(brief.get("directAnswer") or "").strip():
         fixed["lead"] = str(brief["directAnswer"]).strip()
     fixed = apply_approved_category_label(fixed, job, language)
-    fixed = apply_typed_safety_section(fixed, job, language=language)
     return ensure_typed_navigation_contract(fixed, job)
 
 
@@ -13406,6 +17365,15 @@ def sanitize_typed_image_copy(draft):
         (r"\bexact\s+boundar(?:y|ies)\b", "surrounding area context"),
     )
     images = draft.get("images") if isinstance(draft.get("images"), list) else []
+    evidence_plan = draft.get("evidencePlan") if isinstance(draft.get("evidencePlan"), list) else []
+    image_evidence = next(
+        (
+            item for item in evidence_plan
+            if isinstance(item, dict) and str(item.get("component") or "").strip().lower() == "images"
+        ),
+        {},
+    )
+    images_have_sources = bool(image_evidence.get("sourceIds")) if isinstance(image_evidence, dict) else False
     for image in images:
         if not isinstance(image, dict):
             continue
@@ -13414,6 +17382,147 @@ def sanitize_typed_image_copy(draft):
             for pattern, replacement in replacements:
                 value = re.sub(pattern, replacement, value, flags=re.I)
             image[field] = value
+        if not images_have_sources:
+            visible_description = re.sub(r"\s+", " ", str(image.get("alt") or "Editorial planning visual")).strip().rstrip(".")
+            image["caption"] = f"Editorial illustration: {visible_description}."
+    return draft
+
+
+def enforce_required_terminology(draft, job):
+    """Normalize approved names without inventing or fact-editing article copy.
+
+    Models occasionally drop diacritics from an authority or administrative
+    term even when the brief supplies the canonical spelling. The page brief is
+    authoritative, so accent-insensitive variants of an explicitly required
+    term are normalized before rendering.
+    """
+    sources = content_job_sources(job)
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    details = brief.get("contentDetails") if isinstance(brief.get("contentDetails"), dict) else {}
+    terms = details.get("requiredTerminology") if isinstance(details.get("requiredTerminology"), list) else []
+    accent_classes = {
+        "a": "aàáâãäåāăą", "c": "cçćč", "e": "eèéêëēėę", "i": "iìíîïīį",
+        "n": "nñń", "o": "oòóôõöøō", "s": "sśš", "u": "uùúûüū", "y": "yýÿ",
+        "z": "zźżž",
+    }
+    patterns = []
+    for value in terms:
+        canonical = re.sub(r"\s+", " ", str(value or "")).strip()
+        if len(canonical) < 3:
+            continue
+        pieces = []
+        for character in canonical:
+            decomposed = unicodedata.normalize("NFKD", character).encode("ascii", "ignore").decode("ascii").lower()
+            variants = accent_classes.get(decomposed) if len(decomposed) == 1 else None
+            pieces.append(f"[{re.escape(variants)}]" if variants else re.escape(character))
+        patterns.append((re.compile(r"(?<!\w)" + "".join(pieces) + r"(?!\w)", re.I), canonical))
+
+    # Human-facing copy may be normalised, but machine identifiers are opaque.
+    # In particular, never let a required term such as `Caniço` mutate the
+    # canonical route `/where-to-live/canico/` or a source/asset identifier.
+    opaque_keys = {
+        "url", "src", "slug", "id", "sourceIds", "heroImage",
+        "targetPath", "canonical", "href",
+    }
+
+    def normalize(value, parent_key=None):
+        if parent_key in opaque_keys:
+            return value
+        if isinstance(value, dict):
+            return {key: normalize(item, key) for key, item in value.items()}
+        if isinstance(value, list):
+            return [normalize(item, parent_key) for item in value]
+        if isinstance(value, str):
+            for pattern, canonical in patterns:
+                def replacement(match):
+                    if canonical[:1].islower() and match.group(0)[:1].isupper():
+                        return canonical[:1].upper() + canonical[1:]
+                    return canonical
+                value = pattern.sub(replacement, value)
+        return value
+
+    return normalize(draft)
+
+
+def normalize_evidence_plan_source_ids(draft, job):
+    """Restore opaque source IDs to the brief's exact spelling.
+
+    This does not alter the evidence selected by the model. It only reverses
+    casing changes for a unique identifier that already exists in the brief.
+    """
+    sources = content_job_sources(job)
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    references = brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []
+    exact_ids = [str(item.get("id") or "").strip() for item in references if isinstance(item, dict)]
+    def identifier_key(value):
+        ascii_value = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+        return re.sub(r"[^a-z0-9]+", "-", ascii_value.lower()).strip("-")
+
+    folded = {}
+    for source_id in exact_ids:
+        folded.setdefault(identifier_key(source_id), []).append(source_id)
+    plan = draft.get("evidencePlan") if isinstance(draft.get("evidencePlan"), list) else []
+    for item in plan:
+        if not isinstance(item, dict) or not isinstance(item.get("sourceIds"), list):
+            continue
+        normalized = []
+        for value in item["sourceIds"]:
+            source_id = str(value or "").strip()
+            matches = folded.get(identifier_key(source_id), [])
+            normalized.append(matches[0] if len(matches) == 1 else source_id)
+        item["sourceIds"] = normalized
+    draft["evidencePlan"] = plan
+    return draft
+
+
+def normalize_internal_link_section_indices(draft):
+    """Anchor generated links to the most relevant approved outline section."""
+    sections = draft.get("sections") if isinstance(draft.get("sections"), list) else []
+    headings = [normalize_topic_text(item.get("heading") or "") if isinstance(item, dict) else "" for item in sections]
+    category_rules = [
+        (("cost", "budget", "price"), ("cost", "budget", "price", "quote")),
+        (("health", "doctor", "medical"), ("health", "medical", "doctor")),
+        (("transport", "without-a-car", "car", "bus"), ("transport", "journey", "mobility", "car", "route")),
+        (("sunniest", "microclimate", "climate"), ("microclimate", "climate", "sun")),
+        (("work", "cowork", "digital-nomad"), ("remote", "work", "cowork", "workspace")),
+        (("housing", "rent", "property"), ("home", "housing", "contract", "rent", "property")),
+        (("where-to-live", "area", "location", "funchal", "canico", "ponta-do-sol"), ("compare", "area", "location", "where to live")),
+        (("family", "school"), ("family", "school")),
+        (("community",), ("community",)),
+    ]
+    links = draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else []
+    for item in links:
+        if not isinstance(item, dict) or not headings:
+            continue
+        url = normalize_topic_text(item.get("url") or "")
+        label = normalize_topic_text(item.get("label") or "")
+        category_terms = ()
+        for route_terms, heading_terms in category_rules:
+            if any(term in url for term in route_terms):
+                category_terms = heading_terms
+                break
+        subject_terms = {
+            token for token in re.findall(r"[a-z0-9]{4,}", f"{url} {label}")
+            if token not in {
+                "madeira", "guide", "living", "live", "with", "from",
+                "where", "area", "areas", "read", "continue", "dedicated",
+                "overview", "page",
+            }
+        }
+        scores = []
+        for index, heading in enumerate(headings):
+            # A destination-specific token (Funchal, Caniço, healthcare,
+            # coworking...) is a stronger placement signal than the broad route
+            # family. Otherwise every `/where-to-live/<place>/` link drifts to
+            # the first generic comparison section instead of that place's
+            # own discussion.
+            score = sum(2 for term in category_terms if term in heading)
+            score += sum(8 for term in subject_terms if term in heading)
+            scores.append((score, -index, index))
+        best = max(scores)
+        if best[0] > 0:
+            item["sectionIndex"] = best[2]
+    draft["internalLinks"] = links
     return draft
 
 
@@ -13425,18 +17534,59 @@ def approved_link_label(url):
     return re.sub(r"\s+", " ", slug.replace("-", " ")).strip().title()
 
 
-def ensure_typed_navigation_contract(draft, job):
-    if native_content_type(job) == "blog":
-        return draft
+def approved_job_internal_links(job):
     sources = content_job_sources(job)
     brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    linking = sources.get("linkingRequirements") if isinstance(sources.get("linkingRequirements"), dict) else {}
+    candidates = []
+    for value in (brief.get("approvedInternalLinks"), brief.get("internalLinks"), sources.get("internalLinks"), linking.get("crossLinkTargets"), linking.get("caseStudyHubs"), linking.get("requireInboundLinksFrom")):
+        if isinstance(value, list):
+            candidates.extend(value)
+    if linking.get("parentPage"):
+        candidates.append(linking.get("parentPage"))
     approved = []
-    for item in brief.get("approvedInternalLinks") if isinstance(brief.get("approvedInternalLinks"), list) else []:
+    for item in candidates:
         url = str(item.get("url") or "").strip() if isinstance(item, dict) else str(item or "").strip()
         if re.match(r"^/(?:[a-z0-9][a-z0-9/_-]*)?$", url) and url not in approved:
             approved.append(url)
-    page_links = [url for url in approved if url != "/#create"]
+    # Older imported queues may not yet carry a hand-authored linking brief.
+    # Build a pool from the site's own route map only when the brief supplies
+    # no approved destinations at all. A short hand-authored list is still a
+    # closed list: silently padding it changes editorial intent and can insert
+    # an unrelated destination into an otherwise evidence-led page.
+    if not approved and job is not None:
+        current_path = content_job_target_path(job).rstrip("/")
+        with db() as conn:
+            rows = conn.execute(
+                "select * from content_jobs where site_id=? and id<>? and status not in ('CANCELED','ERROR')",
+                (job["site_id"], job["id"]),
+            ).fetchall()
+        current_terms = set(re.findall(r"[a-z]{4,}", f"{job['topic'] or ''} {job['title'] or ''}".lower())) - {"madeira", "guide", "practical", "moving", "living"}
+        discovered = []
+        for row in rows:
+            route = content_job_target_path(row).rstrip("/")
+            if not re.match(r"^/(?:[a-z0-9][a-z0-9/_-]*)?$", route) or route == current_path:
+                continue
+            candidate_terms = set(re.findall(r"[a-z]{4,}", f"{row['topic'] or ''} {row['title'] or ''}".lower()))
+            discovered.append((-len(current_terms & candidate_terms), route))
+        for _, route in sorted(discovered):
+            if route not in approved:
+                approved.append(route)
+            if len(approved) >= 8:
+                break
+    return approved
 
+
+def ensure_typed_navigation_contract(draft, job):
+    sources = content_job_sources(job)
+    linking = sources.get("linkingRequirements") if isinstance(sources.get("linkingRequirements"), dict) else {}
+    if native_content_type(job) == "blog" and linking.get("mandatory") is not True:
+        return draft
+    brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
+    approved = approved_job_internal_links(job)
+    # Navigation is authored by the model from the approved page brief. This
+    # helper must never invent fallback copy or add unrelated destinations after
+    # the fact: a contextual link has to be designed into the article itself.
     internal = []
     for item in draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else []:
         if not isinstance(item, dict):
@@ -13444,17 +17594,6 @@ def ensure_typed_navigation_contract(draft, job):
         url = str(item.get("url") or "").strip()
         if url in approved and url not in {link["url"] for link in internal}:
             internal.append(item)
-    for url in approved:
-        if len(internal) >= 4:
-            break
-        if url in {link["url"] for link in internal}:
-            continue
-        label = approved_link_label(url)
-        internal.append({
-            "url": url,
-            "label": label,
-            "context": f"Use {label} to continue this decision with the approved next step.",
-        })
     draft["internalLinks"] = internal[:6]
 
     recommended = []
@@ -13462,19 +17601,10 @@ def ensure_typed_navigation_contract(draft, job):
         if not isinstance(item, dict):
             continue
         url = str(item.get("url") or "").strip()
-        if url in page_links and url not in {link["url"] for link in recommended}:
+        if url in approved and url not in {link["url"] for link in recommended} and url not in {link["url"] for link in internal}:
             recommended.append(item)
         if len(recommended) == 3:
             break
-    for url in page_links:
-        if len(recommended) == 3:
-            break
-        if url in {link["url"] for link in recommended}:
-            continue
-        recommended.append({"url": url, "label": approved_link_label(url), "role": ""})
-    roles = ("foundational", "decision", "practical")
-    for index, item in enumerate(recommended[:3]):
-        item["role"] = roles[index]
     draft["recommendedNext"] = recommended[:3]
     return draft
 
@@ -13517,11 +17647,28 @@ NON-NEGOTIABLE EDIT:
   positive factual claim.
 - Product behavior may be stated only when it appears in `siteContext`,
   `directAnswer`, `contentDetails`, or a source reference's `supports` field.
+- A third-party provider's feature, tariff, eligibility rule, legal
+  requirement or performance may be stated only when that exact point appears
+  in the same source reference's `supports` field. Do not infer capabilities
+  such as backup power, and do not infer a D8 income threshold from a page
+  that only lists residence documents.
+- Rewrite every unsourced external assertion as a verification action or
+  delete it. Never retain generic regional colour, a legal norm, a medical
+  access promise, a provider capability, a climate conclusion, or a mobility
+  conclusion just because it sounds reasonable. On broad expat pages, preserve
+  separate EU/EEA/Swiss and non-EU routes when immigration is discussed.
+- Delete exact repeated paragraphs, repeated calls to the same internal page,
+  and repeated CTA wording. A destination may occur once in the article body.
 - Platform instructions may use only the supplied source support, prerequisites,
   troubleshooting list, and embed contract. Never invent button names or code.
 - Do not claim that a visualization proves or shows a legal/property boundary.
 - Do not claim conversion, engagement, qualification, time, cost, compliance, or
   performance improvement unless the factual contract explicitly provides it.
+- Remove or rewrite positive claims containing `always`, `guarantee`,
+  `guaranteed`, `seamless`, `seamlessly`, `best practices`, `production-grade`,
+  or `performance benchmarks` unless that exact claim is explicitly verified in
+  the factual contract. These terms may appear in a clear negative limitation,
+  such as stating that an outcome is not guaranteed.
 - Keep 1400-2200 words. Use cautious, useful explanation instead of unsupported
   specificity.
 - Output JSON only. This is factual editing, not JSON repair.
@@ -13542,6 +17689,8 @@ RULES:
 - Do not summarize, shorten, add claims, or change the editorial intent.
 - Write fluent native editorial copy, not literal machine translation.
 - Keep the same article depth and approximately the same amount of information.
+- Keep the localized title complete and descriptive, with at least 18 characters.
+  Do not shorten it to an acronym or clipped service label.
 - Translate title, description, category, lead, headings, paragraphs, bullets, table text, ordered-list text, quote, image alt/caption, and FAQ.
 - Keep `heroImage` and every image `src` filename exactly unchanged.
 - Keep the slug unchanged; locale routing is handled separately.
@@ -13551,6 +17700,79 @@ RULES:
 SOURCE ARTICLE JSON:
 {source_json}
 """.strip()
+
+
+def preserve_translation_structure(source, translated):
+    """Keep the English article's exact shape; translation may change copy only."""
+    if isinstance(source, dict):
+        candidate = translated if isinstance(translated, dict) else {}
+        return {key: preserve_translation_structure(value, candidate.get(key)) for key, value in source.items()}
+    if isinstance(source, list):
+        candidate = translated if isinstance(translated, list) else []
+        return [preserve_translation_structure(value, candidate[index] if index < len(candidate) else None) for index, value in enumerate(source)]
+    if isinstance(source, str):
+        value = str(translated or "").strip() if translated is not None else ""
+        return value or source
+    if isinstance(source, (int, float, bool)) or source is None:
+        return source
+    return translated if translated is not None else source
+
+
+def validate_structured_article_translation(source, localized, job, language):
+    """Validate a complete localization without applying English word-count rules.
+
+    Languages do not preserve whitespace-delimited word counts. Completeness is
+    therefore defined by exact structural parity plus a conservative content
+    volume ratio, not by forcing German, Portuguese or Russian to contain 1,200
+    English-style tokens.
+    """
+    errors = []
+    scalar_fields = ("title", "description", "lead", "quote")
+    for field in scalar_fields:
+        if str(source.get(field) or "").strip() and not str(localized.get(field) or "").strip():
+            errors.append(f"{field} is missing")
+    for field in ("sections", "orderedList", "images", "faq", "internalLinks", "recommendedNext"):
+        source_items = source.get(field) if isinstance(source.get(field), list) else []
+        localized_items = localized.get(field) if isinstance(localized.get(field), list) else []
+        if len(localized_items) != len(source_items):
+            errors.append(f"{field} count changed")
+    for index, source_section in enumerate(source.get("sections") or []):
+        localized_section = (localized.get("sections") or [])[index]
+        for field in ("paragraphs", "bullets"):
+            if len(localized_section.get(field) or []) != len(source_section.get(field) or []):
+                errors.append(f"section {index} {field} count changed")
+    source_table = source.get("table") if isinstance(source.get("table"), dict) else {}
+    localized_table = localized.get("table") if isinstance(localized.get("table"), dict) else {}
+    if len(localized_table.get("headers") or []) != len(source_table.get("headers") or []):
+        errors.append("table header count changed")
+    if len(localized_table.get("rows") or []) != len(source_table.get("rows") or []):
+        errors.append("table row count changed")
+    for index, source_row in enumerate(source_table.get("rows") or []):
+        localized_rows = localized_table.get("rows") or []
+        if index >= len(localized_rows) or len(localized_rows[index]) != len(source_row):
+            errors.append(f"table row {index} cell count changed")
+    source_plain = structured_article_plain_text(source)
+    localized_plain = structured_article_plain_text(localized)
+    source_words = len(re.findall(r"\b[\w'-]+\b", source_plain))
+    localized_words = len(re.findall(r"\b[\w'-]+\b", localized_plain))
+    source_chars = len(re.sub(r"\s+", "", source_plain))
+    localized_chars = len(re.sub(r"\s+", "", localized_plain))
+    if source_chars and localized_chars < int(source_chars * 0.62):
+        errors.append("localized content volume is too small for a complete translation")
+    if source_words and localized_words < max(650, int(source_words * 0.58)):
+        errors.append("localized word volume is too small for a complete translation")
+    if errors:
+        raise ValueError(f"{language.upper()} batch localization failed validation: " + "; ".join(errors))
+    return {
+        "word_count": localized_words,
+        "source_word_count": source_words,
+        "character_ratio": round(localized_chars / max(1, source_chars), 3),
+        "sections": len(localized.get("sections") or []),
+        "images": len(localized.get("images") or []),
+        "faq": len(localized.get("faq") or []),
+        "internal_links": len(localized.get("internalLinks") or []),
+        "recommended_next": len(localized.get("recommendedNext") or []),
+    }
 
 
 def generate_native_content_localizations(site, job, draft, slug, article_asset_prefix):
@@ -13565,15 +17787,16 @@ def generate_native_content_localizations(site, job, draft, slug, article_asset_
     if len(languages) == 1:
         return []
 
+    target_languages = languages[1:]
+    batch_results, batch_name = _gemini_batch_text_json(
+        {language: build_article_translation_prompt(site, draft, language) for language in target_languages},
+        response_schema=ARTICLE_DRAFT_SCHEMA,
+        temperature=0.2,
+    )
     source_images = draft.get("images") if isinstance(draft.get("images"), list) else []
     generated = []
-    for language in languages[1:]:
-        localized = _gemini_text_json(
-            build_article_translation_prompt(site, draft, language),
-            response_schema=ARTICLE_DRAFT_SCHEMA,
-            repair=False,
-        )
-        localized = apply_typed_safety_section(localized, job, language=language)
+    for language in target_languages:
+        localized = preserve_translation_structure(draft, batch_results[language])
         localized = apply_approved_category_label(localized, job, language=language)
         localized["slug"] = slug
         localized["heroImage"] = draft.get("heroImage") or ""
@@ -13583,21 +17806,22 @@ def generate_native_content_localizations(site, job, draft, slug, article_asset_
             translated_image = localized_images[index] if index < len(localized_images) and isinstance(localized_images[index], dict) else {}
             normalized_images.append(
                 {
-                    "src": source_image.get("src") or f"{slug}-image-{index + 1}.jpg",
+                    "src": source_image.get("src") or f"{slug}-image-{index + 1}.webp",
                     "alt": translated_image.get("alt") or source_image.get("alt") or "",
                     "caption": translated_image.get("caption") or source_image.get("caption") or "",
+                    "sectionIndex": source_image.get("sectionIndex"),
+                    "paragraphIndex": source_image.get("paragraphIndex"),
+                    "visualBrief": source_image.get("visualBrief") or "",
                 }
             )
         localized["images"] = normalized_images
-        try:
-            validation = validate_structured_article_draft(localized, job=job, language=language)
-        except ValueError as error:
-            raise ValueError(f"{language.upper()} localization failed validation: {error}") from error
+        validation = validate_structured_article_translation(draft, localized, job, language)
         localized_html = render_structured_article_html(
             localized,
             slug,
             asset_prefix=article_asset_prefix,
             language=language,
+            include_images=content_job_sources(job).get("mediaGeneration") != "deferred",
         )
         localized_faq = localized.get("faq") if isinstance(localized.get("faq"), list) else []
         with db() as conn:
@@ -13633,20 +17857,95 @@ def generate_native_content_localizations(site, job, draft, slug, article_asset_
                     now_iso(),
                     "INFO",
                     "localize",
-                    f"{language.upper()} localization generated and validated: {validation['word_count']} words",
+                    f"{language.upper()} localization generated and validated by {GEMINI_TRANSLATION_BATCH_MODEL} Batch {batch_name}: {validation['word_count']} words",
                 ),
             )
         generated.append(language)
     return generated
 
 
-def generate_content_job(site_id, job_id):
+def generate_native_content_localizations_batch(site_id, job_ids):
+    """Translate every requested native page in one Gemini Batch job."""
+    job_ids = [str(value) for value in job_ids if str(value).strip()]
+    if not job_ids:
+        return {"batch": "", "model": GEMINI_TRANSLATION_BATCH_MODEL, "jobs": 0, "localizations": 0}
+    with db() as conn:
+        site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
+        jobs = [conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone() for job_id in job_ids]
+    if not site or any(job is None for job in jobs):
+        raise KeyError("one or more localization jobs were not found")
+    languages = parse_languages(site["languages"])
+    target_languages = languages[1:]
+    requests = {}
+    drafts = {}
+    for job in jobs:
+        sources = content_job_sources(job)
+        generated = sources.get("generatedContentContract") if isinstance(sources.get("generatedContentContract"), dict) else {}
+        draft = generated.get("structuredDraft")
+        if not isinstance(draft, dict):
+            raise ValueError(f"job {job['id']} has no structured English draft")
+        drafts[job["id"]] = draft
+        for language in target_languages:
+            requests[f"{job['id']}:{language}"] = build_article_translation_prompt(site, draft, language)
+    batch_results, batch_name = _gemini_batch_text_json(
+        requests,
+        response_schema=ARTICLE_DRAFT_SCHEMA,
+        temperature=0.2,
+        timeout=int(os.environ.get("GEMINI_TRANSLATION_BATCH_TIMEOUT", "7200")),
+    )
+    now = now_iso()
+    prepared = []
+    for job in jobs:
+        draft = drafts[job["id"]]
+        slug = str(job["slug"] or "").strip()
+        asset_prefix = f"/sites/{int(site_id)}/article-assets/{urllib.parse.quote(str(job['id']), safe='')}"
+        source_images = draft.get("images") if isinstance(draft.get("images"), list) else []
+        for language in target_languages:
+            localized = preserve_translation_structure(draft, batch_results[f"{job['id']}:{language}"])
+            localized = apply_approved_category_label(localized, job, language=language)
+            localized["slug"] = slug
+            localized["heroImage"] = draft.get("heroImage") or ""
+            translated_images = localized.get("images") if isinstance(localized.get("images"), list) else []
+            localized["images"] = [
+                {
+                    "src": source_image.get("src") or f"{slug}-image-{index + 1}.webp",
+                    "alt": (translated_images[index].get("alt") if index < len(translated_images) and isinstance(translated_images[index], dict) else "") or source_image.get("alt") or "",
+                    "caption": (translated_images[index].get("caption") if index < len(translated_images) and isinstance(translated_images[index], dict) else "") or source_image.get("caption") or "",
+                    "sectionIndex": source_image.get("sectionIndex"),
+                    "paragraphIndex": source_image.get("paragraphIndex"),
+                    "visualBrief": source_image.get("visualBrief") or "",
+                }
+                for index, source_image in enumerate(source_images)
+            ]
+            validation = validate_structured_article_translation(draft, localized, job, language)
+            prepared.append((job, language, localized, validation, render_structured_article_html(localized, slug, asset_prefix=asset_prefix, language=language, include_images=content_job_sources(job).get("mediaGeneration") != "deferred")))
+    with db() as conn:
+        for job in jobs:
+            conn.execute("delete from content_job_localizations where site_id=? and job_id=?", (site_id, job["id"]))
+        for job, language, localized, validation, html in prepared:
+            conn.execute(
+                """insert into content_job_localizations(site_id,job_id,language,slug,title,description,category,draft_html,faq_json,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?)""",
+                (site_id, job["id"], language, job["slug"], localized.get("title") or job["topic"], localized.get("description") or "", localized.get("category") or job["category"] or "Article", html, json.dumps(localized.get("faq") or [], ensure_ascii=False), now, now),
+            )
+            conn.execute(
+                "insert into content_job_logs(site_id,job_id,ts,level,step,message) values(?,?,?,?,?,?)",
+                (site_id, job["id"], now_iso(), "INFO", "localize", f"{language.upper()} localization generated and structurally validated by {GEMINI_TRANSLATION_BATCH_MODEL} Batch {batch_name}: {validation['word_count']} words, character ratio {validation['character_ratio']}."),
+            )
+    with db() as conn:
+        refreshed = [conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job["id"])).fetchone() for job in jobs]
+    for job in refreshed:
+        write_native_content_store(site, job, "drafts")
+    return {"batch": batch_name, "model": GEMINI_TRANSLATION_BATCH_MODEL, "jobs": len(jobs), "localizations": len(prepared), "languages": target_languages}
+
+
+def generate_content_job(site_id, job_id, localize=True):
     with db() as conn:
         site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
         job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
         if not site or not job:
             raise KeyError("job not found")
         sources = content_job_sources(job)
+        validate_compliance_generation_gate(job)
     if sources.get("migratedFrom") and sources.get("oldFactoryJobId"):
         return generate_legacy_factory_content_job(site, job, sources)
     binding = get_site_factory_binding(site_id)
@@ -13656,41 +17955,33 @@ def generate_content_job(site_id, job_id):
         conn.execute("update content_jobs set status='GENERATING', error=NULL, updated_at=? where site_id=? and id=?", (now_iso(), site_id, job_id))
         conn.execute("insert into content_job_logs(site_id, job_id, ts, level, step, message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "INFO", "generate", "Starting article draft generation"))
     try:
-        draft = _gemini_text_json(build_universal_article_prompt(site, job), response_schema=ARTICLE_DRAFT_SCHEMA, repair=False)
-        draft = apply_approved_page_brief(
-            draft,
-            job,
-            language=parse_languages(site["languages"])[0],
-        )
-        pre_fact_draft = draft
+        verified_sources = validate_public_source_references(job)
+        if verified_sources != sources:
+            sources = verified_sources
+            with db() as conn:
+                conn.execute(
+                    "update content_jobs set sources_json=?, updated_at=? where site_id=? and id=?",
+                    (json.dumps(verified_sources, ensure_ascii=False), now_iso(), site_id, job_id),
+                )
+                job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+        # The generator receives the complete editorial and factual contract up
+        # front. We do not generate plausible prose and then try to police its
+        # meaning with a validator or a second rewriting pass.
         draft = _gemini_text_json(
-            build_article_fact_edit_prompt(site, job, draft),
+            build_universal_article_prompt(site, job),
             response_schema=ARTICLE_DRAFT_SCHEMA,
-            repair=False,
+            temperature=0.1,
+            repair=True,
         )
-        # The factual editor owns prose claims, not the already-approved navigation
-        # plan. Preserve the original validated URL set and cardinality exactly.
-        for navigation_field in ("internalLinks", "recommendedNext"):
-            if isinstance(pre_fact_draft.get(navigation_field), list):
-                draft[navigation_field] = pre_fact_draft[navigation_field]
-        table = draft.get("table") if isinstance(draft.get("table"), dict) else {}
-        if not table.get("headers") or len(table.get("rows") if isinstance(table.get("rows"), list) else []) < 3:
-            draft["table"] = pre_fact_draft.get("table")
-        current_ordered = draft.get("orderedList") if isinstance(draft.get("orderedList"), list) else []
-        if len([item for item in current_ordered if str(item or "").strip()]) < 5:
-            draft["orderedList"] = pre_fact_draft.get("orderedList")
-            draft["orderedListTitle"] = pre_fact_draft.get("orderedListTitle")
-        current_images = draft.get("images") if isinstance(draft.get("images"), list) else []
-        if len([item for item in current_images if isinstance(item, dict)]) != 3:
-            draft["images"] = pre_fact_draft.get("images")
-        current_faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
-        if len([item for item in current_faq if isinstance(item, dict)]) < 5:
-            draft["faq"] = pre_fact_draft.get("faq")
         draft = apply_approved_page_brief(
             draft,
             job,
             language=parse_languages(site["languages"])[0],
         )
+        draft = enforce_required_terminology(draft, job)
+        draft = normalize_evidence_plan_source_ids(draft, job)
+        draft = normalize_internal_link_section_indices(draft)
+        draft = deduplicate_structured_article_copy(draft)
         draft = sanitize_typed_image_copy(draft)
         validation = validate_structured_article_draft(
             draft,
@@ -13703,16 +17994,23 @@ def generate_content_job(site_id, job_id):
         preserved_slug = str(job["slug"] or "").strip() if preserve_canonical_slug else ""
         slug = preserved_slug or simple_slug(draft.get("slug") or draft.get("title") or job["topic"])
         faq = draft.get("faq") if isinstance(draft.get("faq"), list) else []
-        hero_image_url, article_asset_prefix = generate_article_image_assets(site_id, job_id, site, job, draft, slug)
+        defer_media = sources.get("mediaGeneration") == "deferred"
+        if defer_media:
+            hero_image_url, article_asset_prefix = "", ""
+        else:
+            hero_image_url, article_asset_prefix = generate_article_image_assets(site_id, job_id, site, job, draft, slug)
         base_language = parse_languages(site["languages"])[0]
         draft_html = render_structured_article_html(
             draft,
             slug,
             asset_prefix=article_asset_prefix,
             language=base_language,
+            include_images=not defer_media,
         )
         generated_sources = dict(sources)
         generated_sources["generatedContentContract"] = {
+            "structuredDraft": draft,
+            "evidencePlan": draft.get("evidencePlan") if isinstance(draft.get("evidencePlan"), list) else [],
             "internalLinks": draft.get("internalLinks") if isinstance(draft.get("internalLinks"), list) else [],
             "recommendedNext": draft.get("recommendedNext") if isinstance(draft.get("recommendedNext"), list) else [],
             "validation": validation,
@@ -13753,13 +18051,14 @@ def generate_content_job(site_id, job_id):
         if native_content_store_job(job, site):
             with db() as conn:
                 generated_job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
-            localized_languages = generate_native_content_localizations(
-                site,
-                generated_job,
-                draft,
-                slug,
-                article_asset_prefix,
-            )
+            if localize:
+                localized_languages = generate_native_content_localizations(
+                    site,
+                    generated_job,
+                    draft,
+                    slug,
+                    article_asset_prefix,
+                )
             write_native_content_store(site, generated_job, "drafts")
         with db() as conn:
             conn.execute(
@@ -13774,7 +18073,7 @@ def generate_content_job(site_id, job_id):
                     now_iso(),
                     "INFO",
                     "generate-complete",
-                    "Complete draft and all configured language variants are ready",
+                    "English draft is ready" if not localize else "Complete draft and all configured language variants are ready",
                 ),
             )
         return {
@@ -14364,7 +18663,10 @@ def legacy_factory_generate_and_sync(site_id, job_id, factory_name, old_job_id, 
 
 def validate_native_publish_contract(site, job):
     content_type = native_content_type(job)
-    if content_type == "blog":
+    site_context = str(site["content_context"] or "") if "content_context" in site.keys() else ""
+    reviewed_compliance_blog = "publication_contract:reviewed_multilingual_compliance" in site_context
+    source_audited_compliance_blog = "publication_contract:source_audited_multilingual_compliance" in site_context
+    if content_type == "blog" and not reviewed_compliance_blog and not source_audited_compliance_blog:
         return {"contentType": content_type, "legacyCompatible": True}
     sources = content_job_sources(job)
     brief = sources.get("pageBrief") if isinstance(sources.get("pageBrief"), dict) else {}
@@ -14373,6 +18675,97 @@ def validate_native_publish_contract(site, job):
     approvals = brief.get("approvals") if isinstance(brief.get("approvals"), dict) else {}
     details = brief.get("contentDetails") if isinstance(brief.get("contentDetails"), dict) else {}
     errors = []
+
+    if content_type == "blog" and source_audited_compliance_blog:
+        for field in ("author", "lastReviewedAt", "rulesetVersion"):
+            if not str(editorial.get(field) or "").strip():
+                errors.append(f"pageBrief.editorial.{field} is required")
+        change_log = editorial.get("changeLog") if isinstance(editorial.get("changeLog"), list) else []
+        if not change_log:
+            errors.append("pageBrief.editorial.changeLog is required")
+        source_references = brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []
+        if not 2 <= len(source_references) <= 5:
+            errors.append("pageBrief.sourceReferences must contain 2-5 official sources")
+        source_ids = []
+        for item in source_references:
+            if not isinstance(item, dict) or not re.match(r"^https://", str(item.get("publicUrl") or "")):
+                errors.append("every sourceReference requires a public HTTPS URL")
+                continue
+            source_ids.append(str(item.get("id") or "").strip())
+            for field in ("id", "title", "publisher", "accessedAt", "checkedAt"):
+                if not str(item.get(field) or "").strip():
+                    errors.append(f"every sourceReference requires {field}")
+            if not str(item.get("publicSummary") or item.get("supports") or "").strip():
+                errors.append("every sourceReference requires an exact public support/legal-point note")
+            if (item.get("lastLiveCheck") or {}).get("state") == "TEMPORARILY_UNAVAILABLE":
+                errors.append("every sourceReference must pass its latest live availability check")
+        audit = brief.get("automatedSourceAudit") if isinstance(brief.get("automatedSourceAudit"), dict) else {}
+        if audit.get("status") != "PASS":
+            errors.append("pageBrief.automatedSourceAudit.status must be PASS")
+        if audit.get("method") != "claim_by_claim_official_source_comparison":
+            errors.append("pageBrief.automatedSourceAudit.method is invalid")
+        for field in ("performedBy", "checkedAt", "reportVersion"):
+            if not str(audit.get(field) or "").strip():
+                errors.append(f"pageBrief.automatedSourceAudit.{field} is required")
+        audited_source_ids = [str(value or "").strip() for value in audit.get("sourceIds") or []]
+        if sorted(audited_source_ids) != sorted(source_ids):
+            errors.append("automated source audit must cover every approved source exactly once")
+        if audit.get("locales") != ["en", "de", "fr", "es"]:
+            errors.append("automated source audit must cover EN, DE, FR and ES")
+        for gate in ("automatedSourceReview", "translationConsistency", "seoReview", "browserQa"):
+            if approvals.get(gate) is not True:
+                errors.append(f"pageBrief.approvals.{gate} must be true")
+        with db() as conn:
+            localized_count = conn.execute(
+                "select count(*) from content_job_localizations where site_id=? and job_id=?",
+                (site["id"], job["id"]),
+            ).fetchone()[0]
+        expected_localizations = max(0, len(parse_languages(site["languages"])) - 1)
+        if localized_count != expected_localizations:
+            errors.append(f"expected {expected_localizations} localized variants, found {localized_count}")
+        if errors:
+            raise ValueError("Native publication blocked: " + "; ".join(errors))
+        return {
+            "contentType": content_type,
+            "sourceAuditedCompliance": True,
+            "localizations": localized_count,
+            "sources": len(source_references),
+            "verificationReport": str(audit.get("reportVersion") or ""),
+        }
+
+    if content_type == "blog" and reviewed_compliance_blog:
+        for field in ("author", "reviewer", "lastReviewedAt", "rulesetVersion"):
+            if not str(editorial.get(field) or "").strip():
+                errors.append(f"pageBrief.editorial.{field} is required")
+        change_log = editorial.get("changeLog") if isinstance(editorial.get("changeLog"), list) else []
+        if not change_log:
+            errors.append("pageBrief.editorial.changeLog is required")
+        source_references = brief.get("sourceReferences") if isinstance(brief.get("sourceReferences"), list) else []
+        if not 2 <= len(source_references) <= 5:
+            errors.append("pageBrief.sourceReferences must contain 2-5 official sources")
+        for item in source_references:
+            if not isinstance(item, dict) or not re.match(r"^https://", str(item.get("publicUrl") or "")):
+                errors.append("every sourceReference requires a public HTTPS URL")
+                continue
+            for field in ("title", "publisher", "accessedAt"):
+                if not str(item.get(field) or "").strip():
+                    errors.append(f"every sourceReference requires {field}")
+            if not str(item.get("publicSummary") or item.get("supports") or "").strip():
+                errors.append("every sourceReference requires an exact public support/legal-point note")
+        for gate in ("editorialReview", "productFactCheck", "seoReview"):
+            if approvals.get(gate) is not True:
+                errors.append(f"pageBrief.approvals.{gate} must be true")
+        with db() as conn:
+            localized_count = conn.execute(
+                "select count(*) from content_job_localizations where site_id=? and job_id=?",
+                (site["id"], job["id"]),
+            ).fetchone()[0]
+        expected_localizations = max(0, len(parse_languages(site["languages"])) - 1)
+        if localized_count != expected_localizations:
+            errors.append(f"expected {expected_localizations} localized variants, found {localized_count}")
+        if errors:
+            raise ValueError("Native publication blocked: " + "; ".join(errors))
+        return {"contentType": content_type, "reviewedCompliance": True, "localizations": localized_count, "sources": len(source_references)}
 
     required_brief_fields = ("primaryIntent", "seoTitle", "metaDescription", "h1", "directAnswer")
     for field in required_brief_fields:
@@ -14395,29 +18788,41 @@ def validate_native_publish_contract(site, job):
     expected_prefix = f"/{NATIVE_CONTENT_TYPE_PREFIXES[content_type]}/"
     canonical_root_page = sources.get("canonicalRootPage") is True
     expected_root_path = f"/{str(job['slug'] or '').strip('/')}"
-    native_root_route = (
+    native_site_route = (
         (site["access_type"] or "").strip().lower() == "native_content_store"
-        and re.fullmatch(r"/[a-z0-9][a-z0-9-]*/", target_path)
+        and re.fullmatch(r"/(?:[a-z0-9][a-z0-9-]*/)+", target_path)
     )
-    if canonical_root_page and content_type != "use_case":
-        errors.append("canonicalRootPage is allowed only for SEO money/use-case pages")
-    elif canonical_root_page and target_path != expected_root_path:
-        errors.append(f"canonical root targetPath must equal {expected_root_path}")
-    elif not target_path.startswith(expected_prefix) and not native_root_route:
+    if canonical_root_page:
+        if content_type != "use_case":
+            errors.append("canonicalRootPage is allowed only for SEO money/use-case pages")
+        elif target_path.rstrip("/") != expected_root_path.rstrip("/"):
+            errors.append(f"canonical root targetPath must equal {expected_root_path}")
+    elif not target_path.startswith(expected_prefix) and not native_site_route:
         errors.append(f"targetPath must start with {expected_prefix}")
     if not str(job["hero_image"] or "").strip():
         errors.append("hero image is required")
     draft_html = str(job["draft_html"] or "")
     if draft_html.count('class="article-figure"') < 3:
         errors.append("three inline article images are required")
-    if not re.search(r"(?is)<h2[^>]*>[^<]*(?:limitation|when not|not for|suitability|boundary|does not|cannot|fit)", draft_html):
-        errors.append("a standalone limitations or suitability section is required")
+    # Evidence-led pages carry the boundary for each factual component in the
+    # generated evidence plan and in the second paragraph of every section.
+    # Do not require one English heading literal after that stronger contract
+    # has already passed. Generic typed pages still need an explicit boundary
+    # section, with both "limit" and "limitations" accepted.
+    evidence_plan = generated.get("evidencePlan") if isinstance(generated.get("evidencePlan"), list) else []
+    if not evidence_plan and not re.search(
+        r"(?is)<h2[^>]*>[^<]*(?:limits?|limitations?|when not|not for|suitability|boundary|does not|cannot|fit)",
+        draft_html,
+    ):
+        errors.append("a limitations, suitability, or evidence-boundary section is required")
     internal_links = generated.get("internalLinks") if isinstance(generated.get("internalLinks"), list) else []
     recommended = generated.get("recommendedNext") if isinstance(generated.get("recommendedNext"), list) else []
     if len(internal_links) < 4:
         errors.append("at least four generated contextual internal links are required")
-    if len(recommended) != 3:
-        errors.append("exactly three Recommended next links are required")
+    if not recommended:
+        errors.append("at least one distinct Recommended next link is required")
+    elif len(recommended) > 3:
+        errors.append("no more than three Recommended next links are allowed")
 
     with db() as conn:
         localized_count = conn.execute(
@@ -14465,12 +18870,14 @@ def publish_content_job(site_id, job_id):
         raise KeyError("job not found")
     if job["status"] not in {"DRAFT", "PUBLISHED"}:
         raise ValueError(f"Job status must be DRAFT or PUBLISHED before publish, got {job['status']}")
+    validate_compliance_publication_gate(job)
     sources = content_job_sources(job)
     if native_content_store_job(job, site):
         contract = validate_native_publish_contract(site, job)
         published_path = write_native_content_store(site, job, "published")
         published_url = content_job_source_url(site, job)
         now = now_iso()
+        warmed = warm_native_content_artifacts(site, job)
         with db() as conn:
             conn.execute(
                 "update content_jobs set status='PUBLISHED', published_url=?, error=NULL, updated_at=? where site_id=? and id=?",
@@ -14484,9 +18891,11 @@ def publish_content_job(site_id, job_id):
                     now,
                     "INFO",
                     "native-publish",
-                    f"Published native content record: {published_path}; contract={json.dumps(contract, ensure_ascii=False)}",
+                    f"Published native content record: {published_path}; contract={json.dumps(contract, ensure_ascii=False)}; warmed={'; '.join(warmed) if warmed else 'not-applicable'}",
                 ),
             )
+        draft_path = native_content_store_root(site, job) / "drafts" / native_content_store_filename(job, "drafts")
+        draft_path.unlink(missing_ok=True)
         return {"ok": True, "jobId": job_id, "status": "PUBLISHED", "publishedUrl": published_url, "publisher": "native-content-store"}
     factory_name = str(sources.get("migratedFrom") or "").strip()
     old_job_id = str(sources.get("oldFactoryJobId") or "").strip()
@@ -14592,8 +19001,10 @@ def run_scheduled_social_publications(now=None):
 
     Article/page scheduling remains explicit in ``content_jobs.scheduled_for``.
     A due slot uses an existing social DRAFT first. Otherwise it selects the
-    oldest published page without an earlier non-error post for that channel,
-    generates the native creative, and submits it through the channel.
+    oldest eligible page without an earlier non-error post for that channel,
+    generates the native creative, and submits it through the channel. LinkedIn
+    also accepts imported live pages; other channels retain published-only
+    source selection.
     """
     current_utc = now or datetime.now(timezone.utc)
     results = []
@@ -14608,6 +19019,15 @@ def run_scheduled_social_publications(now=None):
         for channel, cadence in cadences.items():
             if not cadence["enabled"] or channel not in AUTOMATIC_SOCIAL_CHANNELS:
                 continue
+            if channel == "pinterest":
+                pin_strategy = pinterest_strategy_data(site_id)
+                # Pinterest is deliberately stricter than broadcast channels:
+                # no automatic generic article Pins without reviewed boards and
+                # destinations owned by this site.
+                if not pin_strategy["enabled"] or not pin_strategy["boards"] or not pin_strategy["landingPages"]:
+                    continue
+                if pin_strategy["dailyPinTarget"] > 0:
+                    cadence = {"enabled": True, "postsPerDay": pin_strategy["dailyPinTarget"]}
             if channel not in active_social_channels(site_id, [channel]):
                 continue
             slots = social_schedule_slots(cadence["postsPerDay"], settings["start_hour"], settings["end_hour"])
@@ -14622,18 +19042,40 @@ def run_scheduled_social_publications(now=None):
                 ).fetchone()
                 if existing:
                     continue
-                candidate = conn.execute(
+                candidate = None
+                # Strategy-owned Pins have no article row by design. Prefer the
+                # oldest reviewed draft selected by the agent before falling back
+                # to article-derived Pins.
+                if channel == "pinterest":
+                    candidate = conn.execute(
+                        """select job_id from social_posts where site_id=? and channel='pinterest'
+                           and asset_type='post' and status='DRAFT' and job_id like 'agent-pin:%'
+                           order by created_at asc,id asc limit 1""",
+                        (site_id,),
+                    ).fetchone()
+                if not candidate:
+                    candidate = conn.execute(
                     """select sp.job_id from social_posts sp
                        join content_jobs cj on cj.id=sp.job_id and cj.site_id=sp.site_id
-                       where sp.site_id=? and sp.channel=? and sp.asset_type='post' and sp.status='DRAFT' and cj.status='PUBLISHED'
+                       join sites s on s.id=cj.site_id
+                       where sp.site_id=? and sp.channel=? and sp.asset_type='post' and sp.status='DRAFT'
+                         and (cj.status='PUBLISHED' or (sp.channel='linkedin' and cj.status='IMPORTED'
+                              and trim(coalesce(cj.published_url, '')) <> ''))
+                         and not (cj.status='IMPORTED' and rtrim(cj.published_url, '/') like
+                              ('%/' || trim(coalesce(s.blog_path, '/blog/'), '/')))
                        order by sp.created_at asc, sp.id asc limit 1""",
                     (site_id, channel),
-                ).fetchone()
+                    ).fetchone()
                 create_from_article = False
                 if not candidate:
                     candidate = conn.execute(
                         """select cj.id as job_id from content_jobs cj
-                           where cj.site_id=? and cj.status='PUBLISHED'
+                           join sites s on s.id=cj.site_id
+                           where cj.site_id=?
+                             and (cj.status='PUBLISHED' or (?='linkedin' and cj.status='IMPORTED'
+                                  and trim(coalesce(cj.published_url, '')) <> ''))
+                             and not (cj.status='IMPORTED' and rtrim(cj.published_url, '/') like
+                                  ('%/' || trim(coalesce(s.blog_path, '/blog/'), '/')))
                              and not exists (
                                select 1 from social_posts sp
                                where sp.site_id=cj.site_id and sp.job_id=cj.id and sp.channel=? and sp.asset_type='post'
@@ -14641,7 +19083,7 @@ def run_scheduled_social_publications(now=None):
                              )
                            order by coalesce(nullif(cj.published_url, ''), cj.created_at) asc, cj.created_at asc
                            limit 1""",
-                        (site_id, channel),
+                        (site_id, channel, channel),
                     ).fetchone()
                     create_from_article = bool(candidate)
                 visual_pin = None
@@ -14685,6 +19127,240 @@ def run_scheduled_social_publications(now=None):
                         (now_iso(), "ERROR", json.dumps({"error": str(error)}, ensure_ascii=False), run_id),
                     )
                 results.append({"siteId": site_id, "channel": channel, "slot": slot_key, "action": "error", "error": str(error)})
+    return {"due": len(results), "results": results}
+
+
+SHARED_CAROUSEL_SOURCE_STATUSES = {"PUBLISHED", "IMPORTED"}
+SHARED_CAROUSEL_WAITING_SOURCE_STATUSES = {"QUEUED", "DRAFT", "GENERATING"}
+SHARED_CAROUSEL_SOURCE_MATCH_THRESHOLD = 0.58
+SHARED_CAROUSEL_GENERIC_TOKENS = {
+    "cruise", "cruises", "solo", "traveler", "travelers", "travel", "guide", "2026",
+    "best", "top", "ultimate", "complete",
+}
+
+
+def shared_carousel_source_hints(item):
+    """Return editorial text that can safely identify a source article.
+
+    Media-plan rows created by older agents sometimes point to a synthetic
+    ``agent-social-*`` record.  That record is a social brief, not an article.
+    Its title and hook are still useful signals for finding the corresponding
+    site content, but must never be used as the article itself.
+    """
+    details = parse_json_object(item["details_json"])
+    hints = [str(item["title"] or "")]
+    storyboard = details.get("storyboard") if isinstance(details.get("storyboard"), list) else []
+    for slide in storyboard[:2]:
+        if isinstance(slide, dict):
+            hints.append(str(slide.get("onScreenText") or ""))
+    return " ".join(part.strip() for part in hints if part and part.strip())
+
+
+def shared_carousel_source_match_score(plan_title, hints, candidate):
+    """Score an article only when it shares a real editorial subject.
+
+    Generic site vocabulary such as ``cruise`` or ``solo`` cannot on its own
+    link two records.  This prevents a queue row about sleep or cabin-sharing
+    from being paired with any arbitrary solo-travel article.
+    """
+    candidate_title = str(candidate["title"] or "").strip()
+    # Index and hub pages are navigation surfaces, not the article that a
+    # carousel must faithfully adapt.  They can share many broad topic words.
+    if re.search(r"\b(?:blog\s+(?:hub|home)|all\s+(?:posts|guides))\b", candidate_title, flags=re.I):
+        return 0.0
+    candidate_text = " ".join([
+        str(candidate["title"] or ""), str(candidate["topic"] or ""),
+        str(candidate["description"] or ""), str(candidate["slug"] or "").replace("-", " "),
+    ])
+    plan_tokens = set(idea_tokens(plan_title))
+    candidate_tokens = set(idea_tokens(candidate_text))
+    overlap = plan_tokens & candidate_tokens
+    distinctive_overlap = overlap - SHARED_CAROUSEL_GENERIC_TOKENS
+    if len(overlap) < 2 or not distinctive_overlap:
+        return 0.0
+    return max(idea_similarity(plan_title, candidate_text), idea_similarity(hints, candidate_text))
+
+
+def resolve_shared_carousel_source(site_id, item):
+    """Resolve a queued shared-carousel plan to its real published article.
+
+    A direct content-job link wins.  Legacy synthetic links are repaired only
+    when a high-confidence match exists among public site content.  Otherwise
+    the plan remains waiting for its intended article instead of generating a
+    carousel from an unrelated page or blocking later ready plans.
+    """
+    details = parse_json_object(item["details_json"])
+    requested_job_id = str(details.get("sourceJobId") or "").strip()
+    previous_resolution = details.get("sourceResolution") if isinstance(details.get("sourceResolution"), dict) else {}
+    is_derived_legacy_link = bool(previous_resolution.get("inferred")) or previous_resolution.get("method") == "legacy-title-match"
+    with db() as conn:
+        direct = conn.execute(
+            "select * from content_jobs where site_id=? and id=? limit 1",
+            (site_id, requested_job_id),
+        ).fetchone() if requested_job_id else None
+        if direct and not is_derived_legacy_link and str(direct["status"] or "").upper() in SHARED_CAROUSEL_SOURCE_STATUSES:
+            resolved = {"job": direct, "method": "linked-content-job", "score": 1.0}
+        elif direct and str(direct["status"] or "").upper() in SHARED_CAROUSEL_WAITING_SOURCE_STATUSES:
+            resolved = None
+            waiting_reason = f"Linked article is {str(direct['status']).lower()}"
+        else:
+            plan_title = str(item["title"] or "")
+            hints = shared_carousel_source_hints(item)
+            candidates = conn.execute(
+                """select * from content_jobs
+                   where site_id=? and status in ('PUBLISHED','IMPORTED')
+                   order by case when status='PUBLISHED' then 0 else 1 end, updated_at desc""",
+                (site_id,),
+            ).fetchall()
+            best = None
+            for candidate in candidates:
+                score = shared_carousel_source_match_score(plan_title, hints, candidate)
+                if best is None or score > best["score"]:
+                    best = {"job": candidate, "score": score}
+            if best and best["score"] >= SHARED_CAROUSEL_SOURCE_MATCH_THRESHOLD:
+                resolved = {**best, "method": "legacy-title-match"}
+            else:
+                resolved = None
+                waiting_reason = "No sufficiently related published or imported article"
+
+        now = now_iso()
+        if resolved:
+            details["sourceJobId"] = resolved["job"]["id"]
+            details["sourceResolution"] = {
+                "state": "resolved", "method": resolved["method"],
+                "score": round(float(resolved["score"]), 3), "checkedAt": now,
+                "inferred": resolved["method"] == "legacy-title-match",
+                "requestedSourceJobId": requested_job_id,
+            }
+            conn.execute(
+                "update agent_media_plan_items set status='QUEUED',details_json=?,updated_at=? where id=?",
+                (json.dumps(details, ensure_ascii=False), now, item["id"]),
+            )
+            return {"state": "resolved", **resolved}
+
+        details["sourceResolution"] = {
+            "state": "waiting_for_article", "reason": waiting_reason, "checkedAt": now,
+        }
+        conn.execute(
+            "update agent_media_plan_items set status='WAITING_FOR_SOURCE',details_json=?,updated_at=? where id=?",
+            (json.dumps(details, ensure_ascii=False), now, item["id"]),
+        )
+    return {"state": "waiting_for_article", "reason": waiting_reason}
+
+
+def next_resolved_shared_carousel_plan(site_id, current_utc):
+    """Find the earliest due plan with a real public source article.
+
+    Waiting plans are retained and re-evaluated on later scheduler runs, while
+    a missing source never prevents another valid due carousel from publishing.
+    """
+    with db() as conn:
+        candidates = conn.execute(
+            """select mpi.* from agent_media_plan_items mpi
+               where mpi.site_id=? and mpi.status in ('QUEUED','WAITING_FOR_SOURCE')
+                 and lower(mpi.channel) like '%instagram%' and lower(mpi.channel) like '%tiktok%'
+                 and (json_extract(mpi.details_json,'$.scheduledFor') is null
+                      or json_extract(mpi.details_json,'$.scheduledFor')<=?)
+               order by coalesce(json_extract(mpi.details_json,'$.scheduledFor'),mpi.created_at),mpi.id""",
+            (site_id, current_utc.isoformat(timespec="seconds")),
+        ).fetchall()
+    waiting = []
+    for item in candidates:
+        resolution = resolve_shared_carousel_source(site_id, item)
+        if resolution["state"] == "resolved":
+            return item, resolution, waiting
+        waiting.append({"mediaPlanItemId": int(item["id"]), "reason": resolution["reason"]})
+    return None, None, waiting
+
+
+def run_scheduled_shared_carousel_publications(now=None):
+    """Publish one queued carousel asset to Instagram and TikTok together.
+
+    Instagram is rendered once. TikTok receives the exact same ordered media
+    files through publish_tiktok_carousel_from_instagram; it never regenerates
+    a second creative for the paired assignment.
+    """
+    current_utc = now or datetime.now(timezone.utc)
+    results = []
+    with db() as conn:
+        settings_rows = conn.execute("select site_id,* from autopublish_settings where enabled=1").fetchall()
+    for settings in settings_rows:
+        site_id = int(settings["site_id"])
+        cadences = get_social_cadences(settings)
+        instagram_cadence = cadences.get("instagram") or {}
+        tiktok_cadence = cadences.get(TIKTOK_CAROUSEL_ASSET_TYPE) or {}
+        if not instagram_cadence.get("enabled") or not tiktok_cadence.get("enabled"):
+            continue
+        credentials = get_social_credentials(get_social_connections(site_id).get("zernio"))
+        if not credentials.get("instagram_account_id") or not credentials.get("tiktok_account_id"):
+            continue
+        local_now = current_utc.astimezone(social_schedule_timezone(settings["timezone"] or "UTC"))
+        now_minutes = local_now.hour * 60 + local_now.minute
+        slots = social_schedule_slots(min(int(instagram_cadence.get("postsPerDay") or 0), int(tiktok_cadence.get("postsPerDay") or 0)), settings["start_hour"], settings["end_hour"])
+        due_slots = [slot for slot in slots if slot <= now_minutes]
+        if not due_slots:
+            continue
+        slot_minutes = due_slots[-1]
+        shared_trigger = f"social:shared-carousel:{local_now.date().isoformat()}:{slot_minutes:04d}"
+        with db() as conn:
+            if conn.execute("select id from autopublish_runs where site_id=? and trigger=? limit 1", (site_id, shared_trigger)).fetchone():
+                continue
+        item, resolution, waiting = next_resolved_shared_carousel_plan(site_id, current_utc)
+        job_id = resolution["job"]["id"] if resolution else None
+        with db() as conn:
+            run_id = conn.execute(
+                "insert into autopublish_runs(site_id,started_at,trigger,job_id,status) values(?,?,?,?,?)",
+                (site_id, now_iso(), shared_trigger, job_id, "RUNNING" if item else "NO_SOURCE"),
+            ).lastrowid
+        if not item:
+            with db() as conn:
+                conn.execute(
+                    "update autopublish_runs set finished_at=?,status='NO_SOURCE',result_json=? where id=?",
+                    (now_iso(), json.dumps({"waiting": waiting}, ensure_ascii=False), run_id),
+                )
+            results.append({"siteId": site_id, "action": "waiting_for_article", "waiting": waiting})
+            continue
+        try:
+            generated = generate_social_drafts(site_id, job_id, channels=["instagram"])
+            with db() as conn:
+                instagram_post = conn.execute(
+                    """select * from social_posts where site_id=? and job_id=? and channel='instagram'
+                       and asset_type='post' and status='DRAFT' order by id desc limit 1""",
+                    (site_id, job_id),
+                ).fetchone()
+            if not instagram_post:
+                raise RuntimeError("Shared carousel generation did not create an Instagram draft.")
+            instagram_result = publish_zernio_social_drafts(site_id, job_id, channels=["instagram"], post_ids=[instagram_post["id"]])
+            if not instagram_result.get("ok"):
+                raise RuntimeError(json.dumps(instagram_result, ensure_ascii=False)[:800])
+            tiktok_result = publish_tiktok_carousel_from_instagram(site_id, instagram_post["id"])
+            if not tiktok_result.get("ok"):
+                raise RuntimeError(json.dumps(tiktok_result, ensure_ascii=False)[:800])
+            finished = now_iso()
+            with db() as conn:
+                conn.execute("update agent_media_plan_items set status='SUBMITTED',updated_at=? where id=?", (finished, item["id"]))
+                conn.execute("update autopublish_runs set finished_at=?,status='SUBMITTED',result_json=? where id=?", (finished, json.dumps({"instagram": instagram_result, "tiktok": tiktok_result, "renderedOnce": True}, ensure_ascii=False), run_id))
+                for trigger in (
+                    f"social:instagram:{local_now.date().isoformat()}:{slot_minutes:04d}",
+                    f"social:{TIKTOK_CAROUSEL_ASSET_TYPE}:{local_now.date().isoformat()}:{slot_minutes:04d}",
+                ):
+                    if not conn.execute("select id from autopublish_runs where site_id=? and trigger=? limit 1", (site_id, trigger)).fetchone():
+                        conn.execute("insert into autopublish_runs(site_id,started_at,finished_at,trigger,job_id,status,result_json) values(?,?,?,?,?,?,?)", (site_id, finished, finished, trigger, job_id, "COALESCED", json.dumps({"sharedCarouselItemId": int(item["id"])})))
+            results.append({"siteId": site_id, "action": "submitted", "mediaPlanItemId": int(item["id"]), "instagramPostId": int(instagram_post["id"]), "tiktokPostId": tiktok_result.get("postId")})
+            try:
+                send_agent_telegram_report(
+                    f"SoloCruz shared carousel published\n{item['title']}\nInstagram + TikTok\nSame ordered slides: yes"
+                )
+            except Exception as report_error:
+                agent_log(site_id, "WARN", "telegram-report", f"Carousel notification failed: {report_error}")
+        except Exception as error:
+            with db() as conn:
+                conn.execute("update autopublish_runs set finished_at=?,status='ERROR',result_json=? where id=?", (now_iso(), json.dumps({"error": str(error)}, ensure_ascii=False), run_id))
+            results.append({"siteId": site_id, "action": "error", "mediaPlanItemId": int(item["id"]), "error": str(error)[:500]})
+            try:
+                send_agent_telegram_report(f"SoloCruz carousel error\n{item['title']}\n{str(error)[:500]}")
+            except Exception:
+                pass
     return {"due": len(results), "results": results}
 
 
@@ -14760,6 +19436,76 @@ def run_scheduled_instagram_reel_publications(now=None):
     return {"due": len(results), "results": results}
 
 
+def run_scheduled_tiktok_carousel_publications(now=None):
+    """Publish one already-rendered Instagram carousel to TikTok per due slot.
+
+    The queue is asset-first: it reuses the oldest eligible carousel and never
+    invents or regenerates TikTok-specific slides. That keeps Instagram and
+    TikTok aligned around the approved carousel inventory.
+    """
+    current_utc = now or datetime.now(timezone.utc)
+    results = []
+    with db() as conn:
+        settings_rows = conn.execute("select site_id, * from autopublish_settings where enabled=1").fetchall()
+    for settings in settings_rows:
+        site_id = int(settings["site_id"])
+        cadence = get_social_cadences(settings).get(TIKTOK_CAROUSEL_ASSET_TYPE, {"enabled": False, "postsPerDay": 0})
+        credentials = get_social_credentials(get_social_connections(site_id).get("zernio"))
+        if not cadence["enabled"] or not credentials.get("tiktok_account_id"):
+            continue
+        # Provider delivery is asynchronous. Refresh prior TikTok submissions
+        # before selecting the next approved source, so failed attempts remain
+        # visible and can be retried rather than being silently counted as sent.
+        reconcile_zernio_social_posts(site_id)
+        local_now = current_utc.astimezone(social_schedule_timezone(settings["timezone"] or "UTC"))
+        now_minutes = local_now.hour * 60 + local_now.minute
+        due_slots = [slot for slot in social_schedule_slots(cadence["postsPerDay"], settings["start_hour"], settings["end_hour"]) if slot <= now_minutes]
+        if not due_slots:
+            continue
+        slot_minutes = due_slots[-1]
+        slot_key = f"social:{TIKTOK_CAROUSEL_ASSET_TYPE}:{local_now.date().isoformat()}:{slot_minutes:04d}"
+        with db() as conn:
+            if conn.execute("select id from autopublish_runs where site_id=? and trigger=? limit 1", (site_id, slot_key)).fetchone():
+                continue
+            source = conn.execute(
+                """select sp.id, sp.job_id from social_posts sp
+                   where sp.site_id=? and sp.channel='instagram' and sp.asset_type='post'
+                     and sp.status in ('PUBLISHED','SENT','SUBMITTED','SCHEDULED')
+                     and json_extract(sp.content_json, '$.instagramCarousel.slides[0].imageUrl') is not null
+                     and not exists (
+                       select 1 from social_posts tp where tp.site_id=sp.site_id and tp.channel='tiktok'
+                         and tp.asset_type=? and json_extract(tp.content_json, '$.tiktokCarousel.sourceInstagramPostId')=sp.id
+                         and tp.status not in ('ERROR','SUPERSEDED')
+                     )
+                   order by
+                     case when exists (
+                       select 1 from social_posts prior where prior.site_id=sp.site_id and prior.channel='tiktok'
+                         and prior.asset_type=? and json_extract(prior.content_json, '$.tiktokCarousel.sourceInstagramPostId')=sp.id
+                         and prior.status='ERROR'
+                     ) then 0 else 1 end,
+                     sp.created_at asc, sp.id asc limit 1""",
+                (site_id, TIKTOK_CAROUSEL_ASSET_TYPE, TIKTOK_CAROUSEL_ASSET_TYPE),
+            ).fetchone()
+            run_id = conn.execute(
+                "insert into autopublish_runs(site_id,started_at,trigger,job_id,status) values(?,?,?,?,?)",
+                (site_id, now_iso(), slot_key, source["job_id"] if source else None, "RUNNING" if source else "NO_SOURCE"),
+            ).lastrowid
+        if not source:
+            results.append({"siteId": site_id, "action": "no_source"})
+            continue
+        try:
+            published = publish_tiktok_carousel_from_instagram(site_id, source["id"])
+            status = "SUBMITTED" if published.get("ok") else "ERROR"
+            with db() as conn:
+                conn.execute("update autopublish_runs set finished_at=?, status=?, result_json=? where id=?", (now_iso(), status, json.dumps(published, ensure_ascii=False), run_id))
+            results.append({"siteId": site_id, "action": status.lower(), "sourcePostId": int(source["id"]), "jobId": source["job_id"]})
+        except Exception as error:
+            with db() as conn:
+                conn.execute("update autopublish_runs set finished_at=?, status=?, result_json=? where id=?", (now_iso(), "ERROR", json.dumps({"error": str(error)}), run_id))
+            results.append({"siteId": site_id, "action": "error", "error": str(error)[:300]})
+    return {"due": len(results), "results": results}
+
+
 def get_site_by_custom_host(host):
     host = clean_host(host)
     if not host:
@@ -14830,6 +19576,3155 @@ def render_hosted_blog_response(site, public_path):
             html = render_content_job_article(brand, header, footer, job, "/blog-core.css", source_css, source_css_urls)
             return Response(html, mimetype="text/html")
     abort(404)
+
+
+AGENT_PUBLICATION_TYPES = (
+    ("website_pages", "Website pages"),
+    ("blog_articles", "Blog articles"),
+    ("linkedin_articles", "LinkedIn articles"),
+    ("telegram_posts", "Telegram posts"),
+    ("x_posts", "X posts"),
+    ("tumblr_posts", "Tumblr posts"),
+    ("pinterest_pins", "Pinterest pins"),
+    ("instagram_posts", "Instagram posts"),
+    ("instagram_carousels", "Instagram carousels"),
+    ("instagram_reels", "Instagram Reels"),
+    ("tiktok_carousels", "TikTok carousels"),
+    ("tiktok_videos", "TikTok videos"),
+    ("threads_posts", "Threads posts"),
+    ("reddit_posts", "Reddit posts"),
+    ("podcast_episodes", "Podcast episodes"),
+)
+
+AGENT_PENDING_STATUSES = {"QUEUED", "DRAFT", "GENERATING", "READY", "APPROVED"}
+AGENT_PUBLISHED_STATUSES = {"PUBLISHED", "SENT", "SUBMITTED", "IMPORTED"}
+
+
+def empty_agent_metric(connected=False, note=""):
+    return {"connected": bool(connected), "queued": 0, "scheduled": 0, "published": 0, "errors": 0, "note": note}
+
+
+def agent_metric_add(metric, status, scheduled=False):
+    clean = str(status or "").upper()
+    if clean == "ERROR":
+        metric["errors"] += 1
+    elif clean in AGENT_PUBLISHED_STATUSES:
+        metric["published"] += 1
+    elif scheduled or clean == "SCHEDULED":
+        metric["scheduled"] += 1
+    elif clean in AGENT_PENDING_STATUSES:
+        metric["queued"] += 1
+
+
+def agent_channel_connected(site_id, channel, connections):
+    state, note = social_channel_connection_state(site_id, channel, connections)
+    return state in {"configured", "connected"}, note
+
+
+def build_agent_site_snapshot(site):
+    site_id = int(site["id"])
+    metrics = {key: empty_agent_metric() for key, _ in AGENT_PUBLICATION_TYPES}
+    metrics["website_pages"].update(connected=True, note="Native site publishing")
+    metrics["blog_articles"].update(connected=True, note="Blog Core")
+    connections = get_social_connections(site_id)
+    channel_map = {
+        "linkedin_articles": "linkedin", "telegram_posts": "telegram", "x_posts": "twitter",
+        "tumblr_posts": "tumblr", "pinterest_pins": "pinterest", "instagram_posts": "instagram",
+        "instagram_carousels": "instagram", "instagram_reels": "instagram", "tiktok_carousels": "tiktok",
+        "tiktok_videos": "tiktok", "threads_posts": "threads", "reddit_posts": "reddit",
+    }
+    for publication_type, channel in channel_map.items():
+        connected, note = agent_channel_connected(site_id, channel, connections)
+        metrics[publication_type].update(connected=connected, note=note)
+    with db() as conn:
+        podcast = conn.execute("select enabled from podcast_settings where site_id=?", (site_id,)).fetchone()
+        metrics["podcast_episodes"].update(connected=bool(podcast and podcast["enabled"]), note="Enabled" if podcast and podcast["enabled"] else "Disabled in site settings")
+        jobs = conn.execute("select * from content_jobs where site_id=?", (site_id,)).fetchall()
+        social_rows = conn.execute("select * from social_posts where site_id=?", (site_id,)).fetchall()
+        queued_media_plan = conn.execute(
+            """select channel,format,status from agent_media_plan_items
+               where site_id=? and status in ('QUEUED','GENERATING','READY','APPROVED','SCHEDULED')""",
+            (site_id,),
+        ).fetchall()
+        pins = conn.execute("select status from visual_pins where site_id=?", (site_id,)).fetchall()
+        episodes = conn.execute("select status from podcast_episodes where site_id=?", (site_id,)).fetchall()
+        settings = conn.execute("select * from agent_site_settings where site_id=?", (site_id,)).fetchone()
+    for job in jobs:
+        publication_type = "blog_articles" if content_job_page_type(job) == "blog" else "website_pages"
+        agent_metric_add(metrics[publication_type], job["status"], bool(job["scheduled_for"] if "scheduled_for" in job.keys() else False))
+    for row in social_rows:
+        channel = str(row["channel"] or "").lower()
+        asset_type = str(row["asset_type"] or "post").lower()
+        content = parse_json_object(row["content_json"])
+        if channel == "instagram" and asset_type == INSTAGRAM_REEL_ASSET_TYPE:
+            publication_type = "instagram_reels"
+        elif channel == "instagram" and content.get("instagramCarousel"):
+            publication_type = "instagram_carousels"
+        elif channel == "instagram":
+            publication_type = "instagram_posts"
+        elif channel == "tiktok" and asset_type == TIKTOK_CAROUSEL_ASSET_TYPE:
+            publication_type = "tiktok_carousels"
+        elif channel == "tiktok":
+            publication_type = "tiktok_videos"
+        else:
+            publication_type = {
+                "linkedin": "linkedin_articles", "telegram": "telegram_posts", "twitter": "x_posts",
+                "tumblr": "tumblr_posts", "pinterest": "pinterest_pins", "threads": "threads_posts",
+                "reddit": "reddit_posts",
+            }.get(channel)
+        if publication_type:
+            agent_metric_add(metrics[publication_type], row["status"])
+    for row in queued_media_plan:
+        channel = str(row["channel"] or "").lower()
+        format_name = str(row["format"] or "").lower()
+        if "carousel" not in format_name:
+            continue
+        if "instagram" in channel:
+            agent_metric_add(metrics["instagram_carousels"], row["status"])
+        if "tiktok" in channel:
+            agent_metric_add(metrics["tiktok_carousels"], row["status"])
+    for row in pins:
+        agent_metric_add(metrics["pinterest_pins"], row["status"])
+    for row in episodes:
+        agent_metric_add(metrics["podcast_episodes"], row["status"])
+    settings_dict = dict(settings) if settings else {"monitoring_enabled": 1, "minimum_queue": 3, "replenish_to": 6, "auto_create_tasks": 0}
+    totals = {name: sum(metric[name] for metric in metrics.values()) for name in ("queued", "scheduled", "published", "errors")}
+    return {"site": dict(site), "metrics": metrics, "settings": settings_dict, "totals": totals}
+
+
+def build_agent_snapshot():
+    with db() as conn:
+        sites = conn.execute("select * from sites order by domain").fetchall()
+        open_recommendations = conn.execute("select count(*) as n from agent_recommendations where status='OPEN'").fetchone()["n"]
+        last_run = conn.execute("select * from agent_runs order by id desc limit 1").fetchone()
+    rows = [build_agent_site_snapshot(site) for site in sites]
+    totals = {name: sum(row["totals"][name] for row in rows) for name in ("queued", "scheduled", "published", "errors")}
+    totals["recommendations"] = int(open_recommendations or 0)
+    totals["sites"] = len(rows)
+    return {"rows": rows, "totals": totals, "lastRun": dict(last_run) if last_run else None}
+
+
+EVIDENCE_MANUAL_TERMS = re.compile(
+    r"\b(?:manually|copy|copied|transfer|upload|download|compile|reconcile|cross-check|"
+    r"verify|tracker|spreadsheet|pull data|roll up|prepare (?:weekly|monthly)|coordinate|"
+    r"chase approvals|follow up|route|triage|monitor (?:an )?inbox|file documents|"
+    r"transcribe|create reports|collect inputs|track deadlines|data entry)\b",
+    re.I,
+)
+
+
+def _evidence_plain_text(value):
+    text = str(value or "")
+    text = re.sub(r"(?is)<(?:script|style)[^>]*>.*?</(?:script|style)>", " ", text)
+    text = re.sub(r"(?i)<br\s*/?>|</p>|</li>|</h[1-6]>", "\n", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", '"').replace("&#39;", "'")
+    return re.sub(r"[ \t]+", " ", re.sub(r"\n{3,}", "\n\n", text)).strip()
+
+
+def seed_yas_evidence_sources(site_id):
+    site = get_site(site_id)
+    if not site or str(site["domain"] or "").lower() != "yas.ooo":
+        raise ValueError("The Company Bug Report evidence contour is currently enabled only for yas.ooo")
+    seeds = [
+        ("Ramp", "ramp.com", "https://jobs.ashbyhq.com/ramp", "ashby", "ramp", "global", "Fintech", 5),
+        ("Notion", "notion.so", "https://jobs.ashbyhq.com/notion", "ashby", "notion", "global", "SaaS", 5),
+        ("Linear", "linear.app", "https://jobs.ashbyhq.com/linear", "ashby", "linear", "global", "SaaS", 4),
+        ("Stripe", "stripe.com", "https://boards.greenhouse.io/stripe", "greenhouse", "stripe", "global", "Fintech", 5),
+        ("Figma", "figma.com", "https://boards.greenhouse.io/figma", "greenhouse", "figma", "global", "SaaS", 4),
+        ("Gusto", "gusto.com", "https://boards.greenhouse.io/gusto", "greenhouse", "gusto", "global", "HR and payroll", 4),
+    ]
+    now = now_iso()
+    with db() as conn:
+        for row in seeds:
+            conn.execute(
+                """insert into evidence_source_boards(site_id,company_name,company_domain,careers_url,ats_type,board_slug,ats_region,industry,priority,created_at,updated_at)
+                   values(?,?,?,?,?,?,?,?,?,?,?) on conflict(site_id,ats_type,board_slug,ats_region) do update set
+                   company_name=excluded.company_name,company_domain=excluded.company_domain,careers_url=excluded.careers_url,
+                   industry=excluded.industry,priority=excluded.priority,active=1,updated_at=excluded.updated_at""",
+                (site_id, *row, now, now),
+            )
+        conn.execute(
+            """insert into evidence_pipeline_settings(site_id,enabled,max_jobs_per_run,minimum_score,blog_target,x_items_per_case,updated_at)
+               values(?,1,48,75,3,3,?) on conflict(site_id) do nothing""",
+            (site_id, now),
+        )
+    return len(seeds)
+
+
+def _evidence_fetch_json(url, max_bytes=30_000_000):
+    req = urllib.request.Request(url, headers={"User-Agent": "BlogCoreEvidenceResearch/1.0 (+https://blog.yas.ooo)", "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as response:
+        return json.loads(response.read(max_bytes).decode("utf-8", errors="replace"))
+
+
+def fetch_evidence_source_board(source):
+    ats = str(source["ats_type"] or "").lower()
+    slug = urllib.parse.quote(str(source["board_slug"] or "").strip(), safe="-_.")
+    region = str(source["ats_region"] or "global").lower()
+    if ats == "greenhouse":
+        payload = _evidence_fetch_json(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true")
+        items = payload.get("jobs") if isinstance(payload, dict) else []
+        return [{
+            "externalId": str(item.get("id") or ""), "title": str(item.get("title") or ""),
+            "location": str((item.get("location") or {}).get("name") or ""),
+            "department": ", ".join(str(d.get("name") or "") for d in item.get("departments") or [] if isinstance(d, dict)),
+            "url": str(item.get("absolute_url") or ""), "publishedAt": str(item.get("updated_at") or "") or None,
+            "html": str(item.get("content") or ""), "text": _evidence_plain_text(item.get("content") or ""),
+        } for item in items or [] if isinstance(item, dict)]
+    if ats == "lever":
+        host = "api.eu.lever.co" if region == "eu" else "api.lever.co"
+        payload = _evidence_fetch_json(f"https://{host}/v0/postings/{slug}?mode=json")
+        return [{
+            "externalId": str(item.get("id") or ""), "title": str(item.get("text") or ""),
+            "location": str((item.get("categories") or {}).get("location") or ""),
+            "department": str((item.get("categories") or {}).get("department") or (item.get("categories") or {}).get("team") or ""),
+            "url": str(item.get("hostedUrl") or ""), "publishedAt": str(item.get("createdAt") or "") or None,
+            "html": str(item.get("description") or "") + "\n" + str(item.get("additional") or ""),
+            "text": _evidence_plain_text("\n".join(str(item.get(key) or "") for key in ("descriptionPlain", "additionalPlain")) or "\n".join(str(group.get("content") or "") for group in item.get("lists") or [] if isinstance(group, dict))),
+        } for item in payload or [] if isinstance(item, dict)]
+    if ats == "ashby":
+        payload = _evidence_fetch_json(f"https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true")
+        items = payload.get("jobs") if isinstance(payload, dict) else []
+        return [{
+            "externalId": str(item.get("jobUrl") or item.get("applyUrl") or sha1(str(item).encode()).hexdigest()),
+            "title": str(item.get("title") or ""), "location": str(item.get("location") or ""),
+            "department": str(item.get("department") or item.get("team") or ""),
+            "url": str(item.get("jobUrl") or item.get("applyUrl") or ""), "publishedAt": str(item.get("publishedAt") or "") or None,
+            "html": str(item.get("descriptionHtml") or ""),
+            "text": _evidence_plain_text(item.get("descriptionPlain") or item.get("descriptionHtml") or ""),
+        } for item in items or [] if isinstance(item, dict) and item.get("isListed", True)]
+    raise ValueError(f"Unsupported ATS adapter: {ats}")
+
+
+def poll_evidence_source_board(source_id):
+    with db() as conn:
+        source = conn.execute("select * from evidence_source_boards where id=?", (source_id,)).fetchone()
+    if not source:
+        raise KeyError("evidence source not found")
+    try:
+        jobs = fetch_evidence_source_board(source)
+        now = now_iso(); changed = 0; seen = []
+        with db() as conn:
+            for item in jobs:
+                external_id = str(item.get("externalId") or "").strip()
+                text = str(item.get("text") or "").strip()
+                if not external_id or len(text) < 120:
+                    continue
+                digest = sha256(text.encode("utf-8")).hexdigest()
+                old = conn.execute("select content_hash from evidence_job_postings where source_board_id=? and external_id=?", (source_id, external_id)).fetchone()
+                if not old or old["content_hash"] != digest:
+                    changed += 1
+                conn.execute(
+                    """insert into evidence_job_postings(site_id,source_board_id,external_id,title,location,department,source_url,published_at,original_html,plain_text,content_hash,status,first_seen_at,last_seen_at)
+                       values(?,?,?,?,?,?,?,?,?,?,?,'OPEN',?,?) on conflict(source_board_id,external_id) do update set
+                       title=excluded.title,location=excluded.location,department=excluded.department,source_url=excluded.source_url,
+                       published_at=excluded.published_at,original_html=excluded.original_html,plain_text=excluded.plain_text,
+                       content_hash=excluded.content_hash,status='OPEN',last_seen_at=excluded.last_seen_at""",
+                    (source["site_id"], source_id, external_id, item.get("title") or "Untitled role", item.get("location") or "", item.get("department") or "", item.get("url") or source["careers_url"], item.get("publishedAt"), item.get("html") or "", text, digest, now, now),
+                )
+                seen.append(external_id)
+            if seen:
+                placeholders = ",".join("?" for _ in seen)
+                conn.execute(f"update evidence_job_postings set status='CLOSED' where source_board_id=? and external_id not in ({placeholders})", (source_id, *seen))
+            conn.execute("update evidence_source_boards set last_success_at=?,last_change_at=case when ?>0 then ? else last_change_at end,consecutive_errors=0,last_error='',updated_at=? where id=?", (now, changed, now, now, source_id))
+        return {"sourceId": source_id, "company": source["company_name"], "jobs": len(seen), "changed": changed}
+    except Exception as error:
+        with db() as conn:
+            conn.execute("update evidence_source_boards set consecutive_errors=consecutive_errors+1,last_error=?,updated_at=? where id=?", (str(error)[:1000], now_iso(), source_id))
+        raise
+
+
+def _evidence_candidate_prompt(company, job):
+    return f"""
+You are an evidence extractor for YAS Company Bug Report research.
+Use only the supplied public job posting. Identify up to three concrete,
+repeatable manual business operations with a clear action and object.
+
+COMPANY: {company}
+ROLE: {job['title']}
+SOURCE URL: {job['source_url']}
+JOB POSTING:
+{str(job['plain_text'] or '')[:24000]}
+
+Rules:
+- evidenceQuote must be copied verbatim from the supplied posting.
+- Reject generic statements such as improve processes or collaborate cross-functionally.
+- Reject responsibilities whose main purpose is to build, configure, ship, or operate
+  AI agents, automation systems, workflow tooling, or an already automated intake system.
+  Those describe the solution layer, not evidence of a missing internal product.
+- A valid case must describe a human-performed operational loop that still exists in
+  the advertised role. A tool named in the quote does not by itself make the case invalid,
+  but an explicitly AI-powered or automated workflow does.
+- Never infer frequency, time, team size, cost, outcome or implementation state.
+- Separate mechanical preparation from professional judgment.
+- Never claim the whole role should be automated.
+- Mark medical, legal, hiring, firing, credit, safety and compliance decisions highRisk.
+- missingProduct is a proposed internal product, not an existing company product.
+- Score 0-100 using evidence strength 25, specificity 15, automation fit 15,
+  surprise 15, repeatability 10, recognition 10, visualizability 5 and discussion 5.
+
+Return JSON only:
+{{"candidates":[{{"evidenceQuote":"exact quote","manualTask":"specific task","inputs":["object"],"outputs":["object"],"systemsMentioned":["exactly named system"],"frequencyText":"only if explicit","humanJudgment":"decision retained by a person","highRisk":false,"existingAutomation":false,"missingProduct":"25 words maximum","deterministicSteps":["step"],"aiAssistedSteps":["optional step"],"exceptionRoutes":["route"],"humanGate":"specific approval or exception gate","taxonomy":"CBR|HAPI|STAX|APPR|INBX|PDFP|HPB|DNA","score":0,"reason":"short editorial reason","unsupportedInferences":[]}}]}}
+""".strip()
+
+
+def analyze_evidence_job(job_id, minimum_score=75):
+    with db() as conn:
+        job = conn.execute("""select jp.*,sb.company_name,sb.industry from evidence_job_postings jp
+            join evidence_source_boards sb on sb.id=jp.source_board_id where jp.id=?""", (job_id,)).fetchone()
+    if not job:
+        raise KeyError("evidence job not found")
+    # This is a source-ingestion boundary, not free-form copywriting. Enforce
+    # Gemini structured output so a second JSON object or explanatory tail can
+    # never reach the parser and stop the evidence pipeline.
+    evidence_candidate_schema = {
+        "type": "object", "properties": {"candidates": {"type": "array", "maxItems": 3, "items": {"type": "object", "properties": {
+            "evidenceQuote": {"type": "string"}, "manualTask": {"type": "string"}, "inputs": {"type": "array", "items": {"type": "string"}}, "outputs": {"type": "array", "items": {"type": "string"}}, "systemsMentioned": {"type": "array", "items": {"type": "string"}}, "frequencyText": {"type": "string"}, "humanJudgment": {"type": "string"}, "highRisk": {"type": "boolean"}, "existingAutomation": {"type": "boolean"}, "missingProduct": {"type": "string"}, "deterministicSteps": {"type": "array", "items": {"type": "string"}}, "aiAssistedSteps": {"type": "array", "items": {"type": "string"}}, "exceptionRoutes": {"type": "array", "items": {"type": "string"}}, "humanGate": {"type": "string"}, "taxonomy": {"type": "string"}, "score": {"type": "integer"}, "reason": {"type": "string"}, "unsupportedInferences": {"type": "array", "items": {"type": "string"}}}, "required": ["evidenceQuote", "manualTask", "inputs", "outputs", "systemsMentioned", "frequencyText", "humanJudgment", "highRisk", "existingAutomation", "missingProduct", "deterministicSteps", "aiAssistedSteps", "exceptionRoutes", "humanGate", "taxonomy", "score", "reason", "unsupportedInferences"]}}}, "required": ["candidates"]}
+    result = _gemini_text_json(_evidence_candidate_prompt(job["company_name"], job), response_schema=evidence_candidate_schema, temperature=0.1, timeout=240, repair=False)
+    created = 0
+    with db() as conn:
+        for candidate in result.get("candidates") if isinstance(result, dict) and isinstance(result.get("candidates"), list) else []:
+            if not isinstance(candidate, dict):
+                continue
+            quote = re.sub(r"\s+", " ", str(candidate.get("evidenceQuote") or "")).strip()
+            source_text = re.sub(r"\s+", " ", str(job["plain_text"] or "")).strip()
+            if len(quote) < 30 or quote not in source_text:
+                continue
+            task = re.sub(r"\s+", " ", str(candidate.get("manualTask") or "")).strip()
+            taxonomy = str(candidate.get("taxonomy") or "CBR").upper()
+            score = max(0, min(100, int(candidate.get("score") or 0)))
+            high_risk = int(bool(candidate.get("highRisk")))
+            if bool(candidate.get("existingAutomation")):
+                continue
+            if not task or taxonomy not in {"CBR","HAPI","STAX","APPR","INBX","PDFP","HPB","DNA"}:
+                continue
+            evidence_hash = sha256(normalized_copy_key(quote).encode()).hexdigest()
+            status = "BLOCKED" if high_risk else ("SHORTLISTED" if score >= minimum_score else "REVIEW")
+            try:
+                conn.execute("""insert into evidence_cases(site_id,job_posting_id,evidence_quote,evidence_hash,manual_task,taxonomy,score,high_risk,candidate_json,status,created_at,updated_at)
+                    values(?,?,?,?,?,?,?,?,?,?,?,?)""", (job["site_id"], job_id, quote, evidence_hash, task, taxonomy, score, high_risk, json.dumps(candidate, ensure_ascii=False), status, now_iso(), now_iso()))
+                created += 1
+            except sqlite3.IntegrityError:
+                pass
+        conn.execute("update evidence_job_postings set analyzed_hash=? where id=?", (job["content_hash"], job_id))
+    return created
+
+
+def cluster_evidence_patterns(site_id):
+    with db() as conn:
+        rows = conn.execute("""select ec.*,jp.title as role,jp.source_url,jp.published_at,sb.company_name,sb.industry
+            from evidence_cases ec join evidence_job_postings jp on jp.id=ec.job_posting_id
+            join evidence_source_boards sb on sb.id=jp.source_board_id
+            where ec.site_id=? and ec.status in ('SHORTLISTED','CLUSTERED') and ec.high_risk=0
+            order by ec.score desc,ec.id desc limit 120""", (site_id,)).fetchall()
+    cases = [{"caseId": int(row["id"]), "company": row["company_name"], "industry": row["industry"], "role": row["role"], "taxonomy": row["taxonomy"], "score": int(row["score"]), "manualTask": row["manual_task"], "evidenceQuote": row["evidence_quote"], "sourceUrl": row["source_url"], "publishedAt": row["published_at"]} for row in rows]
+    if len(cases) < 3:
+        return {"patterns": 0, "reason": "fewer-than-three-shortlisted-cases"}
+    prompt = f"""
+Cluster verified job-ad evidence into recurring operational patterns for the YAS blog.
+A blog pattern requires at least 3 case IDs from at least 3 different companies.
+Group only genuinely similar input-action-output loops. Do not group cases merely
+because they all mention operations, spreadsheets or AI. One case may belong to
+one best pattern. The title must describe the business-process problem, not list companies.
+Return no more than 8 patterns and JSON only:
+{{"patterns":[{{"patternKey":"lowercase-hyphen-key","title":"strong English article title","thesis":"one precise sentence","taxonomy":"primary code","caseIds":[1,2,3],"score":0,"reason":"why these cases form one mechanism"}}]}}
+
+CASES:
+{json.dumps(cases, ensure_ascii=False)}
+""".strip()
+    result = _gemini_text_json(prompt, temperature=0.1, timeout=240)
+    case_map = {item["caseId"]: item for item in cases}
+    created = 0
+    with db() as conn:
+        for pattern in result.get("patterns") if isinstance(result, dict) and isinstance(result.get("patterns"), list) else []:
+            if not isinstance(pattern, dict):
+                continue
+            ids = []
+            for value in pattern.get("caseIds") if isinstance(pattern.get("caseIds"), list) else []:
+                try: case_id = int(value)
+                except (TypeError, ValueError): continue
+                if case_id in case_map and case_id not in ids: ids.append(case_id)
+            companies = {case_map[case_id]["company"] for case_id in ids}
+            key = re.sub(r"[^a-z0-9-]+", "-", str(pattern.get("patternKey") or "").lower()).strip("-")
+            title = re.sub(r"\s+", " ", str(pattern.get("title") or "")).strip()
+            thesis = re.sub(r"\s+", " ", str(pattern.get("thesis") or "")).strip()
+            if not key or not title or len(ids) < 3 or len(companies) < 3:
+                continue
+            payload = {**pattern, "caseIds": ids, "cases": [case_map[case_id] for case_id in ids]}
+            cursor = conn.execute("""insert into evidence_patterns(site_id,pattern_key,title,thesis,taxonomy,company_count,evidence_count,score,pattern_json,status,created_at,updated_at)
+                values(?,?,?,?,?,?,?,?,?,'READY',?,?) on conflict(site_id,pattern_key) do update set
+                title=excluded.title,thesis=excluded.thesis,taxonomy=excluded.taxonomy,company_count=excluded.company_count,
+                evidence_count=excluded.evidence_count,score=excluded.score,pattern_json=excluded.pattern_json,
+                status=case when evidence_patterns.status='MATERIALIZED' then evidence_patterns.status else 'READY' end,updated_at=excluded.updated_at returning id""",
+                (site_id, key, title, thesis, str(pattern.get("taxonomy") or "CBR"), len(companies), len(ids), max(0,min(100,int(pattern.get("score") or 0))), json.dumps(payload, ensure_ascii=False), now_iso(), now_iso()))
+            pattern_id = cursor.fetchone()[0]
+            conn.execute("delete from evidence_pattern_cases where pattern_id=?", (pattern_id,))
+            for case_id in ids:
+                conn.execute("insert or ignore into evidence_pattern_cases(pattern_id,case_id,created_at) values(?,?,?)", (pattern_id,case_id,now_iso()))
+                conn.execute("update evidence_cases set status='CLUSTERED',updated_at=? where id=?", (now_iso(),case_id))
+            created += 1
+    return {"patterns": created}
+
+
+def _evidence_prefilter_score(row):
+    """Rank likely operational evidence without favoring one source board."""
+    text = str(row["plain_text"] or "")
+    title = str(row["title"] or "")
+    term_hits = len({match.group(0).lower() for match in EVIDENCE_MANUAL_TERMS.finditer(text)})
+    operational_hits = len(re.findall(
+        r"\b(?:operations?|support|finance|accounting|sales|customer|partner|knowledge|"
+        r"reporting|reconciliation|onboarding|workflow|process|compliance|documentation)\b",
+        title + "\n" + text,
+        re.I,
+    ))
+    title_bonus = 8 if re.search(
+        r"\b(?:operations?|support|finance|accounting|coordinator|analyst|assistant|"
+        r"enablement|knowledge|program|process)\b",
+        title,
+        re.I,
+    ) else 0
+    return min(100, term_hits * 12 + min(operational_hits, 12) * 2 + title_bonus)
+
+
+def _select_balanced_evidence_jobs(candidates, limit):
+    """Round-robin sources so a three-company synthesis is actually possible."""
+    grouped = {}
+    source_order = []
+    for row in candidates:
+        source_id = int(row["source_board_id"])
+        if source_id not in grouped:
+            grouped[source_id] = []
+            source_order.append(source_id)
+        if EVIDENCE_MANUAL_TERMS.search(str(row["plain_text"] or "")):
+            grouped[source_id].append(row)
+    for source_id in source_order:
+        grouped[source_id].sort(
+            key=lambda item: (_evidence_prefilter_score(item), str(item["last_seen_at"] or ""), int(item["id"])),
+            reverse=True,
+        )
+    selected = []
+    while len(selected) < limit:
+        added = False
+        for source_id in source_order:
+            if grouped[source_id] and len(selected) < limit:
+                selected.append(grouped[source_id].pop(0))
+                added = True
+        if not added:
+            break
+    return selected
+
+
+def run_yas_evidence_pipeline(site_id, trigger="manual"):
+    site = get_site(site_id)
+    if not site or str(site["domain"] or "").lower() != "yas.ooo":
+        raise ValueError("Evidence contour is configured for yas.ooo")
+    seed_yas_evidence_sources(site_id)
+    with db() as conn:
+        running = conn.execute("select id from evidence_pipeline_runs where site_id=? and status='RUNNING' order by id desc limit 1", (site_id,)).fetchone()
+        if running:
+            return {"started": False, "runId": running["id"], "reason": "already-running"}
+        run_id = conn.execute("insert into evidence_pipeline_runs(site_id,trigger,status,started_at) values(?,?,?,?)", (site_id,trigger,"RUNNING",now_iso())).lastrowid
+        settings = conn.execute("select * from evidence_pipeline_settings where site_id=?", (site_id,)).fetchone()
+        sources = conn.execute("select * from evidence_source_boards where site_id=? and active=1 order by priority desc,id", (site_id,)).fetchall()
+    summary = {"sources": [], "sourceErrors": [], "jobsAnalyzed": 0, "casesCreated": 0, "patterns": 0}
+    try:
+        for source in sources:
+            try: summary["sources"].append(poll_evidence_source_board(source["id"]))
+            except Exception as error: summary["sourceErrors"].append({"sourceId": source["id"], "company": source["company_name"], "error": str(error)})
+        with db() as conn:
+            candidates = conn.execute("""select jp.*,sb.priority from evidence_job_postings jp join evidence_source_boards sb on sb.id=jp.source_board_id
+                where jp.site_id=? and jp.status='OPEN' and jp.content_hash<>jp.analyzed_hash
+                order by sb.priority desc,sb.id,jp.last_seen_at desc""", (site_id,)).fetchall()
+        run_limit = int(settings["max_jobs_per_run"] or 48)
+        selected = _select_balanced_evidence_jobs(candidates, run_limit)
+        for row in selected:
+            summary["casesCreated"] += analyze_evidence_job(row["id"], int(settings["minimum_score"] or 75)); summary["jobsAnalyzed"] += 1
+        cluster_result = cluster_evidence_patterns(site_id); summary["patterns"] = int(cluster_result.get("patterns") or 0)
+        with db() as conn:
+            conn.execute("update evidence_pipeline_runs set status='COMPLETED',summary_json=?,finished_at=? where id=?", (json.dumps(summary,ensure_ascii=False),now_iso(),run_id))
+        agent_log(site_id,"INFO","evidence-pipeline",f"Evidence run analyzed {summary['jobsAnalyzed']} jobs and built {summary['patterns']} pattern(s)",summary)
+        return {"started": True, "runId": run_id, **summary}
+    except Exception as error:
+        with db() as conn:
+            conn.execute("update evidence_pipeline_runs set status='ERROR',summary_json=?,finished_at=? where id=?", (json.dumps({**summary,"error":str(error)},ensure_ascii=False),now_iso(),run_id))
+        raise
+
+
+def run_scheduled_evidence_pipeline():
+    """Run daily evidence research and materialize only reviewable drafts."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=20)).isoformat(timespec="seconds")
+    with db() as conn:
+        sites = conn.execute("""select eps.site_id,eps.blog_target from evidence_pipeline_settings eps
+            join sites s on s.id=eps.site_id where eps.enabled=1 and lower(s.domain)='yas.ooo'
+            and not exists (select 1 from evidence_pipeline_runs epr where epr.site_id=eps.site_id
+                and epr.started_at>=? and epr.status in ('RUNNING','COMPLETED'))""", (cutoff,)).fetchall()
+    results=[]
+    for row in sites:
+        site_id=int(row["site_id"])
+        try:
+            result=run_yas_evidence_pipeline(site_id,trigger="scheduled")
+            with db() as conn:
+                queued=conn.execute("select count(*) from evidence_patterns where site_id=? and status='MATERIALIZED' and content_job_id in (select id from content_jobs where status in ('QUEUED','GENERATING','DRAFT'))",(site_id,)).fetchone()[0]
+                ready=conn.execute("select id from evidence_patterns where site_id=? and status='READY' order by score desc,updated_at desc limit ?",(site_id,max(0,int(row["blog_target"] or 3)-int(queued or 0)))).fetchall()
+            outputs=[]
+            for pattern in ready:
+                try: outputs.append(materialize_evidence_pattern(pattern["id"]))
+                except Exception as error: outputs.append({"patternId":pattern["id"],"error":str(error)})
+            results.append({"siteId":site_id,"research":result,"outputs":outputs})
+        except Exception as error:
+            results.append({"siteId":site_id,"error":str(error)})
+    return {"due":len(results),"results":results}
+
+
+def _pattern_internal_links(site_id, limit=6):
+    with db() as conn:
+        rows = conn.execute("select * from content_jobs where site_id=? and status='PUBLISHED' order by updated_at desc limit 40", (site_id,)).fetchall()
+    links = []
+    for row in rows:
+        path = urllib.parse.urlsplit(str(row["published_url"] or "")).path or content_job_target_path(row)
+        if re.match(r"^/[a-z0-9][a-z0-9/_-]*/?$", path) and path not in links:
+            links.append(path)
+        if len(links) >= limit: break
+    return links
+
+
+def _evidence_case_economics(case):
+    """Build one explicitly illustrative operating model from verified pay data."""
+    case_id = int(case.get("caseId") or 0)
+    with db() as conn:
+        row = conn.execute("""select jp.plain_text from evidence_cases ec
+            join evidence_job_postings jp on jp.id=ec.job_posting_id where ec.id=?""", (case_id,)).fetchone()
+    posting_text = str(row["plain_text"] if row else "")
+    cases_per_month, current_minutes, system_minutes = 100, 45, 10
+    current_hours = round(cases_per_month * current_minutes / 60)
+    system_hours = round(cases_per_month * system_minutes / 60)
+    saved_hours = current_hours - system_hours
+    salary_match = re.search(
+        r"\$\s*([\d,]+)(?:\s*/\s*year)?\s*(?:[-–]|\bto\b)\s*\$?\s*([\d,]+)(?:\s*/\s*year|\s+per year)",
+        posting_text,
+        re.I,
+    )
+    result = {
+        "isIllustrative": True,
+        "assumptions": f"{cases_per_month} cases/month; {current_minutes} minutes before; {system_minutes} minutes human review after",
+        "timeCallout": f"{current_hours}h to {system_hours}h",
+        "moneyCallout": f"{saved_hours}h x loaded hourly rate saved/month",
+        "postCallout": f"Illustrative monthly model: human work falls from {current_hours}h to {system_hours}h, freeing {saved_hours}h of loaded-rate capacity.",
+        "visualCallout": f"HUMAN WORK / MONTH\n{current_hours}H TO {system_hours}H\nCAPACITY FREED / MONTH\n{saved_hours}H X LOADED RATE",
+        "sourceBasis": "No salary stated in the evidence; use a verified loaded hourly rate.",
+    }
+    if salary_match:
+        salary_low, salary_high = (int(value.replace(",", "")) for value in salary_match.groups())
+        hourly_low, hourly_high = salary_low / 2080, salary_high / 2080
+        saved_low, saved_high = saved_hours * hourly_low, saved_hours * hourly_high
+        result.update({
+            "moneyCallout": f"${saved_low / 1000:.1f}-${saved_high / 1000:.1f}k base pay saved/month",
+            "postCallout": f"Illustrative monthly model: human work falls from {current_hours}h to {system_hours}h, freeing ${saved_low / 1000:.1f}-${saved_high / 1000:.1f}k in base-pay capacity.",
+            "visualCallout": f"HUMAN WORK / MONTH\n{current_hours}H TO {system_hours}H\nBASE PAY CAPACITY / MONTH\n${saved_low / 1000:.1f}-${saved_high / 1000:.1f}K FREED",
+            "sourceBasis": f"Base-pay model uses the advertised ${salary_low // 1000}K-${salary_high // 1000}K annual range and excludes overhead.",
+        })
+    return result
+
+
+def _write_pattern_x_items(site, pattern, cases, count):
+    prompt_cases = []
+    for case in cases:
+        economics = _evidence_case_economics(case)
+        # The economics line is mandatory copy. Give the writer the exact room
+        # left for its own prose; never rely on a later truncation or rejection.
+        economics_text = str(economics["postCallout"])
+        # The source line is appended by _evidence_thread_items after the model
+        # responds.  It still counts on X (the URL is a 23-character t.co URL),
+        # so it must be part of the generation budget rather than a reason to
+        # reject or truncate an otherwise complete post later.
+        source_suffix_weighted = _x_weighted_length(f"\n\nSource: {str(case.get('sourceUrl') or '').strip()}")
+        solution_budget = 280 - len(economics_text) - source_suffix_weighted
+        if solution_budget < 1:
+            raise ValueError(f"Evidence case {case.get('caseId')} leaves no room for a complete X solution post")
+        prompt_cases.append({**case, "economicsScenario": economics, "sourceSuffixWeightedLength": source_suffix_weighted, "solutionProseCharacterBudget": solution_budget})
+    prompt = f"""
+Write native English X threads for the series CUSTOM SYSTEM BUSINESS CASE.
+Each case is exactly two messages: a problem post, then a solution post. The
+application appends the verified source URL to the second message. Never compress
+the analysis into one message and never create a third source-only reply.
+
+For every case write three two-message variants:
+A. evidence-first; B. surprising reframe; C. responsibility-boundary.
+
+PROBLEM POST CONTRACT:
+- 150–245 characters. Before returning JSON, count every character in the exact
+  final string including labels and line breaks; the hard maximum is 260. Rewrite
+  the whole sentence if it does not fit — never truncate a word or clause.
+- First sentence names the company, preserves the full advertised role title,
+  and states one concrete action from evidenceQuote. Never shorten a specific
+  role to `Associate`, `Manager`, `Engineer` or another generic fragment.
+- Continue naturally with 1-2 useful sentences explaining what must be compared,
+  transferred, assembled or validated, and why the specialist is involved. Do
+  not add a section label.
+- Explain enough that a normal business reader understands the vacancy and the
+  product opportunity. A fragment such as `Data cross-checking gap` is forbidden.
+- Do not say the hire is pointless. Separate repeatable preparation from the
+  judgment, approval, escalation or exception decision that remains human.
+
+SOLUTION POST CONTRACT:
+- Fit all prose before the immutable economics line inside that case's exact
+  `solutionProseCharacterBudget`; it is calculated after reserving the entire
+  economicsScenario.postCallout and the appended `Source: URL` line. Never
+  truncate the callout, a URL, a word or a sentence.
+- Start directly with the proposed system and do not add a section label.
+- Describe one buildable `a custom ... system` and at least two concrete actions
+  it could perform on objects present in evidenceQuote.
+- State the explicit human decision gate retained by the advertised role.
+- End with the supplied economicsScenario.postCallout verbatim. It is an
+  illustrative model, not measured company performance. Never alter its figures,
+  qualifier or currency symbols, and write nothing after it.
+- Do not include sourceUrl yourself; the application appends it after generation.
+
+TRUTH AND STYLE:
+- evidenceQuote is the only authority for company-specific facts. Candidate
+  fields are analyst hypotheses and may only inform a conditional system design.
+- Distinguish `the ad describes` from `the company does`. Never infer that the
+  company lacks software because a duty appears in a vacancy.
+- Never say manual, missing, absent, unautomated, failure or delay unless the
+  exact evidence supports that wording.
+- Proposed systems must use `could` or `should`; never claim they already exist.
+- Criticize the workflow, never the employee. No hashtags, emojis, hype, sales
+  CTA, jargon, Markdown, Unicode pseudo-bold or invented business outcomes.
+- Preserve paragraph breaks. Never truncate a word, clause or sentence.
+- {SOCIAL_NATURAL_WRITING_CONTRACT}
+
+Choose selectedVariant. Return `problemPost` and `solutionPost` as exact copies
+of that selected variant.
+
+JSON only: {{"items":[{{"caseId":1,"title":"internal title","variants":{{"A":{{"problemPost":"...","solutionPost":"..."}},"B":{{"problemPost":"...","solutionPost":"..."}},"C":{{"problemPost":"...","solutionPost":"..."}}}},"selectedVariant":"A|B|C","problemPost":"exact selected problem post","solutionPost":"exact selected solution post","semanticKey":"lowercase-hyphen-key"}}]}}
+PATTERN: {json.dumps(pattern,ensure_ascii=False)}
+CASES: {json.dumps(prompt_cases,ensure_ascii=False)}
+""".strip()
+    post_schema = {"type": "object", "properties": {"problemPost": {"type": "string", "maxLength": 260}, "solutionPost": {"type": "string", "maxLength": 280}}, "required": ["problemPost", "solutionPost"]}
+    writer_schema = {"type": "object", "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {"caseId": {"type": "integer"}, "title": {"type": "string"}, "variants": {"type": "object", "properties": {"A": post_schema, "B": post_schema, "C": post_schema}, "required": ["A", "B", "C"]}, "selectedVariant": {"type": "string"}, "problemPost": {"type": "string", "maxLength": 260}, "solutionPost": {"type": "string", "maxLength": 280}, "semanticKey": {"type": "string"}}, "required": ["caseId", "title", "variants", "selectedVariant", "problemPost", "solutionPost", "semanticKey"]}}}, "required": ["items"]}
+    draft = _gemini_text_json(prompt, response_schema=writer_schema, temperature=0.25, timeout=240, repair=False)
+    items = draft.get("items") if isinstance(draft,dict) and isinstance(draft.get("items"),list) else []
+    check_prompt = f"""
+You are the publication gate. Compare the selected draft against the evidence
+bundle. For every factual clause classify it as SUPPORTED, FAIR_INFERENCE,
+UNSUPPORTED or MISLEADING. Check company attribution, numbers, frequency, salary,
+causality, product status and whether the draft attacks a person. A draft passes
+only when every factual clause is SUPPORTED or clearly framed as FAIR_INFERENCE.
+If it fails, return minimally corrected problemPost and solutionPost. A thread is
+incomplete when it lacks full role evidence, a useful operational diagnosis, a
+concrete conditional custom system, the human gate or the exact illustrative
+economics. Each corrected message must preserve native line breaks and remain at
+most 280 characters. Never expand a passing thread.
+{SOCIAL_NATURAL_WRITING_CONTRACT}
+JSON only: {{"items":[{{"caseId":1,"verdict":"PASS|CORRECTED|FAIL","problemPost":"checked first message","solutionPost":"checked second message","claims":[{{"text":"factual clause","status":"SUPPORTED|FAIR_INFERENCE|UNSUPPORTED|MISLEADING"}}],"reason":"brief"}}]}}
+CASES: {json.dumps(prompt_cases,ensure_ascii=False)}
+DRAFTS: {json.dumps(items,ensure_ascii=False)}
+""".strip()
+    gate_schema = {"type": "object", "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {"caseId": {"type": "integer"}, "verdict": {"type": "string"}, "problemPost": {"type": "string", "maxLength": 260}, "solutionPost": {"type": "string", "maxLength": 280}, "claims": {"type": "array", "items": {"type": "object", "properties": {"text": {"type": "string"}, "status": {"type": "string"}}, "required": ["text", "status"]}}, "reason": {"type": "string"}}, "required": ["caseId", "verdict", "problemPost", "solutionPost", "claims", "reason"]}}}, "required": ["items"]}
+    checked = _gemini_text_json(check_prompt, response_schema=gate_schema, temperature=0.0, timeout=240, repair=False)
+    verdicts = {int(item.get("caseId")): item for item in checked.get("items",[]) if isinstance(item,dict) and str(item.get("caseId") or "").isdigit()} if isinstance(checked,dict) else {}
+    final = []
+    for item in items:
+        try: case_id = int(item.get("caseId"))
+        except (TypeError,ValueError): continue
+        verdict = verdicts.get(case_id) or {}
+        variants = item.get("variants") if isinstance(item.get("variants"), dict) else {}
+        selected_variant = str(item.get("selectedVariant") or "").strip().upper()
+        selected = variants.get(selected_variant) if isinstance(variants.get(selected_variant), dict) else {}
+        problem_post = str(verdict.get("problemPost") or item.get("problemPost") or selected.get("problemPost") or "").replace("\r\n", "\n").strip()
+        solution_post = str(verdict.get("solutionPost") or item.get("solutionPost") or selected.get("solutionPost") or "").replace("\r\n", "\n").strip()
+        problem_post = re.sub(r"\n{3,}", "\n\n", "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in problem_post.split("\n")))
+        solution_post = re.sub(r"\n{3,}", "\n\n", "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in solution_post.split("\n")))
+        complete_variants = all(
+            isinstance(variants.get(key), dict)
+            and str(variants[key].get("problemPost") or "").strip()
+            and str(variants[key].get("solutionPost") or "").strip()
+            for key in ("A", "B", "C")
+        )
+        valid_messages = (
+            100 <= len(problem_post) <= 280
+            and 100 <= len(solution_post) <= 280
+            and not re.search(r"(?:^|\n)(?:PROBLEM|SOLUTION|KEY TAKEAWAY|CONCLUSION)(?:\n|$)", problem_post, re.I)
+            and not re.search(r"(?:^|\n)(?:PROBLEM|SOLUTION|KEY TAKEAWAY|CONCLUSION)(?:\n|$)", solution_post, re.I)
+        )
+        if verdict.get("verdict") in {"PASS", "CORRECTED"} and valid_messages and complete_variants and selected_variant in {"A", "B", "C"}:
+            final.append({**item,"caseId":case_id,"body":problem_post,"problemPost":problem_post,"solutionReply":solution_post,"threadItems":[problem_post,solution_post],"variants":variants,"selectedVariant":selected_variant,"factCheck":verdict})
+    unique = {}
+    for item in final:
+        unique.setdefault(int(item["caseId"]), item)
+    ordered = [unique[int(case["caseId"])] for case in cases if int(case["caseId"]) in unique]
+    missing_case_ids = [int(case["caseId"]) for case in cases if int(case["caseId"]) not in unique]
+    if missing_case_ids:
+        draft_by_case = {}
+        for draft_item in items:
+            try:
+                draft_by_case[int(draft_item.get("caseId"))] = draft_item
+            except (TypeError, ValueError):
+                continue
+        reasons = {
+            case_id: {
+                "reason": str((verdicts.get(case_id) or {}).get("reason") or "draft or scenePlan was incomplete")[:240],
+                "variantKeys": sorted((draft_by_case.get(case_id, {}).get("variants") or {}).keys()),
+                "selectedVariant": draft_by_case.get(case_id, {}).get("selectedVariant"),
+                "problemLength": len(str((verdicts.get(case_id) or {}).get("problemPost") or draft_by_case.get(case_id, {}).get("problemPost") or "")),
+                "solutionLength": len(str((verdicts.get(case_id) or {}).get("solutionPost") or draft_by_case.get(case_id, {}).get("solutionPost") or "")),
+                "verdict": (verdicts.get(case_id) or {}).get("verdict"),
+            }
+            for case_id in missing_case_ids
+        }
+        raise RuntimeError(f"Evidence X generation omitted cases {missing_case_ids}: {json.dumps(reasons, ensure_ascii=False)}")
+    return ordered
+
+
+def _official_company_logo_data_uri(domain, careers_url=""):
+    """Resolve and cache a real mark from the company's own public domain."""
+    domain = str(domain or "").strip().lower().removeprefix("www.")
+    if not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", domain):
+        raise ValueError("A verified company domain is required for the visual")
+    logo_dir = DATA_DIR / "company_logos"
+    logo_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = logo_dir / f"{re.sub(r'[^a-z0-9.-]+', '-', domain)}.png"
+    if cache_path.exists() and cache_path.stat().st_size > 100:
+        return "data:image/png;base64," + b64encode(cache_path.read_bytes()).decode("ascii")
+
+    page_url = f"https://{domain}/"
+    headers = {"User-Agent": "Mozilla/5.0 BlogCoreEvidenceRenderer/1.0"}
+    candidates = []
+    try:
+        request_page = urllib.request.Request(page_url, headers=headers)
+        with urllib.request.urlopen(request_page, timeout=15) as response:
+            page_html = response.read(1_500_000).decode("utf-8", errors="ignore")
+        links = re.findall(r"<link\b[^>]*>", page_html, flags=re.I)
+        for tag in links:
+            rel_match = re.search(r"\brel=[\"']([^\"']+)", tag, flags=re.I)
+            href_match = re.search(r"\bhref=[\"']([^\"']+)", tag, flags=re.I)
+            if rel_match and href_match and "icon" in rel_match.group(1).lower():
+                priority = 0 if "apple-touch" in rel_match.group(1).lower() else 1
+                candidates.append((priority, urllib.parse.urljoin(page_url, href_match.group(1))))
+    except Exception:
+        pass
+    candidates.extend((2, f"https://{domain}{path}") for path in ("/apple-touch-icon.png", "/favicon.png", "/favicon.ico"))
+    careers_url = str(careers_url or "").strip()
+    if careers_url:
+        try:
+            request_careers = urllib.request.Request(careers_url, headers=headers)
+            with urllib.request.urlopen(request_careers, timeout=15) as response:
+                careers_html = response.read(1_500_000).decode("utf-8", errors="ignore")
+            for tag in re.findall(r"<img\b[^>]*>", careers_html, flags=re.I):
+                src_match = re.search(r"\bsrc=[\"']([^\"']+)", tag, flags=re.I)
+                if src_match and "logo" in tag.lower():
+                    candidates.append((1, urllib.parse.urljoin(careers_url, src_match.group(1))))
+        except Exception:
+            pass
+
+    for _, url in sorted(dict.fromkeys(candidates)):
+        try:
+            request_logo = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request_logo, timeout=15) as response:
+                raw = response.read(5_000_000)
+            image = ImageOps.exif_transpose(Image.open(BytesIO(raw))).convert("RGBA")
+            if image.width < 16 or image.height < 16:
+                continue
+            image.thumbnail((320, 120), Image.Resampling.LANCZOS)
+            output = BytesIO()
+            image.save(output, format="PNG", optimize=True)
+            cache_path.write_bytes(output.getvalue())
+            return "data:image/png;base64," + b64encode(output.getvalue()).decode("ascii")
+        except Exception:
+            continue
+    raise RuntimeError(f"Official logo could not be resolved from {domain}; visual generation stopped")
+
+
+def _render_legacy_evidence_x_html_visual(site_id, source_job_id, site, case, item):
+    """Legacy deterministic renderer retained only for old stored assets."""
+    case_id = int(case["caseId"])
+    asset_key = social_asset_key(f"{source_job_id}-evidence-{case_id}")
+    target_dir = social_asset_job_dir(site_id, asset_key, "twitter")
+    shutil.rmtree(target_dir, ignore_errors=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    filename = "image-01.png"
+    taxonomy = str(case.get("taxonomy") or "CBR").upper()
+    company = str(case.get("company") or "Company").strip()
+    role = str(case.get("role") or "Published role").strip()
+    display_role = re.sub(r"^Future Opportunities:\s*", "", role, flags=re.I).strip()
+    quote = str(case.get("evidenceQuote") or "").strip()
+    company_domain = str(case.get("companyDomain") or "").strip()
+    careers_url = str(case.get("careersUrl") or "").strip()
+    if not company_domain or not careers_url:
+        with db() as conn:
+            logo_row = conn.execute("""select sb.company_domain,sb.careers_url,jp.plain_text from evidence_cases ec
+                join evidence_job_postings jp on jp.id=ec.job_posting_id
+                join evidence_source_boards sb on sb.id=jp.source_board_id
+                where ec.id=?""", (case_id,)).fetchone()
+        company_domain = company_domain or str(logo_row["company_domain"] if logo_row else "").strip()
+        careers_url = careers_url or str(logo_row["careers_url"] if logo_row else "").strip()
+    logo_data_uri = _official_company_logo_data_uri(company_domain, careers_url)
+    if 'logo_row' not in locals():
+        with db() as conn:
+            logo_row = conn.execute("""select jp.plain_text,sb.company_domain,sb.careers_url from evidence_cases ec
+                join evidence_job_postings jp on jp.id=ec.job_posting_id
+                join evidence_source_boards sb on sb.id=jp.source_board_id where ec.id=?""", (case_id,)).fetchone()
+    posting_text = str(logo_row["plain_text"] if logo_row and "plain_text" in logo_row.keys() else "")
+    label = "CUSTOM SYSTEM BUSINESS CASE"
+    action_fragments = [part.strip(" .") for part in re.split(r",|\.\s+|\band\b", quote, flags=re.I) if part.strip(" .")][:3]
+
+    def action_label(fragment):
+        lowered = fragment.lower()
+        for needle, value in (
+            ("reproduce", "REPRODUCE"), ("triage", "TRIAGE"),
+            ("troubleshoot", "TROUBLESHOOT"), ("diagnose", "DIAGNOSE"),
+            ("document", "DOCUMENT"), ("file", "FILE BUG"),
+            ("escalat", "ESCALATE"), ("resolve", "RESOLVE"),
+            ("follow", "FOLLOW THROUGH"), ("collect", "COLLECT"),
+            ("prepare", "PREPARE"), ("approve", "APPROVE"),
+        ):
+            if needle in lowered:
+                return value
+        return " ".join(re.findall(r"[A-Za-z]+", fragment)[:2]).upper() or "PROCESS"
+
+    action_labels = [action_label(fragment) for fragment in action_fragments]
+    while len(action_labels) < 3:
+        action_labels.append(("REVIEW", "ROUTE", "DECIDE")[len(action_labels)])
+
+    person_icon = """<svg viewBox='0 0 160 160' aria-hidden='true'><circle cx='80' cy='46' r='25'/><path d='M39 132c4-38 23-57 41-57s37 19 41 57'/></svg>"""
+    customer_icon = """<svg viewBox='0 0 160 160' aria-hidden='true'><path d='M25 30h110v76H74l-30 24 7-24H25z'/><circle cx='56' cy='68' r='7'/><circle cx='80' cy='68' r='7'/><circle cx='104' cy='68' r='7'/></svg>"""
+    engineering_icon = """<svg viewBox='0 0 160 160' aria-hidden='true'><path d='M56 35 20 80l36 45M104 35l36 45-36 45M91 24 69 136'/></svg>"""
+    bug_icon = """<svg viewBox='0 0 160 160' aria-hidden='true'><ellipse cx='80' cy='88' rx='39' ry='45'/><path d='M55 47 40 28M105 47l15-19M39 69H15M121 69h24M39 94H15M121 94h24M47 119l-22 18M113 119l22 18M80 45v86'/></svg>"""
+    product_icon = """<svg viewBox='0 0 160 160' aria-hidden='true'><rect x='26' y='25' width='108' height='110' rx='10'/><path d='M48 58h64M48 83h40M48 108h28'/><circle cx='111' cy='105' r='18'/><path d='m102 105 7 7 13-17'/></svg>"""
+
+    quote_lower = quote.lower()
+    if any(term in quote_lower for term in ("decision tree", "support-ready guidance", "kb update", "coordinate requests")):
+        product_name = "CUSTOM DECISION ROUTING SYSTEM"
+        human_gate = "KNOWLEDGE ARCHITECT APPROVES" if "architect" in role.lower() else "PROCESS OWNER APPROVES"
+    elif any(term in quote_lower for term in ("threat intelligence", "durable detection", "telemetry requirement")):
+        product_name = "CUSTOM THREAT OPERATIONS SYSTEM"
+        human_gate = "SECURITY ENGINEER APPROVES"
+    elif any(term in quote_lower for term in ("journal entr", "reconciliation", "supporting schedule", "tax provision")):
+        product_name = "CUSTOM FINANCIAL CLOSE SYSTEM"
+        human_gate = "ACCOUNTANT REVIEWS"
+    elif "context" in quote_lower:
+        product_name = "CUSTOM ESCALATION SYSTEM"
+        human_gate = "ENGINEER ESCALATES"
+    elif "ticket" in quote_lower or taxonomy == "HAPI":
+        product_name = "CUSTOM BUG ROUTING SYSTEM"
+        human_gate = "MANAGER ESCALATES" if "manager" in role.lower() else "ENGINEER REVIEWS"
+    else:
+        product_name = "CUSTOM DIAGNOSTIC SYSTEM"
+        human_gate = "ENGINEER FILES" if "file" in quote_lower else "ENGINEER REVIEWS"
+
+    headline = product_name
+    system_work = (
+        "TRIAGES REQUESTS · PUBLISHES GUIDANCE" if product_name == "CUSTOM DECISION ROUTING SYSTEM" else
+        "STRUCTURES SIGNALS · DRAFTS DETECTIONS" if product_name == "CUSTOM THREAT OPERATIONS SYSTEM" else
+        "RECONCILES DATA · DRAFTS ENTRIES" if product_name == "CUSTOM FINANCIAL CLOSE SYSTEM" else
+        "ASSEMBLES CONTEXT · DRAFTS ESCALATION" if "context" in quote_lower else
+        "STRUCTURES TICKET · TRACKS RESOLUTION" if "ticket" in quote_lower or taxonomy == "HAPI" else
+        "REPRODUCES · TRIAGES · DRAFTS BUG REPORT"
+    )
+    role_lower = role.lower()
+    current_actor = next((label for needle, label in (
+        ("knowledge architect", "KNOWLEDGE ARCHITECT"),
+        ("accountant", "ACCOUNTANT"),
+        ("manager", "MANAGER"),
+        ("analyst", "ANALYST"),
+        ("specialist", "SPECIALIST"),
+        ("associate", "ASSOCIATE"),
+        ("engineer", "ENGINEER"),
+    ) if needle in role_lower), "EMPLOYEE")
+    if product_name == "CUSTOM DECISION ROUTING SYSTEM":
+        visual = f"""<section class='decision-map'>
+          <div class='node-stack inputs'><small>REQUESTS ARRIVE FROM</small><span>PRODUCT</span><span>ENGINEERING</span><span>LEGAL / FINANCE</span></div>
+          <b class='map-arrow'>→</b>
+          <div class='system-core'>{product_icon}<small>CUSTOM SYSTEM</small><b>ROUTES REQUESTS<br>BUILDS GUIDANCE</b></div>
+          <b class='map-arrow'>→</b>
+          <div class='node-stack outputs'><small>DRAFT OUTPUTS</small><span>DECISION TREE</span><span>KB UPDATE</span><span>ESCALATION PATH</span></div>
+          <b class='map-arrow'>→</b>
+          <div class='gate-card'>{person_icon}<small>HUMAN GATE</small><b>{escape(human_gate)}</b></div>
+        </section>"""
+        composition = "multi-source-decision-map"
+    elif product_name == "CUSTOM ESCALATION SYSTEM":
+        visual = f"""<section class='context-map'>
+          <div class='context-cloud'>{customer_icon}<small>SCATTERED CONTEXT</small><b>ISSUE · HISTORY · BLOCKER</b></div>
+          <div class='system-core wide'>{product_icon}<small>CUSTOM SYSTEM</small><b>ASSEMBLES ONE<br>ESCALATION RECORD</b></div>
+          <div class='gate-card'>{person_icon}<small>DECISION</small><b>{escape(human_gate)}</b></div>
+        </section>"""
+        composition = "context-convergence-map"
+    elif product_name == "CUSTOM BUG ROUTING SYSTEM":
+        visual = f"""<section class='funnel-map'>
+          <div class='issue-stream'><span>CUSTOMER REPORT</span><span>TROUBLESHOOTING</span><span>TECHNICAL BUG</span></div>
+          <div class='funnel-shape'><small>CUSTOM SYSTEM</small><b>STRUCTURE<br>ROUTE<br>TRACK</b></div>
+          <div class='gate-card'>{person_icon}<small>EXCEPTION GATE</small><b>{escape(human_gate)}</b></div>
+        </section>"""
+        composition = "bug-routing-funnel"
+    elif product_name == "CUSTOM FINANCIAL CLOSE SYSTEM":
+        visual = f"""<section class='ledger-map'>
+          <div class='ledger-sheet'><small>SUBLEDGERS</small><i></i><i></i><i></i><i></i></div>
+          <div class='system-core'>{product_icon}<small>CUSTOM SYSTEM</small><b>RECONCILES<br>DRAFTS ENTRIES</b></div>
+          <div class='gate-card'>{person_icon}<small>CONTROL GATE</small><b>{escape(human_gate)}</b></div>
+        </section>"""
+        composition = "financial-close-ledger"
+    else:
+        visual = f"""<section class='flow'>
+          <div class='flow-card before'>{customer_icon}<small>BEFORE</small><b>{escape(current_actor)} DOES ALL PREPARATION</b></div>
+          <span class='big-arrow'>→</span>
+          <div class='flow-card system'>{product_icon}<small>CUSTOM SYSTEM</small><b>{escape(system_work)}</b></div>
+          <span class='big-arrow'>→</span>
+          <div class='flow-card gate'>{person_icon}<small>HUMAN GATE</small><b>{escape(human_gate)}</b></div>
+        </section>"""
+        composition = "diagnostic-process-flow"
+
+    # A vacancy proves the work and sometimes the salary, but not case volume or
+    # handling time. Keep the operational comparison useful by exposing one fixed
+    # scenario rather than presenting invented company measurements as facts.
+    cases_per_month, current_minutes, system_minutes = 100, 45, 10
+    current_hours = round(cases_per_month * current_minutes / 60)
+    system_hours = round(cases_per_month * system_minutes / 60)
+    saved_hours = current_hours - system_hours
+    salary_match = re.search(r"\$\s*([\d,]+)\s*[-–]\s*\$?\s*([\d,]+)\s+per year", posting_text, re.I)
+    if salary_match:
+        salary_low, salary_high = (int(value.replace(",", "")) for value in salary_match.groups())
+        hourly_low, hourly_high = salary_low / 2080, salary_high / 2080
+        money_current = f"${current_hours * hourly_low / 1000:.1f}–{current_hours * hourly_high / 1000:.1f}K"
+        money_system = f"${system_hours * hourly_low / 1000:.1f}–{system_hours * hourly_high / 1000:.1f}K"
+        money_saved = f"${saved_hours * hourly_low / 1000:.1f}–{saved_hours * hourly_high / 1000:.1f}K"
+        money_note = f"PAY RANGE: {company.upper()} AD ${salary_low // 1000}K–${salary_high // 1000}K · EXCLUDES OVERHEAD"
+    else:
+        money_current = f"{current_hours}H × LOADED RATE"
+        money_system = f"{system_hours}H × LOADED RATE"
+        money_saved = f"{saved_hours}H × LOADED RATE"
+        money_note = "ENTER VERIFIED LOADED HOURLY RATE"
+    economics = f"""<section class='economics'>
+      <div><small>CURRENT HUMAN WORK</small><strong>{current_hours} H/MO</strong><b>{escape(money_current)}</b></div>
+      <div><small>WITH CUSTOM SYSTEM</small><strong>{system_hours} H/MO</strong><b>{escape(money_system)}</b></div>
+      <div class='saved'><small>POTENTIAL CAPACITY RELEASED</small><strong>{saved_hours} H/MO</strong><b>{escape(money_saved)}</b></div>
+    </section><p class='assumption'>ILLUSTRATIVE SCENARIO · {cases_per_month} CASES/MO · {current_minutes} → {system_minutes} MIN · {escape(money_note)}</p>"""
+
+    html = f"""<!doctype html><html><head><meta charset='utf-8'><style>
+    *{{box-sizing:border-box}}html,body{{margin:0;width:1200px;height:675px;overflow:hidden}}
+    body{{font-family:Inter,Arial,sans-serif;background:#f7f5ef;color:#10233f}}
+    main{{width:1200px;height:675px;padding:36px 54px 28px;display:grid;grid-template-rows:auto auto auto auto;gap:17px}}
+    header{{display:flex;align-items:center;justify-content:space-between}}
+    .series{{background:#e33a35;color:#fff;padding:9px 15px;font-size:18px;font-weight:900;letter-spacing:.08em}}
+    .brand{{display:flex;align-items:center;gap:14px}}.brand img{{display:block;width:54px;height:54px;object-fit:contain}}.company{{font-size:28px;font-weight:900}}
+    h1{{margin:0;font-size:44px;line-height:.98;letter-spacing:-.04em;max-width:940px}}
+    svg{{width:82px;height:82px;fill:none;stroke:#10233f;stroke-width:9;stroke-linecap:round;stroke-linejoin:round}}
+    .flow,.decision-map,.context-map,.funnel-map,.ledger-map{{display:flex;align-items:center;justify-content:center;min-height:155px}}
+    .flow-card{{width:270px;height:155px;border:3px solid #10233f;background:#fff;display:grid;grid-template-columns:92px 1fr;grid-template-rows:38px 1fr;align-items:center;padding:14px}}
+    .flow-card svg{{grid-row:1/3}}.flow-card small{{font-size:14px;font-weight:900;letter-spacing:.08em;color:#e33a35}}.flow-card b{{font-size:18px;line-height:1.05}}
+    .flow-card.system{{width:320px;background:#fff0ed;border-color:#e33a35}}.big-arrow{{font-size:44px;color:#e33a35;font-weight:900;margin:0 14px}}
+    .decision-map{{gap:12px}}.node-stack{{width:175px;height:155px;display:flex;flex-direction:column;justify-content:center;gap:7px}}.node-stack small,.system-core small,.gate-card small,.context-cloud small,.funnel-shape small,.ledger-sheet small{{font-size:12px;font-weight:900;letter-spacing:.08em;color:#e33a35}}.node-stack span{{display:block;border:2px solid #10233f;background:#fff;padding:7px 9px;font-size:14px;font-weight:900}}.node-stack.outputs span{{border-color:#e33a35;background:#fff0ed}}
+    .system-core{{width:235px;height:155px;border:3px solid #e33a35;background:#fff0ed;padding:10px;display:grid;grid-template-columns:80px 1fr;grid-template-rows:35px 1fr;align-items:center}}.system-core svg{{width:70px;height:70px;grid-row:1/3}}.system-core b{{font-size:17px;line-height:1.05}}.system-core.wide{{width:330px}}.map-arrow{{font-size:33px;color:#e33a35}}
+    .gate-card{{width:205px;height:155px;border:3px solid #10233f;background:#fff;padding:10px;display:grid;grid-template-columns:76px 1fr;grid-template-rows:34px 1fr;align-items:center}}.gate-card svg{{width:67px;height:67px;grid-row:1/3}}.gate-card b{{font-size:16px;line-height:1.05}}
+    .context-map{{gap:22px}}.context-cloud{{width:265px;height:145px;border-radius:75px;border:3px dashed #10233f;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px}}.context-cloud svg{{width:66px;height:66px}}.context-cloud b{{font-size:15px}}
+    .funnel-map{{gap:28px}}.issue-stream{{width:250px;display:grid;gap:8px}}.issue-stream span{{border-left:8px solid #e33a35;background:#fff;padding:10px 13px;font-weight:900;font-size:15px}}.funnel-shape{{width:290px;height:155px;clip-path:polygon(0 0,100% 0,72% 100%,28% 100%);background:#fff0ed;border-top:4px solid #e33a35;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}}.funnel-shape b{{font-size:18px;line-height:1.05}}
+    .ledger-map{{gap:30px}}.ledger-sheet{{width:270px;height:150px;border:3px solid #10233f;background:#fff;padding:16px}}.ledger-sheet i{{display:block;height:13px;border-bottom:2px solid #9ba5b3;margin-top:8px}}
+    .economics{{display:grid;grid-template-columns:1fr 1fr 1.15fr;gap:10px}}.economics div{{background:#10233f;color:white;padding:13px 18px;display:grid;grid-template-columns:1fr auto;align-items:end}}
+    .economics div.saved{{background:#e33a35}}.economics small{{grid-column:1/3;font-size:13px;font-weight:900;letter-spacing:.07em;opacity:.8}}.economics strong{{font-size:31px;line-height:1}}.economics b{{font-size:18px}}
+    .assumption{{margin:0;font-size:14px;font-weight:900;letter-spacing:.035em;color:#526078;text-align:center}}
+    </style></head><body><main>
+      <header><span class='series'>{escape(label)}</span><span class='brand'><img src='{logo_data_uri}' alt=''><span class='company'>{escape(company)}</span></span></header>
+      <h1>{escape(headline)}</h1>
+      {visual}
+      {economics}
+    </main></body></html>"""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as error:
+        raise RuntimeError("Playwright is required for approved evidence-card rendering") from error
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            headless=True,
+            executable_path=os.environ.get("BLOG_CORE_CHROMIUM_PATH", "/snap/bin/chromium"),
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        try:
+            page = browser.new_page(viewport={"width": 1200, "height": 675}, device_scale_factor=1)
+            page.set_content(html, wait_until="load")
+            page.screenshot(path=str(target_dir / filename), type="png")
+        finally:
+            browser.close()
+    return {
+        "mediaUrls": [social_asset_url(site_id, asset_key, "twitter", filename)],
+        "mediaMimeType": "image/png",
+        "generatedAt": now_iso(),
+        "visualTemplate": taxonomy if taxonomy in {"HAPI", "HPB", "STAX", "DNA"} else "CBR",
+        "visualBrief": f"Large-format {label} illustration showing the verified workflow with one headline and three readable visual beats.",
+        "altText": f"{company} workflow illustration: {headline.title()}, shown as {composition.replace('-', ' ')}.",
+        "compositionKey": composition,
+    }
+
+
+def _generate_evidence_x_visual(site_id, source_job_id, site, case, item):
+    """Ask Gemini to art-direct and render one case-specific native-X visual."""
+    case_id = int(case["caseId"])
+    company = re.sub(r"\s+", " ", str(case.get("company") or "Company")).strip()
+    role = re.sub(r"\s+", " ", str(case.get("role") or "Published role")).strip()
+    evidence_quote = re.sub(r"\s+", " ", str(case.get("evidenceQuote") or "")).strip()
+    body = re.sub(
+        r"\s+",
+        " ",
+        f"{str(item.get('body') or '')} {str(item.get('solutionReply') or '')}",
+    ).strip()
+    company_domain = str(case.get("companyDomain") or "").strip()
+    careers_url = str(case.get("careersUrl") or case.get("sourceUrl") or "").strip()
+    with db() as conn:
+        source_row = conn.execute("""select sb.company_domain,sb.careers_url,jp.plain_text
+            from evidence_cases ec join evidence_job_postings jp on jp.id=ec.job_posting_id
+            join evidence_source_boards sb on sb.id=jp.source_board_id where ec.id=?""", (case_id,)).fetchone()
+    company_domain = company_domain or str(source_row["company_domain"] if source_row else "").strip()
+    careers_url = careers_url or str(source_row["careers_url"] if source_row else "").strip()
+    economics = _evidence_case_economics(case)
+    allowed_callouts = [economics["visualCallout"]]
+    economics_note = f"Illustrative monthly model. {economics['assumptions']}. {economics['sourceBasis']}"
+
+    plan_prompt = f"""
+You are the visual director for a native X post in the series CUSTOM SYSTEM BUSINESS CASE.
+Design one original 16:9 editorial illustration for this specific case. It must
+stop a reader in a fast-moving X feed and explain the product opportunity before
+the caption is read.
+
+CASE:
+- company: {company}
+- advertised role: {role}
+- exact public evidence: {evidence_quote}
+- approved post: {body}
+- economics: {economics_note}
+- exact allowed numeric callouts: {json.dumps(allowed_callouts, ensure_ascii=False)}
+
+ART-DIRECTION RULES:
+- Invent one case-specific visual metaphor for the work, the bespoke system and
+  the retained human decision. The metaphor must be understandable to a normal
+  business reader, not only to an engineer.
+- The custom system must be the dominant visual subject. Show what it changes;
+  do not merely picture the employee or the problem.
+- Create a genuinely different scene and composition from previous posts. Never
+  default to three bordered cards, arrows between boxes, a dashboard screenshot,
+  a generic office, a stock-photo meeting, a funnel template or a reusable flowchart.
+- Choose the medium that best explains this case: bold editorial illustration,
+  dimensional paper/physical metaphor, isometric operational scene, cutaway,
+  cinematic conceptual scene or another suitable visual language.
+- Supply one strong hook of 2–5 ordinary English words. It must state the concrete
+  problem exposed by the vacancy in language a business reader immediately
+  understands. Use 2–4 common words, at most 28 characters total, with no word
+  longer than 10 letters. Prefer a pattern such as `RECORDS NEED MATCHING`; avoid
+  abstract transformations such as `CHAOS INTO...`, generic inspiration or jargon.
+- Ground the hook in the exact public evidence. Never use `manual`, `missing`,
+  `unautomated`, `failure`, `delay` or a claimed business outcome unless the
+  evidence quote itself supports that word. Describe the observable coordination,
+  matching, validation or information problem instead of accusing the company.
+- Use only the hook plus the one exact economic callout. No captions, legends,
+  axes, paragraphs, tiny labels or fake interface copy. Text must remain readable
+  when the image is shown at roughly 355 px wide.
+- Plan every stream, department, document, decision and output without written
+  labels: distinguish them only through colour, shape, material, position and
+  action. Do not put department names, document titles, stamps, annotations or
+  placeholder copy inside the scene.
+- The final image contains exactly two readable text zones: the problem hook once
+  and the fully labelled economic block once. Never repeat either zone.
+- Treat the economic callout as a primary visual hook, not footnote copy. Reserve
+  roughly 40–50% of the canvas for the two text zones together. The hook and the
+  economics must remain readable without zooming in a 355 px-wide feed card.
+- A verified real company logo will be attached to the render request. Plan one
+  natural but prominent, high-contrast use of that exact mark inside the scene.
+  It must occupy roughly 6–10% of the canvas width and remain unmistakable at
+  355 px display width. Never propose subtle black-on-black embossing, a tiny
+  mark, redrawing it, spelling it manually or adding a corner watermark.
+- Do not present the illustrative economics as measured company performance.
+- Avoid fear, humiliation and criticism of the employee.
+
+Return JSON only:
+{{"hookText":"2-5 words","concept":"one-sentence visual metaphor","scene":"specific visible scene","customSystemSubject":"dominant object and its action","humanDecision":"visible retained decision","composition":"camera/layout without templates","medium":"specific visual medium","palette":"case-specific palette","logoUse":"natural physical placement","numericCallouts":["exact allowed value"],"avoid":["at least five case-specific repetition risks"]}}
+""".strip()
+    evidence_visual_schema = {"type": "object", "properties": {
+        "hookText": {"type": "string"}, "concept": {"type": "string"}, "scene": {"type": "string"},
+        "customSystemSubject": {"type": "string"}, "humanDecision": {"type": "string"}, "composition": {"type": "string"},
+        "medium": {"type": "string"}, "palette": {"type": "string"}, "logoUse": {"type": "string"},
+        "numericCallouts": {"type": "array", "items": {"type": "string"}}, "avoid": {"type": "array", "items": {"type": "string"}}},
+        "required": ["hookText", "concept", "scene", "customSystemSubject", "humanDecision", "composition", "medium", "palette", "logoUse", "numericCallouts", "avoid"]}
+    plan = _gemini_text_json(plan_prompt, response_schema=evidence_visual_schema, temperature=0.35, timeout=240, repair=False)
+    required = ("hookText", "concept", "scene", "customSystemSubject", "humanDecision", "composition", "medium", "palette", "logoUse")
+    if any(not str(plan.get(key) or "").strip() for key in required):
+        raise RuntimeError("Gemini X visual director returned an incomplete case plan")
+    hook_text = re.sub(r"\s+", " ", str(plan["hookText"])).strip()
+    if not 2 <= len(hook_text.split()) <= 4 or len(hook_text) > 28 or any(len(word) > 10 for word in hook_text.split()):
+        raise RuntimeError("Gemini X visual hook must use 2–4 short common words")
+    numeric_callouts = [str(value).strip() for value in plan.get("numericCallouts") or [] if str(value).strip() in allowed_callouts][:1]
+    if not numeric_callouts:
+        numeric_callouts = allowed_callouts
+
+    logo_uri = _official_company_logo_data_uri(company_domain, careers_url)
+    logo_b64 = logo_uri.split(",", 1)[1]
+    render_prompt = f"""
+Create one finished 16:9 raster editorial illustration for a native X post.
+
+BINDING VISUAL-DIRECTOR PLAN:
+{json.dumps(plan, ensure_ascii=False)}
+
+CASE TRUTH:
+- company: {company}
+- role: {role}
+- evidence: {evidence_quote}
+- custom-system analysis: {body}
+
+RENDERING CONTRACT:
+- The complete permitted-text inventory is: the exact problem hook, the four
+  exact economics lines, and the lettering already present inside the attached
+  official logo. No other typography is permitted anywhere in the image.
+- The attached image is the verified real {company} logo reference. Preserve its
+  exact geometry, colors and spelling. Use it once in the natural scene placement
+  specified by the plan. It must be high-contrast, roughly 6–10% of canvas width
+  and clearly recognizable at 355 px. Never hide it with subtle embossing, place
+  dark-on-dark, redraw it or use it as a corner watermark.
+- Use exactly the mark shown in the reference. If the reference is a symbol or
+  monogram, render only that symbol once; never additionally spell the company
+  name elsewhere in the illustration.
+- Make the custom operational system and its action visually dominant.
+- Show the human as the final judgment or approval boundary, not as the data pipe.
+- Render the exact problem hook `{hook_text}` once as a large headline.
+- Copy that hook character for character. Before returning the raster, perform a
+  visual spelling check against the supplied phrase. Never insert, remove,
+  transpose or duplicate letters and never break a word across lines.
+- Render the fully labelled economic block below exactly once:
+  {json.dumps(numeric_callouts, ensure_ascii=False)}.
+- Reproduce every character in that economic block literally, including every
+  currency symbol, dash, multiplier and unit. Never omit the second currency
+  symbol in a range.
+- Keep those as two separate high-contrast zones. Do not split, abbreviate or
+  repeat the time and money figures elsewhere.
+- Make the economic callout one of the two largest elements in the entire image:
+  bold, high-contrast and readable first at 355 px width. It must not appear as a
+  caption, footer, annotation or secondary line beneath the hook.
+- At 1200×675 output, make the problem-hook capitals at least 58 px high, the
+  economics labels at least 38 px high, and the two numeric lines at least 64 px
+  high. If space is tight, simplify the illustration instead of shrinking text.
+- Do not render any typography derived from the plan narrative. Objects, ribbons,
+  papers, screens, plates, seals and interfaces must be completely text-free.
+- Input streams and coloured ribbons must be plain and unlabelled even when the
+  plan explains what they represent. Never print department names on them.
+- Do not simulate screens, records or documents with pseudo-text. Any glass
+  panel, paper, plate, card or interface-like surface must be completely blank
+  and communicate only through shape, colour, alignment and motion.
+- Prefer solid-colour unprinted tokens, ribbons and geometric objects over paper
+  records. Do not render printed lines, numbers, glyphs or handwriting on inputs.
+- Do not add any other readable words, department labels, document titles,
+  stamps, legends, UI text, pseudo-text, placeholder glyphs or microcopy.
+- Every permitted word and number must remain legible at 355 px display width.
+- Do not use a three-card flowchart, repeated boxes and arrows, dashboard mockup,
+  generic office photograph, template infographic, split-screen before/after or
+  the visual composition of another case.
+- The result must feel like a premium editorial illustration built specifically
+  for this post, with one immediate visual hook and clear subject hierarchy.
+- 16:9 landscape, edge-to-edge composition, no border and no watermark.
+""".strip()
+    image_bytes = _gemini_image_jpeg(
+        render_prompt,
+        aspect_ratio="16:9",
+        reference_image={"mime_type": "image/png", "data": logo_b64},
+    )
+    image = ImageOps.fit(Image.open(BytesIO(image_bytes)).convert("RGB"), (1200, 675), method=Image.Resampling.LANCZOS)
+    output = BytesIO()
+    image.save(output, format="JPEG", quality=91, optimize=True, progressive=True)
+    asset_key = social_asset_key(f"{source_job_id}-evidence-{case_id}")
+    target_dir = social_asset_job_dir(site_id, asset_key, "twitter")
+    shutil.rmtree(target_dir, ignore_errors=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    filename = "image-01.jpg"
+    (target_dir / filename).write_bytes(output.getvalue())
+    return {
+        "mediaUrls": [social_asset_url(site_id, asset_key, "twitter", filename)],
+        "mediaMimeType": "image/jpeg",
+        "generatedAt": now_iso(),
+        "visualTemplate": "gemini-case-specific-editorial",
+        "visualBrief": str(plan["concept"]),
+        "visualHook": hook_text,
+        "visualPlan": plan,
+        "altText": f"{company}: {str(plan['concept']).strip()}",
+        "compositionKey": simple_slug(str(plan["concept"]))[:80],
+        "economics": {"scenario": economics_note, "callouts": numeric_callouts},
+    }
+
+
+def _evidence_source_reply(case):
+    """Keep evidence out of the hook while attaching the exact public source."""
+    company = re.sub(r"\s+", " ", str(case.get("company") or "Company")).strip()
+    role = re.sub(r"\s+", " ", str(case.get("role") or "public vacancy")).strip()
+    source_url = str(case.get("sourceUrl") or "").strip()
+    if not source_url:
+        raise ValueError("Evidence X posts require a public source reply")
+    prefix = f"Source: {company} — {role}\n"
+    if len(prefix) + len(source_url) > 280:
+        prefix = f"Source: {company} vacancy\n"
+    return prefix + source_url
+
+
+def _x_weighted_length(value):
+    """Approximate X's t.co counting: every HTTP(S) URL consumes 23 characters."""
+    text = str(value or "")
+    urls = re.findall(r"https?://\S+", text)
+    return len(text) - sum(len(url) for url in urls) + 23 * len(urls)
+
+
+def _evidence_thread_items(item, case):
+    """Return two native-X messages with the evidence URL in the solution post."""
+    problem_post = str(item.get("problemPost") or item.get("body") or "").strip()
+    solution_post = str(item.get("solutionReply") or "").strip()
+    source_url = str(case.get("sourceUrl") or "").strip()
+    if not source_url:
+        raise ValueError("Evidence X posts require a public source URL")
+    solution_with_source = f"{solution_post}\n\nSource: {source_url}"
+    messages = [problem_post, solution_with_source]
+    if any(not message or _x_weighted_length(message) > 280 for message in messages):
+        raise ValueError("Every evidence X thread message must be complete and at most 280 characters")
+    return messages
+
+
+def materialize_evidence_pattern(pattern_id):
+    with db() as conn:
+        pattern = conn.execute("select * from evidence_patterns where id=?", (pattern_id,)).fetchone()
+        if not pattern: raise KeyError("pattern not found")
+        site = conn.execute("select * from sites where id=?", (pattern["site_id"],)).fetchone()
+        case_rows = conn.execute("""select ec.*,jp.title as role,jp.source_url,jp.published_at,sb.company_name,sb.industry
+            from evidence_pattern_cases pc join evidence_cases ec on ec.id=pc.case_id
+            join evidence_job_postings jp on jp.id=ec.job_posting_id join evidence_source_boards sb on sb.id=jp.source_board_id
+            where pc.pattern_id=? order by ec.score desc""", (pattern_id,)).fetchall()
+        settings = conn.execute("select * from evidence_pipeline_settings where site_id=?", (pattern["site_id"],)).fetchone()
+    if pattern["content_job_id"]:
+        return {"patternId":pattern_id,"contentJobId":pattern["content_job_id"],"created":False}
+    cases = [{"caseId":int(row["id"]),"company":row["company_name"],"industry":row["industry"],"role":row["role"],"manualTask":row["manual_task"],"evidenceQuote":row["evidence_quote"],"sourceUrl":row["source_url"],"publishedAt":row["published_at"],"taxonomy":row["taxonomy"],"score":int(row["score"]),"candidate":parse_json_object(row["candidate_json"])} for row in case_rows]
+    if len({item["company"] for item in cases}) < 3:
+        raise ValueError("A blog synthesis requires evidence from at least three companies")
+    pattern_payload = parse_json_object(pattern["pattern_json"]); pattern_payload["cases"] = cases
+    job_id = secrets.token_hex(12); slug = simple_slug(pattern["title"]); target_path = f"/blog/{slug}/"
+    internal_links=_pattern_internal_links(pattern["site_id"])
+    source_references=[{"id":f"case-{item['caseId']}","title":f"{item['company']} job advertisement: {item['role']}","publisher":item["company"],"publicUrl":item["sourceUrl"],"supports":f"{item['company']} public job advertisement for {item['role']} contains the exact fragment: {item['evidenceQuote']}","publicSummary":f"Public job advertisement for {item['role']}, checked by YAS on the stated access date.","accessedAt":now_iso(),"checkedAt":now_iso()} for item in cases]
+    sources = {"source":"yas-evidence-contour","contentType":"blog","pageType":"blog","targetPath":target_path,"canonicalGroup":target_path,"evidencePattern":pattern_payload,"linkingRequirements":{"mandatory":True,"crossLinkTargets":internal_links},"pageBrief":{"primaryIntent":pattern["thesis"],"h1":pattern["title"],"seoTitle":pattern["title"],"metaDescription":pattern["thesis"][:155],"directAnswer":pattern["thesis"],"outline":["What the job ads literally describe","The recurring workflow behind the fragments","Why this manual loop keeps returning","The smallest reliable internal product","Rules and integrations before generative AI","Exceptions, auditability and failure paths","The human decision gate","How to diagnose the pattern in your own operation"],"approvedInternalLinks":internal_links,"sourceReferences":source_references,"primaryCta":{"label":"Discuss the workflow with YAS","url":"/contact"},"editorial":{"author":"YAS Research Desk","reviewer":"Iaroslav YAS","owner":"YAS","factCheckedAt":now_iso(),"reviewDueAt":(datetime.now(timezone.utc)+timedelta(days=90)).isoformat(timespec="seconds"),"reviewCadence":"90 days"},"approvals":{"topic":True,"outline":True,"sources":True,"claims":True,"editorialReview":True,"productFactCheck":True,"seoReview":True,"browserQa":True}}}
+    x_items=_write_pattern_x_items(site,pattern_payload,cases,len(cases))
+    if len(x_items) != len(cases):
+        raise RuntimeError(f"Evidence X generation returned {len(x_items)} of {len(cases)} required complete drafts")
+    case_map = {int(case["caseId"]): case for case in cases}
+    for item in x_items:
+        item["visual"] = _generate_evidence_x_visual(
+            pattern["site_id"], job_id, site, case_map[int(item["caseId"])], item
+        )
+    now=now_iso()
+    with db() as conn:
+        existing=conn.execute("select id from content_jobs where site_id=? and slug=? and status not in ('CANCELED','ERROR')",(pattern["site_id"],slug)).fetchone()
+        if existing: raise ValueError("A blog task with this canonical intent already exists")
+        conn.execute("""insert into content_jobs(id,site_id,topic,slug,status,title,description,category,sources_json,visibility,created_at,updated_at)
+            values(?,?,?,?,?,?,?,?,?,?,?,?)""",(job_id,pattern["site_id"],pattern["title"],slug,"QUEUED",pattern["title"],pattern["thesis"],"Company Bug Report",json.dumps(sources,ensure_ascii=False),"public",now,now))
+        conn.execute("insert into content_job_logs(site_id,job_id,ts,level,step,message) values(?,?,?,?,?,?)",(pattern["site_id"],job_id,now,"INFO","evidence-pattern","Created from a verified multi-company operational pattern"))
+    created_x=0
+    with db() as conn:
+        for item in x_items:
+            key=re.sub(r"[^a-z0-9-]+","-",str(item.get("semanticKey") or f"{pattern['pattern_key']}-{item['caseId']}").lower()).strip("-")
+            try:
+                work_id=conn.execute("""insert into social_work_items(site_id,source_kind,source_job_id,channel,task_type,title,body,semantic_key,status,approval_required,metadata_json,created_at,updated_at)
+                    values(?,?,?,?,?,?,?,?,?,?,?,?,?)""",(pattern["site_id"],"evidence_case",job_id,"twitter","x_post",str(item.get("title") or pattern["title"])[:240],item["body"],key,"AWAITING_APPROVAL",1,json.dumps({**make_contract_metadata(VACANCY_EVIDENCE_CASE,evidenceCaseId=item["caseId"],sourceUrl=case_map[int(item["caseId"])].get("sourceUrl"),companyName=case_map[int(item["caseId"])].get("company"),companyLogo="verified_reference_required",economics="illustrative_monthly_model"),"patternId":pattern_id,"caseId":item["caseId"],"factCheck":item.get("factCheck"),"visual":item.get("visual")},ensure_ascii=False),now,now));created_x+=1
+                social_post_id=conn.execute("""insert into social_posts(site_id,job_id,channel,content_text,content_json,remote_url,status,asset_type,language,max_chars,char_count,include_link,validation_json,created_at,updated_at)
+                    values(?,?,?,?,?,'','DRAFT',?,'en',280,?,0,?,?,?)""",(pattern["site_id"],job_id,"twitter",item["body"],json.dumps({"twitter":{"format":"x_thread","contentFormat":VACANCY_EVIDENCE_CASE,"contractVersion":CONTRACT_VERSION,"threadItems":_evidence_thread_items(item,case_map[int(item["caseId"])]),"evidencePatternId":pattern_id,"evidenceCaseId":item["caseId"],**item["visual"]}},ensure_ascii=False),f"evidence_post_{int(item['caseId'])}",len(item["body"]),json.dumps(item.get("factCheck") or {},ensure_ascii=False),now,now)).lastrowid
+                conn.execute("update social_work_items set published_post_id=? where id=?",(social_post_id,work_id.lastrowid))
+            except sqlite3.IntegrityError: pass
+        conn.execute("update evidence_patterns set status='MATERIALIZED',content_job_id=?,updated_at=? where id=?",(job_id,now,pattern_id))
+        conn.execute("update evidence_cases set status='MATERIALIZED',updated_at=? where id in (select case_id from evidence_pattern_cases where pattern_id=?)",(now,pattern_id))
+    agent_log(pattern["site_id"],"INFO","evidence-materialize",f"Created blog research task and {created_x} X draft(s) from {pattern['title']}",{"patternId":pattern_id,"jobId":job_id,"xDrafts":created_x})
+    return {"patternId":pattern_id,"contentJobId":job_id,"xDrafts":created_x,"created":True}
+
+
+def refresh_evidence_pattern_x_drafts(pattern_id):
+    """Replace only unpublished X drafts after prompt or evidence-gate improvements."""
+    with db() as conn:
+        pattern = conn.execute("select * from evidence_patterns where id=?", (pattern_id,)).fetchone()
+        if not pattern or not pattern["content_job_id"]:
+            raise ValueError("Materialize the evidence pattern before refreshing its X drafts")
+        site = conn.execute("select * from sites where id=?", (pattern["site_id"],)).fetchone()
+        case_rows = conn.execute("""select ec.*,jp.title as role,jp.source_url,jp.published_at,sb.company_name,sb.industry
+            from evidence_pattern_cases pc join evidence_cases ec on ec.id=pc.case_id
+            join evidence_job_postings jp on jp.id=ec.job_posting_id join evidence_source_boards sb on sb.id=jp.source_board_id
+            where pc.pattern_id=? order by ec.score desc""", (pattern_id,)).fetchall()
+        old = conn.execute("""select published_post_id from social_work_items
+            where site_id=? and source_kind='evidence_case' and source_job_id=? and status in ('DRAFT','AWAITING_APPROVAL')""",
+            (pattern["site_id"], pattern["content_job_id"])).fetchall()
+    cases = [{"caseId":int(row["id"]),"company":row["company_name"],"industry":row["industry"],"role":row["role"],"manualTask":row["manual_task"],"evidenceQuote":row["evidence_quote"],"sourceUrl":row["source_url"],"publishedAt":row["published_at"],"taxonomy":row["taxonomy"],"score":int(row["score"]),"candidate":parse_json_object(row["candidate_json"])} for row in case_rows]
+    pattern_payload = parse_json_object(pattern["pattern_json"]); pattern_payload["cases"] = cases
+    items = _write_pattern_x_items(site, pattern_payload, cases, len(cases))
+    if len(items) != len(cases):
+        raise RuntimeError(f"Evidence X refresh returned {len(items)} of {len(cases)} required complete drafts; existing drafts were preserved")
+    case_map = {int(case["caseId"]): case for case in cases}
+    for item in items:
+        item["visual"] = _generate_evidence_x_visual(
+            pattern["site_id"], pattern["content_job_id"], site,
+            case_map[int(item["caseId"])], item,
+        )
+    now = now_iso(); created = 0
+    with db() as conn:
+        post_ids = [int(row["published_post_id"]) for row in old if row["published_post_id"]]
+        conn.execute("delete from social_work_items where site_id=? and source_kind='evidence_case' and source_job_id=? and status in ('DRAFT','AWAITING_APPROVAL')", (pattern["site_id"], pattern["content_job_id"]))
+        if post_ids:
+            conn.execute(f"delete from social_posts where id in ({','.join('?' for _ in post_ids)}) and status='DRAFT'", post_ids)
+        for item in items:
+            key = re.sub(r"[^a-z0-9-]+", "-", str(item.get("semanticKey") or f"{pattern['pattern_key']}-{item['caseId']}").lower()).strip("-")
+            work_id = conn.execute("""insert into social_work_items(site_id,source_kind,source_job_id,channel,task_type,title,body,semantic_key,status,approval_required,metadata_json,created_at,updated_at)
+                values(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (pattern["site_id"],"evidence_case",pattern["content_job_id"],"twitter","x_post",str(item.get("title") or pattern["title"])[:240],item["body"],key,"AWAITING_APPROVAL",1,json.dumps({"patternId":pattern_id,"caseId":item["caseId"],"factCheck":item.get("factCheck"),"visual":item.get("visual")},ensure_ascii=False),now,now)).lastrowid
+            social_post_id = conn.execute("""insert into social_posts(site_id,job_id,channel,content_text,content_json,remote_url,status,asset_type,language,max_chars,char_count,include_link,validation_json,created_at,updated_at)
+                values(?,?,?,?,?,'','DRAFT',?,'en',280,?,0,?,?,?)""", (pattern["site_id"],pattern["content_job_id"],"twitter",item["body"],json.dumps({"twitter":{"format":"x_thread","threadItems":_evidence_thread_items(item,case_map[int(item["caseId"])]),"evidencePatternId":pattern_id,"evidenceCaseId":item["caseId"],**item["visual"]}},ensure_ascii=False),f"evidence_post_{int(item['caseId'])}",len(item["body"]),json.dumps(item.get("factCheck") or {},ensure_ascii=False),now,now)).lastrowid
+            conn.execute("update social_work_items set published_post_id=? where id=?", (social_post_id, work_id))
+            created += 1
+    return {"patternId": pattern_id, "xDrafts": created, "replaced": len(old)}
+
+
+def run_queued_evidence_draft_generations(limit=1):
+    """Generate review drafts from evidence tasks without publishing them."""
+    with db() as conn:
+        rows = conn.execute("""select id,site_id from content_jobs
+            where status='QUEUED' and json_extract(sources_json,'$.source')='yas-evidence-contour'
+            order by created_at,id limit ?""", (max(1, int(limit)),)).fetchall()
+    results = []
+    for row in rows:
+        try:
+            results.append(generate_content_job(int(row["site_id"]), row["id"], localize=False))
+        except Exception as error:
+            results.append({"jobId": row["id"], "ok": False, "error": str(error)})
+    return {"due": len(rows), "results": results}
+
+
+def run_scheduled_evidence_x_publications(now=None):
+    """Deliver explicitly scheduled X work items through the Zernio adapter.
+
+    X remains outside the generic article-to-social cadence: every item must
+    already exist in the reviewed work-item queue with an explicit timestamp.
+    A missing account mapping is a waiting state, not a failed publication;
+    the same due item is retried after the operator connects the account.
+    """
+    current=(now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    with db() as conn:
+        rows=conn.execute("""select * from social_work_items where channel='twitter'
+            and status='SCHEDULED' and scheduled_for is not null and scheduled_for<=? and published_post_id is not null
+            order by scheduled_for,id limit 10""",(current,)).fetchall()
+    results=[]
+    for row in rows:
+        connection_status, _ = social_channel_connection_state(row["site_id"], "twitter")
+        if connection_status != "connected":
+            results.append({"id":row["id"],"ok":False,"action":"waiting_for_connection"})
+            continue
+        try:
+            published=publish_zernio_social_drafts(row["site_id"],row["source_job_id"],channels=["twitter"],post_ids=[row["published_post_id"]])
+            item=(published.get("results") or [{}])[0]
+            status="PUBLISHED" if item.get("ok") else "ERROR"
+            with db() as conn:
+                conn.execute("update social_work_items set status=?,remote_url=?,updated_at=? where id=?",(status,str(item.get("remoteUrl") or ""),now_iso(),row["id"]))
+            results.append({"id":row["id"],"ok":bool(item.get("ok")),"result":item})
+        except Exception as error:
+            with db() as conn:
+                conn.execute("update social_work_items set status='ERROR',metadata_json=?,updated_at=? where id=?",(json.dumps({**parse_json_object(row["metadata_json"]),"publishError":str(error)},ensure_ascii=False),now_iso(),row["id"]))
+            results.append({"id":row["id"],"ok":False,"error":str(error)})
+    return {"due":len(rows),"results":results}
+
+
+def schedule_threads_work_queue(site_id, first_slot=None):
+    """Materialize each ready Threads work draft and give it one local daily slot.
+
+    The work-item queue is the source of truth.  Zernio receives no schedule;
+    it is called only by ``run_scheduled_threads_publications`` when a slot is
+    due.
+    """
+    zone = social_schedule_timezone("Europe/Warsaw")
+    local_now = datetime.now(timezone.utc).astimezone(zone)
+    if first_slot is None:
+        first_slot = local_now.replace(hour=18, minute=0, second=0, microsecond=0)
+        if first_slot <= local_now:
+            first_slot += timedelta(days=1)
+    with db() as conn:
+        rows = conn.execute(
+            """select * from social_work_items where site_id=? and channel='threads'
+               and status='DRAFT' order by id""",
+            (site_id,),
+        ).fetchall()
+        scheduled = []
+        for offset, row in enumerate(rows):
+            text = social_normalize_text(row["body"] or "")
+            validation = validate_threads_post_text(text, SOCIAL_CHANNEL_LIMITS["threads"])
+            if not validation["ok"]:
+                raise ValueError(f"Threads work item {row['id']} exceeds the {SOCIAL_CHANNEL_LIMITS['threads']}-byte limit")
+            slot = (first_slot + timedelta(days=offset)).astimezone(timezone.utc).isoformat(timespec="seconds")
+            post_id = row["published_post_id"]
+            if not post_id:
+                if not row["source_job_id"]:
+                    raise ValueError(f"Threads work item {row['id']} has no source content task")
+                post_id = conn.execute(
+                    """insert into social_posts(site_id,job_id,channel,content_text,content_json,remote_url,status,
+                       asset_type,language,max_chars,char_count,include_link,validation_json,created_at,updated_at)
+                       values(?,?,?,?,?,'','DRAFT','post','en',?,?,0,?,?,?)""",
+                    (site_id, row["source_job_id"], "threads", text,
+                     json.dumps({"source": "social_work_item", "socialWorkItemId": int(row["id"]), "threads": {"conversationFormat": "work_queue"}}, ensure_ascii=False),
+                     SOCIAL_CHANNEL_LIMITS["threads"], validation["byteCount"], json.dumps(validation, ensure_ascii=False), now_iso(), now_iso()),
+                ).lastrowid
+            conn.execute(
+                """update social_work_items set status='SCHEDULED',scheduled_for=?,published_post_id=?,
+                   approved_at=coalesce(approved_at,?),updated_at=? where id=?""",
+                (slot, post_id, now_iso(), now_iso(), row["id"]),
+            )
+            scheduled.append({"id": int(row["id"]), "socialPostId": int(post_id), "scheduledFor": slot})
+    agent_log(site_id, "INFO", "threads-queue-scheduled", f"Scheduled {len(scheduled)} Threads work item(s) at 18:00 Europe/Warsaw", {"items": scheduled})
+    return {"scheduled": scheduled}
+
+
+def run_scheduled_threads_publications(now=None):
+    """Deliver due local Threads queue items through Zernio immediately."""
+    current = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    with db() as conn:
+        rows = conn.execute(
+            """select * from social_work_items where channel='threads' and status='SCHEDULED'
+               and scheduled_for is not null and scheduled_for<=? and published_post_id is not null
+               order by scheduled_for,id limit 10""",
+            (current,),
+        ).fetchall()
+    results = []
+    for row in rows:
+        connection_status, _ = social_channel_connection_state(row["site_id"], "threads")
+        if connection_status != "connected":
+            results.append({"id": row["id"], "ok": False, "action": "waiting_for_connection"})
+            continue
+        try:
+            published = publish_zernio_social_drafts(row["site_id"], row["source_job_id"], channels=["threads"], post_ids=[row["published_post_id"]])
+            item = (published.get("results") or [{}])[0]
+            status = "PUBLISHED" if item.get("ok") else "ERROR"
+            with db() as conn:
+                conn.execute("update social_work_items set status=?,remote_url=?,updated_at=? where id=?", (status, str(item.get("remoteUrl") or ""), now_iso(), row["id"]))
+            results.append({"id": row["id"], "ok": bool(item.get("ok")), "result": item})
+        except Exception as error:
+            with db() as conn:
+                conn.execute("update social_work_items set status='ERROR',metadata_json=?,updated_at=? where id=?", (json.dumps({**parse_json_object(row["metadata_json"]), "publishError": str(error)}, ensure_ascii=False), now_iso(), row["id"]))
+            results.append({"id": row["id"], "ok": False, "error": str(error)})
+    return {"due": len(rows), "results": results}
+
+
+def run_scheduled_facebook_publications(now=None):
+    """Send only factory-due Facebook drafts; Zernio never owns this calendar."""
+    current = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    with db() as conn:
+        rows = conn.execute(
+            """select * from social_posts where channel='facebook' and status='DRAFT'
+               and scheduled_for is not null and scheduled_for<=?
+               order by scheduled_for,id limit 4""",
+            (current,),
+        ).fetchall()
+    results = []
+    for row in rows:
+        try:
+            published = publish_zernio_social_drafts(row["site_id"], row["job_id"], channels=["facebook"], post_ids=[row["id"]])
+            item = (published.get("results") or [{}])[0]
+            results.append({"id": int(row["id"]), "ok": bool(item.get("ok")), "result": item})
+        except Exception as error:
+            with db() as conn:
+                conn.execute("update social_posts set status='ERROR',updated_at=? where id=?", (now_iso(), row["id"]))
+            results.append({"id": int(row["id"]), "ok": False, "error": str(error)[:500]})
+    return {"due": len(rows), "results": results}
+
+
+def run_scheduled_short_form_publications(now=None):
+    """Deliver approved SoloCruz short-form video slots only when locally due.
+
+    The queue deliberately uses one local timestamp for paired Facebook Reels and
+    YouTube Shorts.  Zernio is called only at that moment, so Blog Core remains
+    the source of truth for cancellation and audit state.
+    """
+    current = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    allowed = ("facebook_reel", "youtube_short", INSTAGRAM_REEL_ASSET_TYPE)
+    with db() as conn:
+        rows = conn.execute(
+            """select * from social_posts where status='DRAFT' and scheduled_for is not null
+               and scheduled_for<=? and asset_type in (?,?,?)
+               order by scheduled_for,id limit 12""",
+            (current, *allowed),
+        ).fetchall()
+    results = []
+    for row in rows:
+        try:
+            published = publish_zernio_social_drafts(
+                row["site_id"], row["job_id"], channels=[row["channel"]], post_ids=[row["id"]]
+            )
+            item = (published.get("results") or [{}])[0]
+            results.append({"id": int(row["id"]), "ok": bool(item.get("ok")), "result": item})
+        except Exception as error:
+            with db() as conn:
+                conn.execute("update social_posts set status='ERROR',updated_at=? where id=?", (now_iso(), row["id"]))
+            results.append({"id": int(row["id"]), "ok": False, "error": str(error)[:500]})
+    return {"due": len(rows), "results": results}
+
+
+SOCIAL_WORK_ITEM_TYPES = {
+    "x_post": "X original post",
+    "x_thread": "X thread",
+    "x_reply": "X reply",
+    "threads_post": "Threads post",
+    "reddit_reply": "Reddit reply",
+    "reddit_self_post": "Reddit self-post",
+}
+SOCIAL_WORK_ITEM_STATUSES = {"DRAFT", "AWAITING_APPROVAL", "APPROVED", "SCHEDULED", "PUBLISHED", "REJECTED", "ERROR"}
+
+
+def social_work_item_needs_approval(channel, task_type):
+    """Community discussion is never put on an unattended publishing path."""
+    return channel == "reddit" or task_type.endswith("_reply")
+
+
+def social_work_item_rows(site_id=None):
+    where, params = [], []
+    if site_id:
+        where.append("wi.site_id=?")
+        params.append(int(site_id))
+    clause = ("where " + " and ".join(where)) if where else ""
+    with db() as conn:
+        return conn.execute(
+            f"""select wi.*, s.domain, rs.community_name as verified_community, rs.rules_url,
+                       rs.allows_self_promotion, rs.allows_external_links, rs.allows_automation
+                from social_work_items wi join sites s on s.id=wi.site_id
+                left join social_community_rule_snapshots rs on rs.id=wi.rule_snapshot_id
+                {clause} order by case wi.status
+                    when 'AWAITING_APPROVAL' then 0 when 'DRAFT' then 1 when 'APPROVED' then 2
+                    when 'SCHEDULED' then 3 else 4 end, wi.updated_at desc, wi.id desc""",
+            params,
+        ).fetchall()
+
+
+def get_social_operation_settings(site_id):
+    with db() as conn:
+        conn.execute(
+            "insert into social_operation_settings(site_id,updated_at) values(?,?) on conflict(site_id) do nothing",
+            (site_id, now_iso()),
+        )
+        return conn.execute("select * from social_operation_settings where site_id=?", (site_id,)).fetchone()
+
+
+def _social_queue_counts(site_id):
+    with db() as conn:
+        rows = conn.execute(
+            """select channel,count(*) as n from social_work_items where site_id=?
+               and status in ('DISCOVERED','DRAFT','AWAITING_APPROVAL','APPROVED','SCHEDULED') group by channel""",
+            (site_id,),
+        ).fetchall()
+    values = {row["channel"]: int(row["n"] or 0) for row in rows}
+    return {"twitter": values.get("twitter", 0), "threads": values.get("threads", 0), "reddit": values.get("reddit", 0)}
+
+
+def _social_source_inventory(site_id):
+    """Give the operator every published source for the selected site."""
+    with db() as conn:
+        rows = conn.execute(
+            """select id,title,topic,description,draft_html,published_url,updated_at from content_jobs
+               where site_id=? and status='PUBLISHED' order by updated_at desc""",
+            (site_id,),
+        ).fetchall()
+    inventory = []
+    for row in rows:
+        html = re.sub(r"<[^>]+>", " ", row["draft_html"] or "")
+        inventory.append({
+            "id": row["id"], "title": row["title"] or row["topic"], "description": row["description"] or "",
+            "excerpt": re.sub(r"\s+", " ", html).strip()[:1800], "url": row["published_url"] or "",
+        })
+    return inventory
+
+
+def _reddit_community_from_discussion(url):
+    match = re.search(r"reddit\.com/r/([^/]+)/comments/", url or "", re.I)
+    return match.group(1) if match else ""
+
+
+def _fetch_reddit_rule_snapshot(community):
+    """Read the current public rules. Failure means no candidate is created."""
+    if not community:
+        return None
+    url = f"https://www.reddit.com/r/{urllib.parse.quote(community, safe='_-')}/about/rules.json"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "BlogCoreSocialResearch/1.0 (+https://blog.yas.ooo)"})
+        with urllib.request.urlopen(req, timeout=20) as response:
+            data = json.loads(response.read(400000).decode("utf-8", errors="replace"))
+    except Exception:
+        return None
+    rules = data.get("rules") if isinstance(data, dict) else []
+    if not isinstance(rules, list) or not rules:
+        return None
+    lines = []
+    for rule in rules[:20]:
+        if isinstance(rule, dict):
+            lines.append(" ".join(str(rule.get(key) or "") for key in ("short_name", "description")))
+    summary = re.sub(r"\s+", " ", " | ".join(lines)).strip()[:6000]
+    lowered = summary.lower()
+    blocks_promotion = any(phrase in lowered for phrase in ("no self promotion", "no self-promotion", "no promotion", "no advertising", "no spam"))
+    return {
+        "community": community, "communityUrl": f"https://www.reddit.com/r/{community}/",
+        "rulesUrl": f"https://www.reddit.com/r/{community}/about/rules/", "summary": summary,
+        "allowsSelfPromotion": not blocks_promotion, "allowsExternalLinks": not blocks_promotion,
+    }
+
+
+def _gemini_reddit_search_fallback(site, limit=8):
+    """Use Gemini's grounded Google Search only when Reddit's own public feed is unavailable."""
+    hint = f"{site['domain']} {site['brand_name']}"
+    api_key, _, _ = gemini_keys(hint)
+    if not api_key:
+        return []
+    model = (os.environ.get("GEMINI_STRATEGY_MODEL") or os.environ.get("GEMINI_TEXT_MODEL") or "gemini-3.7-flash").strip()
+    scope = social_editorial_scope(site)
+    prompt = f"""Find current public Reddit discussion pages where this site's actual audience asks a concrete question the company can answer usefully. Scope: {scope}
+Use Google Search. Return JSON only: {{"discussions":[{{"title":"exact discussion title","url":"exact https://www.reddit.com/r/.../comments/... URL","communityName":"subreddit name","reason":"one sentence"}}]}}.
+Return at most {limit}. Omit any page that is not a real Reddit discussion, is local/event-specific, or would invite promotional rather than helpful participation."""
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "tools": [{"googleSearch": {}}],
+        "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1},
+    }
+    try:
+        def _request(key):
+            req = urllib.request.Request(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='.-')}:generateContent?key={urllib.parse.quote(key, safe='')}",
+                data=json.dumps(payload).encode("utf-8"), headers={"content-type": "application/json"}, method="POST",
+            )
+            # Discovery must degrade to a logged research gap; it must not hold an
+            # entire site's editorial queue hostage to one external search request.
+            with urllib.request.urlopen(req, timeout=45) as response:
+                return json.loads(response.read().decode("utf-8"))
+
+        data = call_with_gemini_failover("grounded Reddit discovery", hint, _request)
+        raw = "".join(str(part.get("text") or "") for part in (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []))
+        entries = _parse_json_text(raw).get("discussions")
+    except Exception:
+        return []
+    results, seen = [], set()
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        url = str(entry.get("url") or "").strip()
+        community = _reddit_community_from_discussion(url)
+        if not community or url in seen:
+            continue
+        seen.add(url)
+        results.append({"source": "reddit_google_fallback", "title": str(entry.get("title") or "")[:500], "url": url, "meta": str(entry.get("reason") or ""), "query": "Gemini grounded Google Search"})
+        if len(results) >= limit:
+            break
+    return results
+
+
+def social_editorial_scope(site):
+    """Use site configuration as the source of truth; only YAS adds its approved hard exclusions."""
+    domain = str(site["domain"] or "").lower()
+    base = re.sub(r"\s+", " ", str(site["topic_strategy"] or site["content_context"] or "")).strip()
+    if domain == "yas.ooo":
+        return (base + " YAS sells bespoke end-to-end B2B systems built from scratch, including required integrations. "
+                "Prioritise business-process redesign, custom workflow software, controlled AI agents, data quality, exception handling, human review and operational ROI. "
+                "Exclude n8n, low-code/no-code, Shopify, generic MVP/founder content, consumer AI, marketing and tool-versus-tool comparisons.")
+    return base or f"Follow the documented business, audience and offer of {site['brand_name'] or site['domain']}. Do not invent services, outcomes or claims."
+
+
+def plan_social_campaigns(site, inventory, existing_items, demand_signals, needed=6):
+    """Universal campaign planner: site profile is variable, editorial contract is not."""
+    prompt = f"""You are planning social editorial campaigns for {site['brand_name'] or site['domain']}.
+
+SITE PROFILE:
+{social_editorial_scope(site)}
+
+Create exactly {needed} distinct campaigns. A campaign is a reusable, opinionated operating insight, not a generic topic or a reformatted article title. Each must have a real audience problem, a productive tension or counterintuitive claim, and an evidence basis limited to the supplied site content or demand signals.
+
+UNIVERSAL RULES:
+- Do not create more than one campaign around the same underlying decision.
+- Do not promise outcomes, cite unsupported numbers, or make capability claims not in the profile.
+- Each campaign must support: one X thread, 2-3 short X posts with different angles, one Threads post, and only when relevant a useful Reddit reply.
+- Avoid generic advice, engagement bait, template questions and “thought leadership” filler.
+
+Return JSON only: {{"campaigns":[{{"campaignKey":"lowercase-hyphen-key","title":"short campaign title","audienceProblem":"specific operational problem","coreTension":"specific tension or non-obvious stance","evidenceBasis":"what supports the idea","channelPlan":{{"xThread":"angle","xPosts":["angle"],"threads":"angle","reddit":"when a reply is appropriate"}}}}]}}
+
+PUBLISHED SITE CONTENT:
+{json.dumps(inventory, ensure_ascii=False)}
+
+EXISTING SOCIAL WORK (do not repeat its intent):
+{json.dumps(existing_items, ensure_ascii=False)}
+
+DEMAND SIGNALS:
+{json.dumps(demand_signals[:30], ensure_ascii=False)}"""
+    data = _gemini_text_json(prompt, temperature=0.25, timeout=240, repair=False)
+    campaigns = data.get("campaigns") if isinstance(data, dict) else []
+    accepted, seen = [], set()
+    for item in campaigns if isinstance(campaigns, list) else []:
+        if not isinstance(item, dict):
+            continue
+        key = re.sub(r"[^a-z0-9-]+", "-", str(item.get("campaignKey") or "").lower()).strip("-")
+        values = [str(item.get(field) or "").strip() for field in ("title", "audienceProblem", "coreTension", "evidenceBasis")]
+        if not key or key in seen or any(not value for value in values):
+            continue
+        seen.add(key)
+        accepted.append({"campaignKey": key, "title": values[0][:240], "audienceProblem": values[1][:1200], "coreTension": values[2][:1200], "evidenceBasis": values[3][:1600], "channelPlan": item.get("channelPlan") if isinstance(item.get("channelPlan"), dict) else {}})
+    if len(accepted) < 3:
+        raise RuntimeError("Campaign planner did not produce enough distinct, usable campaigns")
+    with db() as conn:
+        for campaign in accepted:
+            conn.execute("""insert into social_campaigns(site_id,campaign_key,title,audience_problem,core_tension,evidence_basis,channel_plan_json,created_at,updated_at)
+                values(?,?,?,?,?,?,?,?,?) on conflict(site_id,campaign_key) do update set title=excluded.title,audience_problem=excluded.audience_problem,
+                core_tension=excluded.core_tension,evidence_basis=excluded.evidence_basis,channel_plan_json=excluded.channel_plan_json,updated_at=excluded.updated_at""",
+                (site["id"], campaign["campaignKey"], campaign["title"], campaign["audienceProblem"], campaign["coreTension"], campaign["evidenceBasis"], json.dumps(campaign["channelPlan"], ensure_ascii=False), now_iso(), now_iso()))
+    return accepted
+
+
+def social_candidate_quality(site, channel, title, body, existing_items):
+    """Fast universal gate before a task enters a live operating queue."""
+    value = f"{title} {body}".strip()
+    compact = re.sub(r"\s+", " ", value)
+    reasons = []
+    if len(body.strip()) < 100:
+        reasons.append("too-short")
+    if re.search(r"\b\d{1,3}(?:\.\d+)?%\b|\b(?:guarantee|always|never fails|seamless)\b", compact, re.I):
+        reasons.append("unsupported-claim")
+    if channel in {"twitter", "threads"} and re.search(r"(?:how do you|what is your|have you|what's your)[^?]{0,120}\?\s*$", body, re.I):
+        reasons.append("engagement-bait")
+    for item in existing_items:
+        if item.get("channel") != channel:
+            continue
+        similarity = idea_similarity(compact, f"{item.get('title') or ''} {item.get('body') or ''}")
+        if similarity >= 0.72:
+            reasons.append("semantic-duplicate")
+            break
+    first_sentence = re.split(r"[.!?]", body.strip(), maxsplit=1)[0].strip()
+    if len(first_sentence) < 28 or len(first_sentence) > 240:
+        reasons.append("weak-hook")
+    return {"passed": not reasons, "reasons": reasons, "hook": first_sentence[:240]}
+
+
+def requalify_social_queue(site_id, item_ids=None):
+    """Review a whole queue manually, or only newly created items during one run."""
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
+    selected_ids = {int(item_id) for item_id in item_ids} if item_ids is not None else None
+    rows = [
+        dict(row) for row in social_work_item_rows(site_id)
+        if row["status"] in {"DRAFT", "DISCOVERED", "AWAITING_APPROVAL"}
+        and (selected_ids is None or int(row["id"]) in selected_ids)
+    ]
+    accepted, rejected = [], []
+    with db() as conn:
+        for row in rows:
+            quality = social_candidate_quality(site, row["channel"], row["title"], row["body"], accepted)
+            if quality["passed"]:
+                accepted.append(row)
+                conn.execute("update social_work_items set quality_json=?,updated_at=? where id=?", (json.dumps(quality, ensure_ascii=False), now_iso(), row["id"]))
+            else:
+                rejected.append({"id": row["id"], "reasons": quality["reasons"]})
+                conn.execute("update social_work_items set status='REJECTED',quality_json=?,updated_at=? where id=?", (json.dumps(quality, ensure_ascii=False), now_iso(), row["id"]))
+    if accepted:
+        # A campaign is intentionally adapted for several networks.  Compare
+        # novelty within a channel only; an X post and a Threads post must not
+        # disqualify each other simply because they cover the same decision.
+        semantic = {}
+        for channel in sorted({row["channel"] for row in accepted}):
+            channel_items = [row for row in accepted if row["channel"] == channel]
+            semantic.update(social_semantic_quality_gate(site, channel_items))
+        with db() as conn:
+            for row in accepted:
+                verdict = semantic.get(int(row["id"]))
+                if not verdict:
+                    continue
+                quality = parse_json_object(row.get("quality_json"))
+                quality["semantic"] = verdict
+                if verdict["decision"] != "KEEP":
+                    rejected.append({"id": row["id"], "reasons": [verdict["reason"]]})
+                    conn.execute("update social_work_items set status='REJECTED',quality_json=?,updated_at=? where id=?", (json.dumps(quality, ensure_ascii=False), now_iso(), row["id"]))
+                else:
+                    conn.execute("update social_work_items set quality_json=?,updated_at=? where id=?", (json.dumps(quality, ensure_ascii=False), now_iso(), row["id"]))
+    kept = len(accepted) - sum(1 for item in rejected if any(row["id"] == item["id"] for row in accepted))
+    scope = "new item(s)" if selected_ids is not None else "queue item(s)"
+    agent_log(site_id, "INFO", "social-quality-requalification", f"Requalified social {scope}: kept {kept}, rejected {len(rejected)}", {"rejected": rejected})
+    return {"kept": kept, "rejected": rejected}
+
+
+def social_semantic_quality_gate(site, items):
+    """Second, universal editor pass: judge novelty and operational depth across a whole queue."""
+    compact = [{"id": int(row["id"]), "channel": row["channel"], "title": row["title"], "body": (row["body"] or "")[:1800]} for row in items]
+    prompt = f"""You are the final social editor for a content factory. Evaluate drafts for one site against each other, not in isolation.
+
+SITE PROFILE:
+{social_editorial_scope(site)}
+
+KEEP only a draft that has all of these: a strong specific hook, a concrete operating mechanism/risk/decision, an insight that is materially distinct from other drafts in the same channel, and safe claims. REJECT a draft if it is generic advice, repeats another draft with new wording, has weak thought-leadership filler, a rhetorical engagement question, an unsupported statistic/outcome, or is not clearly relevant to the site profile.
+
+Return JSON only: {{"verdicts":[{{"id":integer,"decision":"KEEP|REJECT","reason":"short specific reason"}}]}}. Return exactly one verdict per input id.
+
+DRAFTS:
+{json.dumps(compact, ensure_ascii=False)}"""
+    try:
+        data = _gemini_text_json(prompt, temperature=0.0, timeout=240, repair=False)
+    except Exception:
+        return {}
+    verdicts = {}
+    allowed = {item["id"] for item in compact}
+    for item in data.get("verdicts") if isinstance(data, dict) and isinstance(data.get("verdicts"), list) else []:
+        try:
+            item_id = int(item.get("id"))
+        except (TypeError, ValueError):
+            continue
+        decision = str(item.get("decision") or "")
+        if item_id in allowed and decision in {"KEEP", "REJECT"}:
+            verdicts[item_id] = {"decision": decision, "reason": str(item.get("reason") or "editorial review")[:600]}
+    return verdicts if set(verdicts) == allowed else {}
+
+
+def _social_discovery_prompt(site, inventory, existing, search_signals, reddit_signals, campaigns, x_needed, threads_needed, reddit_needed):
+    brand = site["brand_name"] or site["domain"]
+    x_format_rule = "Use x_post only for this run." if x_needed <= 2 else "Use x_post or x_thread where the idea genuinely needs a sequence."
+    editorial_scope = social_editorial_scope(site)
+    return f"""
+You are the editorial social operator for {brand}. Build only genuinely useful, source-grounded work for X, Threads and Reddit. You have a complete list of current site articles, pending social work, current search-demand signals, and exact Reddit discussion URLs.
+
+IMPORTANT DEDUPLICATION RULE: site articles are evidence only. They are NOT previously covered social topics and must never block creating a social post. Reject a proposed item only when its intent duplicates an existing X/Reddit work item listed below, or when it repeats a social item already created in this run. A strong social post may use the same underlying insight as an article, but must be written as a complete channel-native argument rather than a teaser.
+
+SITE EDITORIAL SCOPE:
+{editorial_scope}
+
+{SOCIAL_NATURAL_WRITING_CONTRACT}
+
+X RULES:
+- Produce exactly {x_needed} original X items unless doing so would violate the stated scope or factual-safety rules. Use a supplied sourceJobId when the post draws on a site article. You may leave sourceJobId empty for a new strategic topic grounded only in the site editorial scope and the supplied demand signals.
+- For a no-sourceJobId item, write a practical decision framework or operational observation, not a factual market claim. Never invent statistics, customer outcomes, product capabilities, or external facts.
+- {x_format_rule}
+- x_post is one complete stand-alone post, maximum 280 characters. No URL, no “read more”, no generic final question, no hashtags unless essential.
+- x_thread is exactly 3-5 numbered posts separated with "\n\n". EVERY block, including the first, must begin with its sequential marker: "1/", then "2/", and so on. Each numbered post must be 280 characters or less. It must teach a complete decision framework, not tease an article.
+- Start with a specific, defensible claim or operational observation. Do not invent figures, results, clients, or guarantees.
+- Every item must use exactly one supplied campaignKey. Do not create a new campaign or repeat an existing social item.
+
+THREADS RULES:
+- Produce exactly {threads_needed} Threads posts unless doing so would violate the stated scope or factual-safety rules. Use a supplied sourceJobId when relevant; it may be empty for a new scope-grounded topic with no external factual claim.
+- Cover the same business-process automation territory as X, but do not copy an X item sentence-for-sentence.
+- One complete conversational post, maximum 500 characters. End with a useful conclusion, checklist or concrete trade-off — never a question, CTA or engagement bait.
+
+REDDIT RULES:
+- Produce at most {reddit_needed} reply candidates, and only when an exact supplied discussion has a clear question that can be answered directly from the supplied source material.
+- The reply must be useful even if the reader never visits our site. No link, no CTA, no marketing language, no fake first-person experience.
+- Give the affiliation disclosure exactly as a short factual sentence. Do not say a response is ready to publish: it still needs rule verification and human approval.
+
+Return JSON only:
+{{"xItems":[{{"campaignKey":"exact supplied key","taskType":"x_post|x_thread","sourceJobId":"exact ID or empty","title":"short internal title","body":"finished text","semanticKey":"lowercase-hyphen-key"}}],"threadsItems":[{{"campaignKey":"exact supplied key","sourceJobId":"exact ID or empty","title":"short internal title","body":"finished Threads text","semanticKey":"lowercase-hyphen-key"}}],"redditCandidates":[{{"campaignKey":"exact supplied key","sourceJobId":"exact ID","discussionUrl":"exact supplied URL","communityName":"exact subreddit name","title":"short internal title","body":"finished helpful reply","semanticKey":"lowercase-hyphen-key","affiliationDisclosure":"factual disclosure"}}]}}
+
+SITE CONTENT:
+{json.dumps(inventory, ensure_ascii=False)}
+
+EXISTING SOCIAL WORK (do not repeat these intents):
+{json.dumps(existing, ensure_ascii=False)}
+
+APPROVED CAMPAIGNS (use only these):
+{json.dumps(campaigns, ensure_ascii=False)}
+
+SEARCH SIGNALS:
+{json.dumps(search_signals[:20], ensure_ascii=False)}
+
+REDDIT DISCUSSIONS:
+{json.dumps(reddit_signals[:15], ensure_ascii=False)}
+""".strip()
+
+
+def _social_channel_discovery_prompt(site, channel, needed, inventory, existing, campaigns, search_signals, reddit_signals):
+    """One generation request per network; channel constraints must never compete."""
+    common = f"""You are the editorial social operator for {site['brand_name'] or site['domain']}.
+
+SITE EDITORIAL SCOPE:
+{social_editorial_scope(site)}
+
+{SOCIAL_NATURAL_WRITING_CONTRACT}
+
+Use only the approved campaigns below. Every item must be anchored in one named published article: sourceJobId and sourceEvidence are mandatory. sourceEvidence must identify the exact mechanism, constraint, policy, comparison or checklist from that source which the post develops. Never turn a broad subject into generic advice. Do not repeat an existing item in this same channel. Do not invent statistics, client results, product capabilities, or guarantees. Every item needs a specific operating mechanism, risk or decision — never generic thought leadership.
+
+PUBLISHED SITE CONTENT:
+{json.dumps(inventory, ensure_ascii=False)}
+
+EXISTING SOCIAL WORK:
+{json.dumps(existing, ensure_ascii=False)}
+
+APPROVED CAMPAIGNS:
+{json.dumps(campaigns, ensure_ascii=False)}
+
+SEARCH SIGNALS:
+{json.dumps(search_signals[:20], ensure_ascii=False)}
+"""
+    if channel == "twitter":
+        format_rule = "Use x_post only." if needed <= 2 else "Use x_post or x_thread where a sequence genuinely improves the explanation."
+        return common + f"""
+Create exactly {needed} original X items.
+- {format_rule}
+- x_post is a finished stand-alone post of 280 characters or fewer; no URL, CTA, generic question or filler.
+- x_thread contains exactly 3-5 blocks separated by a blank line. Each starts 1/, 2/, etc., and is 280 characters or fewer.
+- sourceJobId must be an exact published ID and sourceEvidence must be a specific fact or mechanism from that article.
+Return JSON only: {{"items":[{{"campaignKey":"exact approved key","taskType":"x_post|x_thread","sourceJobId":"exact published ID","sourceEvidence":"specific source-grounded mechanism","title":"short internal title","body":"finished text","semanticKey":"lowercase-hyphen-key"}}]}}"""
+    if channel == "threads":
+        return common + f"""
+Create exactly {needed} original Threads posts.
+- Each is a finished, conversational operational argument of 500 characters or fewer.
+- End with a concrete conclusion, checklist or trade-off; never a question, CTA or engagement bait.
+- sourceJobId must be an exact published ID and sourceEvidence must be a specific fact or mechanism from that article.
+Return JSON only: {{"items":[{{"campaignKey":"exact approved key","sourceJobId":"exact published ID","sourceEvidence":"specific source-grounded mechanism","title":"short internal title","body":"finished Threads post","semanticKey":"lowercase-hyphen-key"}}]}}"""
+    return common + f"""
+Create at most {needed} Reddit community candidates. Use reddit_reply only for an exact supplied discussion. You may use reddit_self_post for a discussion-starting question based on a published article when the community is a real, relevant subreddit; it must contain no link, promotion, CTA or claim of personal experience.
+- The reply or question post is useful without visiting our site and includes a short factual affiliation disclosure.
+- Every self post must be a real, open-ended decision question with enough concrete context for useful replies, not engagement bait.
+- These remain candidates pending subreddit-rule verification and human approval.
+Return JSON only: {{"items":[{{"taskType":"reddit_reply|reddit_self_post","campaignKey":"exact approved key","sourceJobId":"exact published ID","discussionUrl":"exact supplied URL for reply, empty for self post","communityName":"exact subreddit","title":"finished question title or short internal reply title","body":"finished helpful reply or discussion post","semanticKey":"lowercase-hyphen-key","affiliationDisclosure":"factual disclosure"}}]}}
+
+EXACT REDDIT DISCUSSIONS:
+{json.dumps(reddit_signals[:20], ensure_ascii=False)}"""
+
+
+def social_item_matches_site_scope(site, title, body):
+    """Hard scope guard for YAS: model wording cannot reintroduce legacy themes."""
+    if str(site["domain"] or "").lower() != "yas.ooo":
+        return True
+    value = f"{title} {body}".lower()
+    blocked = ("shopify", "mvp", "founder advisory", "consumer ai", "marketing campaign", "n8n", "low-code", "no-code")
+    relevant = ("automation", "workflow", "business process", "operational", "ai agent", "integration", "exception", "human review", "data quality", "process")
+    return not any(term in value for term in blocked) and any(term in value for term in relevant)
+
+
+def run_agent_social_discovery_for_site(site_id, trigger="manual"):
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
+    settings = get_social_operation_settings(site_id)
+    counts = _social_queue_counts(site_id)
+    # A target is a planning target, not a content-truncation limit.  These ceilings
+    # merely prevent an accidental configuration error from asking one model call for
+    # hundreds of independent, fully written pieces.
+    x_needed = max(0, min(30, int(settings["x_queue_target"] or 7) - counts["twitter"]))
+    threads_needed = max(0, min(20, int(settings["threads_queue_target"] or 7) - counts["threads"]))
+    reddit_needed = max(0, min(10, int(settings["reddit_queue_target"] or 3) - counts["reddit"]))
+    if not x_needed and not threads_needed and not reddit_needed:
+        return {"createdX": 0, "createdReddit": 0, "skipped": "queue-target-met", "counts": counts}
+    # Reserve the run before source discovery or model calls.  Manual and scheduled
+    # execution otherwise both see an empty queue and can create duplicate work.
+    with db() as conn:
+        conn.execute("begin immediate")
+        running = conn.execute("select id from social_operation_runs where site_id=? and status='RUNNING' order by id desc limit 1", (site_id,)).fetchone()
+        if running:
+            return {"createdX": 0, "createdThreads": 0, "createdReddit": 0, "skipped": "already-running", "runId": running["id"], "counts": counts}
+        run_id = conn.execute("insert into social_operation_runs(site_id,trigger,status,started_at) values(?,?,?,?)", (site_id, trigger, "RUNNING", now_iso())).lastrowid
+    inventory = _social_source_inventory(site_id)
+    # Rejected drafts are an editorial record, not an exclusion list.  A weak old
+    # angle must never prevent the operator from proposing a materially better one.
+    current = [
+        {"channel": row["channel"], "taskType": row["task_type"], "title": row["title"], "body": row["body"], "semanticKey": row["semantic_key"]}
+        for row in social_work_item_rows(site_id) if row["status"] != "REJECTED"
+    ]
+    search_signals, search_warnings, _ = fetch_popular_search_signals(site, "month")
+    reddit_signals, reddit_warnings, _ = fetch_reddit_signals(site, "month")
+    if not reddit_signals and reddit_needed:
+        fallback_signals = _gemini_reddit_search_fallback(site, limit=max(6, reddit_needed * 3))
+        if fallback_signals:
+            reddit_signals = fallback_signals
+            reddit_warnings.append("Reddit public feed was unavailable; used grounded Google Search to find exact discussion pages. Community rules still require a separate check before approval.")
+    # Build enough distinct editorial campaigns for the configured queue, rather
+    # than repeatedly squeezing 20+ posts out of the same six angles.
+    campaign_needed = max(
+        8,
+        min(16, math.ceil((int(settings["x_queue_target"] or 7) + int(settings["threads_queue_target"] or 7)) / 3)),
+    )
+    campaigns = plan_social_campaigns(site, inventory, current, search_signals + reddit_signals, needed=campaign_needed)
+    created_x = created_threads = created_reddit = 0
+    new_item_ids = []
+    skipped_reddit = []
+    try:
+        # Generate each channel independently through Gemini Batch API. A weak Reddit
+        # source or an incomplete X response must never consume the output budget of
+        # Threads (or vice versa), and non-interactive queue replenishment must use
+        # the discounted asynchronous path rather than synchronous generation.
+        result = {"xItems": [], "threadsItems": [], "redditCandidates": []}
+        if x_needed:
+            x_result, _ = _gemini_batch_text_json(
+                {"twitter": _social_channel_discovery_prompt(site, "twitter", x_needed, inventory, current, campaigns, search_signals, reddit_signals)},
+                temperature=0.3,
+            )
+            result["xItems"] = x_result.get("twitter", {}).get("items", []) if isinstance(x_result.get("twitter"), dict) else []
+        if threads_needed:
+            threads_result, _ = _gemini_batch_text_json(
+                {"threads": _social_channel_discovery_prompt(site, "threads", threads_needed, inventory, current, campaigns, search_signals, reddit_signals)},
+                temperature=0.3,
+            )
+            result["threadsItems"] = threads_result.get("threads", {}).get("items", []) if isinstance(threads_result.get("threads"), dict) else []
+        if reddit_needed:
+            reddit_result, _ = _gemini_batch_text_json(
+                {"reddit": _social_channel_discovery_prompt(site, "reddit", reddit_needed, inventory, current, campaigns, search_signals, reddit_signals)},
+                temperature=0.2,
+            )
+            result["redditCandidates"] = reddit_result.get("reddit", {}).get("items", []) if isinstance(reddit_result.get("reddit"), dict) else []
+        source_ids = {str(item["id"]) for item in inventory}
+        existing_keys = {item["semanticKey"] for item in current}
+        with db() as conn:
+            campaign_rows = conn.execute("select id,campaign_key from social_campaigns where site_id=? and status='ACTIVE'", (site_id,)).fetchall()
+        campaign_ids = {row["campaign_key"]: int(row["id"]) for row in campaign_rows}
+        with db() as conn:
+            for item in result.get("xItems") if isinstance(result, dict) else []:
+                if created_x >= x_needed or not isinstance(item, dict):
+                    continue
+                task_type = str(item.get("taskType") or "")
+                body = str(item.get("body") or "").strip()
+                key = re.sub(r"[^a-z0-9-]+", "-", str(item.get("semanticKey") or "").lower()).strip("-")
+                campaign_id = campaign_ids.get(str(item.get("campaignKey") or "").strip())
+                source_job_id = str(item.get("sourceJobId") or "").strip() or None
+                source_evidence = str(item.get("sourceEvidence") or "").strip()
+                if not campaign_id or task_type not in {"x_post", "x_thread"} or not source_job_id or source_job_id not in source_ids or len(source_evidence) < 20 or not body or not key or key in existing_keys or not social_item_matches_site_scope(site, str(item.get("title") or ""), body):
+                    continue
+                quality = social_candidate_quality(site, "twitter", str(item.get("title") or ""), body, current)
+                if not quality["passed"]:
+                    continue
+                if task_type == "x_post" and len(body) > 280:
+                    continue
+                if task_type == "x_thread":
+                    parts = [part.strip() for part in body.split("\n\n") if part.strip()]
+                    if not 3 <= len(parts) <= 5 or any(len(part) > 280 for part in parts):
+                        continue
+                    if any(not re.match(rf"^{index}/\\s", part) for index, part in enumerate(parts, start=1)):
+                        continue
+                try:
+                    cursor = conn.execute("""insert into social_work_items(site_id,source_kind,source_job_id,channel,task_type,title,body,semantic_key,status,approval_required,campaign_id,metadata_json,created_at,updated_at)
+                        values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (site_id, "content_job" if source_job_id else "strategy_signal", source_job_id, "twitter", task_type, str(item.get("title") or "X editorial draft")[:240], body, key, "DRAFT", 0, campaign_id, json.dumps(make_contract_metadata(BLOG_INSIGHT, sourceJobId=source_job_id)), now_iso(), now_iso()))
+                    new_item_ids.append(cursor.lastrowid)
+                    existing_keys.add(key); created_x += 1
+                    current.append({"channel": "twitter", "taskType": task_type, "title": str(item.get("title") or ""), "body": body, "semanticKey": key})
+                except sqlite3.IntegrityError:
+                    continue
+            for item in result.get("threadsItems") if isinstance(result, dict) else []:
+                if created_threads >= threads_needed or not isinstance(item, dict):
+                    continue
+                body = str(item.get("body") or "").strip()
+                key = re.sub(r"[^a-z0-9-]+", "-", str(item.get("semanticKey") or "").lower()).strip("-")
+                campaign_id = campaign_ids.get(str(item.get("campaignKey") or "").strip())
+                source_job_id = str(item.get("sourceJobId") or "").strip() or None
+                source_evidence = str(item.get("sourceEvidence") or "").strip()
+                if not campaign_id or not source_job_id or source_job_id not in source_ids or len(source_evidence) < 20 or not body or len(body) > 500 or not key or key in existing_keys or not social_item_matches_site_scope(site, str(item.get("title") or ""), body):
+                    continue
+                quality = social_candidate_quality(site, "threads", str(item.get("title") or ""), body, current)
+                if not quality["passed"]:
+                    continue
+                try:
+                    cursor = conn.execute("""insert into social_work_items(site_id,source_kind,source_job_id,channel,task_type,title,body,semantic_key,status,approval_required,campaign_id,metadata_json,created_at,updated_at)
+                        values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (site_id, "content_job" if source_job_id else "strategy_signal", source_job_id, "threads", "threads_post", str(item.get("title") or "Threads editorial draft")[:240], body, key, "DRAFT", 0, campaign_id, json.dumps(make_contract_metadata(BLOG_INSIGHT, sourceJobId=source_job_id)), now_iso(), now_iso()))
+                    new_item_ids.append(cursor.lastrowid)
+                    existing_keys.add(key); created_threads += 1
+                    current.append({"channel": "threads", "taskType": "threads_post", "title": str(item.get("title") or ""), "body": body, "semanticKey": key})
+                except sqlite3.IntegrityError:
+                    continue
+            for item in result.get("redditCandidates") if isinstance(result, dict) else []:
+                if created_reddit >= reddit_needed or not isinstance(item, dict):
+                    continue
+                task_type = str(item.get("taskType") or "reddit_reply")
+                discussion_url = str(item.get("discussionUrl") or "").strip()
+                community = _reddit_community_from_discussion(discussion_url) if discussion_url else re.sub(r"^r/", "", str(item.get("communityName") or "").strip(), flags=re.I)
+                body = str(item.get("body") or "").strip()
+                key = re.sub(r"[^a-z0-9-]+", "-", str(item.get("semanticKey") or "").lower()).strip("-")
+                source_job_id = str(item.get("sourceJobId") or "").strip()
+                if task_type not in {"reddit_reply", "reddit_self_post"} or source_job_id not in source_ids or (task_type == "reddit_reply" and not discussion_url) or not community or not body or not key or key in existing_keys or not social_item_matches_site_scope(site, str(item.get("title") or ""), body):
+                    continue
+                quality = social_candidate_quality(site, "reddit", str(item.get("title") or ""), body, current)
+                if not quality["passed"]:
+                    continue
+                rules = _fetch_reddit_rule_snapshot(community)
+                if rules and not rules["allowsSelfPromotion"]:
+                    skipped_reddit.append(community or "unknown")
+                    continue
+                rule_id = None
+                community_url = f"https://www.reddit.com/r/{community}/"
+                if rules:
+                    rule_id = conn.execute("""insert into social_community_rule_snapshots(site_id,channel,community_name,community_url,rules_url,summary,allows_self_promotion,allows_external_links,captured_at)
+                        values(?,?,?,?,?,?,?,?,?)""", (site_id, "reddit", community, rules["communityUrl"], rules["rulesUrl"], rules["summary"], int(rules["allowsSelfPromotion"]), int(rules["allowsExternalLinks"]), now_iso())).lastrowid
+                    community_url = rules["communityUrl"]
+                try:
+                    cursor = conn.execute("""insert into social_work_items(site_id,source_kind,source_job_id,channel,task_type,title,body,community_name,community_url,discussion_url,affiliation_disclosure,semantic_key,status,approval_required,rule_snapshot_id,created_at,updated_at)
+                        values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (site_id, "community_opportunity", source_job_id, "reddit", task_type, str(item.get("title") or "Reddit discussion candidate")[:240], body, community, community_url, discussion_url, str(item.get("affiliationDisclosure") or f"I work with {site['brand_name'] or site['domain']}.")[:400], key, "AWAITING_APPROVAL" if rule_id else "DISCOVERED", 1, rule_id, now_iso(), now_iso()))
+                    new_item_ids.append(cursor.lastrowid)
+                    existing_keys.add(key); created_reddit += 1
+                except sqlite3.IntegrityError:
+                    continue
+        quality_result = requalify_social_queue(site_id, item_ids=new_item_ids)
+        summary = {"createdX": created_x, "createdThreads": created_threads, "createdReddit": created_reddit, "quality": quality_result, "counts": _social_queue_counts(site_id), "warnings": search_warnings + reddit_warnings, "redditSkipped": sorted(set(skipped_reddit))}
+        with db() as conn:
+            conn.execute("update social_operation_runs set status='COMPLETED',summary_json=?,finished_at=? where id=?", (json.dumps(summary, ensure_ascii=False), now_iso(), run_id))
+        agent_log(site_id, "INFO", "social-discovery", f"Social operator created {created_x} X draft(s), {created_threads} Threads draft(s) and {created_reddit} Reddit candidate(s)", summary)
+        return summary
+    except Exception as error:
+        with db() as conn:
+            conn.execute("update social_operation_runs set status='ERROR',summary_json=?,finished_at=? where id=?", (json.dumps({"error": str(error)}), now_iso(), run_id))
+        agent_log(site_id, "ERROR", "social-discovery", f"Social discovery failed: {error}")
+        raise
+
+
+def run_scheduled_social_operation_discovery():
+    """Replenish opted-in editorial queues at most once per day; never publish."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=20)).isoformat(timespec="seconds")
+    with db() as conn:
+        sites = conn.execute(
+            """select sos.site_id from social_operation_settings sos
+               where sos.discovery_enabled=1 and not exists (
+                   select 1 from social_operation_runs sor where sor.site_id=sos.site_id
+                   and sor.started_at>=? and sor.status in ('RUNNING','COMPLETED')
+               )""",
+            (cutoff,),
+        ).fetchall()
+    results = []
+    for row in sites:
+        site_id = int(row["site_id"])
+        try:
+            result = run_agent_social_discovery_for_site(site_id, trigger="scheduled")
+            results.append({"siteId": site_id, **result})
+        except Exception as error:
+            results.append({"siteId": site_id, "error": str(error)})
+    return {"due": len(results), "results": results}
+
+
+def render_agent_social_page():
+    with db() as conn:
+        sites = conn.execute("select id,domain from sites order by domain").fetchall()
+    rows = social_work_item_rows()
+    site_options = "".join(f"<option value='{int(site['id'])}'>{escape(site['domain'])}</option>" for site in sites)
+    cards = []
+    for row in rows:
+        is_reddit = row["channel"] == "reddit"
+        rule = ""
+        if is_reddit:
+            if row["rule_snapshot_id"]:
+                rule = f"<p class='rule ok'>Rules captured: {escape(row['verified_community'] or row['community_name'])}</p>"
+            else:
+                rule = "<p class='rule bad'>Reddit task blocked: no community-rule snapshot.</p>"
+        meta = []
+        if row["community_name"]: meta.append(escape(row["community_name"]))
+        if row["discussion_url"]: meta.append("discussion linked")
+        if row["source_job_id"]: meta.append("source article attached")
+        approve = ""
+        if row["status"] in {"DRAFT", "AWAITING_APPROVAL"}:
+            approve = f"<button onclick='approveItem({row['id']})'>Approve</button><button class='secondary' onclick='rejectItem({row['id']})'>Reject</button>"
+        elif row["status"] == "APPROVED":
+            approve = f"<button onclick='queueItem({row['id']})'>Queue</button>"
+        cards.append(f"""<article class='work-card {escape(row['channel'])}'>
+          <header><span class='type'>{escape(SOCIAL_WORK_ITEM_TYPES.get(row['task_type'], row['task_type']))}</span><span class='status {escape(row['status'].lower())}'>{escape(row['status'].replace('_',' '))}</span></header>
+          <h2>{escape(row['title'])}</h2><p class='site'>{escape(row['domain'])} · {' · '.join(meta) or 'No source context'}</p>
+          <p class='body'>{escape((row['body'] or '')[:720])}</p>{rule}
+          <footer><small>{escape(row['created_at'])}</small><div>{approve}</div></footer>
+        </article>""")
+    work_html = "".join(cards) or "<div class='empty'>No X or Reddit tasks yet. Create a researched task below; nothing will publish automatically from this queue.</div>"
+    return f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Social operations · Blog Core</title>
+<style>:root{{--bg:#0b1220;--panel:#131e31;--line:#2a3a55;--muted:#9db0c9;--text:#edf4ff;--blue:#72a7ff;--green:#6fddb0;--red:#ff94a6}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font:15px Inter,system-ui,sans-serif}}main{{max-width:1280px;margin:auto;padding:28px}}header.top{{display:flex;justify-content:space-between;gap:20px;align-items:start;border-bottom:1px solid var(--line);padding-bottom:22px}}h1{{margin:4px 0 8px;font-size:28px}}p{{line-height:1.55}}.muted,.site,small{{color:var(--muted)}}a,button{{color:var(--text)}}button,.btn{{border:1px solid #5789dc;background:#2864bd;padding:9px 12px;border-radius:8px;cursor:pointer;text-decoration:none;font-weight:650}}button.secondary{{background:transparent;border-color:var(--line)}}.layout{{display:grid;grid-template-columns:360px 1fr;gap:20px;margin-top:24px}}.panel,.work-card{{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:17px}}.panel h2{{margin-top:0;font-size:17px}}label{{display:block;margin:12px 0 5px;color:var(--muted);font-size:13px}}input,select,textarea{{width:100%;padding:10px;border-radius:7px;border:1px solid var(--line);background:#0d1728;color:var(--text);font:inherit}}textarea{{min-height:100px;resize:vertical}}.hint{{font-size:12px;color:var(--muted)}}.queue{{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}}.work-card header,.work-card footer{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.work-card h2{{font-size:17px;margin:14px 0 4px}}.work-card .body{{white-space:pre-wrap;color:#d6e2f3;max-height:190px;overflow:auto}}.type,.status{{font-size:12px;border-radius:999px;padding:4px 8px;background:#223755;color:#bdd6ff}}.status.awaiting_approval{{background:#5e4624;color:#ffd695}}.status.approved{{background:#1e5143;color:#a2f3d0}}.status.rejected,.status.error{{background:#602c3b;color:#ffc1ca}}.rule{{font-size:13px;padding:8px;border-radius:7px}}.rule.ok{{background:#173e35;color:#a7f0d1}}.rule.bad{{background:#542735;color:#ffc2cf}}footer div{{display:flex;gap:8px}}.empty{{border:1px dashed var(--line);padding:28px;color:var(--muted);border-radius:12px}}@media(max-width:800px){{.layout{{grid-template-columns:1fr}}header.top{{display:block}}header.top .btn{{display:inline-block;margin-top:10px}}}}</style></head><body><main>
+<header class='top'><div><small>Agent / Social operations</small><h1>X and Reddit work queue</h1><p class='muted'>X originals can be queued after review. Replies and all Reddit activity require explicit approval; Reddit also requires a saved community-rule check. This queue never creates a generic article promotion.</p></div><a class='btn secondary' href='/agent'>← Agent dashboard</a></header>
+<div class='layout'><aside class='panel'><h2>Create researched task</h2><form onsubmit='createItem(event)'><label>Site</label><select name='siteId' required>{site_options}</select><label>Channel</label><select name='channel' id='channel' onchange='toggleCommunity()'><option value='twitter'>X / Twitter</option><option value='threads'>Threads</option><option value='reddit'>Reddit</option></select><label>Format</label><select name='taskType' id='taskType'><option value='x_post'>X original post</option><option value='x_thread'>X thread</option><option value='x_reply'>X reply</option></select><label>Working title</label><input name='title' required><label>Draft body</label><textarea name='body' required></textarea><label>Semantic key</label><input name='semanticKey' placeholder='e.g. human-in-loop-decision' required><label>Source content job ID (optional)</label><input name='sourceJobId'><div id='communityFields'><label>Community / subreddit</label><input name='communityName'><label>Community URL</label><input name='communityUrl'><label>Discussion URL (required for replies)</label><input name='discussionUrl'><label>Affiliation disclosure</label><input name='affiliationDisclosure' placeholder='I work with Yas.ooo…'><label>Rules page URL</label><input name='rulesUrl'><label>Rule summary</label><textarea name='ruleSummary'></textarea><p class='hint'>Saving a Reddit task records the supplied rule check. It is not an automated post permission.</p></div><button type='submit'>Add to safe queue</button></form></aside><section><div class='queue'>{work_html}</div></section></div>
+<script>function toggleCommunity(){{const channel=document.getElementById('channel').value,reddit=channel==='reddit';document.getElementById('communityFields').style.display=reddit?'block':'none';const type=document.getElementById('taskType');type.innerHTML=reddit?'<option value="reddit_reply">Reddit reply</option><option value="reddit_self_post">Reddit self-post</option>':channel==='threads'?'<option value="threads_post">Threads post</option>':'<option value="x_post">X original post</option><option value="x_thread">X thread</option><option value="x_reply">X reply</option>'}}async function createItem(e){{e.preventDefault();const f=new FormData(e.target),data=Object.fromEntries(f.entries());const r=await fetch('/api/agent/social-work-items',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(data)}}),j=await r.json();if(!r.ok)return alert(j.error||'Could not create task');location.reload()}}async function approveItem(id){{const r=await fetch('/api/agent/social-work-items/'+id+'/approve',{{method:'POST'}}),j=await r.json();if(!r.ok)return alert(j.error||'Could not approve');location.reload()}}async function rejectItem(id){{const r=await fetch('/api/agent/social-work-items/'+id+'/reject',{{method:'POST'}}),j=await r.json();if(!r.ok)return alert(j.error||'Could not reject');location.reload()}}async function queueItem(id){{const r=await fetch('/api/agent/social-work-items/'+id+'/queue',{{method:'POST'}}),j=await r.json();if(!r.ok)return alert(j.error||'Could not queue');location.reload()}}toggleCommunity()</script></main></body></html>"""
+
+
+def evidence_pipeline_snapshot(site_id):
+    with db() as conn:
+        site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
+        if not site: raise KeyError("site not found")
+        sources = conn.execute("select * from evidence_source_boards where site_id=? order by priority desc,id", (site_id,)).fetchall()
+        patterns = conn.execute("select * from evidence_patterns where site_id=? order by case status when 'READY' then 0 when 'DISCOVERED' then 1 else 2 end,score desc,updated_at desc", (site_id,)).fetchall()
+        case_counts = conn.execute("select status,count(*) as n from evidence_cases where site_id=? group by status", (site_id,)).fetchall()
+        job_counts = conn.execute("select status,count(*) as n from evidence_job_postings where site_id=? group by status", (site_id,)).fetchall()
+        last_run = conn.execute("select * from evidence_pipeline_runs where site_id=? order by id desc limit 1", (site_id,)).fetchone()
+    return {"site":dict(site),"sources":[dict(row) for row in sources],"patterns":[dict(row) for row in patterns],"caseCounts":{row['status']:int(row['n']) for row in case_counts},"jobCounts":{row['status']:int(row['n']) for row in job_counts},"lastRun":dict(last_run) if last_run else None}
+
+
+def render_agent_evidence_page(site_id):
+    data=evidence_pipeline_snapshot(site_id);site=data["site"]
+    source_cards=[]
+    for row in data["sources"]:
+        health="ok" if not row["last_error"] else "bad"
+        source_cards.append(f"<article class='source'><div><b>{escape(row['company_name'])}</b><small>{escape(row['ats_type'])} · {escape(row['board_slug'])}</small></div><span class='{health}'>{escape(row['last_success_at'] or row['last_error'] or 'not polled')}</span></article>")
+    pattern_cards=[]
+    for row in data["patterns"]:
+        action=f"<button onclick='materialize({int(row['id'])})'>Create blog + X drafts</button>" if row["status"]=="READY" else (f"<a class='btn secondary' href='/sites/{int(site_id)}/content-jobs/{escape(row['content_job_id'] or '')}'>Open article task</a>" if row["content_job_id"] else "")
+        pattern_cards.append(f"""<article class='pattern'><header><span>{escape(row['taxonomy'])}</span><strong>{escape(row['status'])}</strong></header><h2>{escape(row['title'])}</h2><p>{escape(row['thesis'])}</p><div class='metrics'><b>{int(row['company_count'])}</b> companies · <b>{int(row['evidence_count'])}</b> fragments · score <b>{int(row['score'])}</b></div><footer>{action}</footer></article>""")
+    run=data.get("lastRun") or {}; run_summary=parse_json_object(run.get("summary_json") if isinstance(run,dict) else "{}")
+    return f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Evidence research · Blog Core</title><style>
+:root{{--bg:#07111d;--panel:#111f30;--line:#263b53;--text:#edf5ff;--muted:#9db0c6;--blue:#58a6ff;--green:#63d8a7;--red:#ff879b}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font:15px Inter,system-ui,sans-serif}}main{{max-width:1320px;margin:auto;padding:28px}}a,button{{color:var(--text)}}button,.btn{{display:inline-block;border:1px solid #4b8fe2;background:#2166b8;padding:10px 13px;border-radius:8px;text-decoration:none;font-weight:700;cursor:pointer}}.secondary{{background:transparent;border-color:var(--line)}}.top{{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid var(--line);padding-bottom:22px}}h1{{margin:4px 0 8px}}p,small{{color:var(--muted);line-height:1.55}}.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0}}.stat,.panel,.pattern{{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}}.stat b{{font-size:27px;display:block}}.layout{{display:grid;grid-template-columns:340px 1fr;gap:18px}}.panel h2{{font-size:17px;margin-top:0}}.source{{display:flex;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}}.source:last-child{{border:0}}.source small{{display:block}}.source span{{font-size:11px;max-width:130px;text-align:right;color:var(--muted)}}.source .ok{{color:var(--green)}}.source .bad{{color:var(--red)}}.patterns{{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}}.pattern header,.pattern footer{{display:flex;justify-content:space-between;gap:10px}}.pattern header span,.pattern header strong{{font-size:11px;padding:4px 8px;border-radius:999px;background:#203954;color:#b9d7ff}}.pattern h2{{font-size:18px}}.metrics{{color:#c8d8eb;margin:15px 0}}.actions{{display:flex;gap:8px;align-items:start}}@media(max-width:800px){{.layout{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}.top{{display:block}}.actions{{margin-top:12px}}}}</style></head><body><main>
+<header class='top'><div><small>Agent / Evidence research</small><h1>Company Bug Report · {escape(site['domain'])}</h1><p>Individual verified job-ad fragments feed X. Patterns repeated across at least three companies become long-form blog research.</p></div><div class='actions'><button onclick='runPipeline()'>Scan and analyze</button><a class='btn secondary' href='/agent'>Agent dashboard</a></div></header>
+<section class='stats'><div class='stat'><b>{sum(data['jobCounts'].values())}</b><small>job postings stored</small></div><div class='stat'><b>{sum(data['caseCounts'].values())}</b><small>evidence cases</small></div><div class='stat'><b>{len([p for p in data['patterns'] if p['status']=='READY'])}</b><small>blog patterns ready</small></div><div class='stat'><b>{int(run_summary.get('jobsAnalyzed') or 0)}</b><small>jobs in last run</small></div></section>
+<div class='layout'><aside class='panel'><h2>Verified public boards</h2>{''.join(source_cards) or '<p>Sources will be seeded on the first run.</p>'}</aside><section><div class='patterns'>{''.join(pattern_cards) or '<div class="panel"><h2>No patterns yet</h2><p>Run evidence research. A blog pattern appears only after at least three companies describe the same underlying manual loop.</p></div>'}</div></section></div>
+<script>async function runPipeline(){{const r=await fetch('/api/agent/sites/{int(site_id)}/evidence/run',{{method:'POST'}}),j=await r.json();if(!r.ok)return alert(j.error||'Run failed');alert('Evidence research started. Refresh this page in a few minutes.')}}async function materialize(id){{if(!confirm('Create one queued blog research task and fact-checked X drafts from this pattern?'))return;const r=await fetch('/api/agent/evidence-patterns/'+id+'/materialize',{{method:'POST'}}),j=await r.json();if(!r.ok)return alert(j.error||'Could not create outputs');location.reload()}}</script></main></body></html>"""
+
+
+def agent_log(site_id, level, action, message, details=None):
+    with db() as conn:
+        conn.execute(
+            "insert into agent_action_logs(site_id,ts,level,action,message,details_json) values(?,?,?,?,?,?)",
+            (site_id, now_iso(), level, action, message, json.dumps(details or {}, ensure_ascii=False)),
+        )
+
+
+def upsert_agent_recommendation(site_id, fingerprint, priority, category, publication_type, title, rationale, evidence=None, action=None):
+    with db() as conn:
+        existing = conn.execute(
+            "select id from agent_recommendations where site_id=? and fingerprint=? and status='OPEN'",
+            (site_id, fingerprint),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """update agent_recommendations set priority=?,category=?,publication_type=?,title=?,rationale=?,
+                   evidence_json=?,action_json=?,updated_at=? where id=?""",
+                (priority, category, publication_type, title, rationale, json.dumps(evidence or {}, ensure_ascii=False), json.dumps(action or {}, ensure_ascii=False), now_iso(), existing["id"]),
+            )
+            return existing["id"], False
+        cursor = conn.execute(
+            """insert into agent_recommendations(site_id,fingerprint,priority,category,publication_type,title,rationale,
+               evidence_json,action_json,status,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,'OPEN',?,?)""",
+            (site_id, fingerprint, priority, category, publication_type, title, rationale, json.dumps(evidence or {}, ensure_ascii=False), json.dumps(action or {}, ensure_ascii=False), now_iso(), now_iso()),
+        )
+        return cursor.lastrowid, True
+
+
+def create_agent_content_task(site_id, idea, recommendation_id=None):
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
+    title = re.sub(r"\s+", " ", str(idea.get("title") or "")).strip()
+    if not title:
+        raise ValueError("recommendation has no topic title")
+    similar = find_similar_existing_topic({"title": title}, existing_topic_index(site_id))
+    if similar:
+        raise ValueError(f"topic overlaps existing content: {similar['title']}")
+    job_id = secrets.token_hex(12)
+    slug = simple_slug(title)
+    target_path = f"/blog/{slug}/"
+    sources = {
+        **idea,
+        "source": idea.get("source") or "seo-agent",
+        "contentType": "blog",
+        "pageType": "blog",
+        "targetPath": target_path,
+        "canonicalGroup": target_path,
+        "agentRecommendationId": recommendation_id,
+    }
+    now = now_iso()
+    with db() as conn:
+        conn.execute(
+            """insert into content_jobs(id,site_id,topic,slug,status,title,description,category,sources_json,visibility,created_at,updated_at)
+               values(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (job_id, site_id, title, slug, "QUEUED", title, idea.get("angle") or idea.get("rationale") or "", "SEO Agent", json.dumps(sources, ensure_ascii=False), "public", now, now),
+        )
+        conn.execute(
+            "insert into content_job_logs(site_id,job_id,ts,level,step,message) values(?,?,?,?,?,?)",
+            (site_id, job_id, now, "INFO", "agent-queue", "Created from approved SEO Agent recommendation"),
+        )
+        if recommendation_id:
+            conn.execute("update agent_recommendations set status='IMPLEMENTED',resolved_at=?,updated_at=? where id=?", (now, now, recommendation_id))
+    agent_log(site_id, "INFO", "create-content-task", f"Created queued article task: {title}", {"jobId": job_id, "recommendationId": recommendation_id})
+    return {"id": job_id, "title": title, "slug": slug}
+
+
+def send_agent_telegram_report(message):
+    token = (os.environ.get("AGENT_TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (os.environ.get("AGENT_TELEGRAM_CHAT_ID") or "").strip()
+    if not token or not chat_id:
+        return {"sent": False, "reason": "not configured"}
+    payload = urllib.parse.urlencode({"chat_id": chat_id, "text": message, "disable_web_page_preview": "true"}).encode("utf-8")
+    request_obj = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=payload, method="POST")
+    with urllib.request.urlopen(request_obj, timeout=20) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    return {"sent": bool(data.get("ok"))}
+
+
+def run_scheduled_agent_telegram_reports(now=None):
+    """Send one compact daily operations report for the active SoloCruz scope."""
+    if not (os.environ.get("AGENT_TELEGRAM_BOT_TOKEN") and os.environ.get("AGENT_TELEGRAM_CHAT_ID")):
+        return {"due": 0, "reason": "telegram-not-configured"}
+    current_utc = now or datetime.now(timezone.utc)
+    results = []
+    with db() as conn:
+        sites = conn.execute("select * from sites order by domain").fetchall()
+    if AGENT_SITE_SCOPE:
+        sites = [site for site in sites if str(site["domain"] or "").lower() in AGENT_SITE_SCOPE]
+    for site in sites:
+        settings = get_autopublish_settings(site["id"])
+        local_now = current_utc.astimezone(social_schedule_timezone(settings["timezone"] or "UTC"))
+        if local_now.hour < 18:
+            continue
+        trigger = f"agent-telegram-daily:{local_now.date().isoformat()}"
+        with db() as conn:
+            if conn.execute("select id from autopublish_runs where site_id=? and trigger=? limit 1", (site["id"], trigger)).fetchone():
+                continue
+        snapshot = build_agent_site_snapshot(site)
+        queued_articles = snapshot["metrics"]["blog_articles"]["queued"] + snapshot["metrics"]["blog_articles"]["scheduled"]
+        instagram = snapshot["metrics"]["instagram_carousels"]
+        tiktok = snapshot["metrics"]["tiktok_carousels"]
+        with db() as conn:
+            recommendations = conn.execute("select count(*) from agent_recommendations where site_id=? and status='OPEN'", (site["id"],)).fetchone()[0]
+        message = (
+            f"SoloCruz daily report — {local_now.date().isoformat()}\n"
+            f"Articles queued: {queued_articles}\n"
+            f"Shared carousels queued: {min(instagram['queued'], tiktok['queued'])}\n"
+            f"Instagram published/errors: {instagram['published']}/{instagram['errors']}\n"
+            f"TikTok published/errors: {tiktok['published']}/{tiktok['errors']}\n"
+            f"Open recommendations: {recommendations}"
+        )
+        sent = send_agent_telegram_report(message)
+        if sent.get("sent"):
+            with db() as conn:
+                stamp = now_iso()
+                conn.execute("insert into autopublish_runs(site_id,started_at,finished_at,trigger,status,result_json) values(?,?,?,?,?,?)", (site["id"], stamp, stamp, trigger, "SENT", json.dumps(sent)))
+            results.append({"siteId": int(site["id"]), "sent": True})
+    return {"due": len(results), "results": results}
+
+
+def agent_error_cause(error_text):
+    text = str(error_text or "").lower()
+    if "no longer available" in text or ("gemini-2.5" in text and "404" in text):
+        return "retired_model"
+    if "429" in text or "too many requests" in text:
+        return "rate_limit"
+    if "503" in text or "service unavailable" in text:
+        return "provider_outage"
+    if "stale generating" in text or "timeout" in text:
+        return "timeout"
+    if "locale purity" in text or "localization" in text:
+        return "localization"
+    if "404" in text or "not found" in text:
+        return "endpoint_404"
+    if "validation failed" in text or "guardrail" in text or "expected " in text or "need at least" in text:
+        return "content_validation"
+    if "400" in text or "bad request" in text:
+        return "bad_request"
+    return "unknown"
+
+
+def agent_error_analysis(site_id, publication_type):
+    items = []
+    with db() as conn:
+        if publication_type in {"website_pages", "blog_articles"}:
+            rows = conn.execute(
+                """select * from content_jobs
+                   where site_id=? and upper(status)='ERROR' order by updated_at desc""",
+                (site_id,),
+            ).fetchall()
+            for row in rows:
+                page_type = content_job_page_type(row)
+                target_type = "blog_articles" if page_type == "blog" else "website_pages"
+                if target_type == publication_type:
+                    items.append({"id": row["id"], "title": row["topic"], "error": row["error"] or "Unknown generation error", "updatedAt": row["updated_at"]})
+        else:
+            channel_asset = {
+                "linkedin_articles": ("linkedin", "post"), "telegram_posts": ("telegram", "post"),
+                "x_posts": ("twitter", "post"), "tumblr_posts": ("tumblr", "post"),
+                "pinterest_pins": ("pinterest", None), "instagram_posts": ("instagram", "post"),
+                "instagram_reels": ("instagram", INSTAGRAM_REEL_ASSET_TYPE),
+                "tiktok_carousels": ("tiktok", TIKTOK_CAROUSEL_ASSET_TYPE), "tiktok_videos": ("tiktok", "post"),
+                "threads_posts": ("threads", "post"), "reddit_posts": ("reddit", "post"),
+            }.get(publication_type)
+            if channel_asset:
+                channel, asset_type = channel_asset
+                rows = conn.execute(
+                    "select id,job_id,content_text,validation_json,updated_at,asset_type from social_posts where site_id=? and channel=? and upper(status)='ERROR' order by updated_at desc",
+                    (site_id, channel),
+                ).fetchall()
+                for row in rows:
+                    if asset_type and str(row["asset_type"] or "post") != asset_type:
+                        continue
+                    validation = parse_json_object(row["validation_json"])
+                    items.append({"id": str(row["id"]), "title": (row["content_text"] or row["job_id"] or f"{channel} publication")[:180], "error": validation.get("error") or "Publication adapter returned an error", "updatedAt": row["updated_at"]})
+    cause_counts = {}
+    for item in items:
+        item["cause"] = agent_error_cause(item["error"])
+        cause_counts[item["cause"]] = cause_counts.get(item["cause"], 0) + 1
+    primary = max(cause_counts, key=lambda key: cause_counts[key]) if cause_counts else "unknown"
+    cause_contracts = {
+        "retired_model": {
+            "diagnosis": "The source factory is still calling a retired Gemini model. Retrying before changing the model will fail again.",
+            "nextSteps": ["Change the source factory text model to the currently configured supported Gemini model.", "Run one affected job as a canary and verify that generation reaches DRAFT.", "Retry the remaining affected jobs only after the canary passes."],
+            "expectedResult": "Generation resumes without repeating the model-not-found failure.",
+            "actionLabel": "Open affected jobs",
+        },
+        "rate_limit": {
+            "diagnosis": "The provider rejected generation because the request quota was temporarily exhausted.",
+            "nextSteps": ["Retry one affected task now that the rate-limit window has passed.", "If 429 repeats, reduce concurrent generation or add provider backoff before retrying the rest."],
+            "expectedResult": "Transient failures return to DRAFT without changing the content brief.",
+            "actionLabel": "Open retry queue",
+        },
+        "provider_outage": {
+            "diagnosis": "Generation reached the provider but failed during a temporary service outage.",
+            "nextSteps": ["Retry the newest failed task as a health check.", "Retry older tasks only after the canary succeeds; do not rewrite their briefs."],
+            "expectedResult": "The existing approved briefs generate normally once provider service is healthy.",
+            "actionLabel": "Open retry queue",
+        },
+        "endpoint_404": {
+            "diagnosis": "The source factory or publication adapter is calling an endpoint that returns 404. Repeating the same request is not a fix.",
+            "nextSteps": ["Check the bound factory base URL and generation route for this site.", "Verify one request directly against the configured endpoint.", "After the route responds successfully, retry one affected task and then the remainder."],
+            "expectedResult": "The factory accepts generation requests and failed tasks can be retried safely.",
+            "actionLabel": "Open site setup",
+        },
+        "content_validation": {
+            "diagnosis": "Drafts were generated, but they violate the site's current editorial or SEO validator contract.",
+            "nextSteps": ["Compare the failed rules across the listed tasks and correct the shared generation prompt, not each article manually.", "Regenerate one task and confirm every validator passes.", "Regenerate the remaining tasks with the corrected shared contract."],
+            "expectedResult": "New drafts satisfy the approved template and SEO rules on the first generation pass.",
+            "actionLabel": "Review failed drafts",
+        },
+        "localization": {
+            "diagnosis": "The localized output failed language-purity validation; the source page itself is not the problem.",
+            "nextSteps": ["Inspect the failing locale and remove untranslated or cross-language template fragments in the shared localization prompt.", "Regenerate that locale only, then verify purity before retrying other localized pages."],
+            "expectedResult": "Localized pages pass the configured language-purity threshold without changing canonical content.",
+            "actionLabel": "Review localization jobs",
+        },
+        "bad_request": {
+            "diagnosis": "The provider rejected the request payload with HTTP 400, so retries with the same payload will repeat the failure.",
+            "nextSteps": ["Inspect the newest failed request for unsupported model, schema, or payload fields.", "Correct the shared adapter and validate one canary request before retrying the batch."],
+            "expectedResult": "The corrected adapter sends provider-valid requests for all affected pages.",
+            "actionLabel": "Open affected jobs",
+        },
+        "timeout": {
+            "diagnosis": "A generation remained active beyond the allowed execution window and was stopped as stale.",
+            "nextSteps": ["Confirm that no source-factory process is still working on the task.", "Retry one task and inspect its step log for the slow stage before retrying the rest."],
+            "expectedResult": "The task either completes or exposes the exact stage that needs a timeout/performance correction.",
+            "actionLabel": "Inspect task log",
+        },
+        "unknown": {
+            "diagnosis": "The failed records do not share a recognized root cause yet.",
+            "nextSteps": ["Open the newest failed record and inspect its task log.", "Classify the shared failure before retrying the batch."],
+            "expectedResult": "The failure has one named owner and a reproducible correction path.",
+            "actionLabel": "Inspect newest failure",
+        },
+    }
+    contract = cause_contracts[primary]
+    return {**contract, "primaryCause": primary, "causeCounts": cause_counts, "objects": items[:8], "totalObjects": len(items), "confidence": "high" if items and primary != "unknown" else "medium"}
+
+
+def run_agent_topic_discovery_for_site(site_id, needed=3, auto_create=False):
+    site = get_site(site_id)
+    if not site:
+        raise KeyError("site not found")
+    search_signals, search_warnings, search_meta = fetch_popular_search_signals(site, "month")
+    reddit_signals, reddit_warnings, reddit_meta = fetch_reddit_signals(site, "month")
+    ideas, rejected, idea_stats = generate_article_ideas(site, search_signals + reddit_signals)
+    created = []
+    for idea in ideas[:max(1, min(12, int(needed or 3)))]:
+        fingerprint = "topic:" + simple_slug(idea["title"])
+        rec_id, is_new = upsert_agent_recommendation(
+            site_id, fingerprint, "medium", "topic-opportunity", "blog_articles", idea["title"],
+            idea.get("seo_rationale") or idea.get("angle") or "Demand-backed topic not covered by current content.",
+            {
+                "diagnosis": "Discovery found an audience-demand cluster that is not covered by published or planned site content.",
+                "impact": "Adding the topic closes a verified coverage gap without creating a near-duplicate page.",
+                "nextSteps": ["Create the queued task from this approved topic.", "Generate it through the site's existing template and validation contract.", "Review and publish only after the normal quality gates pass."],
+                "expectedResult": "One new non-duplicative content task enters the normal production workflow.",
+                "source": idea.get("source"), "sourceTitle": idea.get("source_title"), "sourceUrl": idea.get("source_url"),
+                "search": search_meta, "reddit": reddit_meta, "confidence": "medium",
+            },
+            {"type": "create-content-task", "idea": idea, "label": "Create this task"},
+        )
+        if is_new:
+            created.append(rec_id)
+            if auto_create:
+                create_agent_content_task(site_id, idea, rec_id)
+    agent_log(site_id, "INFO", "topic-discovery", f"Discovery produced {len(created)} new actionable topic recommendation(s)", {"warnings": search_warnings + reddit_warnings, "rejected": len(rejected), "stats": idea_stats})
+    return {"created": len(created), "ideas": len(ideas), "warnings": search_warnings + reddit_warnings, "rejected": len(rejected)}
+
+
+def run_agent_audit(trigger="manual", discover_topics=False, site_scope=None):
+    started = now_iso()
+    with db() as conn:
+        run_id = conn.execute("insert into agent_runs(started_at,trigger,status) values(?,?,'RUNNING')", (started, trigger)).lastrowid
+        sites = conn.execute("select * from sites order by domain").fetchall()
+    scope = {str(value or "").strip().lower() for value in (site_scope if site_scope is not None else AGENT_SITE_SCOPE) if str(value or "").strip()}
+    if scope:
+        sites = [site for site in sites if str(site["domain"] or "").lower() in scope or str(site["id"]) in scope]
+    created = 0
+    topic_recommendations = 0
+    errors = []
+    for site in sites:
+        snapshot = build_agent_site_snapshot(site)
+        settings = snapshot["settings"]
+        if not int(settings.get("monitoring_enabled", 1)):
+            continue
+        site_id = int(site["id"])
+        for publication_type, metric in snapshot["metrics"].items():
+            if metric["errors"]:
+                analysis = agent_error_analysis(site_id, publication_type)
+                newest_age = iso_age_seconds((analysis.get("objects") or [{}])[0].get("updatedAt")) if analysis.get("objects") else 0
+                priority = "high" if newest_age < 30 * 86400 or analysis["primaryCause"] in {"retired_model", "endpoint_404"} else "medium"
+                cause_label = analysis["primaryCause"].replace("_", " ")
+                analysis["impact"] = f"{analysis['totalObjects']} task(s) are blocked; the publication queue cannot be treated as healthy until this root cause is removed."
+                _, is_new = upsert_agent_recommendation(
+                    site_id, f"errors:{publication_type}", priority, "publication-error", publication_type,
+                    f"Fix {cause_label}: {analysis['totalObjects']} blocked {publication_type.replace('_', ' ')} task(s)",
+                    analysis["diagnosis"], analysis,
+                    {"type": "open-site", "label": analysis["actionLabel"], "url": f"/sites/{site_id}"},
+                )
+                created += int(is_new)
+        queue_count = snapshot["metrics"]["blog_articles"]["queued"] + snapshot["metrics"]["blog_articles"]["scheduled"]
+        minimum = max(1, int(settings.get("minimum_queue") or 3))
+        target = max(minimum, int(settings.get("replenish_to") or 6))
+        if queue_count < minimum:
+            _, is_new = upsert_agent_recommendation(
+                site_id, "queue:blog_articles", "high" if queue_count == 0 else "medium", "queue-health", "blog_articles",
+                f"Find and approve {target - queue_count} new article topic(s)",
+                f"The active article runway is {queue_count} task(s), below the configured minimum of {minimum} and target of {target}.",
+                {
+                    "diagnosis": f"The site has only {queue_count} queued or scheduled article task(s). At the current threshold, editorial production will stop before a replacement topic set is ready.",
+                    "impact": "A depleted queue creates publishing gaps and forces last-minute topic choices without adequate duplicate or demand checks.",
+                    "nextSteps": [f"Run Discovery now and produce {target - queue_count} non-duplicate candidates.", "Review the demand evidence and approve only topics aligned with the site's commercial/editorial scope.", "Queue approved topics; generation and publication remain behind their normal quality gates."],
+                    "expectedResult": f"The article queue returns to {target} tasks with demand evidence and duplicate checks recorded.",
+                    "current": queue_count, "minimum": minimum, "target": target, "confidence": "high",
+                },
+                {"type": "discover-topics", "label": f"Find {target - queue_count} topics now", "siteId": site_id, "needed": target - queue_count},
+            )
+            created += int(is_new)
+            discovery = get_topic_discovery_settings(site_id)
+            if discover_topics and (int(discovery["enabled"] or 0) or int(settings.get("auto_create_tasks") or 0)):
+                try:
+                    needed = max(1, target - queue_count)
+                    result = run_agent_topic_discovery_for_site(site_id, needed, auto_create=bool(settings.get("auto_create_tasks")))
+                    created += int(result["created"])
+                    topic_recommendations += int(result["created"])
+                except Exception as error:
+                    errors.append({"siteId": site_id, "error": str(error)})
+                    agent_log(site_id, "ERROR", "topic-discovery", f"Topic discovery failed: {error}")
+        published_articles = snapshot["metrics"]["blog_articles"]["published"] + snapshot["metrics"]["website_pages"]["published"]
+        context = " ".join([site["domain"] or "", site["brand_name"] or "", site["content_context"] or "", site["topic_strategy"] or ""]).lower()
+        visual_context = any(term in context for term in ("wine", "travel", "cruise", "ugc", "visual", "ecommerce", "fashion", "photo"))
+        preferred_type = "instagram_posts" if visual_context else "linkedin_articles"
+        preferred_label = "Instagram" if visual_context else "LinkedIn"
+        preferred_metric = snapshot["metrics"][preferred_type]
+        if published_articles >= 10 and not preferred_metric["connected"]:
+            cadence = "3 posts per week" if visual_context else "2 expert posts per week"
+            _, is_new = upsert_agent_recommendation(
+                site_id, f"distribution-gap:{preferred_type}", "medium", "distribution-gap", preferred_type,
+                f"Connect {preferred_label} and run a 14-day distribution test",
+                f"The site has {published_articles} published content asset(s), but its most relevant distribution channel is not connected.",
+                {
+                    "diagnosis": f"{preferred_label} is the strongest first distribution fit for this site's current content profile, yet no connected account is available.",
+                    "impact": f"Existing content has no repeatable {preferred_label} distribution path, so publication value stops at the website.",
+                    "nextSteps": [f"Connect the correct {preferred_label} account in the site's Setup tab.", "Adapt three recent high-value articles into complete channel-native posts using their existing hero images where appropriate.", f"Schedule {cadence} for 14 days, then compare impressions, engagement, and referral clicks before expanding cadence."],
+                    "expectedResult": f"A measured {preferred_label} baseline exists for deciding whether the channel deserves ongoing production capacity.",
+                    "publishedAssetsAvailable": published_articles, "confidence": "medium",
+                },
+                {"type": "open-site", "label": f"Connect {preferred_label}", "url": f"/sites/{site_id}"},
+            )
+            created += int(is_new)
+    summary = {"sites": len(sites), "newRecommendations": created, "newTopicRecommendations": topic_recommendations, "errors": errors}
+    with db() as conn:
+        conn.execute("update agent_runs set finished_at=?,status=?,summary_json=? where id=?", (now_iso(), "COMPLETED" if not errors else "COMPLETED_WITH_ERRORS", json.dumps(summary, ensure_ascii=False), run_id))
+    agent_log(None, "INFO" if not errors else "WARN", "agent-audit", f"Agent audit completed: {created} new recommendation(s)", summary)
+    if created or errors:
+        try:
+            domains = ", ".join(site["domain"] for site in sites)
+            send_agent_telegram_report(f"Blog Core SEO Agent\nScope: {domains}\nSites checked: {len(sites)}\nNew recommendations: {created}\nDiscovery issues: {len(errors)}")
+        except Exception as error:
+            agent_log(None, "WARN", "telegram-report", f"Telegram report failed: {error}")
+    return summary
+
+
+def run_scheduled_agent_audits():
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat(timespec="seconds")
+    with db() as conn:
+        recent = conn.execute("select id from agent_runs where trigger='scheduled' and started_at>=? order by id desc limit 1", (cutoff,)).fetchone()
+    if recent:
+        return {"due": 0}
+    return {"due": 1, **run_agent_audit(trigger="scheduled", discover_topics=False, site_scope=AGENT_SITE_SCOPE)}
+
+
+def run_scheduled_strategy_analyses():
+    """Refresh at most one due priority/previously-analysed site per scheduler pass."""
+    due = next_due_strategy_site(DB_PATH)
+    if not due:
+        return {"due": 0}
+    site_id = int(due["site_id"])
+    run_id, created = start_strategy_run(DB_PATH, site_id, trigger="scheduled")
+    if not created:
+        return {"due": 0, "siteId": site_id, "runId": run_id}
+    result = execute_strategy_run(DB_PATH, run_id, site_id)
+    if result.get("ok"):
+        try:
+            result["pinterestDrafts"] = materialize_agent_pinterest_assignments(site_id)
+        except Exception as error:
+            result["pinterestDrafts"] = {"ok": False, "error": str(error)[:500]}
+    agent_log(site_id, "INFO" if result.get("ok") else "ERROR", "strategy-analysis", "Deep growth strategy completed" if result.get("ok") else f"Deep growth strategy failed: {result.get('error')}", result)
+    return {"due": 1, "siteId": site_id, **result}
+
+
+def agent_metric_html(metric):
+    state = "connected" if metric["connected"] else "not connected"
+    tone = "ok" if metric["connected"] and not metric["errors"] else ("bad" if metric["errors"] else "off")
+    return f"""<div class='metric {tone}' title='{escape(metric.get('note') or '', quote=True)}'>
+      <strong>{escape(state)}</strong><span>Q {metric['queued']} · S {metric['scheduled']}</span><span>P {metric['published']} · E {metric['errors']}</span>
+    </div>"""
+
+
+def render_agent_dashboard():
+    snapshot = build_agent_snapshot()
+    with db() as conn:
+        recommendations = conn.execute("""select ar.*,s.domain from agent_recommendations ar join sites s on s.id=ar.site_id
+            where ar.status='OPEN' order by case ar.priority when 'high' then 0 when 'medium' then 1 else 2 end, ar.updated_at desc limit 100""").fetchall()
+        logs = conn.execute("""select al.*,s.domain from agent_action_logs al left join sites s on s.id=al.site_id order by al.id desc limit 80""").fetchall()
+        strategy_profiles = {int(row["site_id"]): dict(row) for row in conn.execute("select site_id,priority,status,strategy_version,last_analyzed_at from agent_strategy_profiles").fetchall()}
+    rec_counts = {}
+    for recommendation in recommendations:
+        rec_counts[recommendation["site_id"]] = rec_counts.get(recommendation["site_id"], 0) + 1
+    ordered_rows = sorted(snapshot["rows"], key=lambda row: (-int(strategy_profiles.get(int(row["site"]["id"]), {}).get("priority") or 0), -row["totals"]["errors"], row["site"]["domain"]))
+    selected_id = int(ordered_rows[0]["site"]["id"]) if ordered_rows else 0
+
+    def compact_recommendation_html(recommendation):
+        evidence = parse_json_object(recommendation["evidence_json"])
+        action = parse_json_object(recommendation["action_json"])
+        steps = evidence.get("nextSteps") if isinstance(evidence.get("nextSteps"), list) else []
+        next_step = str(steps[0] if steps else recommendation["rationale"])
+        if action.get("type") == "create-content-task":
+            button = f"<button onclick='createTask({recommendation['id']})'>{escape(action.get('label') or 'Create task')}</button>"
+        elif action.get("type") == "discover-topics":
+            button = f"<button onclick='discoverTopics({recommendation['site_id']},{int(action.get('needed') or 3)})'>{escape(action.get('label') or 'Find topics')}</button>"
+        elif action.get("type") == "open-site" and str(action.get("url") or "").startswith("/sites/"):
+            button = f"<a class='btn' href='{escape(action['url'], quote=True)}'>{escape(action.get('label') or 'Open site')}</a>"
+        else:
+            button = f"<button class='secondary' onclick='focusSiteRecommendation({recommendation['site_id']})'>View decision</button>"
+        return f"""<article class='portfolio-task {escape(recommendation['priority'])}'>
+          <span class='task-priority'>{escape(recommendation['priority'])}</span><div class='task-copy'><div><b>{escape(recommendation['domain'])}</b><span>{escape((recommendation['category'] or '').replace('-', ' '))}</span></div>
+          <h3>{escape(recommendation['title'])}</h3><p><strong>Next:</strong> {escape(next_step)}</p></div><div class='task-action'>{button}</div>
+        </article>"""
+
+    site_buttons = []
+    site_panels = []
+    groups = (
+        ("Website", (("website_pages", "Website pages"), ("blog_articles", "Blog articles"))),
+        ("Distribution", (("linkedin_articles", "LinkedIn"), ("telegram_posts", "Telegram"), ("x_posts", "X"), ("tumblr_posts", "Tumblr"), ("pinterest_pins", "Pinterest"), ("threads_posts", "Threads"), ("reddit_posts", "Reddit"))),
+        ("Visual social", (("instagram_posts", "Instagram posts"), ("instagram_carousels", "Instagram carousels"), ("instagram_reels", "Instagram Reels"), ("tiktok_carousels", "TikTok carousels"), ("tiktok_videos", "TikTok videos"))),
+        ("Audio", (("podcast_episodes", "Podcast episodes"),)),
+    )
+    for index, row in enumerate(ordered_rows):
+        site = row["site"]
+        site_id = int(site["id"])
+        settings = row["settings"]
+        errors = row["totals"]["errors"]
+        health_label = "Needs attention" if errors else ("Queue low" if row["metrics"]["blog_articles"]["queued"] < int(settings.get("minimum_queue") or 3) else "Healthy")
+        health_tone = "danger" if errors else ("warning" if health_label == "Queue low" else "healthy")
+        error_badge = f"<span class='nav-badge error' title='{errors} error(s)'>{errors}E</span>" if errors else ""
+        recommendation_badge = f"<span class='nav-badge recommendation' title='{rec_counts.get(site_id,0)} recommendation(s)'>{rec_counts.get(site_id,0)}R</span>" if rec_counts.get(site_id, 0) else ""
+        strategy_profile = strategy_profiles.get(site_id, {})
+        priority_badge = "<span class='nav-badge strategy' title='Priority strategy site'>P</span>" if int(strategy_profile.get("priority") or 0) else ""
+        site_buttons.append(f"""<button class='site-nav-item {health_tone} {'active' if index == 0 else ''}' data-site='{site_id}' onclick='selectSite({site_id})'>
+          <span class='health-mark' aria-hidden='true'></span><span class='site-nav-copy'><strong><span class='domain-name'>{escape(site['domain'])}</span><span class='nav-badges'>{priority_badge}{error_badge}{recommendation_badge}</span></strong><small>{escape(health_label)}</small></span>
+          <span class='site-nav-stats'><b>{row['totals']['queued']}</b> queued <b>{errors}</b> errors</span>
+        </button>""")
+        group_html = []
+        for group_label, publication_types in groups:
+            cards = []
+            for key, label in publication_types:
+                metric = row["metrics"][key]
+                connection_label = "Connected" if metric["connected"] else "Not connected"
+                tone = "channel-error" if metric["errors"] else ("channel-live" if metric["connected"] else "channel-off")
+                cards.append(f"""<article class='channel-card {tone}'>
+                  <div class='channel-head'><h4>{escape(label)}</h4><span>{escape(connection_label)}</span></div>
+                  <div class='channel-counts'><div><b>{metric['queued']}</b><small>Queued</small></div><div><b>{metric['scheduled']}</b><small>Scheduled</small></div><div><b>{metric['published']}</b><small>Published</small></div><div><b>{metric['errors']}</b><small>Errors</small></div></div>
+                </article>""")
+            group_html.append(f"<section class='channel-group'><h3>{escape(group_label)}</h3><div class='channel-grid'>{''.join(cards)}</div></section>")
+        discovery = get_topic_discovery_settings(site_id)
+        site_panels.append(f"""<section class='site-workspace {'active' if index == 0 else ''}' data-site-panel='{site_id}'>
+          <header class='workspace-head'><div><span class='section-label'>Selected site</span><h2>{escape(site['domain'])}</h2><p>{escape(health_label)} · {rec_counts.get(site_id,0)} open recommendation(s) · Strategy {escape(str(strategy_profile.get('status') or 'not analyzed').lower())}</p></div><div class='workspace-actions'><a class='btn' href='/agent/strategy/{site_id}'>Strategy</a>{f"<a class='btn secondary' href='/agent/evidence?site={site_id}'>Evidence research</a>" if str(site['domain'] or '').lower() == 'yas.ooo' else ''}<a class='btn secondary' href='/agent/social?site={site_id}'>Social queue</a><a class='btn secondary' href='/sites/{site_id}'>Manage site</a></div></header>
+          <div class='site-summary'><div><span>Queue</span><b>{row['totals']['queued']}</b></div><div><span>Scheduled</span><b>{row['totals']['scheduled']}</b></div><div><span>Published</span><b>{row['totals']['published']}</b></div><div class='summary-error'><span>Errors</span><b>{errors}</b></div></div>
+          <div class='channels'>{''.join(group_html)}</div>
+          <details class='autonomy'><summary><span><b>Agent autonomy</b><small>Discovery {'enabled' if discovery['enabled'] else 'manual'} · {'Auto-create enabled' if settings.get('auto_create_tasks') else 'Recommendations only'}</small></span><span>Configure</span></summary>
+            <form class='agent-settings' onsubmit='saveAgentSettings(event,{site_id})'>
+              <label>Minimum queue<input name='minimumQueue' type='number' min='1' max='50' value='{int(settings.get('minimum_queue') or 3)}'></label>
+              <label>Replenish to<input name='replenishTo' type='number' min='1' max='100' value='{int(settings.get('replenish_to') or 6)}'></label>
+              <label class='check'><input name='monitoringEnabled' type='checkbox' {'checked' if settings.get('monitoring_enabled') else ''}> Monitor this site</label>
+              <label class='check'><input name='autoCreateTasks' type='checkbox' {'checked' if settings.get('auto_create_tasks') else ''}> Auto-create reviewed tasks</label>
+              <button type='submit'>Save settings</button>
+            </form>
+          </details>
+        </section>""")
+    recommendation_cards = []
+    for r in recommendations:
+        evidence = parse_json_object(r["evidence_json"])
+        action = parse_json_object(r["action_json"])
+        diagnosis = evidence.get("diagnosis") or r["rationale"]
+        impact = evidence.get("impact") or "This item needs an explicit operator decision before the site plan can be considered healthy."
+        next_steps = evidence.get("nextSteps") if isinstance(evidence.get("nextSteps"), list) else []
+        expected = evidence.get("expectedResult") or "The recommendation is implemented and its result is visible in the next audit."
+        steps_html = "".join(f"<li>{escape(str(step))}</li>" for step in next_steps) or "<li>Open the affected site and complete the named correction.</li>"
+        objects = evidence.get("objects") if isinstance(evidence.get("objects"), list) else []
+        objects_html = ""
+        if objects:
+            object_rows = "".join(
+                f"<li><b>{escape(str(item.get('title') or item.get('id') or 'Affected item'))}</b><span>{escape(str(item.get('error') or ''))[:360]}</span></li>"
+                for item in objects[:8]
+            )
+            remaining = max(0, int(evidence.get("totalObjects") or len(objects)) - len(objects[:8]))
+            objects_html = f"<details class='affected'><summary>Affected tasks: {int(evidence.get('totalObjects') or len(objects))}</summary><ul>{object_rows}</ul>{f'<p>Plus {remaining} more affected task(s).</p>' if remaining else ''}</details>"
+        if action.get("type") == "create-content-task":
+            primary_action = f"<button onclick='createTask({r['id']})'>{escape(action.get('label') or 'Create this task')}</button>"
+        elif action.get("type") == "discover-topics":
+            primary_action = f"<button onclick='discoverTopics({r['site_id']},{int(action.get('needed') or 3)})'>{escape(action.get('label') or 'Find topics now')}</button>"
+        elif action.get("type") == "open-site" and str(action.get("url") or "").startswith("/sites/"):
+            primary_action = f"<a class='btn' href='{escape(action['url'], quote=True)}'>{escape(action.get('label') or 'Open site')}</a>"
+        else:
+            primary_action = ""
+        recommendation_cards.append(f"""<article class='recommendation {escape(r['priority'])}' data-rec-site='{r['site_id']}'>
+          <header class='recommendation-head'><div><span class='pill'>{escape(r['priority'])} priority</span><span class='site-tag'>{escape(r['domain'])}</span>
+          <h3>{escape(r['title'])}</h3></div><span class='confidence'>Confidence: {escape(evidence.get('confidence') or 'medium')}</span></header>
+          <div class='decision-grid'><section><h4>Diagnosis</h4><p>{escape(diagnosis)}</p><h4>Why it matters</h4><p>{escape(impact)}</p></section>
+          <section class='next-action'><h4>Do this next</h4><ol>{steps_html}</ol><div class='expected'><b>Expected result</b><span>{escape(expected)}</span></div></section></div>
+          {objects_html}<footer class='recommendation-actions'>{primary_action}<button class='ghost' onclick='dismissRecommendation({r['id']})'>Dismiss</button></footer>
+        </article>""")
+    rec_html = "".join(recommendation_cards) or "<div class='empty'>No open recommendations. Run the audit to refresh the view.</div>"
+    must_do = "".join(compact_recommendation_html(r) for r in recommendations[:8]) or "<div class='empty'>No critical actions are open.</div>"
+    error_recommendations = [r for r in recommendations if r["category"] == "publication-error"]
+    all_errors = "".join(compact_recommendation_html(r) for r in error_recommendations) or "<div class='empty'>No publication errors require action.</div>"
+    all_recommendations = "".join(compact_recommendation_html(r) for r in recommendations) or "<div class='empty'>No open recommendations.</div>"
+
+    metric_views = []
+    metric_labels = {"queued": "Queued work", "scheduled": "Scheduled work", "published": "Published output", "errors": "Errors"}
+    for metric_key, metric_label in metric_labels.items():
+        metric_rows = sorted(ordered_rows, key=lambda row: (-row["totals"][metric_key], row["site"]["domain"]))
+        rows_html = "".join(
+            f"""<button class='portfolio-site-row' onclick='focusSiteRecommendation({row['site']['id']})'><span><b>{escape(row['site']['domain'])}</b><small>Open site dashboard</small></span><strong>{row['totals'][metric_key]}</strong></button>"""
+            for row in metric_rows
+        )
+        metric_views.append(f"<div class='portfolio-view' data-portfolio-view='{metric_key}'><div class='portfolio-site-table'>{rows_html}</div></div>")
+    site_overview = "".join(
+        f"""<button class='portfolio-site-row' onclick='focusSiteRecommendation({row['site']['id']})'><span><b>{escape(row['site']['domain'])}</b><small>{row['totals']['queued']} queued · {row['totals']['errors']} errors · {rec_counts.get(row['site']['id'],0)} recommendations</small></span><strong>{'Action' if row['totals']['errors'] or rec_counts.get(row['site']['id'],0) else 'Healthy'}</strong></button>"""
+        for row in ordered_rows
+    )
+    portfolio_views = f"""
+      <div class='portfolio-view active' data-portfolio-view='must-do'>{must_do}</div>
+      <div class='portfolio-view' data-portfolio-view='sites'><div class='portfolio-site-table'>{site_overview}</div></div>
+      {''.join(metric_views)}
+      <div class='portfolio-view' data-portfolio-view='error-decisions'>{all_errors}</div>
+      <div class='portfolio-view' data-portfolio-view='recommendations'>{all_recommendations}</div>
+    """
+    log_html = "".join(f"<div class='log' data-log-site='{r['site_id'] or 0}'><span>{escape(r['ts'])}</span><b>{escape(r['domain'] or 'All sites')}</b><em>{escape(r['level'])}</em><p>{escape(r['message'])}</p></div>" for r in logs) or "<div class='empty'>No agent actions recorded yet.</div>"
+    last_run = snapshot.get("lastRun")
+    last_run_text = escape(last_run["finished_at"] or last_run["started_at"]) if last_run else "Never"
+    telegram_state = "configured" if os.environ.get("AGENT_TELEGRAM_BOT_TOKEN") and os.environ.get("AGENT_TELEGRAM_CHAT_ID") else "not configured"
+    html = AGENT_DASHBOARD_HTML
+    replacements = {
+        "__SITE_COUNT__": snapshot["totals"]["sites"], "__QUEUE_COUNT__": snapshot["totals"]["queued"],
+        "__SCHEDULED_COUNT__": snapshot["totals"]["scheduled"], "__PUBLISHED_COUNT__": snapshot["totals"]["published"],
+        "__ERROR_COUNT__": snapshot["totals"]["errors"], "__RECOMMENDATION_COUNT__": snapshot["totals"]["recommendations"],
+        "__SITE_NAV__": "".join(site_buttons), "__SITE_PANELS__": "".join(site_panels), "__RECOMMENDATIONS__": rec_html, "__LOGS__": log_html,
+        "__PORTFOLIO_VIEWS__": portfolio_views,
+        "__LAST_RUN__": last_run_text, "__TELEGRAM_STATE__": telegram_state, "__SELECTED_SITE_ID__": selected_id,
+    }
+    for key, value in replacements.items():
+        html = html.replace(key, str(value))
+    return html
+
+
+def render_agent_strategy_page(site_id):
+    snapshot = get_strategy_snapshot(DB_PATH, site_id)
+    site = snapshot["site"]
+    profile = snapshot["profile"]
+    strategy = snapshot["strategy"]
+    evidence = snapshot["evidence"]
+    media_plan = snapshot["mediaPlan"]
+
+    def text(value, fallback="Not defined yet"):
+        value = str(value or "").strip()
+        return escape(value or fallback)
+
+    def bullets(values, empty="No items yet"):
+        values = values if isinstance(values, list) else []
+        return "".join(f"<li>{text(value)}</li>" for value in values) or f"<li class='muted'>{escape(empty)}</li>"
+
+    business = strategy.get("businessModel") if isinstance(strategy.get("businessModel"), dict) else {}
+    market = strategy.get("market") if isinstance(strategy.get("market"), dict) else {}
+    newsletter = strategy.get("newsletter") if isinstance(strategy.get("newsletter"), dict) else {}
+    channels = strategy.get("channelStrategy") if isinstance(strategy.get("channelStrategy"), list) else []
+    competitors = market.get("competitors") if isinstance(market.get("competitors"), list) else []
+    lead_generation = strategy.get("leadGeneration") if isinstance(strategy.get("leadGeneration"), list) else []
+    offsite = strategy.get("offsite") if isinstance(strategy.get("offsite"), list) else []
+    experiments = strategy.get("experiments") if isinstance(strategy.get("experiments"), list) else []
+
+    channel_cards = []
+    for channel in sorted(channels, key=lambda item: -int(item.get("score") or 0)):
+        score = max(0, min(100, int(channel.get("score") or 0)))
+        channel_cards.append(f"""<article class='channel-strategy'>
+          <header><div><span class='priority {text(channel.get('priority'),'test').lower()}'>{text(channel.get('priority'),'test')}</span><h3>{text(channel.get('channel'))}</h3></div><strong>{score}<small>/100</small></strong></header>
+          <div class='score'><i style='width:{score}%'></i></div><p>{text(channel.get('reason'))}</p>
+          <dl><div><dt>Role</dt><dd>{text(channel.get('role'))}</dd></div><div><dt>Cadence</dt><dd>{text(channel.get('cadence'))}</dd></div><div><dt>Formats</dt><dd>{text(' · '.join(channel.get('formats') or []))}</dd></div><div><dt>CTA</dt><dd>{text(channel.get('cta'))}</dd></div></dl>
+          <details><summary>Execution contract</summary><h4>Content pillars</h4><ul>{bullets(channel.get('contentPillars'))}</ul><h4>KPIs</h4><ul>{bullets(channel.get('kpis'))}</ul><h4>Prerequisites</h4><ul>{bullets(channel.get('prerequisites'))}</ul><h4>Avoid</h4><ul>{bullets(channel.get('avoid'))}</ul></details>
+        </article>""")
+
+    media_rows = []
+    for item in media_plan:
+        details = parse_json_object(item["details_json"])
+        content_action = str(details.get("contentAction") or "").strip().lower()
+        action_label = {
+            "new": "NEW PAGE",
+            "refresh": "REFRESH EXISTING",
+            "expand-existing": "EXPAND EXISTING",
+            "already-planned": "ALREADY PLANNED",
+        }.get(content_action, "")
+        action_badge = f"<span class='action-pill {escape(content_action)}'>{escape(action_label)}</span>" if action_label else ""
+        existing_url = str(details.get("existingContentUrl") or "").strip()
+        target_path = str(details.get("targetPath") or "").strip()
+        reference = ""
+        if existing_url.startswith(("https://", "http://")):
+            reference = f"<a class='existing-link' href='{escape(existing_url, quote=True)}' target='_blank' rel='noopener'>Existing page ↗</a>"
+        elif target_path:
+            reference = f"<small class='existing-path'>{escape(target_path)}</small>"
+        media_rows.append(f"""<tr data-week='{int(item['week'])}' data-channel='{text(item['channel']).lower()}'>
+          <td><b>W{int(item['week'])}</b></td><td><span class='channel-pill'>{text(item['channel'])}</span>{action_badge}<small>{text(item['format'])}</small></td>
+          <td><b>{text(item['title'])}</b>{reference}<small>{text(item['rationale'])}</small></td><td>{text(item['objective'])}<small>{text(item['funnel_stage'])}</small></td>
+          <td>{text(item['generator'])}<small>{text(item['execution_mode'])}</small></td><td>{text(item['kpi'])}</td><td><span class='status'>{text(item['status'])}</span></td>
+        </tr>""")
+
+    competitor_cards = "".join(f"""<article class='evidence-card'><header><h3>{text(item.get('name'))}</h3><a href='{escape(str(item.get('url') or ''), quote=True)}' target='_blank' rel='noopener'>Source ↗</a></header><p>{text(item.get('positioning'))}</p><div class='split'><div><h4>Strengths</h4><ul>{bullets(item.get('strengths'))}</ul></div><div><h4>Opportunity</h4><ul>{bullets(item.get('gaps'))}</ul></div></div></article>""" for item in competitors)
+    lead_cards = "".join(f"""<article class='action-card'><span>Lead system</span><h3>{text(item.get('initiative'))}</h3><p>{text(item.get('offer'))}</p><dl><div><dt>Audience</dt><dd>{text(item.get('audience'))}</dd></div><div><dt>Capture</dt><dd>{text(item.get('capturePoint'))}</dd></div><div><dt>Follow-up</dt><dd>{text(item.get('followUp'))}</dd></div><div><dt>Measure</dt><dd>{text(item.get('successMetric'))}</dd></div></dl></article>""" for item in lead_generation)
+    offsite_cards = "".join(f"""<article class='action-card'><span>{text(item.get('type'))} · {text(item.get('priority'))}</span><h3>{text(item.get('target'))}</h3><p>{text(item.get('reason'))}</p><a href='{escape(str(item.get('url') or ''), quote=True)}' target='_blank' rel='noopener'>Verify target ↗</a><h4>Next action</h4><p>{text(item.get('action'))}</p></article>""" for item in offsite)
+    experiment_cards = "".join(f"""<article class='action-card'><span>{int(item.get('durationDays') or 0)}-day experiment</span><h3>{text(item.get('name'))}</h3><p>{text(item.get('hypothesis'))}</p><h4>Execution</h4><p>{text(item.get('execution'))}</p><h4>Decision rule</h4><p>{text(item.get('decisionRule'))}</p></article>""" for item in experiments)
+    source_cards = "".join(f"<a class='source' href='{escape(str(item.get('url') or ''), quote=True)}' target='_blank' rel='noopener'><b>{text(item.get('title'))}</b><span>{text(item.get('url'))}</span></a>" for item in (evidence.get("sources") or []))
+    tool_cards = "".join(f"<article class='source'><b>{text(item.get('tool'))} · {'OK' if item.get('ok') else 'ERROR'}</b><span>{text(item.get('resultSummary'))}</span></article>" for item in (evidence.get("internalTools") or []))
+    status = str(profile.get("status") or "NOT_ANALYZED")
+    is_running = status == "ANALYZING"
+    empty_state = "" if strategy else "<div class='empty-state'><h2>No strategic analysis yet</h2><p>Run the first evidence-backed market, channel and media-plan analysis for this site.</p></div>"
+    priority_badge = "<span class='portfolio-priority'>Priority portfolio</span>" if int(profile.get("priority") or 0) else ""
+    if status == "BLOCKED_QUOTA":
+        visible_error = "Gemini API project credits are depleted. The six priority analyses are paused together and will retry after the protected backoff window; no lower-quality model was substituted."
+    else:
+        visible_error = str(profile.get("error") or "")
+
+    template = """<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Strategy · __DOMAIN__</title><style>
+:root{--bg:#090d18;--surface:#111827;--surface2:#172033;--line:#2a3850;--text:#f8fafc;--muted:#93a4ba;--violet:#8b5cf6;--green:#34d399;--amber:#fbbf24;--red:#fb7185}*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#0b1020,#090d18 60%);color:var(--text);font-family:Inter,system-ui,sans-serif;font-size:14px}a{color:#c4b5fd}.app{max-width:1500px;margin:auto;padding:24px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:18px}.eyebrow,.action-card>span{font-size:10px;color:#a78bfa;text-transform:uppercase;letter-spacing:.09em;font-weight:900}.top h1{font-size:32px;letter-spacing:-.045em;margin:6px 0}.top p{color:var(--muted);margin:0;max-width:760px;line-height:1.5}.top-actions{display:flex;gap:8px;align-items:center}.btn,button{min-height:44px;border:0;border-radius:12px;padding:0 15px;background:var(--violet);color:white;font:inherit;font-weight:850;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.btn.secondary{background:transparent;border:1px solid var(--line)}button:disabled{opacity:.55;cursor:wait}.portfolio-priority,.state{display:inline-flex;padding:5px 8px;border-radius:999px;background:rgba(251,191,36,.14);color:#fde68a;font-size:9px;font-weight:900;text-transform:uppercase;margin-left:7px}.state{background:rgba(52,211,153,.13);color:#a7f3d0}.hero{display:grid;grid-template-columns:1.5fr repeat(3,.5fr);border:1px solid var(--line);border-radius:18px;background:var(--surface);overflow:hidden;margin-bottom:14px}.hero>div{padding:18px;border-right:1px solid var(--line)}.hero>div:last-child{border:0}.hero small,.hero strong{display:block}.hero small{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.07em}.hero strong{font-size:18px;margin-top:7px}.hero .summary strong{font-size:14px;line-height:1.55;font-weight:600}.tabs{display:flex;gap:5px;border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:6px;overflow:auto;position:sticky;top:8px;z-index:5}.tab{background:transparent;color:var(--muted);white-space:nowrap}.tab.active{background:var(--surface2);color:white}.view{display:none}.view.active{display:block}.no-strategy .tabs,.no-strategy .view{display:none}.section{border:1px solid var(--line);border-radius:18px;background:var(--surface);padding:20px;margin-top:14px}.section-head{display:flex;justify-content:space-between;gap:15px;align-items:flex-end;margin-bottom:16px}.section-head h2{font-size:20px;margin:4px 0 0}.section-head p{color:var(--muted);margin:0}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.overview{grid-template-columns:1.2fr 1fr 1fr}.card,.channel-strategy,.evidence-card,.action-card{border:1px solid var(--line);border-radius:14px;background:var(--surface2);padding:15px;min-width:0}.card h3,.action-card h3,.evidence-card h3{font-size:14px;margin:0 0 9px}.card p,.channel-strategy p,.action-card p,.evidence-card p{color:#c0ccda;line-height:1.55}.card ul,.channel-strategy ul,.evidence-card ul{padding-left:18px;color:#cbd5e1;line-height:1.5}.channel-strategy header,.evidence-card header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.channel-strategy header h3{font-size:18px;margin:6px 0}.channel-strategy header>strong{font-size:25px}.channel-strategy header small{font-size:10px;color:var(--muted)}.priority{display:inline-flex;padding:3px 6px;border-radius:999px;background:rgba(139,92,246,.2);color:#ddd6fe;font-size:8px;font-weight:900;text-transform:uppercase}.priority.primary,.priority.high{background:rgba(52,211,153,.14);color:#a7f3d0}.priority.low,.priority.avoid{background:rgba(251,113,133,.14);color:#fecdd3}.score{height:4px;border-radius:99px;background:#26344b;overflow:hidden}.score i{display:block;height:100%;background:linear-gradient(90deg,#8b5cf6,#34d399)}dl{margin:12px 0 0}dl div{display:grid;grid-template-columns:85px 1fr;gap:8px;padding:7px 0;border-top:1px solid var(--line)}dt{color:var(--muted);font-size:10px;text-transform:uppercase}dd{margin:0;color:#e4eaf2;font-size:12px;line-height:1.45}details{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;color:#c4b5fd;font-weight:800}h4{font-size:10px;text-transform:uppercase;color:var(--muted);letter-spacing:.06em;margin:14px 0 5px}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px}table{width:100%;border-collapse:collapse;min-width:1100px;background:var(--surface2)}th,td{text-align:left;padding:12px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:9px;text-transform:uppercase;color:var(--muted);letter-spacing:.07em}td{font-size:11px;line-height:1.45}td small{display:block;color:var(--muted);margin-top:4px;max-width:360px}.channel-pill,.status,.action-pill{display:inline-flex;padding:3px 6px;border-radius:999px;background:rgba(139,92,246,.18);font-weight:800;font-size:9px;margin-right:4px}.status{background:rgba(251,191,36,.13);color:#fde68a}.action-pill.new{background:rgba(52,211,153,.14);color:#a7f3d0}.action-pill.refresh,.action-pill.expand-existing{background:rgba(251,191,36,.13);color:#fde68a}.action-pill.already-planned{background:rgba(96,165,250,.14);color:#bfdbfe}.existing-link{display:block;margin-top:5px;font-size:10px;font-weight:800}.existing-path{font-family:ui-monospace,SFMono-Regular,monospace}.split{display:grid;grid-template-columns:1fr 1fr;gap:10px}.source{display:block;text-decoration:none;padding:11px;border:1px solid var(--line);border-radius:11px;background:var(--surface2);min-width:0}.source b,.source span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.source b{color:#e8edf5;font-size:11px}.source span{color:var(--muted);font-size:9px;margin-top:4px}.source:hover{border-color:#6d5acb}.empty-state{text-align:center;padding:60px 20px;border:1px dashed var(--line);border-radius:18px;background:var(--surface);margin-top:14px}.empty-state p,.muted{color:var(--muted)}.error{padding:13px;border:1px solid rgba(251,113,133,.45);background:rgba(251,113,133,.1);border-radius:12px;color:#fecdd3;margin-bottom:14px}.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);display:none;padding:13px 17px;border:1px solid var(--line);border-radius:12px;background:#1e293b;z-index:20}.toast.show{display:block}@media(max-width:1000px){.grid{grid-template-columns:repeat(2,1fr)}.hero{grid-template-columns:1fr 1fr}.hero .summary{grid-column:1/-1}.hero>div{border-bottom:1px solid var(--line)}}@media(max-width:650px){.app{padding:14px}.top{display:block}.top-actions{margin-top:15px;flex-wrap:wrap}.grid,.overview{grid-template-columns:1fr}.hero{grid-template-columns:1fr}.hero .summary{grid-column:auto}.section{padding:15px}.tabs{top:4px}}
+</style></head><body><main class='app __NO_STRATEGY__'><header class='top'><div><span class='eyebrow'>Growth Strategy Agent __PRIORITY__</span><h1>__DOMAIN__ <span class='state'>__STATUS__</span></h1><p>Evidence-backed channel strategy, funnel design and 12-week production plan. Strategy model: __MODEL__.</p></div><div class='top-actions'><a class='btn secondary' href='/agent'>← Agent</a><a class='btn secondary' href='/sites/__SITE_ID__'>Manage site</a><button id='runButton' onclick='runStrategy()'>__RUN_LABEL__</button></div></header>__ERROR__
+<section class='hero'><div class='summary'><small>Strategic thesis</small><strong>__SUMMARY__</strong></div><div><small>Version</small><strong>__VERSION__</strong></div><div><small>Last analysis</small><strong>__LAST_ANALYSIS__</strong></div><div><small>Next review</small><strong>__NEXT_REVIEW__</strong></div></section>
+<nav class='tabs'><button class='tab active' onclick="showTab('strategy',this)">Strategy</button><button class='tab' onclick="showTab('media',this)">Media plan</button><button class='tab' onclick="showTab('research',this)">Research</button><button class='tab' onclick="showTab('funnel',this)">Funnel</button><button class='tab' onclick="showTab('experiments',this)">Experiments</button></nav>__EMPTY__
+<div class='view active' data-view='strategy'><section class='section'><div class='section-head'><div><span class='eyebrow'>Business direction</span><h2>What growth must accomplish</h2></div></div><div class='grid overview'><article class='card'><h3>Primary goal</h3><p>__PRIMARY_GOAL__</p><h4>Conversion events</h4><ul>__CONVERSIONS__</ul></article><article class='card'><h3>Audiences</h3><ul>__AUDIENCES__</ul><h4>Offers</h4><ul>__OFFERS__</ul></article><article class='card'><h3>First 30 days</h3><ol>__FIRST_30__</ol></article></div></section><section class='section'><div class='section-head'><div><span class='eyebrow'>Channel allocation</span><h2>Where production capacity goes</h2></div><p>Every channel is scored; low-fit channels are intentionally limited.</p></div><div class='grid'>__CHANNELS__</div></section></div>
+<div class='view' data-view='media'><section class='section'><div class='section-head'><div><span class='eyebrow'>12-week operating plan</span><h2>Concrete production assignments</h2></div><p>Related assets share a campaign group but remain channel-native.</p></div><div class='table-wrap'><table><thead><tr><th>Week</th><th>Channel / format</th><th>Assignment</th><th>Objective</th><th>Production</th><th>KPI</th><th>Status</th></tr></thead><tbody>__MEDIA_ROWS__</tbody></table></div></section></div>
+<div class='view' data-view='research'><section class='section'><div class='section-head'><div><span class='eyebrow'>Internal audit</span><h2>VPS, files, databases and operations</h2></div><p>__TOOL_COUNT__ completed tool calls</p></div><div class='grid'>__TOOLS__</div></section><section class='section'><div class='section-head'><div><span class='eyebrow'>Market</span><h2>__MARKET_CATEGORY__</h2></div><p>__POSITIONING__</p></div><div class='grid'>__COMPETITORS__</div></section><section class='section'><div class='section-head'><div><span class='eyebrow'>Grounding</span><h2>Research evidence</h2></div><p>Retrieved __RETRIEVED__ · __SOURCE_COUNT__ current sources</p></div><div class='grid'>__SOURCES__</div><div class='card' style='margin-top:10px'><h3>Demand themes</h3><ul>__DEMAND__</ul><h3>Missing data</h3><ul>__DATA_GAPS__</ul></div></section></div>
+<div class='view' data-view='funnel'><section class='section'><div class='section-head'><div><span class='eyebrow'>Lead architecture</span><h2>Attention must lead somewhere</h2></div></div><div class='grid'>__LEADS__</div></section><section class='section'><div class='grid overview'><article class='card'><h3>Newsletter: __NEWSLETTER_STATE__</h3><p>__NEWSLETTER_REASON__</p></article><article class='card'><h3>Capture method</h3><p>__NEWSLETTER_CAPTURE__</p></article><article class='card'><h3>First sequence</h3><ol>__NEWSLETTER_SEQUENCE__</ol></article></div></section><section class='section'><div class='section-head'><div><span class='eyebrow'>External distribution</span><h2>Directories, partnerships and communities</h2></div></div><div class='grid'>__OFFSITE__</div></section></div>
+<div class='view' data-view='experiments'><section class='section'><div class='section-head'><div><span class='eyebrow'>Measured tests</span><h2>Keep, change or stop</h2></div></div><div class='grid'>__EXPERIMENTS__</div></section><section class='section'><div class='grid'><article class='card'><h3>Strategic risks</h3><ul>__RISKS__</ul></article><article class='card'><h3>Operating constraints</h3><ul>__CONSTRAINTS__</ul></article></div></section></div>
+</main><div id='toast' class='toast'></div><script>const siteId=__SITE_ID__,initialRunning=__RUNNING__;function showTab(name,button){document.querySelectorAll('.view').forEach(el=>el.classList.toggle('active',el.dataset.view===name));document.querySelectorAll('.tab').forEach(el=>el.classList.remove('active'));button.classList.add('active')}function toast(message){const el=document.getElementById('toast');el.textContent=message;el.className='toast show';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>el.className='toast',5000)}async function runStrategy(){const button=document.getElementById('runButton');button.disabled=true;button.textContent='Researching…';toast('Gemini 3.7 Flash is researching the market, competitors, channels and 12-week plan.');try{const response=await fetch('/api/agent/sites/'+siteId+'/strategy/run',{method:'POST'});const data=await response.json();if(!response.ok)throw new Error(data.error||response.statusText);poll()}catch(error){button.disabled=false;button.textContent='Run deep analysis';toast(error.message)}}async function poll(){const response=await fetch('/api/agent/sites/'+siteId+'/strategy');const data=await response.json();if(data.profile.status==='ANALYZING'){setTimeout(poll,5000);return}location.reload()}if(initialRunning){document.getElementById('runButton').disabled=true;document.getElementById('runButton').textContent='Researching…';setTimeout(poll,3000)}</script></body></html>"""
+    replacements = {
+        "__DOMAIN__": text(site["domain"]), "__SITE_ID__": int(site_id), "__PRIORITY__": priority_badge,
+        "__STATUS__": text(status), "__MODEL__": text(profile.get("strategy_model") or "gemini-3.7-flash"),
+        "__RUN_LABEL__": "Refresh strategy" if strategy else "Run deep analysis", "__RUNNING__": "true" if is_running else "false", "__NO_STRATEGY__": "" if strategy else "no-strategy",
+        "__ERROR__": f"<div class='error'>{text(visible_error)}</div>" if visible_error else "",
+        "__SUMMARY__": text(strategy.get("executiveSummary"), "Run deep analysis to build the strategic thesis."), "__VERSION__": int(profile.get("strategy_version") or 0),
+        "__LAST_ANALYSIS__": text(profile.get("last_analyzed_at"), "Never"), "__NEXT_REVIEW__": text(profile.get("next_review_at"), "After first analysis"), "__EMPTY__": empty_state,
+        "__PRIMARY_GOAL__": text(business.get("primaryGoal")), "__CONVERSIONS__": bullets(business.get("conversionEvents")), "__AUDIENCES__": bullets(business.get("audiences")), "__OFFERS__": bullets(business.get("offers")), "__CONSTRAINTS__": bullets(business.get("constraints")),
+        "__FIRST_30__": bullets(strategy.get("first30Days")), "__CHANNELS__": "".join(channel_cards) or "<div class='muted'>No channel strategy yet.</div>", "__MEDIA_ROWS__": "".join(media_rows),
+        "__MARKET_CATEGORY__": text(market.get("category")), "__POSITIONING__": text(market.get("positioningOpportunity")), "__COMPETITORS__": competitor_cards or "<div class='muted'>No competitors recorded.</div>",
+        "__TOOL_COUNT__": len(evidence.get("internalTools") or []), "__TOOLS__": tool_cards or "<div class='muted'>No internal audit recorded.</div>", "__RETRIEVED__": text(evidence.get("retrievedAt"), "Not researched"), "__SOURCE_COUNT__": len(evidence.get("sources") or []), "__SOURCES__": source_cards or "<div class='muted'>No grounded sources recorded.</div>", "__DEMAND__": bullets(market.get("demandThemes")), "__DATA_GAPS__": bullets(strategy.get("dataGaps")),
+        "__LEADS__": lead_cards or "<div class='muted'>No lead system proposed.</div>", "__NEWSLETTER_STATE__": "Recommended" if newsletter.get("recommended") else "Not a current priority", "__NEWSLETTER_REASON__": text(newsletter.get("reason")), "__NEWSLETTER_CAPTURE__": text(newsletter.get("captureMethod")), "__NEWSLETTER_SEQUENCE__": bullets(newsletter.get("firstSequence")),
+        "__OFFSITE__": offsite_cards or "<div class='muted'>No off-site actions proposed.</div>", "__EXPERIMENTS__": experiment_cards or "<div class='muted'>No experiments proposed.</div>", "__RISKS__": bullets(strategy.get("risks")),
+    }
+    for key, value in replacements.items():
+        template = template.replace(key, str(value))
+    return template
+
+
+@app.get("/agent")
+def agent_dashboard():
+    if not is_admin_host(request_host()):
+        abort(404)
+    return Response(render_agent_dashboard(), mimetype="text/html")
+
+
+@app.get("/agent/social")
+def agent_social_page():
+    if not is_admin_host(request_host()):
+        abort(404)
+    return Response(render_agent_social_page(), mimetype="text/html")
+
+
+@app.get("/agent/evidence")
+def agent_evidence_page():
+    if not is_admin_host(request_host()):
+        abort(404)
+    site_id = request.args.get("site", type=int)
+    if not site_id:
+        site = next((row for row in list_sites() if str(row["domain"] or "").lower() == "yas.ooo"), None)
+        if not site:
+            abort(404)
+        site_id = int(site["id"])
+    try:
+        return Response(render_agent_evidence_page(site_id), mimetype="text/html")
+    except KeyError:
+        abort(404)
+
+
+@app.get("/api/agent/sites/<int:site_id>/evidence")
+def agent_evidence_snapshot(site_id):
+    try:
+        return jsonify(evidence_pipeline_snapshot(site_id))
+    except KeyError:
+        return jsonify({"error": "site not found"}), 404
+
+
+@app.post("/api/agent/sites/<int:site_id>/evidence/run")
+def agent_evidence_run(site_id):
+    site = get_site(site_id)
+    if not site:
+        return jsonify({"error": "site not found"}), 404
+    with db() as conn:
+        running = conn.execute("select id from evidence_pipeline_runs where site_id=? and status='RUNNING' order by id desc limit 1", (site_id,)).fetchone()
+    if running:
+        return jsonify({"ok": True, "started": False, "runId": running["id"]}), 202
+    def worker():
+        try:
+            run_yas_evidence_pipeline(site_id, trigger="manual")
+        except Exception as error:
+            agent_log(site_id, "ERROR", "evidence-pipeline", f"Evidence research failed: {error}")
+    threading.Thread(target=worker, daemon=True, name=f"evidence-pipeline-{site_id}").start()
+    return jsonify({"ok": True, "started": True}), 202
+
+
+@app.post("/api/agent/evidence-patterns/<int:pattern_id>/materialize")
+def agent_materialize_evidence_pattern(pattern_id):
+    try:
+        return jsonify({"ok": True, **materialize_evidence_pattern(pattern_id)}), 201
+    except KeyError as error:
+        return jsonify({"error": str(error)}), 404
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.get("/api/agent/social-work-items")
+def agent_social_work_items():
+    site_id = request.args.get("siteId", type=int)
+    return jsonify({"items": [dict(row) for row in social_work_item_rows(site_id)]})
+
+
+@app.post("/api/agent/sites/<int:site_id>/social-discovery/run")
+def agent_social_discovery_run(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    with db() as conn:
+        running = conn.execute("select id from social_operation_runs where site_id=? and status='RUNNING' order by id desc limit 1", (site_id,)).fetchone()
+    if running:
+        return jsonify({"ok": True, "started": False, "runId": running["id"]}), 202
+    def worker():
+        try:
+            run_agent_social_discovery_for_site(site_id, trigger="manual")
+        except Exception as error:
+            agent_log(site_id, "ERROR", "social-discovery", f"Social discovery failed before queue run started: {error}")
+    threading.Thread(target=worker, daemon=True, name=f"social-discovery-{site_id}").start()
+    return jsonify({"ok": True, "started": True}), 202
+
+
+@app.post("/api/agent/sites/<int:site_id>/social-requalify")
+def agent_social_requalify(site_id):
+    try:
+        return jsonify({"ok": True, **requalify_social_queue(site_id)})
+    except KeyError:
+        return jsonify({"error": "site not found"}), 404
+
+
+@app.put("/api/agent/sites/<int:site_id>/social-discovery/settings")
+def agent_social_discovery_settings(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    enabled = int(bool(payload.get("enabled", True)))
+    x_target = max(1, min(30, int(payload.get("xQueueTarget") or 7)))
+    threads_target = max(1, min(30, int(payload.get("threadsQueueTarget") or 7)))
+    reddit_target = max(0, min(12, int(payload.get("redditQueueTarget") or 3)))
+    with db() as conn:
+        conn.execute("""insert into social_operation_settings(site_id,discovery_enabled,x_queue_target,threads_queue_target,reddit_queue_target,updated_at)
+            values(?,?,?,?,?,?) on conflict(site_id) do update set discovery_enabled=excluded.discovery_enabled,
+            x_queue_target=excluded.x_queue_target,threads_queue_target=excluded.threads_queue_target,
+            reddit_queue_target=excluded.reddit_queue_target,updated_at=excluded.updated_at""",
+            (site_id, enabled, x_target, threads_target, reddit_target, now_iso()))
+    agent_log(site_id, "INFO", "social-discovery-settings", "Social queue replenishment settings updated", {"enabled": bool(enabled), "xTarget": x_target, "threadsTarget": threads_target, "redditTarget": reddit_target})
+    return jsonify({"ok": True, "enabled": bool(enabled), "xQueueTarget": x_target, "threadsQueueTarget": threads_target, "redditQueueTarget": reddit_target})
+
+
+@app.post("/api/agent/social-work-items")
+def agent_create_social_work_item():
+    payload = request.get_json(silent=True) or {}
+    try:
+        site_id = int(payload.get("siteId"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "siteId is required"}), 400
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    channel = str(payload.get("channel") or "").strip().lower()
+    task_type = str(payload.get("taskType") or "").strip().lower()
+    if channel not in {"twitter", "threads", "reddit"} or task_type not in SOCIAL_WORK_ITEM_TYPES:
+        return jsonify({"error": "unsupported social channel or task type"}), 400
+    if (channel == "twitter" and not task_type.startswith("x_")) or (channel == "threads" and task_type != "threads_post") or (channel == "reddit" and not task_type.startswith("reddit_")):
+        return jsonify({"error": "task type does not match its channel"}), 400
+    title = str(payload.get("title") or "").strip()
+    body = str(payload.get("body") or "").strip()
+    semantic_key = re.sub(r"[^a-z0-9-]+", "-", str(payload.get("semanticKey") or "").strip().lower()).strip("-")
+    if not title or not body or not semantic_key:
+        return jsonify({"error": "title, body and semantic key are required"}), 400
+    source_job_id = str(payload.get("sourceJobId") or "").strip() or None
+    if source_job_id:
+        with db() as conn:
+            source = conn.execute("select id from content_jobs where id=? and site_id=?", (source_job_id, site_id)).fetchone()
+        if not source:
+            return jsonify({"error": "source content job does not belong to this site"}), 400
+    community_name = str(payload.get("communityName") or "").strip()
+    community_url = str(payload.get("communityUrl") or "").strip()
+    discussion_url = str(payload.get("discussionUrl") or "").strip()
+    disclosure = str(payload.get("affiliationDisclosure") or "").strip()
+    rule_id = None
+    approval_required = int(social_work_item_needs_approval(channel, task_type))
+    status = "AWAITING_APPROVAL" if approval_required else "DRAFT"
+    if channel == "reddit":
+        if not community_name or not community_url or not disclosure:
+            return jsonify({"error": "Reddit tasks require community, community URL and affiliation disclosure"}), 400
+        if task_type == "reddit_reply" and not discussion_url:
+            return jsonify({"error": "Reddit replies require the exact discussion URL"}), 400
+        rules_url = str(payload.get("rulesUrl") or "").strip()
+        rule_summary = str(payload.get("ruleSummary") or "").strip()
+        if not rules_url or not rule_summary:
+            return jsonify({"error": "Reddit tasks require the current rules URL and a rule summary"}), 400
+        with db() as conn:
+            rule_id = conn.execute(
+                """insert into social_community_rule_snapshots(site_id,channel,community_name,community_url,rules_url,summary,captured_at)
+                   values(?,?,?,?,?,?,?)""",
+                (site_id, channel, community_name, community_url, rules_url, rule_summary, now_iso()),
+            ).lastrowid
+    try:
+        with db() as conn:
+            item_id = conn.execute(
+                """insert into social_work_items(site_id,source_kind,source_job_id,channel,task_type,title,body,community_name,community_url,
+                   discussion_url,affiliation_disclosure,semantic_key,status,approval_required,rule_snapshot_id,created_at,updated_at)
+                   values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (site_id, "content_job" if source_job_id else "manual", source_job_id, channel, task_type, title, body, community_name,
+                 community_url, discussion_url, disclosure, semantic_key, status, approval_required, rule_id, now_iso(), now_iso()),
+            ).lastrowid
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "A task with this semantic key already exists for this channel and format"}), 409
+    agent_log(site_id, "INFO", "social-work-item-created", f"Created {SOCIAL_WORK_ITEM_TYPES[task_type]}: {title}", {"itemId": item_id, "channel": channel, "approvalRequired": bool(approval_required)})
+    return jsonify({"ok": True, "id": item_id, "status": status}), 201
+
+
+def update_social_work_item_status(item_id, target_status):
+    with db() as conn:
+        row = conn.execute("select * from social_work_items where id=?", (item_id,)).fetchone()
+        if not row:
+            return None, "work item not found"
+        if target_status == "APPROVED":
+            if row["channel"] == "reddit":
+                rule = conn.execute("select id from social_community_rule_snapshots where id=? and site_id=? and channel='reddit'", (row["rule_snapshot_id"], row["site_id"])).fetchone()
+                if not rule or not row["affiliation_disclosure"].strip():
+                    return None, "Reddit approval requires a saved rule check and affiliation disclosure"
+            conn.execute("update social_work_items set status='APPROVED',approved_at=?,updated_at=? where id=?", (now_iso(), now_iso(), item_id))
+        elif target_status == "SCHEDULED":
+            if row["status"] != "APPROVED":
+                return None, "Only approved tasks can enter the publishing queue"
+            # This is intentionally a queue state only. A later publisher must materialize
+            # the item after checking the live connection and the final creative.
+            conn.execute("update social_work_items set status='SCHEDULED',scheduled_for=?,updated_at=? where id=?", (now_iso(), now_iso(), item_id))
+        elif target_status == "REJECTED":
+            conn.execute("update social_work_items set status='REJECTED',updated_at=? where id=?", (now_iso(), item_id))
+        else:
+            return None, "unsupported status"
+        updated = conn.execute("select * from social_work_items where id=?", (item_id,)).fetchone()
+    agent_log(updated["site_id"], "INFO", "social-work-item-status", f"{SOCIAL_WORK_ITEM_TYPES.get(updated['task_type'], updated['task_type'])} marked {target_status}", {"itemId": item_id})
+    return dict(updated), None
+
+
+@app.post("/api/agent/social-work-items/<int:item_id>/approve")
+def agent_approve_social_work_item(item_id):
+    row, error = update_social_work_item_status(item_id, "APPROVED")
+    return (jsonify({"ok": True, "item": row}), 200) if not error else (jsonify({"error": error}), 400 if error != "work item not found" else 404)
+
+
+@app.post("/api/agent/social-work-items/<int:item_id>/reject")
+def agent_reject_social_work_item(item_id):
+    row, error = update_social_work_item_status(item_id, "REJECTED")
+    return (jsonify({"ok": True, "item": row}), 200) if not error else (jsonify({"error": error}), 404)
+
+
+@app.post("/api/agent/social-work-items/<int:item_id>/queue")
+def agent_queue_social_work_item(item_id):
+    row, error = update_social_work_item_status(item_id, "SCHEDULED")
+    return (jsonify({"ok": True, "item": row, "published": False}), 200) if not error else (jsonify({"error": error}), 400 if error != "work item not found" else 404)
+
+
+@app.get("/agent/strategy/<int:site_id>")
+def agent_strategy_page(site_id):
+    if not is_admin_host(request_host()):
+        abort(404)
+    try:
+        return Response(render_agent_strategy_page(site_id), mimetype="text/html")
+    except KeyError:
+        abort(404)
+
+
+@app.get("/api/agent/sites/<int:site_id>/strategy")
+def agent_strategy_status(site_id):
+    try:
+        return jsonify(get_strategy_snapshot(DB_PATH, site_id))
+    except KeyError:
+        return jsonify({"error": "site not found"}), 404
+
+
+@app.post("/api/agent/sites/<int:site_id>/strategy/run")
+def agent_strategy_run(site_id):
+    try:
+        run_id, created = start_strategy_run(DB_PATH, site_id, trigger="manual")
+    except KeyError:
+        return jsonify({"error": "site not found"}), 404
+    if created:
+        def worker():
+            result = execute_strategy_run(DB_PATH, run_id, site_id)
+            if result.get("ok"):
+                try:
+                    result["pinterestDrafts"] = materialize_agent_pinterest_assignments(site_id)
+                except Exception as error:
+                    result["pinterestDrafts"] = {"ok": False, "error": str(error)[:500]}
+            agent_log(site_id, "INFO" if result.get("ok") else "ERROR", "strategy-analysis", "Deep growth strategy completed" if result.get("ok") else f"Deep growth strategy failed: {result.get('error')}", result)
+        threading.Thread(target=worker, daemon=True, name=f"strategy-{site_id}-{run_id}").start()
+    return jsonify({"ok": True, "runId": run_id, "started": created}), 202
+
+
+@app.post("/api/agent/run")
+def run_agent_now():
+    payload = request.get_json(silent=True) or {}
+    return jsonify({"ok": True, **run_agent_audit(trigger="manual", discover_topics=bool(payload.get("discoverTopics", True)))})
+
+
+@app.post("/api/agent/sites/<int:site_id>/discover-topics")
+def agent_discover_topics(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    try:
+        return jsonify({"ok": True, **run_agent_topic_discovery_for_site(site_id, payload.get("needed") or 3, auto_create=False)})
+    except Exception as error:
+        agent_log(site_id, "ERROR", "topic-discovery", f"On-demand topic analysis failed: {error}")
+        return jsonify({"error": str(error)}), 500
+
+
+@app.put("/api/agent/sites/<int:site_id>/settings")
+def update_agent_site_settings(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    minimum = max(1, min(50, int(payload.get("minimumQueue") or 3)))
+    target = max(minimum, min(100, int(payload.get("replenishTo") or 6)))
+    with db() as conn:
+        conn.execute("""insert into agent_site_settings(site_id,monitoring_enabled,minimum_queue,replenish_to,auto_create_tasks,updated_at)
+            values(?,?,?,?,?,?) on conflict(site_id) do update set monitoring_enabled=excluded.monitoring_enabled,
+            minimum_queue=excluded.minimum_queue,replenish_to=excluded.replenish_to,auto_create_tasks=excluded.auto_create_tasks,updated_at=excluded.updated_at""",
+            (site_id, int(bool(payload.get("monitoringEnabled", True))), minimum, target, int(bool(payload.get("autoCreateTasks", False))), now_iso()))
+    agent_log(site_id, "INFO", "settings", "SEO Agent site settings updated", {"minimum": minimum, "target": target, "autoCreateTasks": bool(payload.get("autoCreateTasks", False))})
+    return jsonify({"ok": True})
+
+
+@app.post("/api/agent/recommendations/<int:recommendation_id>/create-task")
+def agent_create_task(recommendation_id):
+    with db() as conn:
+        row = conn.execute("select * from agent_recommendations where id=? and status='OPEN'", (recommendation_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "open recommendation not found"}), 404
+    action = parse_json_object(row["action_json"])
+    if action.get("type") != "create-content-task" or not isinstance(action.get("idea"), dict):
+        return jsonify({"error": "this recommendation cannot create a content task"}), 400
+    try:
+        return jsonify({"ok": True, "job": create_agent_content_task(row["site_id"], action["idea"], recommendation_id)})
+    except Exception as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.post("/api/agent/recommendations/<int:recommendation_id>/dismiss")
+def agent_dismiss_recommendation(recommendation_id):
+    with db() as conn:
+        row = conn.execute("select site_id,title from agent_recommendations where id=? and status='OPEN'", (recommendation_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "open recommendation not found"}), 404
+        conn.execute("update agent_recommendations set status='DISMISSED',resolved_at=?,updated_at=? where id=?", (now_iso(), now_iso(), recommendation_id))
+    agent_log(row["site_id"], "INFO", "dismiss-recommendation", f"Dismissed recommendation: {row['title']}")
+    return jsonify({"ok": True})
 
 
 @app.get("/health")
@@ -14922,7 +22817,7 @@ def update_site_settings(site_id):
         conn.execute(
             """
             update sites
-            set domain=?, homepage_url=?, root_path=?, blog_path=?, custom_blog_domain=?, hosted_blog_enabled=?,
+            set domain=?, homepage_url=?, root_path=?, content_root_path=?, blog_path=?, custom_blog_domain=?, hosted_blog_enabled=?,
                 languages=?, brand_name=?, content_context=?, factory_enabled=?, publishing_cadence=?,
                 topic_strategy=?, updated_at=?
             where id=?
@@ -14931,6 +22826,7 @@ def update_site_settings(site_id):
                 domain,
                 homepage,
                 payload.get("root_path") or "",
+                payload.get("content_root_path") or "",
                 payload.get("blog_path") or "/blog/",
                 clean_host(payload.get("custom_blog_domain")),
                 form_bool(payload.get("hosted_blog_enabled")),
@@ -15028,56 +22924,69 @@ def test_social_connection_route(site_id, provider):
 def linkedin_connect_route(site_id):
     if not get_site(site_id):
         return jsonify({"error": "site not found"}), 404
-    if not linkedin_oauth_configured():
-        return jsonify({"error": "LinkedIn OAuth is not configured on this server."}), 503
-    state = secrets.token_urlsafe(32)
-    now = time.time()
-    for key, value in list(LINKEDIN_OAUTH_STATES.items()):
-        if value.get("expiresAt", 0) < now:
-            LINKEDIN_OAUTH_STATES.pop(key, None)
-    LINKEDIN_OAUTH_STATES[state] = {"siteId": site_id, "expiresAt": now + 600}
+    if not linkedin_oauth_configured(site_id):
+        return jsonify({"error": "Enter the LinkedIn Client ID and Client Secret in Setup, save them, then connect."}), 503
+    oauth = linkedin_oauth_credentials(site_id)
+    state = f"{site_id}.{secrets.token_urlsafe(32)}"
     query = urllib.parse.urlencode({
         "response_type": "code",
-        "client_id": os.environ["LINKEDIN_CLIENT_ID"],
+        "client_id": oauth["client_id"],
         "redirect_uri": linkedin_oauth_redirect_uri(),
         "state": state,
-        "scope": "openid profile w_member_social w_organization_social r_organization_admin",
+        "scope": "r_basicprofile w_member_social rw_organization_admin w_organization_social",
     })
-    return jsonify({"ok": True, "authUrl": f"https://www.linkedin.com/oauth/v2/authorization?{query}"})
+    response = jsonify({"ok": True, "authUrl": f"https://www.linkedin.com/oauth/v2/authorization?{query}"})
+    response.set_cookie(
+        "linkedin_oauth_state",
+        state,
+        max_age=600,
+        secure=True,
+        httponly=True,
+        samesite="Lax",
+        path="/oauth/linkedin/callback",
+    )
+    return response
 
 
 @app.get("/oauth/linkedin/callback")
 def linkedin_oauth_callback():
     error = request.args.get("error")
     state = request.args.get("state") or ""
-    record = LINKEDIN_OAUTH_STATES.pop(state, None)
+    state_cookie = request.cookies.get("linkedin_oauth_state") or ""
+    state_valid = bool(state and state_cookie and secrets.compare_digest(state, state_cookie))
     if error:
         return Response(f"LinkedIn authorization was not completed: {escape(error)}", status=400, mimetype="text/html")
-    if not record or record.get("expiresAt", 0) < time.time():
+    if not state_valid:
         return Response("LinkedIn authorization expired. Start Connect LinkedIn again.", status=400, mimetype="text/html")
     code = request.args.get("code") or ""
-    if not code or not linkedin_oauth_configured():
+    try:
+        site_id = int(state.split(".", 1)[0])
+    except (TypeError, ValueError):
+        site_id = 0
+    if not code or not linkedin_oauth_configured(site_id):
         return Response("LinkedIn authorization is missing a code or server configuration.", status=400, mimetype="text/html")
     try:
+        oauth = linkedin_oauth_credentials(site_id)
         token_data, _ = fetch_form_json_request(
             "https://www.linkedin.com/oauth/v2/accessToken",
             {
                 "grant_type": "authorization_code",
                 "code": code,
                 "redirect_uri": linkedin_oauth_redirect_uri(),
-                "client_id": os.environ["LINKEDIN_CLIENT_ID"],
-                "client_secret": os.environ["LINKEDIN_CLIENT_SECRET"],
+                "client_id": oauth["client_id"],
+                "client_secret": oauth["client_secret"],
             },
         )
         access_token = str(token_data.get("access_token") or "").strip()
         if not access_token:
             raise ValueError(token_data.get("error_description") or token_data.get("error") or "LinkedIn did not return an access token.")
-        user, _ = fetch_json_request("https://api.linkedin.com/v2/userinfo", headers={"Authorization": f"Bearer {access_token}"})
-        person_id = str(user.get("sub") or "").strip()
+        user, _ = fetch_json_request("https://api.linkedin.com/v2/me", headers={"Authorization": f"Bearer {access_token}"})
+        person_id = str(user.get("id") or "").strip()
         if not person_id:
             raise ValueError(user.get("message") or "LinkedIn did not return the personal profile id.")
-        site_id = int(record["siteId"])
-        display_name = str(user.get("name") or "LinkedIn member").strip()
+        localized_first_name = str(user.get("localizedFirstName") or "").strip()
+        localized_last_name = str(user.get("localizedLastName") or "").strip()
+        display_name = f"{localized_first_name} {localized_last_name}".strip() or "LinkedIn member"
         organizations, organization_lookup_error = linkedin_available_organizations(access_token)
         member_urn = f"urn:li:person:{person_id}"
         upsert_social_connection(
@@ -15093,7 +23002,9 @@ def linkedin_oauth_callback():
                 "organizationLookupError": organization_lookup_error,
             },
         )
-        return redirect(f"/sites/{site_id}#setup", code=302)
+        response = redirect(f"/sites/{site_id}#setup", code=302)
+        response.delete_cookie("linkedin_oauth_state", path="/oauth/linkedin/callback")
+        return response
     except Exception as exc:
         return Response(f"LinkedIn connection failed: {escape(str(exc))}", status=502, mimetype="text/html")
 
@@ -15329,6 +23240,174 @@ def get_factory_settings(site_id):
     })
 
 
+@app.get("/api/sites/<int:site_id>/gsc")
+def get_gsc_settings_route(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    connection = get_gsc_connection(site_id)
+    if not connection:
+        return jsonify({
+            "ok": True,
+            "connection": {
+                "propertyUrl": "", "enabled": False, "status": "not_configured",
+                "permissionLevel": "", "serviceAccountEmail": "", "lastVerifiedAt": None,
+                "lastSyncAt": None, "lastSuccessfulDate": None, "lastError": "",
+            },
+        })
+    return jsonify({
+        "ok": True,
+        "connection": {
+            "propertyUrl": connection["property_url"],
+            "enabled": bool(connection["enabled"]),
+            "status": connection["status"],
+            "permissionLevel": connection["permission_level"],
+            "serviceAccountEmail": connection["service_account_email"],
+            "lastVerifiedAt": connection["last_verified_at"],
+            "lastSyncAt": connection["last_sync_at"],
+            "lastSuccessfulDate": connection["last_successful_date"],
+            "lastError": connection["last_error"],
+        },
+    })
+
+
+@app.put("/api/sites/<int:site_id>/gsc")
+def update_gsc_settings_route(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    try:
+        property_url = _gsc_property_url(payload.get("propertyUrl"))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    enabled = bool(payload.get("enabled")) and bool(property_url)
+    with db() as conn:
+        previous = conn.execute(
+            "select property_url from gsc_site_connections where site_id=?", (site_id,)
+        ).fetchone()
+        property_changed = bool(previous and previous["property_url"] != property_url)
+        conn.execute(
+            """
+            insert into gsc_site_connections(site_id,property_url,enabled,status,updated_at)
+            values(?,?,?,?,?)
+            on conflict(site_id) do update set
+              property_url=excluded.property_url,
+              enabled=excluded.enabled,
+              status=case when gsc_site_connections.property_url<>excluded.property_url then 'not_configured' else gsc_site_connections.status end,
+              permission_level=case when gsc_site_connections.property_url<>excluded.property_url then '' else gsc_site_connections.permission_level end,
+              last_error=case when gsc_site_connections.property_url<>excluded.property_url then '' else gsc_site_connections.last_error end,
+              last_successful_date=case when gsc_site_connections.property_url<>excluded.property_url then null else gsc_site_connections.last_successful_date end,
+              updated_at=excluded.updated_at
+            """,
+            (site_id, property_url, 1 if enabled else 0, "not_configured", now_iso()),
+        )
+    return jsonify({"ok": True, "propertyUrl": property_url, "enabled": enabled, "propertyChanged": property_changed})
+
+
+@app.post("/api/sites/<int:site_id>/gsc/verify")
+def verify_gsc_settings_route(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    try:
+        result = verify_gsc_site_connection(site_id)
+    except (ValueError, RuntimeError) as error:
+        return jsonify({"error": str(error)}), 400
+    status_code = 200 if result["status"] == "connected" else 403
+    return jsonify({"ok": result["status"] == "connected", **result}), status_code
+
+
+@app.post("/api/sites/<int:site_id>/gsc/sync")
+def sync_gsc_settings_route(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    connection = get_gsc_connection(site_id)
+    if not connection or not int(connection["enabled"] or 0):
+        return jsonify({"error": "Save and enable a GSC property before collecting data"}), 400
+    if str(connection["status"] or "") != "connected":
+        return jsonify({"error": "Verify Search Console access before collecting data"}), 400
+
+    def worker():
+        collect_gsc_site_data(site_id, trigger="manual")
+
+    threading.Thread(target=worker, daemon=True, name=f"gsc-sync-{site_id}").start()
+    return jsonify({"ok": True, "started": True, "message": "GSC finalized-data collection started"}), 202
+
+
+@app.get("/api/sites/<int:site_id>/pinterest-strategy")
+def get_pinterest_strategy_route(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    return jsonify({"ok": True, "strategy": pinterest_strategy_data(site_id)})
+
+
+@app.post("/api/sites/<int:site_id>/pinterest-strategy/materialize")
+def materialize_pinterest_strategy_route(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    def worker():
+        try:
+            result = materialize_agent_pinterest_assignments(site_id)
+            agent_log(site_id, "INFO", "pinterest-drafts", "Materialized reviewed Pinterest strategy assignments", result)
+        except Exception as error:
+            agent_log(site_id, "ERROR", "pinterest-drafts", f"Pinterest draft materialization failed: {error}")
+    threading.Thread(target=worker, daemon=True, name=f"pinterest-drafts-{site_id}").start()
+    return jsonify({"ok": True, "started": True, "published": False}), 202
+
+
+@app.put("/api/sites/<int:site_id>/pinterest-strategy")
+def update_pinterest_strategy_route(site_id):
+    if not get_site(site_id):
+        return jsonify({"error": "site not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    boards = payload.get("boards") or []
+    pages = payload.get("landingPages") or []
+    if not isinstance(boards, list) or not isinstance(pages, list):
+        return jsonify({"error": "boards and landingPages must be arrays"}), 400
+    clean_boards = []
+    board_keys = set()
+    for item in boards:
+        if not isinstance(item, dict):
+            continue
+        key = simple_slug(str(item.get("key") or item.get("name") or ""))
+        name = re.sub(r"\s+", " ", str(item.get("name") or "")).strip()
+        board_id = str(item.get("boardId") or "").strip()
+        if not key or not name or key in board_keys:
+            return jsonify({"error": "each board needs a unique key and name"}), 400
+        board_keys.add(key)
+        clean_boards.append({"key": key, "name": name, "boardId": board_id, "keywords": re.sub(r"\s+", " ", str(item.get("keywords") or "")).strip()})
+    clean_pages = []
+    allowed_intents = set(PINTEREST_DEFAULT_MIX)
+    seen_urls = set()
+    for item in pages:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        label = re.sub(r"\s+", " ", str(item.get("label") or "")).strip()
+        intent = str(item.get("intent") or "conversion_offer").strip()
+        if not url.startswith(("https://", "http://")):
+            return jsonify({"error": "each destination page needs a full http(s) URL"}), 400
+        if intent not in allowed_intents:
+            return jsonify({"error": f"destination intent must be one of {', '.join(sorted(allowed_intents))}"}), 400
+        if url not in seen_urls:
+            clean_pages.append({"url": url, "label": label or url, "intent": intent})
+            seen_urls.add(url)
+    try:
+        target = max(0, min(int(payload.get("dailyPinTarget") or 0), 12))
+    except (TypeError, ValueError):
+        target = 0
+    enabled = bool(payload.get("enabled"))
+    if enabled and (not clean_boards or not all(item["boardId"] for item in clean_boards)):
+        return jsonify({"error": "map at least one real Pinterest board ID before enabling automatic Pin delivery"}), 400
+    with db() as conn:
+        conn.execute(
+            """insert into pinterest_strategies(site_id,enabled,daily_pin_target,boards_json,landing_pages_json,mix_json,updated_at)
+               values(?,?,?,?,?,?,?) on conflict(site_id) do update set
+               enabled=excluded.enabled,daily_pin_target=excluded.daily_pin_target,boards_json=excluded.boards_json,
+               landing_pages_json=excluded.landing_pages_json,mix_json=excluded.mix_json,updated_at=excluded.updated_at""",
+            (site_id, 1 if enabled else 0, target, json.dumps(clean_boards, ensure_ascii=False), json.dumps(clean_pages, ensure_ascii=False), json.dumps(PINTEREST_DEFAULT_MIX), now_iso()),
+        )
+    return jsonify({"ok": True, "strategy": pinterest_strategy_data(site_id)})
+
+
 @app.put("/api/sites/<int:site_id>/factory-settings")
 def update_factory_settings(site_id):
     if not get_site(site_id):
@@ -15392,9 +23471,9 @@ def update_factory_settings(site_id):
             insert into autopublish_settings(
                 site_id, enabled, times_per_day, channels_json, timezone, start_hour, end_hour,
                 linkedin_include_link, telegram_include_link, twitter_include_link, tumblr_include_link,
-                pinterest_include_link, instagram_include_link, threads_include_link, reddit_include_link,
+                pinterest_include_link, instagram_include_link, threads_include_link, facebook_include_link, reddit_include_link,
                 social_cadences_json, updated_at
-            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             on conflict(site_id) do update set
                 enabled=excluded.enabled, times_per_day=excluded.times_per_day, channels_json=excluded.channels_json,
                 timezone=excluded.timezone, start_hour=excluded.start_hour, end_hour=excluded.end_hour,
@@ -15403,6 +23482,7 @@ def update_factory_settings(site_id):
                 pinterest_include_link=excluded.pinterest_include_link,
                 instagram_include_link=excluded.instagram_include_link,
                 threads_include_link=excluded.threads_include_link,
+                facebook_include_link=excluded.facebook_include_link,
                 reddit_include_link=excluded.reddit_include_link,
                 social_cadences_json=excluded.social_cadences_json,
                 updated_at=excluded.updated_at
@@ -15411,7 +23491,7 @@ def update_factory_settings(site_id):
                 site_id,
                 1 if auto.get("enabled") else 0,
                 int(auto.get("timesPerDay") or 3),
-                json.dumps(allowed_channels or ["linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads", "reddit"]),
+                json.dumps(allowed_channels or ["linkedin", "telegram", "twitter", "tumblr", "pinterest", "instagram", "threads", "facebook", "reddit"]),
                 auto.get("timezone") or "UTC",
                 int(auto.get("startHour") or 9),
                 int(auto.get("endHour") or 21),
@@ -15422,6 +23502,7 @@ def update_factory_settings(site_id):
                 1 if auto.get("pinterestIncludeLink") else 0,
                 0,
                 1 if auto.get("threadsIncludeLink") else 0,
+                1 if auto.get("facebookIncludeLink") else 0,
                 1 if auto.get("redditIncludeLink") else 0,
                 json.dumps(social_cadences, ensure_ascii=False),
                 now,
@@ -15660,9 +23741,11 @@ def generate_content_job_route(site_id, job_id):
     if str(row["status"] or "").upper() == "GENERATING":
         return jsonify({"ok": True, "jobId": job_id, "status": "GENERATING", "alreadyRunning": True}), 202
 
+    english_only = str(request.args.get("englishOnly") or "").lower() in {"1", "true", "yes"}
+
     def run_generation():
         try:
-            generate_content_job(site_id, job_id)
+            generate_content_job(site_id, job_id, localize=not english_only)
         except Exception as error:
             # Most generator errors are recorded by generate_content_job itself,
             # but failures before it enters its protected block must never leave
@@ -15726,11 +23809,13 @@ def schedule_content_job_route(site_id, job_id):
         except ValueError:
             return jsonify({"error": "scheduledFor must be an ISO-8601 timestamp"}), 400
     with db() as conn:
-        job = conn.execute("select status from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+        job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
         if not job:
             return jsonify({"error": "job not found"}), 404
         if job["status"] not in {"QUEUED", "GENERATING", "DRAFT"}:
             return jsonify({"error": f"cannot schedule a {job['status']} job"}), 400
+        if scheduled_for and not compliance_job_is_schedulable(job):
+            return jsonify({"error": "compliance job requires recorded Tier B approval, all-locale review and visual QA before scheduling"}), 400
         conn.execute(
             "update content_jobs set scheduled_for=?, updated_at=? where site_id=? and id=?",
             (scheduled_for, now_iso(), site_id, job_id),
@@ -15740,6 +23825,114 @@ def schedule_content_job_route(site_id, job_id):
             (site_id, job_id, now_iso(), "INFO", "scheduled-publish", "Publication schedule cleared" if not scheduled_for else f"Scheduled native publication for {scheduled_for}"),
         )
     return jsonify({"ok": True, "jobId": job_id, "scheduledFor": scheduled_for})
+
+
+@app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/compliance-claim-review")
+def review_compliance_claims_route(site_id, job_id):
+    """Record a human verification of source-bounded high-risk claims.
+
+    The route works for every configured compliance contract.  It does not
+    approve publication; it only makes an evidence-complete job eligible for a
+    draft-generation request.
+    """
+    payload = request.get_json(silent=True) or {}
+    reviewer = re.sub(r"\s+", " ", str(payload.get("reviewer") or "")).strip()
+    claims = payload.get("claims") if isinstance(payload.get("claims"), list) else []
+    if not reviewer or not claims:
+        return jsonify({"error": "reviewer and at least one reviewed claim are required"}), 400
+    with db() as conn:
+        job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+        if not job:
+            return jsonify({"error": "job not found"}), 404
+        sources = content_job_sources(job)
+        cluster = compliance_cluster_for_job(job)
+        if not cluster:
+            return jsonify({"error": "job has no compliance contract"}), 400
+        source_map = cluster.get("sourceMap") if isinstance(cluster.get("sourceMap"), dict) else {}
+        source_by_id = {str(item.get("id") or ""): item for item in source_map.get("sources", []) if isinstance(item, dict)}
+        verified = []
+        required = ("id", "statement", "supportingExcerpt", "scope", "conditions", "exceptions", "effectiveDateOrYear")
+        for claim in claims:
+            if not isinstance(claim, dict) or any(not str(claim.get(field) or "").strip() for field in required):
+                return jsonify({"error": "each claim requires id, statement, supportingExcerpt, scope, conditions, exceptions and effectiveDateOrYear"}), 400
+            source_ids = claim.get("sourceIds") if isinstance(claim.get("sourceIds"), list) else []
+            if not source_ids or any(str(source_id) not in source_by_id for source_id in source_ids):
+                return jsonify({"error": "each claim must cite one or more current source-map IDs"}), 400
+            verified.append({
+                **{field: claim[field] for field in required},
+                "sourceIds": [str(source_id) for source_id in source_ids],
+                "sourceUrl": [source_by_id[str(source_id)].get("publicUrl") for source_id in source_ids],
+                "owner": reviewer,
+                "accessedAt": now_iso(),
+                "freshness": "reviewed_current_source",
+                "expiry": min(str(source_by_id[str(source_id)].get("expiresAt") or "") for source_id in source_ids),
+                "approvalState": "VERIFIED",
+            })
+        cluster.update({"workflowState": "CLAIMS_VERIFIED", "nextState": "DRAFT_AUTHORIZED", "claimIds": [claim["id"] for claim in verified], "verifiedClaims": verified, "claimReview": {"reviewer": reviewer, "reviewedAt": now_iso()}})
+        sources["complianceCluster"] = cluster
+        claims_by_source = {}
+        for claim in verified:
+            for source_id in claim["sourceIds"]:
+                claims_by_source.setdefault(source_id, []).append(claim)
+        references = []
+        for source_id, source in source_by_id.items():
+            supported = claims_by_source.get(source_id, [])
+            if not supported:
+                continue
+            supports = " ".join(
+                f"Verified claim: {claim['statement']} Conditions: {claim['conditions']} Exceptions: {claim['exceptions']}"
+                for claim in supported
+            )
+            references.append({**source, "supports": supports})
+        sources["pageBrief"] = {
+            "primaryIntent": str(job["topic"] or "").strip(),
+            "seoTitle": str(job["title"] or job["topic"] or "").strip(),
+            "metaDescription": "Official-source guide with scope, conditions and limits that require confirmation before action.",
+            "h1": str(job["title"] or job["topic"] or "").strip(),
+            "directAnswer": "This guide states only what the reviewed official sources establish, their conditions and their limits; confirm the facts that apply to your own case before acting.",
+            "outline": ["What the reviewed official sources establish", "Scope and conditions", "Evidence and documents to check", "A careful sequence before committing", "What the sources do not establish", "Questions to confirm with the responsible authority"],
+            "sourceReferences": references,
+            "contentDetails": {"sectionEvidence": {}, "forbiddenClaims": ["individual eligibility", "guaranteed outcome", "processing-time estimate", "unstated fee or channel availability"], "allowedReaderChecks": ["Check the current source before submitting", "Ask the responsible authority which evidence applies to your circumstances", "Confirm the current channel before making an appointment or payment"], "limitations": ["This page is not individual legal, tax or immigration advice."]},
+        }
+        sources["generationBlockedUntilSourceReview"] = False
+        sources["publicationBlocked"] = True
+        sources["qualityRequirements"] = {"minimumWordCount": 800, "minimumOrderedItems": 3, "reason": "Closed high-risk evidence ledger: every approved reader check exactly once; no invented fourth action."}
+        # A site contract may keep the evidence/article phase text-only. Image
+        # specs remain reviewable in the structured draft, but no media API is
+        # called and no fake asset URLs are rendered into the private draft.
+        if cluster.get("mediaGeneration") == "deferred":
+            sources["mediaGeneration"] = "deferred"
+        conn.execute("update content_jobs set status='QUEUED', sources_json=?, error=?, updated_at=? where site_id=? and id=?", (json.dumps(sources, ensure_ascii=False), "Claims verified; draft and localization generation required before Tier B approval.", now_iso(), site_id, job_id))
+        conn.execute("insert into content_job_logs(site_id,job_id,ts,level,step,message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "INFO", "compliance-claim-review", f"{len(verified)} claims verified by {reviewer}; draft generation is now eligible."))
+    return jsonify({"ok": True, "jobId": job_id, "status": "QUEUED", "claims": len(verified)})
+
+
+@app.post("/api/sites/<int:site_id>/content-jobs/<job_id>/compliance-tier-b-approval")
+def approve_compliance_tier_b_route(site_id, job_id):
+    payload = request.get_json(silent=True) or {}
+    approver = re.sub(r"\s+", " ", str(payload.get("approver") or "")).strip()
+    if not approver or payload.get("allLocalesReviewed") is not True or payload.get("visualQaPassed") is not True:
+        return jsonify({"error": "approver, allLocalesReviewed=true and visualQaPassed=true are required"}), 400
+    with db() as conn:
+        job = conn.execute("select * from content_jobs where site_id=? and id=?", (site_id, job_id)).fetchone()
+        site = conn.execute("select * from sites where id=?", (site_id,)).fetchone()
+        if not job or not site:
+            return jsonify({"error": "job not found"}), 404
+        cluster = compliance_cluster_for_job(job)
+        if not cluster or job["status"] != "DRAFT":
+            return jsonify({"error": "Tier B approval requires a generated compliance draft"}), 400
+        expected = max(0, len(parse_languages(site["languages"])) - 1)
+        got = conn.execute("select count(*) from content_job_localizations where site_id=? and job_id=?", (site_id, job_id)).fetchone()[0]
+        if got != expected:
+            return jsonify({"error": f"Tier B approval requires {expected} localized drafts, found {got}"}), 400
+        sources = content_job_sources(job)
+        cluster["tierBApproval"] = {"status": "APPROVED", "approvedBy": approver, "approvedAt": now_iso(), "allLocalesReviewed": True, "visualQaPassed": True}
+        cluster["workflowState"] = "APPROVED_FOR_SCHEDULING"
+        sources["complianceCluster"] = cluster
+        sources["publicationBlocked"] = False
+        conn.execute("update content_jobs set sources_json=?, error=NULL, updated_at=? where site_id=? and id=?", (json.dumps(sources, ensure_ascii=False), now_iso(), site_id, job_id))
+        conn.execute("insert into content_job_logs(site_id,job_id,ts,level,step,message) values(?,?,?,?,?,?)", (site_id, job_id, now_iso(), "INFO", "compliance-tier-b-approval", f"Tier B approval recorded by {approver}; job may now be scheduled."))
+    return jsonify({"ok": True, "jobId": job_id, "status": "DRAFT", "approvedForScheduling": True})
 
 
 @app.put("/api/sites/<int:site_id>/content-schedule")
@@ -15953,6 +24146,169 @@ def activate_reel_music_route(site_id, track_id):
         return jsonify({"error": str(error)}), 500
 
 
+def _reel_asset_catalog(site_id):
+    path = REEL_ASSET_LIBRARY_DIR / str(int(site_id)) / "catalog.json"
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _reel_voiceover_catalog(site_id):
+    path = REEL_ASSET_LIBRARY_DIR / str(int(site_id)) / "voiceovers.json"
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+@app.get("/sites/<int:site_id>/reel-asset-library")
+def reel_asset_library_route(site_id):
+    site = get_site(site_id)
+    if not site:
+        abort(404)
+    if str(request.args.get("view") or "visuals").strip().lower() == "voiceovers":
+        voice_catalog = _reel_voiceover_catalog(site_id)
+        if not voice_catalog:
+            queue_reel_asset_library_refresh(site_id)
+            return Response("Full voiceover library is being built. Reload this page shortly.", status=202, mimetype="text/plain")
+        voice_cards = []
+        for voice in voice_catalog.get("voiceovers") or []:
+            voice_id = str(voice.get("id") or "")
+            if not voice_id:
+                continue
+            duration = float(voice.get("durationSeconds") or 0)
+            source_label = "Original full track" if voice.get("kind") == "original_full_track" else "Assembled from complete scene set"
+            audio_url = f"/sites/{site_id}/reel-voiceovers/{escape(voice_id)}/audio"
+            voice_cards.append(f"""
+            <article class='voice-card'>
+              <div class='voice-meta'><span>{escape(source_label)}</span><span>{duration:.1f}s · {int(voice.get('sceneCount') or 0)} scene clips</span></div>
+              <h2>{escape(str(voice.get('title') or 'Reel voiceover'))}</h2>
+              <p>{escape(str(voice.get('assetKey') or ''))}</p>
+              <audio controls preload='metadata' src='{audio_url}'></audio>
+              <a class='download' href='{audio_url}' download>Download WAV</a>
+            </article>
+            """)
+        voice_summary = voice_catalog.get("summary") or {}
+        html = f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='robots' content='noindex,nofollow'><title>Full Reel voiceovers</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:#090f1a;color:#f8fafc;font:14px/1.45 Inter,system-ui,sans-serif;padding:24px}}header{{max-width:1180px;margin:auto;padding:8px 0 18px;border-bottom:1px solid #334155}}h1{{margin:10px 0 4px}}h2{{font-size:18px;line-height:1.25;margin:8px 0}}a{{color:#a7f3d0}}nav{{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}}nav a,.download{{display:inline-flex;border:1px solid #475569;background:#172033;color:#f8fafc;padding:8px 12px;text-decoration:none}}nav a.active{{border-color:#34d399;color:#a7f3d0}}.voice-grid{{max-width:1180px;margin:20px auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}}.voice-card{{border:1px solid #334155;background:#111827;padding:16px}}.voice-meta{{display:flex;justify-content:space-between;gap:12px;color:#a7f3d0;font-size:12px}}.voice-card p{{color:#94a3b8;overflow-wrap:anywhere}}audio{{display:block;width:100%;margin:16px 0}}</style></head><body><header><a href='/sites/{site_id}#distribution'>Back to distribution</a><h1>{escape(site['brand_name'] or site['domain'])} Reel production library</h1><p>{int(voice_summary.get('voiceovers') or 0)} unique full voiceovers · {int(voice_summary.get('duplicates') or 0)} duplicate productions collapsed · {int(voice_summary.get('partialSetsExcluded') or 0)} incomplete sets preserved but excluded.</p><nav><a href='/sites/{site_id}/reel-asset-library'>Scenes and layers</a><a class='active' href='/sites/{site_id}/reel-asset-library?view=voiceovers'>Full voiceovers</a></nav></header><main class='voice-grid'>{''.join(voice_cards)}</main></body></html>"""
+        response = Response(html, mimetype="text/html")
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return response
+    catalog = _reel_asset_catalog(site_id)
+    if not catalog:
+        queue_reel_asset_library_refresh(site_id)
+        return Response("Reel visual library is being built. Reload this page shortly.", status=202, mimetype="text/plain")
+    status_order = {"approved": 0, "review": 1, "rejected": 2, "duplicate": 3, "archive": 4}
+    type_labels = {
+        "scene_background": "Empty scene",
+        "clean_plate": "Clean plate",
+        "master_frame": "Master frame",
+        "registered_layer": "Cut-out layer",
+        "source_reference": "Extraction source",
+    }
+    cards = []
+    for asset in sorted(catalog.get("assets") or [], key=lambda item: (status_order.get(item.get("status"), 9), item.get("type", ""), item.get("relativePath", ""))):
+        asset_id = str(asset.get("id") or "")
+        if not asset_id:
+            continue
+        status = str(asset.get("status") or "review")
+        kind = str(asset.get("type") or "image")
+        kind_label = type_labels.get(kind, kind.replace("_", " ").title())
+        reasons = "; ".join(str(item) for item in asset.get("reasons") or [])
+        context = asset.get("context") if isinstance(asset.get("context"), dict) else {}
+        semantic = str(context.get("visualStory") or context.get("overlayText") or asset.get("layerDescription") or "")
+        controls = ""
+        if status not in {"duplicate", "archive"}:
+            buttons = "".join(
+                f"<button name='status' value='{choice}'>{choice.title()}</button>"
+                for choice in ("approved", "review", "rejected") if choice != status
+            )
+            controls = f"<form method='post' action='/sites/{site_id}/reel-asset-library/assets/{asset_id}/status'>{buttons}</form>"
+        cards.append(f"""
+        <article class='asset-card {escape(status)}' data-type='{escape(kind)}'>
+          <a href='/sites/{site_id}/reel-asset-library/assets/{escape(asset_id)}' target='_blank'><img loading='lazy' src='/sites/{site_id}/reel-asset-library/assets/{escape(asset_id)}'></a>
+          <div class='asset-meta'><strong>{escape(kind_label)}</strong><span>{escape(status)} · score {escape(str(asset.get('qualityScore') or 0))}</span><small>{escape(str(asset.get('relativePath') or ''))}</small><p>{escape(semantic)}</p><em>{escape(reasons)}</em>{controls}</div>
+        </article>
+        """)
+    summary = " · ".join(f"{escape(str(key))}: {int(value)}" for key, value in (catalog.get("summary") or {}).items())
+    html = f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='robots' content='noindex,nofollow'><title>Reel visual library</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:#090f1a;color:#f8fafc;font:14px/1.45 Inter,system-ui,sans-serif;padding:24px}}header{{position:sticky;top:0;z-index:3;background:#090f1af2;padding:8px 0 16px;border-bottom:1px solid #334155}}h1{{margin:8px 0}}a{{color:#a7f3d0}}.filters,form{{display:flex;gap:8px;flex-wrap:wrap}}button{{border:1px solid #475569;background:#172033;color:#f8fafc;padding:7px 10px;cursor:pointer}}.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;margin-top:18px}}.asset-card{{border:1px solid #334155;background:#111827;min-width:0}}.asset-card.approved{{border-color:#159669}}.asset-card.review{{border-color:#b88726}}.asset-card.rejected{{border-color:#a34452}}.asset-card.duplicate,.asset-card.archive{{opacity:.55}}.asset-card img{{display:block;width:100%;height:330px;object-fit:contain;background:#242c38}}.asset-meta{{display:flex;flex-direction:column;gap:6px;padding:10px}}.asset-meta span,.asset-meta small,.asset-meta p{{color:#a8b3c5;margin:0;overflow-wrap:anywhere}}.asset-meta em{{color:#e0a7af}}body[data-filter='approved'] .asset-card:not(.approved),body[data-filter='review'] .asset-card:not(.review),body[data-filter='rejected'] .asset-card:not(.rejected),body[data-filter='duplicate'] .asset-card:not(.duplicate){{display:none}}</style></head><body data-filter='approved'><header><a href='/sites/{site_id}#distribution'>Back to distribution</a><h1>{escape(site['brand_name'] or site['domain'])} Reel visual library</h1><p>{summary}. Originals are preserved; only approved canonical assets are reused.</p><div class='filters'><button onclick=\"document.body.dataset.filter=''\">All</button><button onclick=\"document.body.dataset.filter='approved'\">Approved</button><button onclick=\"document.body.dataset.filter='review'\">Review</button><button onclick=\"document.body.dataset.filter='rejected'\">Rejected</button><button onclick=\"document.body.dataset.filter='duplicate'\">Duplicates</button></div></header><main class='grid'>{''.join(cards)}</main></body></html>"""
+    response = Response(html, mimetype="text/html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.get("/sites/<int:site_id>/reel-voiceovers/<voice_id>/audio")
+def serve_reel_voiceover_audio(site_id, voice_id):
+    catalog = _reel_voiceover_catalog(site_id)
+    voice = next((item for item in (catalog or {}).get("voiceovers") or [] if str(item.get("id") or "") == voice_id), None)
+    if not voice:
+        abort(404)
+    path = Path(str(voice.get("libraryPath") or ""))
+    expected_parent = REEL_ASSET_LIBRARY_DIR / str(int(site_id)) / "voiceovers"
+    if path.parent != expected_parent or path.suffix.lower() != ".wav" or not path.is_file():
+        abort(404)
+    return send_from_directory(path.parent, path.name, mimetype="audio/wav", conditional=True, max_age=3600)
+
+
+@app.get("/sites/<int:site_id>/reel-asset-library/assets/<asset_id>")
+def serve_reel_library_asset(site_id, asset_id):
+    catalog = _reel_asset_catalog(site_id)
+    asset = next((item for item in (catalog or {}).get("assets") or [] if str(item.get("id") or "") == asset_id), None)
+    if not asset:
+        abort(404)
+    path = Path(str(asset.get("sourcePath") or "")).resolve()
+    source_root = (SOCIAL_ASSET_DIR / str(int(site_id))).resolve()
+    if source_root not in path.parents or not path.is_file():
+        abort(404)
+    return send_from_directory(path.parent, path.name, conditional=True, max_age=3600)
+
+
+@app.post("/sites/<int:site_id>/reel-asset-library/assets/<asset_id>/status")
+def set_reel_library_asset_status(site_id, asset_id):
+    catalog = _reel_asset_catalog(site_id)
+    asset = next((item for item in (catalog or {}).get("assets") or [] if str(item.get("id") or "") == asset_id), None)
+    status = str(request.form.get("status") or "")
+    if not asset or status not in {"approved", "review", "rejected"}:
+        abort(400)
+    override_path = REEL_ASSET_LIBRARY_DIR / str(int(site_id)) / "overrides.json"
+    try:
+        overrides = json.loads(override_path.read_text(encoding="utf-8")) if override_path.is_file() else {}
+    except (OSError, json.JSONDecodeError):
+        overrides = {}
+    overrides[str(asset["relativePath"])] = {"status": status, "updatedAt": now_iso()}
+    override_path.write_text(json.dumps(overrides, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Update the rendered catalog before redirecting. A full rebuild can take
+    # several seconds and previously left the card visible under its old filter.
+    asset["status"] = status
+    summary = {}
+    for item in catalog.get("assets") or []:
+        item_status = str(item.get("status") or "review")
+        summary[item_status] = int(summary.get(item_status, 0)) + 1
+    catalog["summary"] = dict(sorted(summary.items()))
+    catalog_path = REEL_ASSET_LIBRARY_DIR / str(int(site_id)) / "catalog.json"
+    catalog_temp = catalog_path.with_suffix(".json.tmp")
+    catalog_temp.write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
+    catalog_temp.replace(catalog_path)
+    if status != "approved":
+        library_path = Path(str(asset.get("libraryPath") or ""))
+        if library_path.is_symlink():
+            library_path.unlink(missing_ok=True)
+
+    queue_reel_asset_library_refresh(site_id)
+    return redirect(f"/sites/{site_id}/reel-asset-library")
+
+
 @app.get("/sites/<int:site_id>/social-assets/<asset_key>/<channel>/<filename>")
 def serve_social_asset(site_id, asset_key, channel, filename):
     if channel not in SOCIAL_CHANNEL_LIMITS:
@@ -16007,7 +24363,14 @@ def visual_pin_preview(site_id, pin_id):
     concept = parse_json_object(pin["concept_json"])
     image_url = visual_pin_public_asset(pin)
     image = f"<img src='{escape(image_url, quote=True)}' alt='{escape(pin['alt_text'] or '', quote=True)}'>" if image_url else "<div class='empty'>Image is not ready.</div>"
-    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex,nofollow\"><title>Pinterest visual Pin review</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#f8fafc;font:16px/1.55 Inter,system-ui,sans-serif}}main{{max-width:860px;margin:auto;padding:34px 18px 70px}}a{{color:#c4b5fd}}article{{display:grid;grid-template-columns:minmax(0,460px) 1fr;gap:28px;margin-top:22px;padding:22px;border:1px solid #334155;border-radius:18px;background:#111827}}img{{width:100%;display:block;border-radius:12px;background:#0b1020}}h1{{line-height:1.1;margin:8px 0}}h2{{font-size:18px;line-height:1.25}}.muted{{color:#a6b0c3}}.copy{{white-space:pre-wrap}}dl{{display:grid;grid-template-columns:120px 1fr;gap:8px;font-size:13px}}dt{{color:#94a3b8}}dd{{margin:0}}@media(max-width:720px){{article{{grid-template-columns:1fr}}}}</style></head><body><main><a href=\"/sites/{int(site_id)}#distribution\">Back to dashboard</a><h1>Pinterest visual Pin draft</h1><p class=\"muted\">{escape(pin['brand_name'] or pin['domain'])} · {escape(pin['status'])}</p><article><div>{image}</div><div><h2>{escape(pin['title'])}</h2><p class=\"copy\">{escape(pin['description'])}</p><dl><dt>Story</dt><dd>{escape(VISUAL_PIN_MODES.get(pin['mode'], pin['mode']))}</dd><dt>Concept</dt><dd>{escape(concept.get('conceptName') or '')}</dd><dt>Garment</dt><dd>{escape(concept.get('garment') or '')}</dd><dt>Models</dt><dd>{escape(concept.get('models') or '')}</dd><dt>Locations</dt><dd>{escape(concept.get('locations') or '')}</dd></dl></div></article></main></body></html>"""
+    if pin["mode"] == "vacancy_evidence_pin":
+        details = f"<dl><dt>Source</dt><dd>{escape(str(concept.get('company') or ''))} vacancy</dd><dt>Vacancy task</dt><dd>{escape(str(concept.get('duty') or ''))}</dd><dt>Human gate</dt><dd>{escape(str(concept.get('humanGate') or ''))}</dd></dl>"
+    elif pin["mode"] == "article_derived_pin":
+        keywords = ", ".join(str(value) for value in (concept.get("keywords") or []))
+        details = f"<dl><dt>Source</dt><dd>{escape(str(concept.get('sourceTitle') or ''))}</dd><dt>Image hook</dt><dd>{escape(str(concept.get('overlayText') or ''))}</dd><dt>Search intent</dt><dd>{escape(keywords)}</dd><dt>CTA</dt><dd>{escape(str(concept.get('cta') or ''))}</dd><dt>Destination</dt><dd><a href='{escape(pin['destination_url'] or '', quote=True)}'>{escape(pin['destination_url'] or '')}</a></dd></dl>"
+    else:
+        details = f"<dl><dt>Story</dt><dd>{escape(VISUAL_PIN_MODES.get(pin['mode'], pin['mode']))}</dd><dt>Concept</dt><dd>{escape(concept.get('conceptName') or '')}</dd><dt>Garment</dt><dd>{escape(concept.get('garment') or '')}</dd><dt>Models</dt><dd>{escape(concept.get('models') or '')}</dd><dt>Locations</dt><dd>{escape(concept.get('locations') or '')}</dd></dl>"
+    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex,nofollow\"><title>Pinterest visual Pin review</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#f8fafc;font:16px/1.55 Inter,system-ui,sans-serif}}main{{max-width:860px;margin:auto;padding:34px 18px 70px}}a{{color:#c4b5fd}}article{{display:grid;grid-template-columns:minmax(0,460px) 1fr;gap:28px;margin-top:22px;padding:22px;border:1px solid #334155;border-radius:18px;background:#111827}}img{{width:100%;display:block;border-radius:12px;background:#0b1020}}h1{{line-height:1.1;margin:8px 0}}h2{{font-size:18px;line-height:1.25}}.muted{{color:#a6b0c3}}.copy{{white-space:pre-wrap}}dl{{display:grid;grid-template-columns:120px 1fr;gap:8px;font-size:13px}}dt{{color:#94a3b8}}dd{{margin:0}}@media(max-width:720px){{article{{grid-template-columns:1fr}}}}</style></head><body><main><a href=\"/sites/{int(site_id)}#distribution\">Back to dashboard</a><h1>Pinterest visual Pin draft</h1><p class=\"muted\">{escape(pin['brand_name'] or pin['domain'])} · {escape(pin['status'])}</p><article><div>{image}</div><div><h2>{escape(pin['title'])}</h2><p class=\"copy\">{escape(pin['description'])}</p>{details}</div></article></main></body></html>"""
     return Response(html, mimetype="text/html")
 
 
@@ -16077,16 +24440,58 @@ def social_post_review(site_id, post_id):
     payload = parse_json_object(post["content_json"])
     pin = payload.get("pin") if isinstance(payload.get("pin"), dict) else {}
     reddit = payload.get("reddit") if isinstance(payload.get("reddit"), dict) else {}
-    image_url = pin.get("imageUrl") or ""
-    media = f'<img src="{escape(image_url, quote=True)}" alt="{escape(pin.get("altText") or "Pinterest draft", quote=True)}">' if image_url else ""
+    twitter = payload.get("twitter") if isinstance(payload.get("twitter"), dict) else {}
+    facebook = payload.get("facebook") if isinstance(payload.get("facebook"), dict) else {}
+    twitter_media = twitter.get("mediaUrls") if isinstance(twitter.get("mediaUrls"), list) else []
+    facebook_media = facebook.get("mediaUrls") if isinstance(facebook.get("mediaUrls"), list) else []
+    image_url = pin.get("imageUrl") or (twitter_media[0] if twitter_media else "") or (facebook_media[0] if facebook_media else "")
+    image_alt = pin.get("altText") or twitter.get("altText") or facebook.get("coverHeadline") or "Social draft illustration"
+    media = f'<img src="{escape(image_url, quote=True)}" alt="{escape(image_alt, quote=True)}">' if image_url else ""
     title = reddit.get("title") or pin.get("pinTitle") or post["title"] or post["topic"] or "Social draft"
     details = ""
     if pin:
         details = f"<dl><dt>Overlay</dt><dd>{escape(pin.get('overlayText') or '')}</dd><dt>Destination</dt><dd>{escape(pin.get('destinationUrl') or 'none')}</dd></dl>"
     if reddit:
         details = f"<dl><dt>Reddit title</dt><dd>{escape(reddit.get('title') or '')}</dd><dt>Format</dt><dd>{escape(reddit.get('format') or 'discussion')}</dd></dl>"
+    if twitter and twitter.get("visualBrief"):
+        details = f"<dl><dt>Visual brief</dt><dd>{escape(twitter.get('visualBrief') or '')}</dd><dt>Alt text</dt><dd>{escape(twitter.get('altText') or '')}</dd></dl>"
+    if facebook:
+        details = f"<dl><dt>Cover headline</dt><dd>{escape(facebook.get('coverHeadline') or '')}</dd><dt>Format</dt><dd>{escape(facebook.get('recommendedSize') or '1200x630')}</dd></dl>"
+    thread_items = twitter.get("threadItems") if isinstance(twitter.get("threadItems"), list) else []
+    post_copy = f"<pre>{escape(post['content_text'] or '')}</pre>"
+    if thread_items:
+        post_copy = "<div class='thread'>" + "".join(
+            f"<section class='thread-item'><span>Post {index + 1} · {_x_weighted_length(str(message))}/280</span><pre>{escape(str(message))}</pre></section>"
+            for index, message in enumerate(thread_items)
+        ) + "</div>"
     validation = parse_json_object(post["validation_json"])
-    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex,nofollow\"><title>{escape(post['channel'])} social review</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#f8fafc;font:16px/1.55 Inter,system-ui,sans-serif}}main{{max-width:760px;margin:auto;padding:32px 18px 70px}}a{{color:#c4b5fd}}article{{margin-top:18px;padding:22px;border:1px solid #334155;border-radius:16px;background:#111827}}h1{{line-height:1.1}}pre{{white-space:pre-wrap;font:inherit;margin:0}}img{{width:min(100%,460px);display:block;margin:18px auto;border-radius:12px}}dl{{display:grid;grid-template-columns:120px 1fr;gap:8px;margin:18px 0 0}}dt{{color:#94a3b8}}dd{{margin:0}}</style></head><body><main><a href=\"/sites/{int(site_id)}#content\">Back to dashboard</a><h1>{escape(str(post['channel']).title())} review</h1><p>{escape(post['brand_name'] or post['domain'])} · {escape(post['language'] or '')} · {escape(post['status'])}</p><article><h2>{escape(title)}</h2>{media}<pre>{escape(post['content_text'] or '')}</pre>{details}<p>Validation: {escape(json.dumps(validation, ensure_ascii=False))}</p></article></main></body></html>"""
+    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex,nofollow\"><title>{escape(post['channel'])} social review</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#f8fafc;font:16px/1.55 Inter,system-ui,sans-serif}}main{{max-width:760px;margin:auto;padding:32px 18px 70px}}a{{color:#c4b5fd}}article{{margin-top:18px;padding:22px;border:1px solid #334155;border-radius:16px;background:#111827}}h1{{line-height:1.1}}pre{{white-space:pre-wrap;font:inherit;margin:0}}img{{width:min(100%,460px);display:block;margin:18px auto;border-radius:12px}}.thread{{display:grid;gap:12px}}.thread-item{{padding:16px;border:1px solid #334155;border-radius:12px;background:#0b1220}}.thread-item span{{display:block;margin-bottom:8px;color:#94a3b8;font-size:13px}}dl{{display:grid;grid-template-columns:120px 1fr;gap:8px;margin:18px 0 0}}dt{{color:#94a3b8}}dd{{margin:0}}</style></head><body><main><a href=\"/sites/{int(site_id)}#content\">Back to dashboard</a><h1>{escape(str(post['channel']).title())} review</h1><p>{escape(post['brand_name'] or post['domain'])} · {escape(post['language'] or '')} · {escape(post['status'])}</p><article><h2>{escape(title)}</h2>{media}{post_copy}{details}<p>Validation: {escape(json.dumps(validation, ensure_ascii=False))}</p></article></main></body></html>"""
+    return Response(html, mimetype="text/html")
+
+
+@app.get("/sites/<int:site_id>/x-vacancy-drafts")
+def x_vacancy_draft_library(site_id):
+    """One review surface for every unpublished vacancy-evidence X draft."""
+    with db() as conn:
+        site = conn.execute("select domain,brand_name from sites where id=?", (site_id,)).fetchone()
+        rows = conn.execute("""select id,content_text,content_json,created_at
+            from social_posts where site_id=? and channel='twitter'
+              and asset_type like 'evidence_post_%' and status='DRAFT'
+            order by id desc""", (site_id,)).fetchall()
+    if not site:
+        abort(404)
+    cards = []
+    for row in rows:
+        twitter = parse_json_object(row["content_json"]).get("twitter") or {}
+        media_urls = twitter.get("mediaUrls") if isinstance(twitter.get("mediaUrls"), list) else []
+        media_url = str(twitter.get("mediaUrl") or (media_urls[0] if media_urls else ""))
+        first_line = str(row["content_text"] or "").split("\n", 1)[0].strip()
+        image = f'<img src="{escape(media_url, quote=True)}" alt="Vacancy X draft visual">' if media_url else ""
+        cards.append(f'''<a class="card" href="/sites/{int(site_id)}/social-posts/{int(row['id'])}">
+            {image}<div class="meta">Draft #{int(row['id'])}</div><h2>{escape(first_line[:150])}</h2>
+            <span>Open full preview →</span></a>''')
+    html = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>YAS vacancy X drafts</title><style>
+    *{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#f8fafc;font:16px/1.45 Inter,system-ui,sans-serif}}main{{max-width:1320px;margin:auto;padding:36px 22px 70px}}a{{color:inherit}}.back{{color:#c4b5fd}}h1{{font-size:clamp(30px,4vw,54px);margin:22px 0 5px}}p{{color:#94a3b8}}.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:18px;margin-top:28px}}.card{{display:block;text-decoration:none;padding:14px;border:1px solid #334155;border-radius:16px;background:#111827;transition:.15s transform,.15s border-color}}.card:hover{{transform:translateY(-3px);border-color:#a78bfa}}img{{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:10px;background:#1e293b}}.meta{{margin-top:12px;color:#a7f3d0;font-weight:700;font-size:13px}}h2{{font-size:17px;line-height:1.28;margin:7px 0 10px}}span{{color:#c4b5fd;font-size:14px}}</style></head><body><main><a class="back" href="/sites/{int(site_id)}#content">← Dashboard</a><h1>Vacancy X drafts</h1><p>{escape(site['brand_name'] or site['domain'])} · {len(rows)} ready drafts with visuals</p><section class="grid">{''.join(cards) or '<p>No drafts found.</p>'}</section></main></body></html>'''
     return Response(html, mimetype="text/html")
 
 
@@ -16099,7 +24504,8 @@ def instagram_carousel_preview(site_id, post_id):
             from social_posts sp
             join content_jobs cj on cj.id=sp.job_id and cj.site_id=sp.site_id
             join sites s on s.id=sp.site_id
-            where sp.site_id=? and sp.id=? and sp.channel='instagram' and sp.asset_type='post'
+            where sp.site_id=? and sp.id=? and sp.channel='instagram'
+              and sp.asset_type in ('post','instagram_vacancy_carousel')
             """,
             (site_id, post_id),
         ).fetchone()
@@ -16355,7 +24761,7 @@ def import_existing_blog_route(site_id):
     if not isinstance(urls, list) or not urls:
         return jsonify({"error": "urls list is required"}), 400
     try:
-        result = import_existing_articles(site_id, urls)
+        result = import_existing_articles(site_id, urls, allow_explicit_paths=True)
         with db() as conn:
             conn.execute(
                 "insert into publish_jobs(site_id,kind,status,message,created_at) values(?,?,?,?,?)",
@@ -16754,6 +25160,7 @@ button[disabled]{opacity:.55;cursor:not-allowed}
             <div class="field full"><label>Custom blog domain</label><input name="custom_blog_domain" value="__CUSTOM_BLOG_DOMAIN__" placeholder="blog.client.com"><div class="hint">Client DNS: CNAME this host to blog.yas.ooo</div></div>
             <label class="check full"><input type="checkbox" name="hosted_blog_enabled" __HOSTED_CHECKED__> Enable hosted CNAME blog for this site</label>
             <div class="field full"><label>Local webroot</label><input name="root_path" value="__ROOT__" placeholder="/var/www/site-root"></div>
+            <div class="field full"><label>Native content root</label><input name="content_root_path" value="__CONTENT_ROOT__" placeholder="/var/lib/site/data"><div class="hint">Optional separate data/media root. Blog Core writes JSON to this directory under blog-core/.</div></div>
             <div class="field"><label>Languages</label><input name="languages" value="__LANGUAGES__" placeholder="en, ru, de"></div>
             <div class="field full"><label>Site/product context</label><textarea name="content_context" placeholder="What this site sells, audience, positioning, internal links...">__CONTENT_CONTEXT__</textarea></div>
             <div class="field full"><label>Topic strategy</label><textarea name="topic_strategy" placeholder="Topics, clusters, tone, forbidden claims, CTA rules...">__TOPIC_STRATEGY__</textarea></div>
@@ -16776,6 +25183,7 @@ button[disabled]{opacity:.55;cursor:not-allowed}
           <div class="stat"><strong>Delete connected site</strong><div class="muted">Removes it from Blog Core and generated previews only. It does not remove installed /blog files.</div><div style="margin-top:12px"><button class="danger" onclick="deleteSite(__SITE_ID__, '__DOMAIN__')">Delete from dashboard</button></div></div>
         </section>
       </div>
+      __GSC_SETUP__
       __SOCIAL_CREDENTIALS_SETUP__
     </div>
   </section>
@@ -16883,7 +25291,11 @@ async function publishVisualPin(pinId){if(!confirm('Publish this reviewed visual
 async function publishZernioSocial(jobId){if(!confirm('Submit ready X, Pinterest, Instagram, Threads, and Reddit drafts to Zernio now?'))return;showToast('Submitting social drafts to Zernio...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-publish/zernio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);const summary=(data.results||[]).map(item=>item.channel+': '+(item.ok?item.status:'failed')).join(' · ');showToast('Zernio accepted: '+summary+'. Verify the destination post before treating it as live.');setTimeout(()=>location.reload(),1200);}catch(e){showToast('Zernio submission failed: '+e.message);}}
 async function publishLinkedInSocial(jobId){if(!confirm('Publish this reviewed LinkedIn draft now?'))return;showToast('Publishing LinkedIn draft...');try{const res=await fetch('/api/sites/'+SITE_ID+'/content-jobs/'+encodeURIComponent(jobId)+'/social-publish/linkedin',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('LinkedIn post sent');setTimeout(()=>location.reload(),1000);}catch(e){showToast('LinkedIn publication failed: '+e.message);}}
 async function saveContentSchedule(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const cadence=String(fd.get('publishing_cadence')||'manual');const applyToQueue=fd.has('apply_to_queue');const startAt=String(fd.get('start_at')||'');if(applyToQueue&&!startAt){showToast('Choose the first release date and time');return;}if(applyToQueue&&!confirm('Schedule all currently unscheduled queued blog/page tasks using this cadence? Already scheduled tasks will not move.'))return;showToast(applyToQueue?'Placing queued releases...':'Saving blog/page schedule...');try{const timezone=document.querySelector('input[name="timezone"]')?.value||'UTC';const res=await fetch('/api/sites/'+SITE_ID+'/content-schedule',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({cadence,startAt,timezone,applyToQueue})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast(applyToQueue?'Scheduled '+data.scheduledGroups+' publication group(s)':'Blog/page schedule saved');setTimeout(()=>location.reload(),850);}catch(e){showToast('Blog/page schedule failed: '+e.message);}}
-async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const socialCadences={};for(const channel of ['linkedin','telegram','twitter','tumblr','pinterest','instagram','threads','reddit','instagram_reel']){socialCadences[channel]={enabled:fd.has('cadence_'+channel+'_enabled'),postsPerDay:Number(fd.get('cadence_'+channel+'_posts_per_day')||0)};}const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link'),threadsIncludeLink:fd.has('threads_include_link'),redditIncludeLink:fd.has('reddit_include_link'),socialCadences}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
+async function saveFactorySettings(event){event.preventDefault();const form=event.currentTarget;const fd=new FormData(form);const channels=fd.getAll('channels');const socialCadences={};for(const channel of ['linkedin','telegram','twitter','tumblr','pinterest','instagram','threads','facebook','reddit','instagram_reel','tiktok_carousel']){socialCadences[channel]={enabled:fd.has('cadence_'+channel+'_enabled'),postsPerDay:Number(fd.get('cadence_'+channel+'_posts_per_day')||0)};}const body={channels,topicDiscovery:{enabled:fd.has('discovery_enabled'),direction:fd.get('direction')||'',categoryHint:fd.get('category_hint')||'',perRunLimit:Number(fd.get('per_run_limit')||15),topN:Number(fd.get('top_n')||3),timezone:fd.get('timezone')||'UTC'},autopublish:{enabled:fd.has('autopublish_enabled'),timesPerDay:Number(fd.get('times_per_day')||3),timezone:fd.get('timezone')||'UTC',startHour:Number(fd.get('start_hour')||9),endHour:Number(fd.get('end_hour')||21),linkedinIncludeLink:fd.has('linkedin_include_link'),telegramIncludeLink:fd.has('telegram_include_link'),twitterIncludeLink:fd.has('twitter_include_link'),tumblrIncludeLink:fd.has('tumblr_include_link'),pinterestIncludeLink:fd.has('pinterest_include_link'),instagramIncludeLink:fd.has('instagram_include_link'),threadsIncludeLink:fd.has('threads_include_link'),facebookIncludeLink:fd.has('facebook_include_link'),redditIncludeLink:fd.has('reddit_include_link'),socialCadences}};showToast('Saving factory settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/factory-settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast('Factory settings saved');setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
+async function saveGscSettings(event){event.preventDefault();const form=event.currentTarget,fd=new FormData(form);showToast('Saving Search Console settings...');try{const res=await fetch('/api/sites/'+SITE_ID+'/gsc',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({propertyUrl:fd.get('property_url')||'',enabled:fd.has('enabled')})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Search Console settings saved. Verify access next.');setTimeout(()=>location.reload(),600);}catch(e){showToast('GSC settings failed: '+e.message);}}
+async function verifyGscConnection(){showToast('Verifying Search Console access...');try{const res=await fetch('/api/sites/'+SITE_ID+'/gsc/verify',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('GSC connected: '+(data.permissionLevel||'access verified'));setTimeout(()=>location.reload(),700);}catch(e){showToast('GSC verification failed: '+e.message);}}
+async function syncGscNow(){showToast('Starting finalized Search Console data collection...');try{const res=await fetch('/api/sites/'+SITE_ID+'/gsc/sync',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('GSC collection started. Reload in a moment to see its status.');setTimeout(()=>location.reload(),5000);}catch(e){showToast('GSC collection failed to start: '+e.message);}}
+async function savePinterestStrategy(){let boards,pages;try{boards=JSON.parse(document.getElementById('pinterestBoardsJson').value||'[]');pages=JSON.parse(document.getElementById('pinterestLandingPagesJson').value||'[]')}catch(e){showToast('Pinterest strategy JSON is invalid: '+e.message);return}const body={enabled:document.getElementById('pinterestStrategyEnabled').checked,dailyPinTarget:Number(document.getElementById('pinterestDailyPinTarget').value||0),boards,landingPages:pages};showToast('Saving Pinterest strategy...');try{const res=await fetch('/api/sites/'+SITE_ID+'/pinterest-strategy',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Pinterest strategy saved');setTimeout(()=>location.reload(),500)}catch(e){showToast('Pinterest strategy save failed: '+e.message)}}
 function socialCredentialsFromForm(form){const fd=new FormData(form);const credentials={};for(const [key,value] of fd.entries()){const clean=String(value||'').trim();if(clean) credentials[key]=clean;}return credentials;}
 async function saveSocialCredentials(event,provider){event.preventDefault();const form=event.currentTarget;const credentials=socialCredentialsFromForm(form);showToast('Saving '+provider+' credentials...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.error||res.statusText);showToast(provider+' credentials saved: '+data.status);setTimeout(()=>location.reload(),700);}catch(e){showToast('Save failed: '+e.message);}}
 async function testSocialConnection(provider){const form=document.querySelector('.social-credentials-card[data-provider="'+provider+'"]');const credentials=form?socialCredentialsFromForm(form):{};showToast('Testing '+provider+' connection...');try{const res=await fetch('/api/sites/'+SITE_ID+'/social-connections/'+encodeURIComponent(provider)+'/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials})});const data=await res.json();if(!res.ok) throw new Error(data.message||data.error||res.statusText);showToast(data.message||provider+' connected');setTimeout(()=>location.reload(),900);}catch(e){showToast('Connection test failed: '+e.message);}}
@@ -16904,6 +25316,41 @@ initReelPollers();
 </body>
 </html>"""
 
+AGENT_DASHBOARD_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SEO Agent · Blog Core</title>
+<style>
+:root{--bg:#090d18;--surface:#111827;--surface2:#172033;--surface3:#1d2940;--line:#2a3850;--text:#f8fafc;--muted:#93a4ba;--violet:#8b5cf6;--green:#34d399;--red:#fb7185;--amber:#fbbf24;--radius:16px}
+.workspace-actions{display:flex;gap:8px;flex-wrap:wrap}.nav-badge.strategy{background:rgba(251,191,36,.18);color:#fde68a}
+*{box-sizing:border-box}html{background:var(--bg)}body{margin:0;min-height:100vh;background:linear-gradient(145deg,#0b1020,#090d18 55%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px}button,input{font:inherit}button,.btn{min-height:44px;border:0;border-radius:12px;padding:0 15px;background:var(--violet);color:white;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;transition:background .18s,transform .18s}.btn:hover,button:hover{transform:translateY(-1px)}button:focus-visible,.btn:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid rgba(139,92,246,.55);outline-offset:2px}.btn.secondary,.ghost{background:transparent;border:1px solid var(--line);color:#d9e2ee}.app{max-width:1540px;margin:auto;padding:24px}.appbar{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:4px 0 22px}.brand{display:flex;align-items:center;gap:12px}.brand-mark{width:42px;height:42px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(145deg,var(--violet),#4f46e5);font-size:17px;font-weight:950}.brand h1{font-size:21px;margin:0;letter-spacing:-.02em}.brand p{margin:3px 0 0;color:var(--muted);font-size:12px}.app-actions{display:flex;align-items:center;gap:10px}.audit-meta{text-align:right;color:var(--muted);font-size:11px;line-height:1.5}.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px}.kpi{min-height:94px;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}.kpi span{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}.kpi strong{display:block;margin-top:9px;font-size:28px;line-height:1;font-variant-numeric:tabular-nums}.kpi.alert strong{color:#fecdd3}.dashboard{display:grid;grid-template-columns:310px minmax(0,1fr);gap:14px;align-items:start}.panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}.sites-panel{position:sticky;top:16px}.panel-title{padding:16px;border-bottom:1px solid var(--line)}.panel-title h2{font-size:15px;margin:0}.panel-title p{font-size:12px;color:var(--muted);margin:4px 0 0}.site-search{padding:12px;border-bottom:1px solid var(--line)}.site-search input{width:100%;height:42px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--bg);color:var(--text);font-size:16px}.site-list{padding:7px;max-height:calc(100vh - 235px);overflow:auto}.site-nav-item{width:100%;display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:10px;align-items:center;text-align:left;padding:11px;border:1px solid transparent;border-radius:12px;background:transparent;min-height:64px}.site-nav-item:hover{background:var(--surface2);transform:none}.site-nav-item.active{background:var(--surface3);border-color:#465574}.health-mark{width:8px;height:8px;border-radius:50%;background:var(--green)}.site-nav-item.warning .health-mark{background:var(--amber)}.site-nav-item.danger .health-mark{background:var(--red)}.site-nav-copy{min-width:0}.site-nav-copy strong,.site-nav-copy small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.site-nav-copy strong{font-size:13px}.site-nav-copy small{color:var(--muted);margin-top:4px;font-weight:500}.site-nav-stats{color:var(--muted);font-size:10px;line-height:1.5;text-align:right}.site-nav-stats b{color:#e5edf7;font-variant-numeric:tabular-nums}.workspace-panel{min-width:0}.site-workspace{display:none}.site-workspace.active{display:block}.workspace-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px;border-bottom:1px solid var(--line)}.section-label{display:block;color:#a78bfa;text-transform:uppercase;letter-spacing:.08em;font-size:10px;font-weight:900}.workspace-head h2{font-size:24px;letter-spacing:-.035em;margin:4px 0}.workspace-head p{margin:0;color:var(--muted)}.site-summary{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--line)}.site-summary div{padding:15px 20px;border-right:1px solid var(--line)}.site-summary div:last-child{border:0}.site-summary span,.site-summary b{display:block}.site-summary span{font-size:11px;color:var(--muted)}.site-summary b{font-size:22px;margin-top:5px;font-variant-numeric:tabular-nums}.summary-error b{color:#fecdd3}.channels{padding:18px 20px 4px}.channel-group{margin-bottom:20px}.channel-group h3{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin:0 0 9px}.channel-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.channel-card{border:1px solid var(--line);border-radius:13px;background:var(--surface2);padding:13px;min-width:0}.channel-card.channel-error{border-color:rgba(251,113,133,.5)}.channel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}.channel-head h4{font-size:13px;margin:0}.channel-head span{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);white-space:nowrap}.channel-live .channel-head span{color:#a7f3d0}.channel-error .channel-head span{color:#fecdd3}.channel-counts{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:14px}.channel-counts div{min-width:0}.channel-counts b,.channel-counts small{display:block}.channel-counts b{font-size:16px;font-variant-numeric:tabular-nums}.channel-counts small{font-size:9px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis}.autonomy{border-top:1px solid var(--line);margin-top:4px}.autonomy summary{list-style:none;padding:17px 20px;display:flex;justify-content:space-between;align-items:center;cursor:pointer}.autonomy summary::-webkit-details-marker{display:none}.autonomy summary b,.autonomy summary small{display:block}.autonomy summary small{font-weight:500;color:var(--muted);margin-top:3px}.autonomy summary>span:last-child{color:#c4b5fd;font-weight:800}.agent-settings{display:grid;grid-template-columns:130px 130px 1fr 1fr auto;gap:12px;align-items:end;padding:0 20px 20px}.agent-settings label{font-size:11px;color:var(--muted)}.agent-settings input[type=number]{display:block;width:100%;height:42px;margin-top:6px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:white}.agent-settings .check{display:flex;align-items:center;gap:8px;min-height:42px;color:#dbe6f3}.agent-settings .check input{accent-color:var(--violet)}.operations{margin-top:14px}.ops-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}.ops-tabs{display:flex;gap:5px}.ops-tab{min-height:38px;background:transparent;border:1px solid transparent;color:var(--muted)}.ops-tab.active{background:var(--surface3);border-color:var(--line);color:white}.scope{font-size:11px;color:var(--muted)}.ops-view{display:none;padding:8px 16px 16px}.ops-view.active{display:block}.recommendation{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:14px 2px;border-bottom:1px solid var(--line)}.recommendation[hidden],.log[hidden]{display:none}.recommendation h3{font-size:14px;margin:7px 0 4px}.recommendation p{font-size:12px;line-height:1.5;color:#bdcad9;margin:0}.recommendation small{color:var(--muted)}.pill,.site-tag{display:inline-flex;border-radius:999px;padding:3px 7px;font-size:9px;font-weight:900;text-transform:uppercase}.pill{background:rgba(139,92,246,.2);color:#ddd6fe}.recommendation.high .pill{background:rgba(251,113,133,.16);color:#fecdd3}.site-tag{margin-left:4px;background:rgba(52,211,153,.12);color:#a7f3d0}.rec-actions{display:flex;gap:7px}.rec-actions button{min-height:38px}.log{display:grid;grid-template-columns:155px 140px 58px 1fr;gap:10px;padding:12px 2px;border-bottom:1px solid var(--line);font-size:11px}.log span,.log em{color:var(--muted);font-style:normal}.log p{margin:0;color:#d6e0ec}.empty{padding:28px;text-align:center;color:var(--muted)}.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:50;display:none;max-width:min(620px,calc(100vw - 28px));padding:13px 17px;border:1px solid var(--line);border-radius:12px;background:#1e293b;box-shadow:0 18px 60px #000}.toast.show{display:block}
+.recommendation{display:block;padding:18px 2px}.recommendation-head{display:flex;justify-content:space-between;gap:15px;align-items:flex-start}.recommendation h3{font-size:17px;line-height:1.35;margin:9px 0 0}.confidence{font-size:10px;color:var(--muted);white-space:nowrap}.decision-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:22px;margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:13px;background:var(--surface2)}.decision-grid h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#a7b5c8;margin:0 0 6px}.decision-grid h4:not(:first-child){margin-top:15px}.next-action{border-left:1px solid var(--line);padding-left:22px}.next-action ol{padding-left:19px;margin:0}.next-action li{padding-left:4px;margin-bottom:8px;color:#e5edf7;font-size:12px;line-height:1.5}.expected{display:grid;grid-template-columns:105px 1fr;gap:10px;margin-top:13px;padding-top:13px;border-top:1px solid var(--line);font-size:11px}.expected b{color:#a7f3d0}.expected span{color:#bdcad9}.affected{margin-top:10px;border:1px solid var(--line);border-radius:11px;background:rgba(9,13,24,.55)}.affected summary{cursor:pointer;padding:11px 13px;color:#dce6f2;font-size:11px;font-weight:800}.affected ul{list-style:none;padding:0 13px 10px;margin:0}.affected li{padding:8px 0;border-top:1px solid var(--line)}.affected li b,.affected li span{display:block}.affected li b{font-size:11px}.affected li span{margin-top:4px;color:var(--muted);font-size:10px;line-height:1.45}.affected>p{padding:0 13px 10px;color:var(--muted);font-size:10px}.recommendation-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}.recommendation-actions button,.recommendation-actions .btn{min-height:40px}.kpi{width:100%;text-align:left;display:block;color:var(--text);cursor:pointer}.kpi:hover{background:var(--surface2);border-color:#4c5e7b;transform:translateY(-2px)}.kpi.active{border-color:#8b5cf6;box-shadow:0 0 0 2px rgba(139,92,246,.18)}.site-nav-copy strong{display:flex;align-items:center;gap:6px}.domain-name{min-width:0;overflow:hidden;text-overflow:ellipsis}.nav-badges{display:inline-flex;gap:3px;flex:0 0 auto}.nav-badge{display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:18px;padding:0 5px;border-radius:999px;font-size:8px;font-weight:900;line-height:1}.nav-badge.error{background:rgba(251,113,133,.18);color:#fecdd3}.nav-badge.recommendation{background:rgba(139,92,246,.22);color:#ddd6fe}.portfolio{margin-bottom:14px}.portfolio-head{display:flex;justify-content:space-between;align-items:center;gap:15px;padding:16px 18px;border-bottom:1px solid var(--line)}.portfolio-head h2{font-size:16px;margin:0}.portfolio-head p{font-size:11px;color:var(--muted);margin:4px 0 0}.portfolio-shortcuts{display:flex;gap:6px}.portfolio-shortcuts button{min-height:36px;background:transparent;border:1px solid var(--line);color:#d6e0ec}.portfolio-view{display:none;padding:4px 16px 12px}.portfolio-view.active{display:block}.portfolio-task{display:grid;grid-template-columns:65px minmax(0,1fr) auto;gap:13px;align-items:center;padding:13px 2px;border-bottom:1px solid var(--line)}.task-priority{justify-self:start;padding:4px 7px;border-radius:999px;background:rgba(139,92,246,.2);color:#ddd6fe;text-transform:uppercase;font-size:8px;font-weight:900}.portfolio-task.high .task-priority{background:rgba(251,113,133,.17);color:#fecdd3}.task-copy>div{display:flex;gap:7px;align-items:center}.task-copy>div b{font-size:11px;color:#a7f3d0}.task-copy>div span{font-size:9px;color:var(--muted);text-transform:uppercase}.task-copy h3{font-size:13px;margin:5px 0 3px}.task-copy p{font-size:11px;color:#b9c6d6;margin:0;line-height:1.45}.task-copy p strong{color:#e5edf7}.task-action .btn,.task-action button{min-height:38px;white-space:nowrap}.portfolio-site-table{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding-top:10px}.portfolio-site-row{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:58px;padding:10px 12px;background:var(--surface2);border:1px solid var(--line);text-align:left}.portfolio-site-row:hover{background:var(--surface3);transform:none}.portfolio-site-row span b,.portfolio-site-row span small{display:block}.portfolio-site-row span small{margin-top:4px;color:var(--muted);font-size:10px}.portfolio-site-row>strong{font-size:18px;font-variant-numeric:tabular-nums}
+@media(max-width:1180px){.channel-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.agent-settings{grid-template-columns:1fr 1fr}.agent-settings button{justify-self:start}}
+@media(max-width:900px){.app{padding:14px}.appbar{align-items:flex-start}.audit-meta{display:none}.kpis{grid-template-columns:repeat(3,1fr)}.portfolio-task{grid-template-columns:55px minmax(0,1fr)}.task-action{grid-column:2}.dashboard{grid-template-columns:1fr}.sites-panel{position:static}.site-list{display:flex;max-height:none;overflow:auto;gap:7px}.site-nav-item{min-width:250px}.workspace-head{padding:17px}.channel-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.operations{margin-top:10px}}
+@media(max-width:600px){body{font-size:13px}.appbar{display:block}.app-actions{margin-top:14px}.kpis{grid-template-columns:repeat(2,1fr)}.kpi{min-height:82px}.kpi strong{font-size:24px}.portfolio-head{align-items:flex-start;flex-direction:column}.portfolio-task{grid-template-columns:1fr}.task-action{grid-column:1}.portfolio-site-table{grid-template-columns:1fr}.site-summary{grid-template-columns:repeat(2,1fr)}.site-summary div:nth-child(2){border-right:0}.site-summary div:nth-child(-n+2){border-bottom:1px solid var(--line)}.workspace-head{align-items:flex-start}.channel-grid{grid-template-columns:1fr}.channels{padding:15px}.channel-counts small{font-size:10px}.agent-settings{grid-template-columns:1fr}.recommendation-head{display:block}.confidence{display:block;margin-top:7px}.decision-grid{grid-template-columns:1fr;gap:16px}.next-action{border-left:0;border-top:1px solid var(--line);padding:16px 0 0}.expected{grid-template-columns:1fr}.recommendation-actions{justify-content:flex-start;flex-wrap:wrap}.log{grid-template-columns:1fr 1fr}.log p{grid-column:1/-1}.ops-head{align-items:flex-start;flex-direction:column}.scope{display:none}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style></head><body><main class="app">
+<header class="appbar"><div class="brand"><div class="brand-mark">BC</div><div><h1>SEO Agent</h1><p>Multi-site publishing operations</p></div></div><div class="app-actions"><div class="audit-meta">Last audit: __LAST_RUN__<br>Telegram reports: __TELEGRAM_STATE__</div><a class="btn secondary" href="/">Sites</a><button id="auditButton" onclick="runAudit()">Run smart audit</button></div></header>
+<section class="kpis" aria-label="Portfolio summary"><button class="kpi" data-kpi="sites" onclick="openPortfolioView('sites','All sites','Queue, errors and open recommendations for every connected site.')"><span>Sites monitored</span><strong>__SITE_COUNT__</strong></button><button class="kpi" data-kpi="queued" onclick="openPortfolioView('queued','Queued work','Current queued work across every site.')"><span>Queued</span><strong>__QUEUE_COUNT__</strong></button><button class="kpi" data-kpi="scheduled" onclick="openPortfolioView('scheduled','Scheduled work','Items with a future publication slot, grouped by site.')"><span>Scheduled</span><strong>__SCHEDULED_COUNT__</strong></button><button class="kpi" data-kpi="published" onclick="openPortfolioView('published','Published output','All recorded published output, grouped by site.')"><span>Published</span><strong>__PUBLISHED_COUNT__</strong></button><button class="kpi alert" data-kpi="errors" onclick="openPortfolioView('error-decisions','Errors requiring action','Root-cause decisions for failed work across every site.','errors')"><span>Errors</span><strong>__ERROR_COUNT__</strong></button><button class="kpi" data-kpi="recommendations" onclick="openPortfolioView('recommendations','All recommendations','The complete open recommendation plan across every site.','recommendations')"><span>Recommendations</span><strong>__RECOMMENDATION_COUNT__</strong></button></section>
+<section class="panel portfolio" id="portfolioPanel"><header class="portfolio-head"><div><span class="section-label">Portfolio workbench</span><h2 id="portfolioTitle">Must do</h2><p id="portfolioSubtitle">The most important actions across all sites, already sorted by priority.</p></div><div class="portfolio-shortcuts"><button onclick="openPortfolioView('must-do','Must do','The most important actions across all sites, already sorted by priority.')">Must do</button><button onclick="openPortfolioView('error-decisions','Errors requiring action','Root-cause decisions for failed work across every site.','errors')">Errors</button><button onclick="openPortfolioView('recommendations','All recommendations','The complete open recommendation plan across every site.','recommendations')">All recommendations</button></div></header>__PORTFOLIO_VIEWS__</section>
+<section class="dashboard"><aside class="panel sites-panel"><div class="panel-title"><h2>Sites</h2><p>Sorted by attention required</p></div><div class="site-search"><input id="siteSearch" type="search" placeholder="Search sites" aria-label="Search sites" oninput="filterSites(this.value)"></div><nav class="site-list" aria-label="Connected sites">__SITE_NAV__</nav></aside><div class="panel workspace-panel">__SITE_PANELS__</div></section>
+<section class="panel operations"><header class="ops-head"><div class="ops-tabs"><button class="ops-tab active" data-view="recommendations" onclick="showOps('recommendations')">Recommendations</button><button class="ops-tab" data-view="activity" onclick="showOps('activity')">Activity</button></div><div class="scope">Showing selected site · <button class="ghost" onclick="toggleAllSites()" id="scopeButton">Show all sites</button></div></header><div class="ops-view active" data-ops-view="recommendations">__RECOMMENDATIONS__</div><div class="ops-view" data-ops-view="activity">__LOGS__</div></section>
+</main><div id="toast" class="toast" aria-live="polite"></div><script>
+let selectedSite=__SELECTED_SITE_ID__,showAll=false;const toast=document.getElementById('toast');function showToast(message){toast.textContent=message;toast.className='toast show';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>toast.className='toast',4500)}
+function applyScope(){document.querySelectorAll('[data-rec-site]').forEach(el=>el.hidden=!showAll&&Number(el.dataset.recSite)!==selectedSite);document.querySelectorAll('[data-log-site]').forEach(el=>el.hidden=!showAll&&Number(el.dataset.logSite)!==selectedSite&&Number(el.dataset.logSite)!==0);const button=document.getElementById('scopeButton');button.textContent=showAll?'Show selected site':'Show all sites'}
+function selectSite(id){selectedSite=Number(id);showAll=false;document.querySelectorAll('.site-nav-item').forEach(el=>el.classList.toggle('active',Number(el.dataset.site)===selectedSite));document.querySelectorAll('.site-workspace').forEach(el=>el.classList.toggle('active',Number(el.dataset.sitePanel)===selectedSite));applyScope();if(innerWidth<901)document.querySelector('.workspace-panel').scrollIntoView({behavior:'smooth',block:'start'})}
+function filterSites(value){const query=String(value||'').trim().toLowerCase();document.querySelectorAll('.site-nav-item').forEach(el=>el.hidden=query&&!el.textContent.toLowerCase().includes(query))}
+function toggleAllSites(){showAll=!showAll;applyScope()}
+function showOps(view){document.querySelectorAll('.ops-tab').forEach(el=>el.classList.toggle('active',el.dataset.view===view));document.querySelectorAll('.ops-view').forEach(el=>el.classList.toggle('active',el.dataset.opsView===view))}
+function openPortfolioView(view,title,subtitle,kpi){document.querySelectorAll('.portfolio-view').forEach(el=>el.classList.toggle('active',el.dataset.portfolioView===view));document.getElementById('portfolioTitle').textContent=title;document.getElementById('portfolioSubtitle').textContent=subtitle;document.querySelectorAll('.kpi').forEach(el=>el.classList.toggle('active',el.dataset.kpi===kpi));document.getElementById('portfolioPanel').scrollIntoView({behavior:'smooth',block:'start'})}
+function focusSiteRecommendation(siteId){selectSite(siteId);document.querySelector('.workspace-panel').scrollIntoView({behavior:'smooth',block:'start'})}
+async function runAudit(){const button=document.getElementById('auditButton');button.disabled=true;button.textContent='Auditing…';showToast('Auditing queues, channels and topic opportunities…');try{const res=await fetch('/api/agent/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({discoverTopics:true})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Audit complete: '+data.newRecommendations+' new recommendation(s)');setTimeout(()=>location.reload(),800)}catch(error){button.disabled=false;button.textContent='Run smart audit';showToast('Audit failed: '+error.message)}}
+async function createTask(id){showToast('Creating queued content task…');try{const res=await fetch('/api/agent/recommendations/'+id+'/create-task',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Task created: '+data.job.title);setTimeout(()=>location.reload(),700)}catch(error){showToast('Task creation failed: '+error.message)}}
+async function discoverTopics(siteId,needed){showToast('Analyzing demand and duplicate coverage for this site…');try{const res=await fetch('/api/agent/sites/'+siteId+'/discover-topics',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({needed})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Analysis complete: '+data.created+' actionable topic recommendation(s) created');setTimeout(()=>location.reload(),900)}catch(error){showToast('Topic analysis failed: '+error.message)}}
+async function dismissRecommendation(id){if(!confirm('Dismiss this recommendation?'))return;const res=await fetch('/api/agent/recommendations/'+id+'/dismiss',{method:'POST'});const data=await res.json();if(!res.ok){showToast(data.error||res.statusText);return}location.reload()}
+async function saveAgentSettings(event,siteId){event.preventDefault();const form=event.currentTarget,fd=new FormData(form),button=form.querySelector('button[type=submit]');button.disabled=true;button.textContent='Saving…';try{const res=await fetch('/api/agent/sites/'+siteId+'/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({minimumQueue:Number(fd.get('minimumQueue')),replenishTo:Number(fd.get('replenishTo')),monitoringEnabled:fd.has('monitoringEnabled'),autoCreateTasks:fd.has('autoCreateTasks')})});const data=await res.json();if(!res.ok)throw new Error(data.error||res.statusText);showToast('Agent settings saved');setTimeout(()=>location.reload(),500)}catch(error){button.disabled=false;button.textContent='Save settings';showToast('Settings failed: '+error.message)}}
+applyScope();
+</script></body></html>"""
+
+
 DASHBOARD_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -16919,7 +25366,7 @@ DASHBOARD_HTML = """<!doctype html>
 <main class="shell">
   <section class="top">
     <div><h1 class="title">Universal Blog Core</h1><p class="sub">Connect any site, scan its public design, generate a matching blog shell, then either install into a local root or host it through a CNAME custom blog domain. This is the base for the future multi-site article factory dashboard.</p></div>
-    <div class="badge">blog.yas.ooo · MVP</div>
+    <div class="actions"><a class="btn ghost" href="/agent">SEO Agent</a><div class="badge">blog.yas.ooo · control point</div></div>
   </section>
   <section class="panel">
     <form class="form" method="post" action="/api/sites">

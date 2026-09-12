@@ -343,6 +343,7 @@ def submit(
     sitemap_url,
     status_path,
     inspection_urls,
+    mode="monitor",
 ):
     result = {
         "checkedAt": stamp(),
@@ -378,18 +379,21 @@ def submit(
 
         encoded_site = quote(site_url, safe="")
         encoded_feed = quote(sitemap_url, safe="")
-        request_json(
-            "PUT",
-            f"{WEBMASTERS_API}/sites/{encoded_site}/sitemaps/{encoded_feed}",
-            credentials.token,
-        )
+        if mode == "notify":
+            request_json(
+                "PUT",
+                f"{WEBMASTERS_API}/sites/{encoded_site}/sitemaps/{encoded_feed}",
+                credentials.token,
+            )
         submitted = request_json(
             "GET",
             f"{WEBMASTERS_API}/sites/{encoded_site}/sitemaps/{encoded_feed}",
             credentials.token,
         )
-        result["status"] = "submitted"
-        result["submittedAt"] = stamp()
+        result["status"] = "submitted" if mode == "notify" else "monitored"
+        result["mode"] = mode
+        if mode == "notify":
+            result["submittedAt"] = stamp()
         result["apiRecord"] = {
             key: submitted.get(key)
             for key in (
@@ -403,21 +407,22 @@ def submit(
             )
             if key in submitted
         }
-        result["monitoringErrors"] = []
-        try:
-            result["searchPerformance"] = search_performance(
+        if mode == "monitor":
+            result["monitoringErrors"] = []
+            try:
+                result["searchPerformance"] = search_performance(
+                    credentials.token,
+                    encoded_site,
+                )
+            except Exception as error:
+                result["monitoringErrors"].append(
+                    f"search performance: {error}"
+                )
+            result["indexInspection"] = inspect_urls(
                 credentials.token,
-                encoded_site,
+                site_url,
+                inspection_urls,
             )
-        except Exception as error:
-            result["monitoringErrors"].append(
-                f"search performance: {error}"
-            )
-        result["indexInspection"] = inspect_urls(
-            credentials.token,
-            site_url,
-            inspection_urls,
-        )
         write_status(status_path, result)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
@@ -442,6 +447,12 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument("--site-url", default="sc-domain:georivo.com")
+    parser.add_argument(
+        "--mode",
+        choices=("notify", "monitor"),
+        default="monitor",
+        help="notify submits the sitemap once; monitor only reads GSC evidence",
+    )
     parser.add_argument(
         "--sitemap-url",
         default="https://georivo.com/sitemap.xml",
@@ -476,5 +487,6 @@ if __name__ == "__main__":
             args.sitemap_url,
             args.status_file,
             inspection_urls,
+            mode=args.mode,
         )
     )
