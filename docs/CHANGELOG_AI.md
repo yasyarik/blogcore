@@ -1,3 +1,19 @@
+## 2026-09-13 — Apply the approved first-month audience-acquisition calendars
+
+* Updated the October launch batches for Aleksei Karp and Veronika Veselova: 60 owner Reels, 15 site articles, 15 shared Instagram/TikTok carousels, 15 Threads and 8 Telegram posts per person. Each live calendar now contains 113 source items and 248 destination cards; mandatory Reel distribution to Instagram/TikTok/YouTube Shorts remains unchanged.
+* Deferred Stories and audience-question episodes until a later review after the first month. The launch plan contains neither; viewing-day footage stays in Reels. Replaced the four proposed Q&A slots with two property reviews and two comparisons. Seven recurring categories alternate without adjacent repetition.
+* Replaced all 120 pending owner scripts with natural-speech editorial directions: topic/rubric, three focus points, opening-interest angle, visual direction and engagement direction. Removed obsolete literal/timed-speech fields from stored rows. Cards and dialogs display the new contract; prepared keyword materials remain available without implying automatic delivery.
+* Authored separate seven-slide content for 30 carousels, standalone copy for 30 Threads posts and useful copy for 16 Telegram posts. Preserved the 30 existing article themes and their quota. Factory cards expose planned content, not generic instructions; this revision does not generate media, enable integrations or publish social posts.
+* Applied the targeted migration to 226 existing rows and removed only 14 untouched surplus Telegram plans. Retained row IDs, publication/production/recording dates, statuses and unrelated records. Recovery database: /var/backups/blog-core/pre-personal-brand-launch-20260913-080836-415669.sqlite3; application recovery file: /var/backups/blog-core/pre-personal-brand-launch-20260913-app.py.
+* Verification: five regression tests passed locally and on the VPS, including dry-run safety, idempotence, completed/other-month preservation and rejection of unsafe removals or missing slots. A disposable production database copy passed before live application. The post-apply dry run reports zero changes. Both origin pages return 200/noindex, each with 248 cards and 180 direction dialogs, and no timed-script block. Browser checks covered Karp desktop and Veronika mobile. Both Blog Core processes were restarted; /health returns ok.
+
+## 2026-09-13 — Assess the complete personal-brand content mix and clarify owner briefs
+
+* Recorded the operator's correction: live-Reel briefs are topics and editorial directions, not literal dialogue or timed scripts. The previous mandatory-speech contract is explicitly superseded in project memory and the specialized guide.
+* Preserved mandatory Reel distribution to Instagram/TikTok/YouTube Shorts and carousel distribution to Instagram/TikTok. Crossposts are not separate production assets or evidence of excessive filming workload.
+* Reviewed the factory seed and identified repeated campaign question/problem/decision inputs across formats as a content-diversity risk. Recommended distinct jobs for articles, carousels, Threads and Telegram, with natural Stories and real/local expertise filling the main editorial gaps.
+* Suggested retaining the current main quotas and reducing Telegram to eight posts monthly. This assessment does not apply quotas, edit production schedules, add Stories tasks or publish content. Local topic-direction library work is not a verified production migration.
+
 ## 2026-09-13 — Make media-plan pages automatic for every Blog Core site
 
 * Generalized the polished client calendar from the two seeded personal brands to every connected site. Each site now has an immediate managed route at `/sites/{siteId}/media-plan`, linked from both the dashboard and its management page; site-host `/media-plan` continues to use the same renderer.

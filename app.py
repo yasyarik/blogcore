@@ -20046,6 +20046,9 @@ def render_public_media_plan(site, route_prefix="/media-plan"):
         current_key = datetime.now(ZoneInfo("Europe/Warsaw")).strftime("%Y-%m")
         requested_month = next((value for value in available_months if value >= current_key), available_months[-1] if available_months else current_key)
     plan_rows = [(row, details) for row, details in parsed_rows if details.get("_mediaPlanMonth") == requested_month]
+    phase_copy = ("Первый месяц: привлекаем новую аудиторию. Без Stories и рубрики вопросов подписчиков."
+                  if any(details.get("contentPhase") == "launch-first-month" for _, details in plan_rows)
+                  else "Точное расписание фабрики и отдельные задачи, которые нужно выполнить лично.")
     original_dates = []
     for _, details in plan_rows:
         value = _media_plan_datetime(details.get("publishAt"))
@@ -20101,23 +20104,32 @@ def render_public_media_plan(site, route_prefix="/media-plan"):
         hook = str(details.get("hook") or "").strip()
         beats = details.get("talkingPoints") if isinstance(details.get("talkingPoints"), list) else []
         shots = details.get("shotList") if isinstance(details.get("shotList"), list) else []
+        is_direction = is_owner and details.get("briefStyle") == "topic-direction"
         detail_parts = []
-        if is_owner and brief:
+        if is_direction:
+            detail_parts.append(f"<div class='detail-block'><span>Рубрика</span><p>{escape(str(details.get('reelCategory') or ''))}</p></div>")
+            focus = details.get("focusPoints") if isinstance(details.get("focusPoints"), list) else []
+            detail_parts.append("<div class='detail-block wide'><span>Что раскрыть своими словами</span><ul>" + "".join(f"<li>{escape(str(value))}</li>" for value in focus) + "</ul></div>")
+            for field, label in (("attentionAngle", "Как заинтересовать в начале"), ("visualDirection", "Что можно показать"), ("engagementDirection", "Как вовлечь зрителя")):
+                if details.get(field):
+                    detail_parts.append(f"<div class='detail-block'><span>{label}</span><p>{escape(str(details[field]))}</p></div>")
+        elif is_owner and brief:
             detail_parts.append(f"<div class='detail-block wide'><span>Что нужно сделать</span><p>{escape(brief)}</p></div>")
         if not is_owner and content_summary:
             detail_parts.append(f"<div class='detail-block wide'><span>Содержание публикации</span><p>{escape(content_summary)}</p></div>")
         if not is_owner and content_points:
             detail_parts.append("<div class='detail-block wide'><span>Что будет раскрыто</span><ul>" + "".join(f"<li>{escape(str(value))}</li>" for value in content_points) + "</ul></div>")
-        if hook:
+        if hook and not is_direction:
             detail_parts.append(f"<div class='detail-block'><span>Хук</span><p>{escape(hook)}</p></div>")
-        if beats:
+        if beats and not is_direction:
             script_label = "Сценарий по секундам" if details.get("scriptRevision") else "Что сказать"
             detail_parts.append(f"<div class='detail-block wide'><span>{script_label}</span><ol>" + "".join(f"<li>{escape(str(value))}</li>" for value in beats) + "</ol></div>")
-        if shots:
+        if shots and not is_direction:
             detail_parts.append("<div class='detail-block'><span>Что снять</span><ol>" + "".join(f"<li>{escape(str(value))}</li>" for value in shots) + "</ol></div>")
-        if is_owner and details.get("scriptRevision"):
-            detail_parts.append(f"<div class='detail-block'><span>Призыв в конце</span><p>{escape(str(details.get('cta') or row['cta'] or ''))}</p></div>")
-            if details.get("recordingNote"):
+        if is_owner and (details.get("scriptRevision") or is_direction):
+            if not is_direction:
+                detail_parts.append(f"<div class='detail-block'><span>Призыв в конце</span><p>{escape(str(details.get('cta') or row['cta'] or ''))}</p></div>")
+            if details.get("recordingNote") and not is_direction:
                 detail_parts.append(f"<div class='detail-block wide'><span>Как подготовить съёмку</span><p>{escape(str(details['recordingNote']))}</p></div>")
             material = details.get("leadMagnet")
             if isinstance(material, dict) and material.get("replyText"):
@@ -20135,7 +20147,7 @@ def render_public_media_plan(site, route_prefix="/media-plan"):
         status_label = escape(display_status_label)
         preview_text = brief if is_owner else content_summary
         if channel_key == "reels":
-            preview_text = brief if details.get("scriptRevision") else f"Живой вертикальный ролик 25–40 секунд. Рубрика: {details.get('reelCategory') or 'экспертный выпуск'}."
+            preview_text = brief if details.get("scriptRevision") or is_direction else f"Живой вертикальный ролик 25–40 секунд. Рубрика: {details.get('reelCategory') or 'экспертный выпуск'}."
         due_html = f"<span class='due'>Подготовить до {escape(due_label)}</span>" if due_label else ""
         channel_text = str(row["channel"] or "").lower()
         if channel_key == "reels":
@@ -20221,7 +20233,7 @@ def render_public_media_plan(site, route_prefix="/media-plan"):
             card_body = f"""
               <span class="card-top"><span class="platform">{destination_logo}{destination_copy}</span><span class="status status-{escape(display_status.lower())}">{status_label}</span></span>
               <span class="card-time">{escape(publish_local.strftime('%H:%M') if publish_local else 'Без даты')}</span>
-              <strong>{escape(str(row['title']))}</strong><span class="content-label">{'Что нужно сделать' if is_owner else 'Содержание'}</span><span class="card-copy">{escape(preview_text)}</span>
+              <strong>{escape(str(row['title']))}</strong><span class="content-label">{escape(str(details.get('reelCategory') or 'Тема и направление')) if is_direction else ('Что нужно сделать' if is_owner else 'Содержание')}</span><span class="card-copy">{escape(preview_text)}</span>
               <span class="card-footer"><span>{owner_label}</span><span>{'Открыть публикацию ↗' if live_url else 'Подробнее →'}</span></span>"""
             if live_url:
                 card_html = f"""<a class="plan-card live-card {destination_key} {mode_key} status-{escape(display_status.lower())}" style="{destination_styles.get(destination_key, '')}" data-mode="{mode_key}" data-channel="{destination_key}" href="{escape(live_url, quote=True)}" target="_blank" rel="noopener noreferrer" aria-label="Открыть опубликованную запись: {escape(str(row['title']), quote=True)}">{card_body}</a>"""
@@ -20365,7 +20377,7 @@ body.karp{{--ink:#141414;--muted:#716b65;--paper:#f5f3ef;--card:#fffdf9;--line:r
 .plan-card.owner{{outline:0;isolation:isolate}}.plan-card.owner:before{{display:none}}.card-footer>span:first-child{{display:inline-flex;align-items:center;min-height:27px;padding:5px 9px;border:1px solid rgba(255,255,255,.86);border-radius:999px;background:rgba(255,255,255,.06)}}.plan-card.owner .card-footer>span:first-child{{border:2px solid #fff;background:rgba(255,255,255,.14);box-shadow:0 0 12px rgba(255,255,255,.7),inset 0 0 8px rgba(255,255,255,.18);animation:ownerBadgePulse 1.65s ease-in-out infinite}}@keyframes ownerBadgePulse{{0%,100%{{transform:scale(1);box-shadow:0 0 8px rgba(255,255,255,.48),inset 0 0 7px rgba(255,255,255,.14)}}50%{{transform:scale(1.045);box-shadow:0 0 19px rgba(255,255,255,.96),inset 0 0 11px rgba(255,255,255,.3)}}}}
 .plan-card.status-ready{{opacity:.48;filter:grayscale(.35) saturate(.45);animation:none;box-shadow:none}}.plan-card.status-ready:before{{display:none}}.plan-card.status-error{{animation:none;box-shadow:0 0 0 4px #ff203f,0 18px 44px rgba(255,32,63,.62)}}.plan-card.status-error:before{{display:block;border-color:#ff3852;box-shadow:inset 0 0 18px rgba(255,32,63,.42),0 0 22px rgba(255,32,63,.88)}}.plan-card.status-overdue{{animation:overdueCardBlink 1.35s ease-in-out infinite}}.plan-card.status-overdue:before{{display:block;border-color:#ff9f1c;box-shadow:inset 0 0 16px rgba(255,159,28,.35),0 0 20px rgba(255,159,28,.72)}}@keyframes overdueCardBlink{{0%,100%{{box-shadow:0 0 0 2px rgba(255,159,28,.68),0 15px 34px rgba(255,121,0,.34)}}50%{{box-shadow:0 0 0 5px #ff9f1c,0 22px 48px rgba(255,121,0,.78)}}}}
 .plan-card.live-card{{text-decoration:none}}
-</style></head><body class="{brand_key}" style="--accent:{escape(brand_color, quote=True)};--accent2:{escape(brand_accent, quote=True)};--article:{escape(brand_color, quote=True)}"><main><section class="hero"><div class="hero-copy"><div class="hero-brand"><img src="{escape(brand_logo_url, quote=True)}" alt="{escape(brand, quote=True)}" onerror="this.hidden=true"><span class="eyebrow">Персональный контент-календарь</span></div><h1>{escape(period_label)}</h1><p>{escape(brand)} · точное расписание фабрики и отдельные задачи, которые нужно выполнить лично.</p>{month_navigation}</div><div class="hero-side">{start_control}</div><section class="summary hero-summary">{summary_html}</section></section>
+</style></head><body class="{brand_key}" style="--accent:{escape(brand_color, quote=True)};--accent2:{escape(brand_accent, quote=True)};--article:{escape(brand_color, quote=True)}"><main><section class="hero"><div class="hero-copy"><div class="hero-brand"><img src="{escape(brand_logo_url, quote=True)}" alt="{escape(brand, quote=True)}" onerror="this.hidden=true"><span class="eyebrow">Персональный контент-календарь</span></div><h1>{escape(period_label)}</h1><p>{escape(brand)} · {escape(phase_copy)}</p>{month_navigation}</div><div class="hero-side">{start_control}</div><section class="summary hero-summary">{summary_html}</section></section>
 <div class="workspace"><aside class="calendar"><span class="eyebrow">Нажмите на дату</span><h2>Даты публикаций</h2>{calendar_html}<div class="legend">{legend_html}</div><p class="notice">Время указано по Варшаве. Каждая точка — отдельная площадка и тип публикации.</p></aside>
 <section><div class="feed-head"><span class="eyebrow">План по датам</span><h2>Что и когда выходит</h2><div class="filters"><div class="filter-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="width:82px;color:var(--muted);font-size:10px;font-weight:850;text-transform:uppercase">Исполнитель</span><button class="active" data-mode-filter="all">Все</button><button data-mode-filter="owner">Лично</button><button data-mode-filter="factory">Фабрика</button></div><div class="filter-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="width:82px;color:var(--muted);font-size:10px;font-weight:850;text-transform:uppercase">Площадка</span><button class="active" data-channel-filter="all">Все</button>{channel_filters}</div></div></div><div class="plan-list">{''.join(sections)}</div>{empty}</section></div></main>{''.join(dialogs)}<script>
 (function(){{var lastTrigger=null,modeFilter='all',channelFilter='all';function applyFilters(){{document.querySelectorAll('.plan-card').forEach(function(card){{card.hidden=(modeFilter!=='all'&&card.dataset.mode!==modeFilter)||(channelFilter!=='all'&&card.dataset.channel!==channelFilter)}});document.querySelectorAll('[data-date-group]').forEach(function(group){{group.hidden=!group.querySelector('.plan-card:not([hidden])')}})}}document.querySelectorAll('[data-mode-filter]').forEach(function(button){{button.addEventListener('click',function(){{document.querySelectorAll('[data-mode-filter]').forEach(function(item){{item.classList.remove('active')}});button.classList.add('active');modeFilter=button.dataset.modeFilter;applyFilters()}})}});document.querySelectorAll('[data-channel-filter]').forEach(function(button){{button.addEventListener('click',function(){{document.querySelectorAll('[data-channel-filter]').forEach(function(item){{item.classList.remove('active')}});button.classList.add('active');channelFilter=button.dataset.channelFilter;applyFilters()}})}});document.querySelectorAll('[data-dialog]').forEach(function(card){{card.addEventListener('click',function(){{var dialog=document.getElementById(card.dataset.dialog);if(dialog){{lastTrigger=card;dialog.showModal()}}}})}});document.querySelectorAll('.plan-dialog').forEach(function(dialog){{dialog.querySelector('[data-close]').addEventListener('click',function(){{dialog.close()}});dialog.addEventListener('click',function(event){{if(event.target===dialog)dialog.close()}});dialog.addEventListener('close',function(){{if(lastTrigger)lastTrigger.focus()}})}})}})();

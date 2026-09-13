@@ -69,7 +69,7 @@ def update(db_path, month="2026-10", apply=False, backup_dir="/var/backups/blog-
                     source = existing.get(detail["reelScriptId"])
                     if not source:
                         raise ValueError("Missing anchor main Reel; no schedule inferred")
-                    mains[detail["shootingPair"]] = json.loads(source["details_json"])
+                    mains[detail["reelScriptId"].rsplit("-", 1)[-1]] = json.loads(source["details_json"])
             creates = edits = skipped = 0
             before = factory_fingerprint(conn, site_id)
             for item in authored:
@@ -78,9 +78,13 @@ def update(db_path, month="2026-10", apply=False, backup_dir="/var/backups/blog-
                 if old and old["status"].upper() not in EDITABLE:
                     skipped += 1
                     continue
-                anchor = mains[detail["shootingPair"]]
+                anchor = mains[detail["reelScriptId"].rsplit("-", 1)[-1]]
                 if old:
                     previous = json.loads(old["details_json"] or "{}")
+                    if detail.get("briefStyle") == "topic-direction":
+                        for key in ("hook", "talkingPoints", "shotList", "spokenText", "scriptRevision",
+                                    "durationSeconds", "recordingNote", "shootingPair", "retentionReason", "cta", "leadMagnet"):
+                            previous.pop(key, None)
                     merged = {**previous, **detail}
                     for key in ("publishAt", "recordingDueAt", "productionDueAt"):
                         if previous.get(key):

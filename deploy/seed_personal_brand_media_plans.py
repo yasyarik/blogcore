@@ -10,8 +10,10 @@ from zoneinfo import ZoneInfo
 
 try:
     from .personal_brand_reels import build_owner_reels
+    from .personal_brand_factory_topics import REVISION as FACTORY_REVISION, TELEGRAM_SLOTS, factory_topics
 except ImportError:
     from personal_brand_reels import build_owner_reels
+    from personal_brand_factory_topics import REVISION as FACTORY_REVISION, TELEGRAM_SLOTS, factory_topics
 
 
 WARSAW = ZoneInfo("Europe/Warsaw")
@@ -339,8 +341,9 @@ BRANDS["veselovaveronika.com"]["campaigns"].extend([
 ])
 
 
-def at(day, hour, minute=0):
-    return datetime(2026, 10, day, hour, minute, tzinfo=WARSAW)
+def at(day, hour, minute=0, month=PLAN_MONTH):
+    start = datetime.fromisoformat(month + "-01").replace(tzinfo=WARSAW)
+    return (start + timedelta(days=day - 1)).replace(hour=hour, minute=minute)
 
 
 def details(month, publish_at, brief, campaign, **extra):
@@ -356,99 +359,89 @@ def details(month, publish_at, brief, campaign, **extra):
 
 
 
-def build_items(config):
+def build_items(config, month=PLAN_MONTH):
     campaigns = config["campaigns"]
+    carousels, threads, telegram = factory_topics(config["owner"])
     items = []
-    article_days = list(range(1, 30, 2))
-    carousel_days = list(range(2, 31, 2))
-    telegram_days = list(range(1, 30, 2))
-    thread_days = list(range(2, 31, 2))
 
-    for index, day in enumerate(article_days):
-        campaign = campaigns[index]
-        publish_at = at(day, 11)
+    def append(day, hour, channel, format_name, title, summary, points, cta, slot, *,
+               source_index=None, post_text=None, storyboard=None):
+        publish_at = at(day, hour, month=month)
+        campaign = campaigns[source_index - 1] if source_index else None
+        purpose = {"Блог сайта": "Поисковый спрос и подробный ответ", "Instagram + TikTok": "Сохранения и пересылки",
+                   "Telegram": "Доверие и обращения", "Threads": "Новая аудитория и разговор"}[channel]
+        detail = details(
+            month, publish_at, summary, campaign["article"] if campaign else "Самостоятельная социальная тема",
+            contentSummary=summary, contentPoints=points, contentPhase="launch-first-month",
+            editorialRevision=FACTORY_REVISION, planSlotId=f"{channel}:{slot}",
+            editorialPurpose=purpose,
+        )
+        if channel == "Блог сайта":
+            detail.update(searchIntent=campaign["question"],
+                          intentBoundary=campaign["angle"],
+                          deliverable="Подробная статья по отдельному поисковому запросу, обложка, изображения, SEO и ссылка.")
+        elif channel == "Instagram + TikTok":
+            detail.update(storyboard=storyboard,
+                          deliverable="7 содержательных слайдов. Один и тот же набор публикуется в Instagram и TikTok.",
+                          visualDirection="Сравнения, схемы и наглядные карточки по смыслу слайда. Не семь одинаковых фотографий с абзацами статьи.")
+        else:
+            detail.update(postText=post_text,
+                          deliverable="Самостоятельный текст без анонса статьи." if channel == "Threads" else
+                                      "Короткий полезный пост с тематическим фото; текст и подтверждённая ссылка при наличии укладываются в подпись.")
+        if source_index:
+            detail["sourceArticleIndex"] = source_index
         items.append({
-            "week": min(5, ((day - 1) // 7) + 1), "channel": "Блог сайта", "format": "SEO-статья",
-            "title": campaign["article"], "objective": campaign["angle"], "funnel_stage": "Рассмотрение",
-            "cta": "Перейти к консультации по конкретной задаче", "generator": "Фабрика статей: исследование, текст, изображения, SEO, публикация",
-            "execution_mode": "factory-now", "repurpose_group": f"oct-{index + 1}", "rationale": "Опорный материал недели",
-            "status": "PLANNED", "details": details(
-                PLAN_MONTH, publish_at, campaign["angle"], campaign["article"],
-                contentSummary=campaign["angle"],
-                contentPoints=[campaign["question"], campaign["mistake"], campaign["decision"]],
-                deliverable="Полная статья, обложка, внутренние изображения, метаданные и ссылка.",
-            ),
+            "week": min(5, (day - 1) // 7 + 1), "channel": channel, "format": format_name,
+            "title": title, "objective": summary, "funnel_stage": purpose, "cta": cta,
+            "generator": "Фабрика: подготовка и публикация материала",
+            "execution_mode": "factory-now",
+            "repurpose_group": f"oct-{source_index}" if channel in {"Блог сайта", "Instagram + TikTok"} else f"launch-{channel.lower()}-{slot}",
+            "rationale": purpose, "status": "PLANNED", "details": detail,
         })
 
-    for index, day in enumerate(carousel_days):
-        campaign = campaigns[index]
-        publish_at = at(day, 18)
-        brief = f"Визуально разложить решение: {campaign['decision']} Финальный слайд задаёт вопрос, а не повторяет статью."
-        items.append({
-            "week": min(5, ((day - 1) // 7) + 1), "channel": "Instagram + TikTok", "format": "Карусель 7 слайдов",
-            "title": campaign["decision"], "objective": brief, "funnel_stage": "Вовлечение",
-            "cta": "Сохранить и написать свой вариант в комментариях", "generator": "Один рендер карусели, одинаковые слайды для Instagram и TikTok",
-            "execution_mode": "factory-now", "repurpose_group": f"oct-{index + 1}", "rationale": "Самостоятельный визуальный разбор опорной темы",
-            "status": "PLANNED", "details": details(
-                PLAN_MONTH, publish_at, brief, campaign["article"],
-                contentSummary=f"Семь слайдов покажут, как {campaign['decision'].lower()} Начало строится на вопросе: {campaign['question']}",
-                contentPoints=[campaign["question"], campaign["mistake"], campaign["decision"]],
-                deliverable="7 готовых слайдов и отдельная подпись. Карусель публикуется одновременно в Instagram и TikTok.",
-            ),
-        })
+    for index, campaign in enumerate(campaigns, 1):
+        append(index * 2 - 1, 11, "Блог сайта", "SEO-статья", campaign["article"], campaign["angle"],
+               [campaign["question"], campaign["mistake"], campaign["decision"]],
+               "Обсудить свою задачу, если нужна помощь с выбором", index, source_index=index)
 
-    telegram_variants = [
-        ("Практический чек-лист", "Собрать короткий применимый список без повторения вступления статьи."),
-        ("Разбор одного решения", "Показать ход решения на обезличенном примере и закончить вопросом."),
-        ("Что проверить до просмотра", "Дать последовательность действий, которую читатель может сохранить."),
-        ("Ответ на частый вопрос", "Ответить прямо, обозначить зависимые условия и дать ссылку на подробный материал."),
-    ]
-    for index, day in enumerate(telegram_days):
-        campaign_index = index % len(campaigns)
-        campaign = campaigns[campaign_index]
-        label, instruction = telegram_variants[index % len(telegram_variants)]
-        title = f"{label}: {campaign['question']}"
-        publish_at = at(day, 13)
-        items.append({
-            "week": min(5, ((day - 1) // 7) + 1), "channel": "Telegram", "format": label,
-            "title": title, "objective": instruction, "funnel_stage": "Доверие",
-            "cta": "Прочитать материал или ответить на вопрос", "generator": "Telegram-фабрика: текст, тематическое фото, автопубликация",
-            "execution_mode": "factory-now", "repurpose_group": f"oct-{campaign_index + 1}", "rationale": "Нативное раскрытие одной части темы",
-            "status": "PLANNED", "details": details(
-                PLAN_MONTH, publish_at, instruction, campaign["article"],
-                contentSummary=f"{campaign['question']} Пост разберёт ключевую ошибку: {campaign['mistake'].lower()} и даст следующий шаг: {campaign['decision'].lower()}",
-                contentPoints=[campaign["question"], campaign["mistake"], campaign["decision"]],
-                deliverable="Пост с отдельным изображением, до 1024 символов и релевантной ссылкой.",
-            ),
-        })
+    for index, concept in enumerate(carousels, 1):
+        points = concept["points"]
+        append(index * 2, 18, "Instagram + TikTok", "Карусель 7 слайдов", concept["title"],
+               " → ".join(points[1:4]) + ".", points, points[-1], index, source_index=index,
+               storyboard=[{"slide": number, "onScreenText": value} for number, value in enumerate(points, 1)])
 
-    thread_variants = [
-        ("Вопрос", lambda c: c["question"]),
-        ("Ошибка", lambda c: c["mistake"]),
-        ("Решение", lambda c: c["decision"]),
-    ]
-    for index, day in enumerate(thread_days):
-        campaign_index = index % len(campaigns)
-        campaign = campaigns[campaign_index]
-        label, make_title = thread_variants[(index // len(campaigns)) % len(thread_variants)]
-        title = f"{label}: {make_title(campaign)}"
-        publish_at = at(day, 10 if index % 2 == 0 else 17)
-        brief = "Один ясный тезис, конкретная причина и открытый вопрос. Без пересказа статьи и без рекламной концовки."
-        items.append({
-            "week": min(5, ((day - 1) // 7) + 1), "channel": "Threads", "format": "Короткий экспертный пост",
-            "title": title, "objective": brief, "funnel_stage": "Охват и диалог",
-            "cta": "Ответить своим опытом или выбором", "generator": "Threads-фабрика: нативный текст и автопубликация",
-            "execution_mode": "factory-now", "repurpose_group": f"oct-{campaign_index + 1}", "rationale": "Отдельный разговор вокруг темы недели",
-            "status": "PLANNED", "details": details(
-                PLAN_MONTH, publish_at, brief, campaign["article"],
-                contentSummary=f"Короткий тезис для обсуждения: {make_title(campaign)} Пост подведёт к практическому решению: {campaign['decision'].lower()}",
-                contentPoints=[make_title(campaign), campaign["decision"]],
-                deliverable="Один короткий пост без длинных тире, канцелярита и признаков шаблонного ИИ-текста.",
-            ),
-        })
+    for index, body in enumerate(threads, 1):
+        append(index * 2, 10 if index % 2 else 17, "Threads", "Самостоятельный пост",
+               body.split(". ", 1)[0], body, [], "Ответить своим выбором или опытом",
+               index, post_text=body)
 
-    items.extend(build_owner_reels(config["owner"], campaigns, PLAN_MONTH))
+    for slot, (source_index, title, body) in zip(TELEGRAM_SLOTS, telegram):
+        append(slot * 2 - 1, 13, "Telegram", "Полезный пост с фото", title, body, [],
+               "Использовать материал или обсудить свою задачу", slot,
+               source_index=source_index, post_text=body)
+
+    items.extend(build_owner_reels(config["owner"], campaigns, month))
+    validate_launch_items(items)
     return sorted(items, key=lambda item: (item["details"]["publishAt"], item["channel"]))
+
+
+def validate_launch_items(items):
+    from collections import Counter
+    expected = {"Блог сайта": 15, "Instagram + TikTok": 15, "Threads": 15, "Telegram": 8,
+                "Instagram Reels + TikTok + YouTube Shorts": 60}
+    if Counter(item["channel"] for item in items) != expected:
+        raise ValueError("First-month content quotas do not match the approved mix")
+    for item in items:
+        detail = item["details"]
+        body = detail.get("postText") or ""
+        if any(dash in body for dash in ("—", "–")):
+            raise ValueError("Social copy must not contain long dashes")
+        if item["channel"] == "Threads" and not (0 < len(body) <= 500):
+            raise ValueError("Standalone Threads copy must fit one post")
+        if item["channel"] == "Telegram" and not (0 < len(body) <= 850):
+            raise ValueError("Telegram copy needs room for a verified URL within the caption")
+        if item["channel"] == "Instagram + TikTok" and len(detail["storyboard"]) != 7:
+            raise ValueError("Carousel needs seven meaningful slides")
 
 
 def seed(db_path, replace=False):
