@@ -11,6 +11,8 @@ from pathlib import Path
 from deploy.seed_personal_brand_media_plans import BRANDS, build_items
 from deploy.update_personal_brand_launch_plan import update, identity, SCHEDULE_KEYS
 from deploy.update_personal_brand_reels import FIELDS
+from deploy.personal_brand_growth import FOLLOW_TOPICS, growth_brief
+from media_plan_growth import render_growth_strategy, render_growth_brief
 
 
 class LaunchPlanTests(unittest.TestCase):
@@ -75,6 +77,62 @@ class LaunchPlanTests(unittest.TestCase):
             self.assertEqual(len({identity(x) for x in items}), 113)
             days = [datetime.fromisoformat(x["details"]["publishAt"]).day for x in items if x["channel"] == "Telegram"]
             self.assertEqual(days, [1, 5, 9, 13, 17, 21, 25, 29])
+
+    def test_growth_contract_and_natural_briefs(self):
+        for config in BRANDS.values():
+            items = build_items(config)
+            self.assertEqual(sum("growthPlan" in item["details"] for item in items), 1)
+            reels = [item for item in items if item["execution_mode"] == "human-owner"]
+            self.assertEqual(len({item["details"]["attentionAngle"] for item in reels}), 60)
+            for item in items:
+                detail = item["details"]
+                growth = detail["growth"]
+                self.assertEqual(growth["measurementState"], "awaiting_actual_publication_data")
+                self.assertEqual(item["kpi"], growth["primarySignal"])
+                self.assertNotIn("spokenText", detail)
+                if item in reels:
+                    self.assertGreater(len(detail["attentionAngle"]), 110)
+                    self.assertNotIn("Начать с приятного живого момента", detail["attentionAngle"])
+                    if item["title"] in FOLLOW_TOPICS:
+                        self.assertIn("Предложить подписаться", detail["engagementDirection"])
+                    if detail.get("leadMagnet"):
+                        self.assertIn("написать в комментариях слово", detail["engagementDirection"])
+                if item["channel"] == "Instagram + TikTok":
+                    self.assertIn("?", detail["storyboard"][0]["onScreenText"])
+
+    def test_commercial_topics_stay_distinct(self):
+        for title in ("Коммерция", "Рабочий разбор коммерческого запроса", "Локация коммерческого помещения глазами клиента"):
+            self.assertEqual(growth_brief("Вероника", title, "review")["audienceKey"], "commercial")
+        self.assertEqual(growth_brief("Вероника", "Вилла для отпуска", "review")["audienceKey"], "villa")
+        self.assertEqual(growth_brief("Алексей", "Покупка для аренды", "attention")["audienceKey"], "investment")
+
+    def test_strategy_dates_follow_actual_start_and_html_is_escaped(self):
+        items = build_items(next(iter(BRANDS.values())))
+        strategy = next(x["details"]["growthPlan"] for x in items if "growthPlan" in x["details"])
+        initial = datetime(2026, 10, 1).date()
+        html = render_growth_strategy(strategy, initial, set())
+        self.assertIn("07.10.2026", html)
+        self.assertIn("30.10.2026", html)
+        self.assertIn("ещё не подключены", html)
+        shifted = render_growth_strategy(strategy, initial + timedelta(days=37), {"instagram"})
+        self.assertIn("13.11.2026", shifted)
+        self.assertIn("06.12.2026", shifted)
+        self.assertNotIn("ещё не подключены", shifted)
+        self.assertIn("не автоматически запущенные отчёты", shifted)
+        self.assertEqual(render_growth_strategy(None, initial, set()), "")
+        self.assertEqual(render_growth_brief(None), "")
+        self.assertNotIn("<script>", render_growth_brief({"revision": "test", "audience": "<script>alert(1)</script>"}))
+
+    def test_generated_factory_content_is_protected(self):
+        first = self.conn.execute("select id,details_json from agent_media_plan_items where channel='Threads' limit 1").fetchone()
+        detail = json.loads(first["details_json"])
+        detail["publicationPostIds"] = {"threads": 123}
+        self.conn.execute("update agent_media_plan_items set details_json=? where id=?", (json.dumps(detail), first["id"]))
+        self.conn.commit()
+        before = self.snapshot()
+        with self.assertRaises(ValueError):
+            update(self.db, apply=True, backup_dir=self.temp.name)
+        self.assertEqual(before, self.snapshot())
 
     def test_dry_run_and_safe_idempotent_migration(self):
         before = self.snapshot()

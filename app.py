@@ -19983,6 +19983,7 @@ def _media_plan_destination_url(details, destination_key, format_kind, jobs_by_i
 
 
 def render_public_media_plan(site, route_prefix="/media-plan"):
+    from media_plan_growth import GROWTH_CSS, render_growth_brief, render_growth_strategy
     site_id = int(site["id"])
     requested_month = str(request.args.get("month") or "").strip()
     with db() as conn:
@@ -20062,6 +20063,8 @@ def render_public_media_plan(site, route_prefix="/media-plan"):
     if brand_key == "generic":
         brand_logo_url = f"{route_prefix}/brand-logo"
     connected_channels = _media_plan_connected_channels(site_id)
+    growth_plan = next((details["growthPlan"] for _, details in plan_rows if isinstance(details.get("growthPlan"), dict)), None)
+    growth_html = render_growth_strategy(growth_plan, original_start, connected_channels)
     counts = {"article": 0, "carousel": 0, "telegram": 0, "threads": 0, "reels": 0, "stories": 0, "instagram": 0, "tiktok": 0, "other": 0}
     publication_counts = {}
     publication_completed_counts = {}
@@ -20143,6 +20146,7 @@ def render_public_media_plan(site, route_prefix="/media-plan"):
                 )
         if deliverable:
             detail_parts.append(f"<div class='detail-block'><span>{'Что передать' if is_owner else 'Формат результата'}</span><p>{escape(deliverable)}</p></div>")
+        detail_parts.append(render_growth_brief(details.get("growth")))
         display_status, display_status_label = _media_plan_display_status(status, publish_local)
         status_label = escape(display_status_label)
         preview_text = brief if is_owner else content_summary
@@ -20377,8 +20381,9 @@ body.karp{{--ink:#141414;--muted:#716b65;--paper:#f5f3ef;--card:#fffdf9;--line:r
 .plan-card.owner{{outline:0;isolation:isolate}}.plan-card.owner:before{{display:none}}.card-footer>span:first-child{{display:inline-flex;align-items:center;min-height:27px;padding:5px 9px;border:1px solid rgba(255,255,255,.86);border-radius:999px;background:rgba(255,255,255,.06)}}.plan-card.owner .card-footer>span:first-child{{border:2px solid #fff;background:rgba(255,255,255,.14);box-shadow:0 0 12px rgba(255,255,255,.7),inset 0 0 8px rgba(255,255,255,.18);animation:ownerBadgePulse 1.65s ease-in-out infinite}}@keyframes ownerBadgePulse{{0%,100%{{transform:scale(1);box-shadow:0 0 8px rgba(255,255,255,.48),inset 0 0 7px rgba(255,255,255,.14)}}50%{{transform:scale(1.045);box-shadow:0 0 19px rgba(255,255,255,.96),inset 0 0 11px rgba(255,255,255,.3)}}}}
 .plan-card.status-ready{{opacity:.48;filter:grayscale(.35) saturate(.45);animation:none;box-shadow:none}}.plan-card.status-ready:before{{display:none}}.plan-card.status-error{{animation:none;box-shadow:0 0 0 4px #ff203f,0 18px 44px rgba(255,32,63,.62)}}.plan-card.status-error:before{{display:block;border-color:#ff3852;box-shadow:inset 0 0 18px rgba(255,32,63,.42),0 0 22px rgba(255,32,63,.88)}}.plan-card.status-overdue{{animation:overdueCardBlink 1.35s ease-in-out infinite}}.plan-card.status-overdue:before{{display:block;border-color:#ff9f1c;box-shadow:inset 0 0 16px rgba(255,159,28,.35),0 0 20px rgba(255,159,28,.72)}}@keyframes overdueCardBlink{{0%,100%{{box-shadow:0 0 0 2px rgba(255,159,28,.68),0 15px 34px rgba(255,121,0,.34)}}50%{{box-shadow:0 0 0 5px #ff9f1c,0 22px 48px rgba(255,121,0,.78)}}}}
 .plan-card.live-card{{text-decoration:none}}
+{GROWTH_CSS}
 </style></head><body class="{brand_key}" style="--accent:{escape(brand_color, quote=True)};--accent2:{escape(brand_accent, quote=True)};--article:{escape(brand_color, quote=True)}"><main><section class="hero"><div class="hero-copy"><div class="hero-brand"><img src="{escape(brand_logo_url, quote=True)}" alt="{escape(brand, quote=True)}" onerror="this.hidden=true"><span class="eyebrow">Персональный контент-календарь</span></div><h1>{escape(period_label)}</h1><p>{escape(brand)} · {escape(phase_copy)}</p>{month_navigation}</div><div class="hero-side">{start_control}</div><section class="summary hero-summary">{summary_html}</section></section>
-<div class="workspace"><aside class="calendar"><span class="eyebrow">Нажмите на дату</span><h2>Даты публикаций</h2>{calendar_html}<div class="legend">{legend_html}</div><p class="notice">Время указано по Варшаве. Каждая точка — отдельная площадка и тип публикации.</p></aside>
+{growth_html}<div class="workspace"><aside class="calendar"><span class="eyebrow">Нажмите на дату</span><h2>Даты публикаций</h2>{calendar_html}<div class="legend">{legend_html}</div><p class="notice">Время указано по Варшаве. Каждая точка — отдельная площадка и тип публикации.</p></aside>
 <section><div class="feed-head"><span class="eyebrow">План по датам</span><h2>Что и когда выходит</h2><div class="filters"><div class="filter-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="width:82px;color:var(--muted);font-size:10px;font-weight:850;text-transform:uppercase">Исполнитель</span><button class="active" data-mode-filter="all">Все</button><button data-mode-filter="owner">Лично</button><button data-mode-filter="factory">Фабрика</button></div><div class="filter-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="width:82px;color:var(--muted);font-size:10px;font-weight:850;text-transform:uppercase">Площадка</span><button class="active" data-channel-filter="all">Все</button>{channel_filters}</div></div></div><div class="plan-list">{''.join(sections)}</div>{empty}</section></div></main>{''.join(dialogs)}<script>
 (function(){{var lastTrigger=null,modeFilter='all',channelFilter='all';function applyFilters(){{document.querySelectorAll('.plan-card').forEach(function(card){{card.hidden=(modeFilter!=='all'&&card.dataset.mode!==modeFilter)||(channelFilter!=='all'&&card.dataset.channel!==channelFilter)}});document.querySelectorAll('[data-date-group]').forEach(function(group){{group.hidden=!group.querySelector('.plan-card:not([hidden])')}})}}document.querySelectorAll('[data-mode-filter]').forEach(function(button){{button.addEventListener('click',function(){{document.querySelectorAll('[data-mode-filter]').forEach(function(item){{item.classList.remove('active')}});button.classList.add('active');modeFilter=button.dataset.modeFilter;applyFilters()}})}});document.querySelectorAll('[data-channel-filter]').forEach(function(button){{button.addEventListener('click',function(){{document.querySelectorAll('[data-channel-filter]').forEach(function(item){{item.classList.remove('active')}});button.classList.add('active');channelFilter=button.dataset.channelFilter;applyFilters()}})}});document.querySelectorAll('[data-dialog]').forEach(function(card){{card.addEventListener('click',function(){{var dialog=document.getElementById(card.dataset.dialog);if(dialog){{lastTrigger=card;dialog.showModal()}}}})}});document.querySelectorAll('.plan-dialog').forEach(function(dialog){{dialog.querySelector('[data-close]').addEventListener('click',function(){{dialog.close()}});dialog.addEventListener('click',function(event){{if(event.target===dialog)dialog.close()}});dialog.addEventListener('close',function(){{if(lastTrigger)lastTrigger.focus()}})}})}})();
 </script></body></html>"""

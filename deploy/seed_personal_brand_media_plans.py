@@ -11,9 +11,11 @@ from zoneinfo import ZoneInfo
 try:
     from .personal_brand_reels import build_owner_reels
     from .personal_brand_factory_topics import REVISION as FACTORY_REVISION, TELEGRAM_SLOTS, factory_topics
+    from .personal_brand_growth import growth_brief, launch_strategy
 except ImportError:
     from personal_brand_reels import build_owner_reels
     from personal_brand_factory_topics import REVISION as FACTORY_REVISION, TELEGRAM_SLOTS, factory_topics
+    from personal_brand_growth import growth_brief, launch_strategy
 
 
 WARSAW = ZoneInfo("Europe/Warsaw")
@@ -376,6 +378,11 @@ def build_items(config, month=PLAN_MONTH):
             editorialRevision=FACTORY_REVISION, planSlotId=f"{channel}:{slot}",
             editorialPurpose=purpose,
         )
+        family = {"Блог сайта": "article", "Instagram + TikTok": "carousel", "Telegram": "telegram", "Threads": "threads"}[channel]
+        growth = growth_brief(config["owner"], title, family)
+        detail["growth"] = growth
+        if channel == "Блог сайта" and slot == 1:
+            detail["growthPlan"] = launch_strategy(config["owner"])
         if channel == "Блог сайта":
             detail.update(searchIntent=campaign["question"],
                           intentBoundary=campaign["angle"],
@@ -396,7 +403,7 @@ def build_items(config, month=PLAN_MONTH):
             "generator": "Фабрика: подготовка и публикация материала",
             "execution_mode": "factory-now",
             "repurpose_group": f"oct-{source_index}" if channel in {"Блог сайта", "Instagram + TikTok"} else f"launch-{channel.lower()}-{slot}",
-            "rationale": purpose, "status": "PLANNED", "details": detail,
+            "rationale": purpose, "status": "PLANNED", "kpi": growth["primarySignal"], "details": detail,
         })
 
     for index, campaign in enumerate(campaigns, 1):
@@ -411,8 +418,11 @@ def build_items(config, month=PLAN_MONTH):
                storyboard=[{"slide": number, "onScreenText": value} for number, value in enumerate(points, 1)])
 
     for index, body in enumerate(threads, 1):
+        title = body.split(". ", 1)[0]
+        if title == "Коммерция":
+            title += ": " + body.split(". ", 1)[1].split(". ", 1)[0]
         append(index * 2, 10 if index % 2 else 17, "Threads", "Самостоятельный пост",
-               body.split(". ", 1)[0], body, [], "Ответить своим выбором или опытом",
+               title, body, [], "Ответить своим выбором или опытом",
                index, post_text=body)
 
     for slot, (source_index, title, body) in zip(TELEGRAM_SLOTS, telegram):
@@ -433,6 +443,11 @@ def validate_launch_items(items):
         raise ValueError("First-month content quotas do not match the approved mix")
     for item in items:
         detail = item["details"]
+        growth = detail.get("growth") or {}
+        if not all(growth.get(key) for key in ("audience", "audienceNeed", "series", "hypothesis", "primarySignal")):
+            raise ValueError("Every publication needs an audience, editorial hypothesis and decision signal")
+        if item.get("kpi") != growth["primarySignal"]:
+            raise ValueError("Stored KPI must match the declared primary signal")
         body = detail.get("postText") or ""
         if any(dash in body for dash in ("—", "–")):
             raise ValueError("Social copy must not contain long dashes")
@@ -475,7 +490,7 @@ def seed(db_path, replace=False):
                     """insert into agent_media_plan_items
                        (site_id,strategy_version,week,channel,format,title,objective,funnel_stage,cta,generator,kpi,execution_mode,repurpose_group,rationale,status,details_json,created_at,updated_at)
                        values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (site_id, version, item["week"], item["channel"], item["format"], item["title"], item["objective"], item["funnel_stage"], item["cta"], item["generator"], "Публикация по расписанию; сохранения, ответы и целевые обращения", item["execution_mode"], item["repurpose_group"], item["rationale"], item["status"], json.dumps(item["details"], ensure_ascii=False), now, now),
+                    (site_id, version, item["week"], item["channel"], item["format"], item["title"], item["objective"], item["funnel_stage"], item["cta"], item["generator"], item["kpi"], item["execution_mode"], item["repurpose_group"], item["rationale"], item["status"], json.dumps(item["details"], ensure_ascii=False), now, now),
                 )
             results.append({"domain": domain, "status": "seeded", "items": len(items), "manualReels": sum(1 for item in items if item["execution_mode"] == "human-owner")})
         connection.commit()

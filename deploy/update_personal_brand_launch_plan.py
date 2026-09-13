@@ -10,11 +10,15 @@ from pathlib import Path
 try:
     from .seed_personal_brand_media_plans import BRANDS, build_items
     from .personal_brand_factory_topics import REVISION, TELEGRAM_SLOTS
-    from .update_personal_brand_reels import FIELDS, EDITABLE
+    from .update_personal_brand_reels import FIELDS as REEL_FIELDS, EDITABLE
+    from .personal_brand_growth import REVISION as GROWTH_REVISION
 except ImportError:
     from seed_personal_brand_media_plans import BRANDS, build_items
     from personal_brand_factory_topics import REVISION, TELEGRAM_SLOTS
-    from update_personal_brand_reels import FIELDS, EDITABLE
+    from update_personal_brand_reels import FIELDS as REEL_FIELDS, EDITABLE
+    from personal_brand_growth import REVISION as GROWTH_REVISION
+
+FIELDS = REEL_FIELDS + ("kpi",)
 
 SCHEDULE_KEYS = ("publishAt", "productionDueAt", "recordingDueAt")
 OLD_SCRIPT_KEYS = ("hook", "talkingPoints", "shotList", "spokenText", "scriptRevision",
@@ -137,7 +141,7 @@ def update(db_path, month="2026-10", apply=False, backup_dir="/var/backups/blog-
                 if row["status"] != old["status"] or any(original.get(key) != updated.get(key) for key in SCHEDULE_KEYS):
                     raise RuntimeError("Schedule or status changed unexpectedly")
             conn.commit()
-        return {"applied": apply, "revision": REVISION, "backup": str(backup_path) if backup_path else None, "sites": reports}
+        return {"applied": apply, "revision": REVISION, "growthRevision": GROWTH_REVISION, "backup": str(backup_path) if backup_path else None, "sites": reports}
     except Exception:
         conn.rollback()
         raise

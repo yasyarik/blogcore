@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 WARSAW = ZoneInfo("Europe/Warsaw")
-REVISION = "owner-reels-2026-09-13-v4-launch"
+REVISION = "owner-reels-2026-09-13-v5-growth"
 
 # Ready-to-send text, not a promise to create a PDF later. Delivery is manual.
 MATERIALS = {
@@ -112,8 +112,10 @@ MATERIALS = {
 
 try:
     from .personal_brand_reel_topics import RUBRICS, KARP, VERONIKA
+    from .personal_brand_growth import growth_brief, FOLLOW_TOPICS
 except ImportError:
     from personal_brand_reel_topics import RUBRICS, KARP, VERONIKA
+    from personal_brand_growth import growth_brief, FOLLOW_TOPICS
 
 
 def rubric_sequence():
@@ -153,8 +155,11 @@ def build_owner_reels(owner, campaigns, month):
         label, _, purpose = RUBRICS[key]
         brief = concept["focus"][0] + ". " + concept["focus"][1] + "."
         engagement = concept["engagement"]
+        growth = growth_brief(owner, concept["title"], key)
         if concept["keyword"]:
             engagement = f"Попросить зрителя написать в комментариях слово {concept['keyword']}, чтобы получить материал «{MATERIALS[concept['keyword']][0]}». Основную пользу раскрыть в самом ролике."
+        elif concept["title"] in FOLLOW_TOPICS:
+            engagement = f"Предложить подписаться ради следующих самостоятельных разборов серии «{growth['series']}». Пользу этого ролика раскрыть полностью; не добавлять одновременно другие просьбы."
         detail = {
             "planMonth": month, "publishAt": publish_at.isoformat(timespec="minutes"),
             "productionDueAt": (publish_at - timedelta(days=2)).isoformat(timespec="minutes"),
@@ -166,6 +171,7 @@ def build_owner_reels(owner, campaigns, month):
             "editorialPurpose": purpose, "briefStyle": "topic-direction",
             "contentPhase": "launch-first-month",
             "briefRevision": REVISION,
+            "growth": growth,
             # These identify existing slots; changing editorial content must not create new tasks.
             "reelScriptId": f"{prefix}-{lane}-{day + 1:02d}", "reelLane": lane,
             "deliverable": "Записать своими словами один живой вертикальный Reel. Тема и ориентиры помогают подготовиться; реплики и секунды не заданы. Один готовый ролик опубликовать в Instagram Reels, TikTok и YouTube Shorts.",
@@ -184,7 +190,7 @@ def build_owner_reels(owner, campaigns, month):
             "funnel_stage": purpose, "cta": engagement,
             "generator": f"{owner} снимает и публикует лично", "execution_mode": "human-owner",
             "repurpose_group": f"owner-{key}", "rationale": purpose,
-            "status": "AWAITING_RECORDING", "details": detail,
+            "status": "AWAITING_RECORDING", "kpi": growth["primarySignal"], "details": detail,
         })
     validate_owner_reels(result)
     return result
