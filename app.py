@@ -2185,6 +2185,7 @@ def native_content_store_payload(site, row, published=False):
         "readMinutes": max(1, math.ceil(word_count / 220)),
         "targetPath": content_job_target_path(row),
         "contentType": content_type,
+        "contentProfile": str(brief.get("contentProfile") or "").strip(),
         "canonicalRootPage": sources.get("canonicalRootPage") is True,
         "editorial": {
             "author": str(editorial.get("author") or "").strip(),
@@ -2226,7 +2227,14 @@ def write_native_content_store(site, row, state):
     filename = native_content_store_filename(row, state)
     target = directory / filename
     temporary = target.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(native_content_store_payload(site, row, published=state == "published"), ensure_ascii=False, indent=2), encoding="utf-8")
+    payload = native_content_store_payload(site, row, published=state == "published")
+    if state == "published" and target.exists():
+        previous = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(previous, dict) or previous.get("id") != row["id"]:
+            raise ValueError("Existing native publication belongs to a different content job")
+        if previous.get("publishedAt"):
+            payload["publishedAt"] = previous["publishedAt"]
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(target)
     return target
 
