@@ -1,5 +1,20 @@
 # DEPLOYMENT.md
 
+## Native publisher metadata release — 2026-09-14
+
+* Patch-only GitHub commit `c112a3e` changes only the native payload/writer
+  contract inside the otherwise dirty production `app.py`.
+* Pre-change recovery:
+  `/var/backups/blog-core/pre-native-publisher-20260914-G2O7yy/app.py`.
+  Restore only after comparing current source; do not replace newer unrelated
+  Blog Core work.
+* Verification: production-venv compilation; isolated native publisher contract
+  11/11; `blog-yas-core` restart; loopback `/health` and public `/health` 200.
+  No CMS row or native article was published during the release check.
+* The selected 21-test media-plan suite has one unrelated current-data failure:
+  its older v7 fixture expects a brief revision now superseded by the lifestyle
+  revision. Do not attribute that failure to the native publisher patch.
+
 ## Runtime
 
 * App: Flask in `app.py`.

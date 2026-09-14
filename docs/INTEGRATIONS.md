@@ -1,5 +1,18 @@
 # INTEGRATIONS.md
 
+## Native content-store publisher contract — published 2026-09-14
+
+* Replaces the prepared-only note below. Commit `c112a3e` is live: republishing
+  preserves the first non-empty `publishedAt`, exports
+  `pageBrief.contentProfile`, and refuses to overwrite malformed, wrong-shape or
+  different-job native JSON.
+* The 11-case test extracts only the four publisher functions into a temporary
+  store with a fake locale query. It never imports Flask, opens the production
+  DB or mutates a real content record.
+* This is not a retroactive metadata repair. Historical dates may be restored
+  only from their exact protected recovery records after separately checking
+  current article state.
+
 ## Personal media-plan Telegram reminders
 
 * A site's Telegram connection may additionally store `reminder_chat_id`, the numeric private chat of the person responsible for live Reels. The owner must message the bot before the connection test can resolve that private chat.

@@ -1,3 +1,22 @@
+## 2026-09-14 — Preserve native publication metadata on republish
+
+- Revalidated the current dirty production `app.py` without importing Flask or
+  opening the CMS database. The isolated publisher contract reproduced five
+  failures: `contentProfile` omission, first-publication date reset and unsafe
+  overwrite of a different-job, malformed or wrong-shape existing record.
+- Applied only the two previously prepared serializer/writer fragments to the
+  current source; all unrelated personal-brand, scheduler and media-plan work
+  remains uncommitted and untouched. The synthetic contract now passes 11/11,
+  including repeat publication, draft isolation, asset normalization and legacy
+  missing-date initialization. Python compilation passes.
+- Patch-only commit `c112a3e` is pushed to `main`. Restarted `blog-yas-core` and
+  verified loopback/public health 200. Recovery source is
+  `/var/backups/blog-core/pre-native-publisher-20260914-G2O7yy/app.py`.
+- This fixes future native writes only. It does not restore any previously reset
+  publication date. One broader media-plan suite still fails its pre-existing
+  brief-revision expectation because current live data uses the newer lifestyle
+  revision; the publisher contract and 20 other selected tests pass.
+
 ## 2026-09-13 — Strengthen both launch plans and add an evidence-based growth protocol
 
 * Applied the operator's request to improve the complete agreed launch plan, without changing volume, schedule, destinations or first-month Stories/Q&A exclusions. Rewrote all 120 owner-Reel opening directions around observable situations/choices and same-video payoffs; no literal speech or timed scripts. Strengthened the 30 carousel first-slide questions and kept their useful seven-slide contents.

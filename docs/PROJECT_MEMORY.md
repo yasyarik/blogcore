@@ -1,3 +1,17 @@
+## 2026-09-14 — Native publication metadata is stable
+
+* `write_native_content_store` now reads an existing published JSON before
+  replacement, requires a dictionary owned by the same content-job ID and
+  preserves a non-empty first `publishedAt`. Malformed, wrong-shape or
+  different-job content fails closed without overwrite.
+* `native_content_store_payload` exports the verified
+  `pageBrief.contentProfile`; this keeps downstream Service/FAQ rendering intact
+  without per-article repair after every republish.
+* Synthetic AST contract `scripts/test-native-publisher-contract.py` passes
+  11/11 against production source without importing the app or opening the CMS
+  DB. Commit `c112a3e` is live. This is prospective only: never infer or repair
+  historical publication dates without an exact protected recovery record.
+
 ## 2026-09-12 — Personal-brand monthly media plans are separate noindex client calendars
 
 * Updated 2026-09-13 (v5 growth): all 120 Reel opening directions now specify an observable action/choice and a payoff within the same video; the 30 carousel first slides state a concrete reader question. Natural speech, quotas, dates and mandatory crossposting are unchanged. Six existing Reel topics per owner now invite following a recognizable series; keyword requests still promise only prepared materials.
